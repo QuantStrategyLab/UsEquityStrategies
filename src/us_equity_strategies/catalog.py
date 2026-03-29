@@ -4,6 +4,7 @@ from quant_platform_kit.common.strategies import StrategyDefinition, US_EQUITY_D
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 HYBRID_GROWTH_INCOME_PROFILE = "hybrid_growth_income"
+SEMICONDUCTOR_ROTATION_INCOME_PROFILE = "semiconductor_rotation_income"
 
 STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     GLOBAL_ETF_ROTATION_PROFILE: StrategyDefinition(
@@ -15,6 +16,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         profile=HYBRID_GROWTH_INCOME_PROFILE,
         domain=US_EQUITY_DOMAIN,
         supported_platforms=frozenset({"schwab"}),
+    ),
+    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: StrategyDefinition(
+        profile=SEMICONDUCTOR_ROTATION_INCOME_PROFILE,
+        domain=US_EQUITY_DOMAIN,
+        supported_platforms=frozenset({"longbridge"}),
     ),
 }
 
