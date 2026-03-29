@@ -158,6 +158,10 @@ def build_rebalance_plan(
 
     return {
         "strategy_symbols": strategy_symbols,
+        "sell_order_symbols": ("TQQQ", "SPYI", "QQQI", "BOXX"),
+        "buy_order_symbols": ("SPYI", "QQQI", "TQQQ"),
+        "cash_sweep_symbol": "BOXX",
+        "portfolio_rows": (("TQQQ", "BOXX"), ("QQQI", "SPYI")),
         "account_hash": snapshot.metadata["account_hash"],
         "market_values": market_values,
         "quantities": quantities,
@@ -178,4 +182,3 @@ def build_rebalance_plan(
         "exit_line": exit_line,
         "separator": separator,
     }
-
