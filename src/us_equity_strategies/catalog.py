@@ -3,12 +3,18 @@ from __future__ import annotations
 from quant_platform_kit.common.strategies import StrategyDefinition, US_EQUITY_DOMAIN
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
+HYBRID_GROWTH_INCOME_PROFILE = "hybrid_growth_income"
 
 STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     GLOBAL_ETF_ROTATION_PROFILE: StrategyDefinition(
         profile=GLOBAL_ETF_ROTATION_PROFILE,
         domain=US_EQUITY_DOMAIN,
         supported_platforms=frozenset({"ibkr"}),
+    ),
+    HYBRID_GROWTH_INCOME_PROFILE: StrategyDefinition(
+        profile=HYBRID_GROWTH_INCOME_PROFILE,
+        domain=US_EQUITY_DOMAIN,
+        supported_platforms=frozenset({"schwab"}),
     ),
 }
 
