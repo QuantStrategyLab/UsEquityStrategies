@@ -136,6 +136,7 @@ def build_rebalance_plan(
 
     return {
         "strategy_assets": strategy_assets,
+        # Execution metadata consumed by downstream platform repos.
         "limit_order_symbols": ("SOXL", "SOXX", "QQQI", "SPYI"),
         "portfolio_rows": (("SOXL", "SOXX"), ("QQQI", "SPYI"), ("BOXX",)),
         "available_cash": available_cash,

@@ -158,6 +158,7 @@ def build_rebalance_plan(
 
     return {
         "strategy_symbols": strategy_symbols,
+        # Execution metadata consumed by downstream platform repos.
         "sell_order_symbols": ("TQQQ", "SPYI", "QQQI", "BOXX"),
         "buy_order_symbols": ("SPYI", "QQQI", "TQQQ"),
         "cash_sweep_symbol": "BOXX",
