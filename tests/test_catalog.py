@@ -1,5 +1,6 @@
 import unittest
 
+from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     GLOBAL_ETF_ROTATION_PROFILE,
@@ -27,12 +28,27 @@ class CatalogTest(unittest.TestCase):
     def test_known_profile_resolves(self):
         definition = get_strategy_definition("global_etf_rotation")
         self.assertEqual(definition.profile, GLOBAL_ETF_ROTATION_PROFILE)
+        signal_module = get_strategy_component_map(definition)["signal_logic"]
+        self.assertEqual(
+            signal_module.module_path,
+            "us_equity_strategies.strategies.global_etf_rotation",
+        )
 
         schwab_definition = get_strategy_definition("hybrid_growth_income")
         self.assertEqual(schwab_definition.profile, HYBRID_GROWTH_INCOME_PROFILE)
+        allocation_module = get_strategy_component_map(schwab_definition)["allocation"]
+        self.assertEqual(
+            allocation_module.module_path,
+            "us_equity_strategies.strategies.hybrid_growth_income",
+        )
 
         longbridge_definition = get_strategy_definition("semiconductor_rotation_income")
         self.assertEqual(longbridge_definition.profile, SEMICONDUCTOR_ROTATION_INCOME_PROFILE)
+        longbridge_module = get_strategy_component_map(longbridge_definition)["allocation"]
+        self.assertEqual(
+            longbridge_module.module_path,
+            "us_equity_strategies.strategies.semiconductor_rotation_income",
+        )
 
 
 if __name__ == "__main__":
