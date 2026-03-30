@@ -7,15 +7,134 @@
 <a id="english"></a>
 ## English
 
-Standalone us_equity strategy repository for QuantStrategyLab platforms.
+Standalone `us_equity` strategy repository for QuantStrategyLab platforms.
 
-Current strategy implementations:
+This repository is the strategy layer: it owns pure signal, allocation, and target-computation logic plus strategy metadata. Downstream platform repositories still own broker adapters, order routing, schedule, secrets, and notifications.
 
-- `global_etf_rotation`
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+### Strategy index
+
+| Profile | Downstream runtime today | Core idea |
+| --- | --- | --- |
+| `global_etf_rotation` | `InteractiveBrokersPlatform` | Quarterly top-2 global ETF rotation with a daily canary defense |
+| `hybrid_growth_income` | `CharlesSchwabPlatform` | QQQ-driven TQQQ attack layer plus SPYI / QQQI income layer and BOXX defense |
+| `semiconductor_rotation_income` | `LongBridgePlatform` | SOXL / SOXX trend switch with BOXX parking and an additive income sleeve |
 
 These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders.
+
+### global_etf_rotation
+
+**Objective**
+- Keep a broad, lower-beta rotation framework for US equity accounts.
+- Stay open to leadership from tech and semiconductors without concentrating only in high-beta products.
+- Fall back to a short-duration safe haven when the cross-asset risk picture is weak.
+
+**Universe**
+- 22 rotation ETFs: `EWY`, `EWT`, `INDA`, `FXI`, `EWJ`, `VGK`, `VOO`, `XLK`, `SMH`, `GLD`, `SLV`, `USO`, `DBA`, `XLE`, `XLF`, `ITA`, `XLP`, `XLU`, `XLV`, `IHI`, `VNQ`, `KRE`
+- Canary basket: `SPY`, `EFA`, `EEM`, `AGG`
+- Safe haven: `BIL`
+
+**Indicators and rules**
+- Momentum uses Keller-style `13612W` monthly momentum: `(12×R1M + 4×R3M + 2×R6M + R12M) / 19`.
+- Trend filter: candidate ETF must be above its 200-day SMA.
+- Hold bonus: an existing holding receives `+2%` score bonus to reduce turnover.
+- Daily canary check: if all 4 canary assets have negative or missing momentum, the strategy goes `100% BIL` immediately.
+
+**Rebalance behavior**
+- Normal rotation only happens on the last NYSE trading day of March, June, September, and December.
+- On a rebalance day, the strategy ranks the eligible universe and selects the top 2 ETFs.
+- Selected ETFs are equally weighted (`50 / 50`).
+- If fewer than 2 names survive, the unused slot is parked in `BIL`.
+- On non-rebalance days, the strategy returns no target change unless the canary emergency path is triggered.
+
+**Why it exists**
+- Compared with a pure tech or leveraged-Nasdaq approach, this profile is meant to be steadier.
+- It still allows `VOO`, `XLK`, and `SMH` to win their way into the rotation instead of hard-coding them out.
+
+### hybrid_growth_income
+
+**Objective**
+- Combine growth exposure, income production, and idle-cash defense in one profile.
+- Let the attack sleeve react to QQQ trend conditions while keeping a separate income sleeve for larger accounts.
+
+**Portfolio layers**
+- Attack layer: `TQQQ`
+- Income layer: `SPYI`, `QQQI`
+- Defense / cash-like layer: `BOXX` plus a cash reserve
+
+**Signals and indicators**
+- Uses daily `QQQ` history as the signal source.
+- Core indicators are `MA200` and `ATR14%`.
+- The strategy derives two ATR-adjusted lines around `MA200`:
+  - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
+  - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
+- The exact clamp floors/caps are injected by the downstream runtime.
+
+**Attack-layer rules (`TQQQ`)**
+- Position size comes from `get_hybrid_allocation(strategy_equity, qqq_p, exit_line)`.
+- That sizing is applied only to strategy-layer equity, which is total equity after subtracting the income layer.
+- If already holding `TQQQ`:
+  - `QQQ < exit_line` → target `TQQQ = 0`
+  - `exit_line <= QQQ < MA200` → target `TQQQ = agg_ratio × 0.33`
+  - `QQQ >= MA200` → target `TQQQ = agg_ratio`
+- If flat and `QQQ > entry_line` → open `TQQQ` at `agg_ratio`.
+
+**Income-layer rules (`SPYI` / `QQQI`)**
+- `get_income_ratio(total_equity)` stays at `0` below the configured threshold.
+- From `1x` to `2x` the threshold, the income sleeve ramps linearly to `40%`.
+- Above `2x` the threshold, the income sleeve caps at `60%`.
+- `QQQI_INCOME_RATIO` decides the split between `QQQI` and `SPYI`.
+
+**Defense behavior (`BOXX` and cash)**
+- A cash reserve is kept at the strategy layer.
+- After reserving cash and sizing `TQQQ`, the remaining strategy-layer capital is assigned to `BOXX`.
+- Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
+
+**Current live Charles Schwab profile defaults**
+- `INCOME_THRESHOLD_USD = 100000`
+- `QQQI_INCOME_RATIO = 0.5`
+- `CASH_RESERVE_RATIO = 0.05`
+- `REBALANCE_THRESHOLD_RATIO = 0.01`
+- `RISK_LEVERAGE_FACTOR = 3.0`, `RISK_NUMERATOR = 0.30`, `RISK_AGG_CAP = 0.50`
+- `ATR_EXIT_SCALE = 2.0`, `ATR_ENTRY_SCALE = 2.5`
+- `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`, `ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
+
+### semiconductor_rotation_income
+
+**Objective**
+- Use a simpler semiconductor trend switch than the Schwab profile.
+- Keep a dedicated income sleeve for larger accounts without forcing that sleeve to shrink during normal trading-layer changes.
+
+**Portfolio layers**
+- Trading layer: `SOXL`, `SOXX`, `BOXX`
+- Income layer: `QQQI`, `SPYI`
+
+**Trading-layer rules**
+- The core signal compares `SOXL` to a configurable trend moving average window.
+- If `SOXL > trend MA`, the active risk asset is `SOXL`.
+- If `SOXL <= trend MA`, the strategy delevers into `SOXX`.
+- Unused trading-layer capital is parked in `BOXX`.
+
+**Sizing behavior**
+- The deploy ratio is dynamic and depends on account size.
+- Small, mid, and large accounts use different base deploy ratios.
+- Above the large-account breakpoint, the trading-layer deploy ratio decays logarithmically so very large accounts do not keep scaling risk linearly.
+- The downstream runtime also keeps a cash reserve and only trades when the rebalance gap is large enough.
+
+**Income-layer rules**
+- The income layer starts only after total strategy equity crosses `income_layer_start_usd`.
+- It ramps linearly to `income_layer_max_ratio` by `2x` that threshold.
+- Existing income holdings are locked with `max(current_income_layer_value, desired_income_layer_value)`, so the layer only adds capital instead of force-selling down.
+- New income allocation is split by configurable `QQQI` / `SPYI` weights.
+
+**Current live LongBridge profile defaults**
+- `TREND_MA_WINDOW = 150`
+- `CASH_RESERVE_RATIO = 0.03`
+- `MIN_TRADE_RATIO = 0.01`, `MIN_TRADE_FLOOR = 100 USD`
+- `REBALANCE_THRESHOLD_RATIO = 0.01`
+- Deploy ratios: `0.60 / 0.57 / 0.50` for small / mid / large accounts
+- `TRADE_LAYER_DECAY_COEFF = 0.04` above `180000 USD`
+- Income layer starts at `150000 USD`, caps at `15%`
+- Income split: `QQQI 70%`, `SPYI 30%`
 
 ---
 
@@ -24,10 +143,129 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 
 这是 `QuantStrategyLab` 的独立美股策略仓。
 
-当前已收录的策略实现：
+这个仓库负责**纯策略层**：信号、仓位、目标权重计算，以及策略元数据。下游平台仓库继续负责券商适配、下单方式、调度、密钥和通知。
 
-- `global_etf_rotation`
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+### 策略索引
+
+| 策略档位 | 当前下游运行仓库 | 核心思路 |
+| --- | --- | --- |
+| `global_etf_rotation` | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
+| `hybrid_growth_income` | `CharlesSchwabPlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
+| `semiconductor_rotation_income` | `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
 这些策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口，被各个平台仓库引用。
+
+### global_etf_rotation
+
+**策略目标**
+- 给美股账户提供一个更分散、波动更低的轮动框架。
+- 不把科技和半导体硬排除在外，但也不把风险全部集中到高弹性品种上。
+- 当跨资产风险明显转弱时，退回短久期避险仓位。
+
+**标的池**
+- 22 只轮动 ETF：`EWY`、`EWT`、`INDA`、`FXI`、`EWJ`、`VGK`、`VOO`、`XLK`、`SMH`、`GLD`、`SLV`、`USO`、`DBA`、`XLE`、`XLF`、`ITA`、`XLP`、`XLU`、`XLV`、`IHI`、`VNQ`、`KRE`
+- Canary 篮子：`SPY`、`EFA`、`EEM`、`AGG`
+- 避险资产：`BIL`
+
+**指标和规则**
+- 动量使用 Keller 风格的 `13612W` 月频动量：`(12×R1M + 4×R3M + 2×R6M + R12M) / 19`。
+- 趋势过滤：候选 ETF 必须站上 `200 日均线`。
+- 持有加分：当前持仓会获得 `+2%` 分数加成，用来降低换手。
+- 每日 canary 检查：如果 `SPY / EFA / EEM / AGG` 这 4 个资产的动量全部为负，或缺失到全部失效，就立刻切到 `100% BIL`。
+
+**调仓行为**
+- 正常轮动只在 `3 / 6 / 9 / 12` 月最后一个 NYSE 交易日触发。
+- 到调仓日后，对合格标的打分，选出前 2 名。
+- 前 2 名等权配置，默认 `50 / 50`。
+- 如果合格标的不满 2 个，空出来的部分停到 `BIL`。
+- 非调仓日默认不改目标仓位，除非触发 canary 应急防守。
+
+**这套策略的定位**
+- 相比纯科技或者杠杆纳指路线，这个档位更稳。
+- 但它仍然允许 `VOO`、`XLK`、`SMH` 靠表现进入组合，而不是事先把它们排除。
+
+### hybrid_growth_income
+
+**策略目标**
+- 把增长、分红收入、闲置现金防守放进同一个档位里。
+- 攻击层根据 `QQQ` 趋势动态调节，收入层则服务于更大的账户规模。
+
+**资产层级**
+- 攻击层：`TQQQ`
+- 收入层：`SPYI`、`QQQI`
+- 防守 / 现金类：`BOXX` 加现金储备
+
+**信号和指标**
+- 以 `QQQ` 的日线数据作为主信号源。
+- 核心指标是 `MA200` 和 `ATR14%`。
+- 策略会围绕 `MA200` 生成两条 ATR 调整后的线：
+  - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
+  - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
+- 具体的 clamp 上下界由下游运行仓库注入。
+
+**攻击层规则（`TQQQ`）**
+- 仓位大小来自 `get_hybrid_allocation(strategy_equity, qqq_p, exit_line)`。
+- 这个仓位只作用在**策略层资产**上，也就是总资产扣掉收入层之后的部分。
+- 如果当前已经持有 `TQQQ`：
+  - `QQQ < exit_line` → `TQQQ` 目标仓位归零
+  - `exit_line <= QQQ < MA200` → `TQQQ` 目标仓位降到 `agg_ratio × 0.33`
+  - `QQQ >= MA200` → `TQQQ` 维持 `agg_ratio`
+- 如果当前空仓且 `QQQ > entry_line` → 按 `agg_ratio` 开仓。
+
+**收入层规则（`SPYI` / `QQQI`）**
+- `get_income_ratio(total_equity)` 在阈值以下为 `0`。
+- 从 `1 倍阈值` 到 `2 倍阈值` 之间，收入层线性抬升到 `40%`。
+- 超过 `2 倍阈值` 后，收入层上限为 `60%`。
+- `QQQI_INCOME_RATIO` 决定 `QQQI` 和 `SPYI` 的拆分比例。
+
+**防守行为（`BOXX` 与现金）**
+- 策略层先保留一部分现金储备。
+- 扣掉现金储备并算出 `TQQQ` 目标后，剩余策略层资金进入 `BOXX`。
+- 是否真的下单，由下游执行层再结合再平衡阈值判断。
+
+**当前 Charles Schwab live profile 默认值**
+- `INCOME_THRESHOLD_USD = 100000`
+- `QQQI_INCOME_RATIO = 0.5`
+- `CASH_RESERVE_RATIO = 0.05`
+- `REBALANCE_THRESHOLD_RATIO = 0.01`
+- `RISK_LEVERAGE_FACTOR = 3.0`，`RISK_NUMERATOR = 0.30`，`RISK_AGG_CAP = 0.50`
+- `ATR_EXIT_SCALE = 2.0`，`ATR_ENTRY_SCALE = 2.5`
+- `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`，`ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
+
+### semiconductor_rotation_income
+
+**策略目标**
+- 用一套比 Schwab 档位更直接的半导体趋势切换逻辑。
+- 给大账户保留收入层，但不因为交易层切换就强制把收入层减回来。
+
+**资产层级**
+- 交易层：`SOXL`、`SOXX`、`BOXX`
+- 收入层：`QQQI`、`SPYI`
+
+**交易层规则**
+- 核心信号是比较 `SOXL` 与一条可配置的趋势均线。
+- 如果 `SOXL > trend MA`，风险资产使用 `SOXL`。
+- 如果 `SOXL <= trend MA`，策略降杠杆切到 `SOXX`。
+- 交易层没有部署出去的资金停在 `BOXX`。
+
+**仓位规则**
+- 交易层 deploy ratio 会随账户规模变化。
+- 小账户、中账户、大账户各有一档基础 deploy ratio。
+- 超过大账户断点后，交易层 deploy ratio 会按对数方式继续衰减，避免超大账户风险线性放大。
+- 下游运行层另外还会保留现金储备，并且只有偏离目标足够大时才触发调仓。
+
+**收入层规则**
+- 总策略权益超过 `income_layer_start_usd` 才启动收入层。
+- 到 `2 倍阈值` 时，收入层线性抬升到 `income_layer_max_ratio`。
+- 收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，所以默认只增配，不主动减配。
+- 新增收入资金按可配置的 `QQQI / SPYI` 比例拆分。
+
+**当前 LongBridge live profile 默认值**
+- `TREND_MA_WINDOW = 150`
+- `CASH_RESERVE_RATIO = 0.03`
+- `MIN_TRADE_RATIO = 0.01`，`MIN_TRADE_FLOOR = 100 USD`
+- `REBALANCE_THRESHOLD_RATIO = 0.01`
+- 小 / 中 / 大账户 deploy ratio：`0.60 / 0.57 / 0.50`
+- `TRADE_LAYER_DECAY_COEFF = 0.04`，在 `180000 USD` 以上继续衰减
+- 收入层起点 `150000 USD`，上限 `15%`
+- 收入层配比：`QQQI 70%`，`SPYI 30%`
