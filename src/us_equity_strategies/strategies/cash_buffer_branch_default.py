@@ -594,13 +594,17 @@ def evaluate_execution_window(
     }
 
 
+def _noop_logger(_message) -> None:
+    return None
+
+
 def load_runtime_parameters(
     *,
     config_path: str | Path | None = None,
     logger=None,
 ) -> dict[str, object]:
     if logger is None:
-        logger = lambda message: None
+        logger = _noop_logger
 
     runtime_params = {
         "benchmark_symbol": BENCHMARK_SYMBOL,
