@@ -16,6 +16,7 @@ This repository is the strategy layer: it owns pure signal, allocation, and targ
 | Profile | Downstream runtime today | Core idea |
 | --- | --- | --- |
 | `global_etf_rotation` | `InteractiveBrokersPlatform` | Quarterly top-2 global ETF rotation with a daily canary defense |
+| `cash_buffer_branch_default` | `InteractiveBrokersPlatform` | Tech-heavy monthly stock selection with an explicit 20% BOXX/cash buffer in risk-on and a QQQ+breadth defense ladder |
 | `hybrid_growth_income` | `CharlesSchwabPlatform` | QQQ-driven TQQQ attack layer plus SPYI / QQQI income layer and BOXX defense |
 | `semiconductor_rotation_income` | `LongBridgePlatform` | SOXL / SOXX trend switch with BOXX parking and an additive income sleeve |
 
@@ -49,6 +50,26 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 **Why it exists**
 - Compared with a pure tech or leveraged-Nasdaq approach, this profile is meant to be steadier.
 - It still allows `VOO`, `XLK`, and `SMH` to win their way into the rotation instead of hard-coding them out.
+
+### cash_buffer_branch_default
+
+**Objective**
+- Provide a research-only but runtime-loadable stock branch for concentrated tech leaders bought on controlled pullbacks.
+- Keep the branch geometry honest: in `risk_on`, the profile explicitly targets `80%` stock exposure and parks the rest in `BOXX` / cash instead of relying on accidental underinvestment.
+
+**Current default shape**
+- Universe: large-cap US tech / communication names from the shared snapshot task
+- Benchmark: `QQQ`
+- Safe haven: `BOXX`
+- Position count: `8`
+- Single-name cap: `10%`
+- Sector cap: `40%`
+- Default exposures: `80% / 60% / 0%`
+
+**Current runtime contract**
+- Consumes a precomputed feature snapshot plus a sidecar manifest
+- Expects the canonical config name `cash_buffer_branch_default`
+- Designed for monthly execution windows; non-window runs should no-op
 
 ### hybrid_growth_income
 
@@ -150,6 +171,7 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 | 策略档位 | 当前下游运行仓库 | 核心思路 |
 | --- | --- | --- |
 | `global_etf_rotation` | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
+| `cash_buffer_branch_default` | `InteractiveBrokersPlatform` | 偏科技个股的月频受控回调分支，`risk_on` 明确只上 `80%` 股票，其余停在 `BOXX` / 现金 |
 | `hybrid_growth_income` | `CharlesSchwabPlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
 | `semiconductor_rotation_income` | `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
@@ -183,6 +205,46 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 **这套策略的定位**
 - 相比纯科技或者杠杆纳指路线，这个档位更稳。
 - 但它仍然允许 `VOO`、`XLK`、`SMH` 靠表现进入组合，而不是事先把它们排除。
+
+### cash_buffer_branch_default
+
+**Objective**
+- Provide a research-only but runtime-loadable stock branch for concentrated tech leaders bought on controlled pullbacks.
+- Keep the branch geometry honest: in `risk_on`, the profile explicitly targets `80%` stock exposure and parks the rest in `BOXX` / cash instead of relying on accidental underinvestment.
+
+**Current default shape**
+- Universe: large-cap US tech / communication names from the shared snapshot task
+- Benchmark: `QQQ`
+- Safe haven: `BOXX`
+- Position count: `8`
+- Single-name cap: `10%`
+- Sector cap: `40%`
+- Default exposures: `80% / 60% / 0%`
+
+**Current runtime contract**
+- Consumes a precomputed feature snapshot plus a sidecar manifest
+- Expects the canonical config name `cash_buffer_branch_default`
+- Designed for monthly execution windows; non-window runs should no-op
+
+### cash_buffer_branch_default
+
+**策略目标**
+- 提供一条研究优先、但已经能被下游 runtime 正式加载的个股分支。
+- 核心是做偏科技龙头的受控回调买入，同时把 `risk_on` 的 `80%` 股票暴露显式写进规格里，不再靠隐式留仓位。
+
+**当前默认规格**
+- 股票池：共享 snapshot 任务里可交易的大盘科技 / 通信股票
+- 基准：`QQQ`
+- 防守腿：`BOXX`
+- 持仓数：`8`
+- 单票上限：`10%`
+- 行业上限：`40%`
+- 默认暴露：`80% / 60% / 0%`
+
+**运行约定**
+- 运行时消费预先生成好的 feature snapshot 和 sidecar manifest
+- canonical config 名必须是 `cash_buffer_branch_default`
+- 设计上保持月频执行，非执行窗口应显式 no-op
 
 ### hybrid_growth_income
 
