@@ -16,7 +16,7 @@ This repository is the strategy layer: it owns pure signal, allocation, and targ
 | Profile | Downstream runtime today | Core idea |
 | --- | --- | --- |
 | `global_etf_rotation` | `InteractiveBrokersPlatform` | Quarterly top-2 global ETF rotation with a daily canary defense |
-| `cash_buffer_branch_default` | `InteractiveBrokersPlatform` | Tech-heavy monthly stock selection with an explicit 20% BOXX/cash buffer in risk-on and a QQQ+breadth defense ladder |
+| `russell_1000_multi_factor_defensive` | `InteractiveBrokersPlatform` | Russell 1000 price-only monthly stock selection with SPY + breadth defense and BOXX parking |
 | `hybrid_growth_income` | `CharlesSchwabPlatform` | QQQ-driven TQQQ attack layer plus SPYI / QQQI income layer and BOXX defense |
 | `semiconductor_rotation_income` | `LongBridgePlatform` | SOXL / SOXX trend switch with BOXX parking and an additive income sleeve |
 
@@ -51,25 +51,131 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 - Compared with a pure tech or leveraged-Nasdaq approach, this profile is meant to be steadier.
 - It still allows `VOO`, `XLK`, and `SMH` to win their way into the rotation instead of hard-coding them out.
 
-### cash_buffer_branch_default
+### russell_1000_multi_factor_defensive
 
 **Objective**
-- Provide a research-only but runtime-loadable stock branch for concentrated tech leaders bought on controlled pullbacks.
-- Keep the branch geometry honest: in `risk_on`, the profile explicitly targets `80%` stock exposure and parks the rest in `BOXX` / cash instead of relying on accidental underinvestment.
+- Provide a first stock-level US equity strategy that stays close to the current platform architecture.
+- Start with a price-only factor stack before adding fundamentals or ML reranking.
+- Keep execution realistic by consuming a precomputed feature snapshot instead of fetching 1000 symbols live during the rebalance run.
 
-**Current default shape**
-- Universe: large-cap US tech / communication names from the shared snapshot task
-- Benchmark: `QQQ`
+**Universe**
+- Point-in-time Russell 1000 constituent snapshot supplied by an upstream data task.
+- Benchmark row: `SPY`
 - Safe haven: `BOXX`
-- Position count: `8`
-- Single-name cap: `10%`
-- Sector cap: `40%`
-- Default exposures: `80% / 60% / 0%`
 
-**Current runtime contract**
-- Consumes a precomputed feature snapshot plus a sidecar manifest
-- Expects the canonical config name `cash_buffer_branch_default`
-- Designed for monthly execution windows; non-window runs should no-op
+**Signals and rules**
+- Current V1 factors are price-only:
+  - `mom_6_1`
+  - `mom_12_1`
+  - `sma200_gap`
+  - `vol_63`
+  - `maxdd_126`
+- Factors are standardized within sector, then combined into one total score.
+- Existing holdings receive a configurable hold bonus.
+- Market defense uses:
+  - `SPY` trend (`sma200_gap > 0`)
+  - breadth = share of eligible universe above `200MA`
+
+**Portfolio behavior**
+- Rebalance cadence is monthly in the downstream runtime.
+- Default stock exposure:
+  - `100%` in `risk_on`
+  - `50%` in `soft_defense`
+  - `10%` in `hard_defense`
+- Default position count is `24`.
+- Unused capital is parked in `BOXX`.
+
+**Feature snapshot schema**
+- Required price-history input columns:
+  - `symbol`, `as_of`, `close`, `volume`
+- Required universe input columns:
+  - `symbol`, `sector`
+  - optional: `start_date`, `end_date` for point-in-time membership during backtests
+- Generated snapshot columns:
+  - `as_of`, `symbol`, `sector`, `close`, `volume`, `adv20_usd`, `history_days`
+  - `mom_6_1`, `mom_12_1`, `sma200_gap`, `vol_63`, `maxdd_126`, `eligible`
+
+**CLI task entry**
+
+Generate one snapshot directly:
+
+```bash
+PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
+  --prices /path/to/russell_1000_prices.csv \
+  --universe /path/to/russell_1000_universe.csv \
+  --output /path/to/r1000_feature_snapshot.csv \
+  --benchmark-symbol SPY
+```
+
+Or run the env-driven wrapper task:
+
+```bash
+export R1000_PRICE_HISTORY_PATH=/path/to/russell_1000_prices.csv
+export R1000_UNIVERSE_PATH=/path/to/russell_1000_universe.csv
+export R1000_FEATURE_SNAPSHOT_PATH=/path/to/r1000_feature_snapshot.csv
+PYTHONPATH=src:. python3 scripts/run_russell_1000_snapshot_task.py
+```
+
+Starter sample inputs live in:
+
+- `examples/russell_1000_snapshot/universe.sample.csv`
+- `examples/russell_1000_snapshot/prices.sample.csv`
+- `examples/russell_1000_universe_snapshots/`
+
+**Minimal backtest entry**
+
+```bash
+PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
+  --prices /path/to/russell_1000_prices.csv \
+  --universe /path/to/russell_1000_universe.csv \
+  --start 2018-01-01 \
+  --end 2025-12-31 \
+  --output-dir /path/to/backtest_outputs
+```
+
+The output directory will include:
+
+- `summary.csv`
+- `portfolio_returns.csv`
+- `weights_history.csv`
+- `turnover_history.csv`
+
+**End-to-end local research workflow**
+
+1. Build interval-form universe history from dated constituent snapshots:
+
+```bash
+PYTHONPATH=src:. python3 scripts/build_russell_1000_universe_history.py \
+  --input-dir examples/russell_1000_universe_snapshots \
+  --output /tmp/r1000_universe_history.csv
+```
+
+2. Fetch price history with Yahoo Finance:
+
+```bash
+PYTHONPATH=src:. python3 scripts/fetch_russell_1000_price_history.py \
+  --universe-history /tmp/r1000_universe_history.csv \
+  --output /tmp/r1000_price_history.csv \
+  --start 2024-01-01
+```
+
+3. Generate a latest feature snapshot:
+
+```bash
+PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
+  --prices /tmp/r1000_price_history.csv \
+  --universe /tmp/r1000_universe_history.csv \
+  --output /tmp/r1000_feature_snapshot.csv
+```
+
+4. Run the backtest:
+
+```bash
+PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
+  --prices /tmp/r1000_price_history.csv \
+  --universe /tmp/r1000_universe_history.csv \
+  --output-dir /tmp/r1000_backtest
+```
 
 ### hybrid_growth_income
 
@@ -171,7 +277,7 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 | 策略档位 | 当前下游运行仓库 | 核心思路 |
 | --- | --- | --- |
 | `global_etf_rotation` | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
-| `cash_buffer_branch_default` | `InteractiveBrokersPlatform` | 偏科技个股的月频受控回调分支，`risk_on` 明确只上 `80%` 股票，其余停在 `BOXX` / 现金 |
+| `russell_1000_multi_factor_defensive` | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
 | `hybrid_growth_income` | `CharlesSchwabPlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
 | `semiconductor_rotation_income` | `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
@@ -206,45 +312,131 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
 - 相比纯科技或者杠杆纳指路线，这个档位更稳。
 - 但它仍然允许 `VOO`、`XLK`、`SMH` 靠表现进入组合，而不是事先把它们排除。
 
-### cash_buffer_branch_default
-
-**Objective**
-- Provide a research-only but runtime-loadable stock branch for concentrated tech leaders bought on controlled pullbacks.
-- Keep the branch geometry honest: in `risk_on`, the profile explicitly targets `80%` stock exposure and parks the rest in `BOXX` / cash instead of relying on accidental underinvestment.
-
-**Current default shape**
-- Universe: large-cap US tech / communication names from the shared snapshot task
-- Benchmark: `QQQ`
-- Safe haven: `BOXX`
-- Position count: `8`
-- Single-name cap: `10%`
-- Sector cap: `40%`
-- Default exposures: `80% / 60% / 0%`
-
-**Current runtime contract**
-- Consumes a precomputed feature snapshot plus a sidecar manifest
-- Expects the canonical config name `cash_buffer_branch_default`
-- Designed for monthly execution windows; non-window runs should no-op
-
-### cash_buffer_branch_default
+### russell_1000_multi_factor_defensive
 
 **策略目标**
-- 提供一条研究优先、但已经能被下游 runtime 正式加载的个股分支。
-- 核心是做偏科技龙头的受控回调买入，同时把 `risk_on` 的 `80%` 股票暴露显式写进规格里，不再靠隐式留仓位。
+- 作为第一版个股策略，先尽量复用现有平台边界。
+- 第一阶段只用价格因子，不急着上基本面和机器学习。
+- 运行时只消费预先算好的 feature snapshot，不在调仓时现场拉 1000 只股票历史数据。
 
-**当前默认规格**
-- 股票池：共享 snapshot 任务里可交易的大盘科技 / 通信股票
-- 基准：`QQQ`
-- 防守腿：`BOXX`
-- 持仓数：`8`
-- 单票上限：`10%`
-- 行业上限：`40%`
-- 默认暴露：`80% / 60% / 0%`
+**股票池**
+- 上游数据任务提供的 Russell 1000 点时成分快照
+- 基准行：`SPY`
+- 防守资产：`BOXX`
 
-**运行约定**
-- 运行时消费预先生成好的 feature snapshot 和 sidecar manifest
-- canonical config 名必须是 `cash_buffer_branch_default`
-- 设计上保持月频执行，非执行窗口应显式 no-op
+**当前 V1 因子**
+- `mom_6_1`
+- `mom_12_1`
+- `sma200_gap`
+- `vol_63`
+- `maxdd_126`
+
+策略先在行业内做标准化，再合成总分。当前持仓可以拿到一小段 hold bonus。
+
+**防守规则**
+- `SPY` 的 `sma200_gap > 0` 代表 benchmark 趋势正常
+- breadth = 合格股票里站上 `200MA` 的比例
+- 默认风险暴露：
+  - `risk_on`：`100%`
+  - `soft_defense`：`50%`
+  - `hard_defense`：`10%`
+
+**组合规则**
+- 下游运行时按月调仓
+- 默认持仓数 `24`
+- 剩余资金停在 `BOXX`
+
+**feature snapshot 输入/输出约定**
+- 价格历史输入列：
+  - `symbol`、`as_of`、`close`、`volume`
+- 股票池输入列：
+  - `symbol`、`sector`
+  - 可选：`start_date`、`end_date`（用于回测时按日期启用 / 退出成分股）
+- 生成后的 snapshot 列：
+  - `as_of`、`symbol`、`sector`、`close`、`volume`、`adv20_usd`、`history_days`
+  - `mom_6_1`、`mom_12_1`、`sma200_gap`、`vol_63`、`maxdd_126`、`eligible`
+
+**命令行任务入口**
+
+直接生成 snapshot：
+
+```bash
+PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
+  --prices /path/to/russell_1000_prices.csv \
+  --universe /path/to/russell_1000_universe.csv \
+  --output /path/to/r1000_feature_snapshot.csv \
+  --benchmark-symbol SPY
+```
+
+或者用环境变量包装脚本：
+
+```bash
+export R1000_PRICE_HISTORY_PATH=/path/to/russell_1000_prices.csv
+export R1000_UNIVERSE_PATH=/path/to/russell_1000_universe.csv
+export R1000_FEATURE_SNAPSHOT_PATH=/path/to/r1000_feature_snapshot.csv
+PYTHONPATH=src:. python3 scripts/run_russell_1000_snapshot_task.py
+```
+
+示例输入文件：
+
+- `examples/russell_1000_snapshot/universe.sample.csv`
+- `examples/russell_1000_snapshot/prices.sample.csv`
+- `examples/russell_1000_universe_snapshots/`
+
+**最小回测入口**
+
+```bash
+PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
+  --prices /path/to/russell_1000_prices.csv \
+  --universe /path/to/russell_1000_universe.csv \
+  --start 2018-01-01 \
+  --end 2025-12-31 \
+  --output-dir /path/to/backtest_outputs
+```
+
+输出目录默认会写：
+
+- `summary.csv`
+- `portfolio_returns.csv`
+- `weights_history.csv`
+- `turnover_history.csv`
+
+**本地完整研究流程**
+
+1. 先把带日期的成分股快照目录整理成 interval 历史：
+
+```bash
+PYTHONPATH=src:. python3 scripts/build_russell_1000_universe_history.py \
+  --input-dir examples/russell_1000_universe_snapshots \
+  --output /tmp/r1000_universe_history.csv
+```
+
+2. 再用 Yahoo Finance 拉价格历史：
+
+```bash
+PYTHONPATH=src:. python3 scripts/fetch_russell_1000_price_history.py \
+  --universe-history /tmp/r1000_universe_history.csv \
+  --output /tmp/r1000_price_history.csv \
+  --start 2024-01-01
+```
+
+3. 生成最新 feature snapshot：
+
+```bash
+PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
+  --prices /tmp/r1000_price_history.csv \
+  --universe /tmp/r1000_universe_history.csv \
+  --output /tmp/r1000_feature_snapshot.csv
+```
+
+4. 最后跑回测：
+
+```bash
+PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
+  --prices /tmp/r1000_price_history.csv \
+  --universe /tmp/r1000_universe_history.csv \
+  --output-dir /tmp/r1000_backtest
+```
 
 ### hybrid_growth_income
 
