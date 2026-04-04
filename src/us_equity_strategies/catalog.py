@@ -9,6 +9,8 @@ from quant_platform_kit.common.strategies import (
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 HYBRID_GROWTH_INCOME_PROFILE = "hybrid_growth_income"
 SEMICONDUCTOR_ROTATION_INCOME_PROFILE = "semiconductor_rotation_income"
+RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
+CASH_BUFFER_BRANCH_DEFAULT_PROFILE = "cash_buffer_branch_default"
 
 STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     GLOBAL_ETF_ROTATION_PROFILE: StrategyDefinition(
@@ -41,6 +43,28 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
             StrategyComponentDefinition(
                 name="allocation",
                 module_path="us_equity_strategies.strategies.semiconductor_rotation_income",
+            ),
+        ),
+    ),
+    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: StrategyDefinition(
+        profile=RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
+        domain=US_EQUITY_DOMAIN,
+        supported_platforms=frozenset({"ibkr"}),
+        components=(
+            StrategyComponentDefinition(
+                name="signal_logic",
+                module_path="us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
+            ),
+        ),
+    ),
+    CASH_BUFFER_BRANCH_DEFAULT_PROFILE: StrategyDefinition(
+        profile=CASH_BUFFER_BRANCH_DEFAULT_PROFILE,
+        domain=US_EQUITY_DOMAIN,
+        supported_platforms=frozenset({"ibkr"}),
+        components=(
+            StrategyComponentDefinition(
+                name="signal_logic",
+                module_path="us_equity_strategies.strategies.cash_buffer_branch_default",
             ),
         ),
     ),
