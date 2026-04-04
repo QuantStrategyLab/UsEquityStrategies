@@ -3,6 +3,7 @@ import unittest
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
+    CASH_BUFFER_BRANCH_DEFAULT_PROFILE,
     GLOBAL_ETF_ROTATION_PROFILE,
     HYBRID_GROWTH_INCOME_PROFILE,
     SEMICONDUCTOR_ROTATION_INCOME_PROFILE,
@@ -24,6 +25,10 @@ class CatalogTest(unittest.TestCase):
         self.assertIn(SEMICONDUCTOR_ROTATION_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].domain, "us_equity")
         self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].supported_platforms, frozenset({"longbridge"}))
+
+        self.assertIn(CASH_BUFFER_BRANCH_DEFAULT_PROFILE, catalog)
+        self.assertEqual(catalog[CASH_BUFFER_BRANCH_DEFAULT_PROFILE].domain, "us_equity")
+        self.assertEqual(catalog[CASH_BUFFER_BRANCH_DEFAULT_PROFILE].supported_platforms, frozenset({"ibkr"}))
 
     def test_known_profile_resolves(self):
         definition = get_strategy_definition("global_etf_rotation")
@@ -48,6 +53,14 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(
             longbridge_module.module_path,
             "us_equity_strategies.strategies.semiconductor_rotation_income",
+        )
+
+        cash_buffer_definition = get_strategy_definition("cash_buffer_branch_default")
+        self.assertEqual(cash_buffer_definition.profile, CASH_BUFFER_BRANCH_DEFAULT_PROFILE)
+        cash_buffer_module = get_strategy_component_map(cash_buffer_definition)["signal_logic"]
+        self.assertEqual(
+            cash_buffer_module.module_path,
+            "us_equity_strategies.strategies.cash_buffer_branch_default",
         )
 
 
