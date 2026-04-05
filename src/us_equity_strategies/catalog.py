@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from quant_platform_kit.common.strategies import (
+    StrategyCatalog,
     StrategyComponentDefinition,
     StrategyDefinition,
+    StrategyMetadata,
     US_EQUITY_DOMAIN,
+    build_strategy_catalog,
+    build_strategy_index_rows,
+    get_catalog_compatible_platforms,
+    get_catalog_strategy_definition,
+    get_catalog_strategy_metadata,
+    normalize_profile_name as qpk_normalize_profile_name,
+    resolve_catalog_profile,
 )
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
@@ -22,20 +29,6 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr"}),
     CASH_BUFFER_BRANCH_DEFAULT_PROFILE: frozenset({"ibkr"}),
 }
-
-
-@dataclass(frozen=True)
-class StrategyMetadata:
-    canonical_profile: str
-    display_name: str
-    description: str
-    aliases: tuple[str, ...] = ()
-    cadence: str | None = None
-    asset_scope: str | None = None
-    benchmark: str | None = None
-    role: str | None = None
-    status: str | None = None
-
 
 # `supported_platforms` 仍保留为兼容镜像，避免一次性改动所有平台 runtime。
 # 平台真正的启用状态由各自 runtime 仓库维护；UES 这里只表达策略层兼容性。
@@ -151,18 +144,28 @@ PROFILE_ALIASES: dict[str, str] = {
     for alias in metadata.aliases
 }
 
+STRATEGY_CATALOG: StrategyCatalog = build_strategy_catalog(
+    strategy_definitions=STRATEGY_DEFINITIONS,
+    metadata=STRATEGY_METADATA,
+    compatible_platforms=STRATEGY_PLATFORM_COMPATIBILITY,
+    profile_aliases=PROFILE_ALIASES,
+)
+
 
 def normalize_profile_name(profile: str | None) -> str:
-    return str(profile or "").strip().lower()
+    return qpk_normalize_profile_name(profile)
 
 
 def resolve_canonical_profile(profile: str | None) -> str:
-    normalized = normalize_profile_name(profile)
-    return PROFILE_ALIASES.get(normalized, normalized)
+    return resolve_catalog_profile(profile, strategy_catalog=STRATEGY_CATALOG)
 
 
 def get_strategy_definitions() -> dict[str, StrategyDefinition]:
     return dict(STRATEGY_DEFINITIONS)
+
+
+def get_strategy_catalog() -> StrategyCatalog:
+    return STRATEGY_CATALOG
 
 
 def get_strategy_platform_compatibility_map() -> dict[str, frozenset[str]]:
@@ -170,49 +173,16 @@ def get_strategy_platform_compatibility_map() -> dict[str, frozenset[str]]:
 
 
 def get_compatible_platforms(profile: str) -> frozenset[str]:
-    canonical = resolve_canonical_profile(profile)
-    if canonical not in STRATEGY_PLATFORM_COMPATIBILITY:
-        supported = ", ".join(sorted(STRATEGY_PLATFORM_COMPATIBILITY)) or "<none>"
-        aliases = ", ".join(sorted(PROFILE_ALIASES)) or "<none>"
-        raise ValueError(
-            f"Unknown us_equity strategy profile={profile!r}; supported canonical values: {supported}; aliases: {aliases}"
-        )
-    return STRATEGY_PLATFORM_COMPATIBILITY[canonical]
+    return get_catalog_compatible_platforms(STRATEGY_CATALOG, profile)
 
 
 def get_strategy_definition(profile: str) -> StrategyDefinition:
-    canonical = resolve_canonical_profile(profile)
-    if canonical not in STRATEGY_DEFINITIONS:
-        supported = ", ".join(sorted(STRATEGY_DEFINITIONS)) or "<none>"
-        aliases = ", ".join(sorted(PROFILE_ALIASES)) or "<none>"
-        raise ValueError(
-            f"Unknown us_equity strategy profile={profile!r}; supported canonical values: {supported}; aliases: {aliases}"
-        )
-    return STRATEGY_DEFINITIONS[canonical]
+    return get_catalog_strategy_definition(STRATEGY_CATALOG, profile)
 
 
 
 def get_strategy_index_rows() -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for canonical_profile in sorted(STRATEGY_METADATA):
-        metadata = STRATEGY_METADATA[canonical_profile]
-        definition = STRATEGY_DEFINITIONS[canonical_profile]
-        rows.append(
-            {
-                "canonical_profile": metadata.canonical_profile,
-                "display_name": metadata.display_name,
-                "aliases": metadata.aliases,
-                "description": metadata.description,
-                "cadence": metadata.cadence,
-                "asset_scope": metadata.asset_scope,
-                "benchmark": metadata.benchmark,
-                "role": metadata.role,
-                "status": metadata.status,
-                "component_names": tuple(component.name for component in definition.components),
-                "compatible_platforms": STRATEGY_PLATFORM_COMPATIBILITY[canonical_profile],
-            }
-        )
-    return rows
+    return build_strategy_index_rows(STRATEGY_CATALOG)
 
 
 
@@ -221,14 +191,7 @@ def get_strategy_metadata_map() -> dict[str, StrategyMetadata]:
 
 
 def get_strategy_metadata(profile: str) -> StrategyMetadata:
-    canonical = resolve_canonical_profile(profile)
-    if canonical not in STRATEGY_METADATA:
-        supported = ", ".join(sorted(STRATEGY_METADATA)) or "<none>"
-        aliases = ", ".join(sorted(PROFILE_ALIASES)) or "<none>"
-        raise ValueError(
-            f"Unknown us_equity strategy profile={profile!r}; supported canonical values: {supported}; aliases: {aliases}"
-        )
-    return STRATEGY_METADATA[canonical]
+    return get_catalog_strategy_metadata(STRATEGY_CATALOG, profile)
 
 
 def get_profile_aliases() -> dict[str, str]:
