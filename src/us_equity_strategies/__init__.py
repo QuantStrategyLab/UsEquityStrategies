@@ -1,7 +1,9 @@
 __all__ = [
+    "STRATEGY_CATALOG",
     "STRATEGY_DEFINITIONS",
     "get_compatible_platforms",
     "get_profile_aliases",
+    "get_strategy_catalog",
     "get_strategy_index_rows",
     "get_strategy_definition",
     "get_strategy_definitions",
@@ -14,9 +16,11 @@ __all__ = [
 
 def __getattr__(name: str):
     if name in {
+        "STRATEGY_CATALOG",
         "STRATEGY_DEFINITIONS",
         "get_profile_aliases",
         "get_compatible_platforms",
+        "get_strategy_catalog",
         "get_strategy_index_rows",
         "get_strategy_definition",
         "get_strategy_definitions",
