@@ -17,11 +17,11 @@ This repository is the strategy layer: it owns pure signal, allocation, and targ
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | Global ETF Rotation Defense | `global_macro_etf_rotation` | `InteractiveBrokersPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor Defensive | `r1000_multifactor_defensive` | `InteractiveBrokersPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `cash_buffer_branch_default` | Tech Pullback Cash Buffer | `tech_pullback_cash_buffer` | `InteractiveBrokersPlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `paper_dry_run` |
+| `tech_pullback_cash_buffer` | Tech Pullback Cash Buffer | `—` | `InteractiveBrokersPlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `paper_dry_run` |
 | `hybrid_growth_income` | QQQ/TQQQ Growth Income | `qqq_tqqq_growth_income` | `CharlesSchwabPlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
 | `semiconductor_rotation_income` | Semiconductor Trend Income | `semiconductor_trend_income` | `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
-These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys stay stable for runtime compatibility; display names and aliases are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
+These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
 
 ### global_etf_rotation
 
@@ -279,7 +279,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | 全球 ETF 轮动防守 | `global_macro_etf_rotation` | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
 | `russell_1000_multi_factor_defensive` | Russell 1000 多因子防守 | `r1000_multifactor_defensive` | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
-| `cash_buffer_branch_default` | 科技回调现金缓冲分支 | `tech_pullback_cash_buffer` | `InteractiveBrokersPlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `tech_pullback_cash_buffer` | 科技回调现金缓冲分支 | `—` | `InteractiveBrokersPlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `hybrid_growth_income` | QQQ/TQQQ 增长收入混合 | `qqq_tqqq_growth_income` | `CharlesSchwabPlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
 | `semiconductor_rotation_income` | 半导体趋势收入增强 | `semiconductor_trend_income` | `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 

@@ -6,12 +6,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from us_equity_strategies.snapshots.cash_buffer_branch_default import (
+from us_equity_strategies.snapshots.tech_pullback_cash_buffer import (
     build_feature_snapshot,
     read_table,
     write_table,
 )
-from us_equity_strategies.strategies.cash_buffer_branch_default import (
+from us_equity_strategies.strategies.tech_pullback_cash_buffer import (
     PROFILE_NAME,
     SNAPSHOT_CONTRACT_VERSION,
 )
@@ -34,7 +34,7 @@ def _default_config_path() -> Path | None:
         / "InteractiveBrokersPlatform"
         / "research"
         / "configs"
-        / "growth_pullback_cash_buffer_branch_default.json"
+        / "growth_pullback_tech_pullback_cash_buffer.json"
     )
     return sibling if sibling.exists() else None
 
@@ -49,7 +49,7 @@ def write_snapshot_manifest(
     resolved_manifest = manifest_path or Path(f"{snapshot_path}.manifest.json")
     if config_path is None or not config_path.exists():
         raise FileNotFoundError(
-            f"cash_buffer_branch_default snapshot manifest requires a valid config_path, got: {config_path}"
+            f"tech_pullback_cash_buffer snapshot manifest requires a valid config_path, got: {config_path}"
         )
     config_payload = json.loads(config_path.read_text(encoding="utf-8"))
     config_sha256 = _sha256_file(config_path)
@@ -72,7 +72,7 @@ def write_snapshot_manifest(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate a cash_buffer_branch_default feature snapshot.",
+        description="Generate a tech_pullback_cash_buffer feature snapshot.",
     )
     parser.add_argument("--prices", required=True, help="Input price history file (.csv/.json/.jsonl/.parquet)")
     parser.add_argument("--universe", required=True, help="Input universe file (.csv/.json/.jsonl/.parquet)")

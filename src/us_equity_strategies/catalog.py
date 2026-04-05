@@ -19,7 +19,7 @@ GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 HYBRID_GROWTH_INCOME_PROFILE = "hybrid_growth_income"
 SEMICONDUCTOR_ROTATION_INCOME_PROFILE = "semiconductor_rotation_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
-CASH_BUFFER_BRANCH_DEFAULT_PROFILE = "cash_buffer_branch_default"
+TECH_PULLBACK_CASH_BUFFER_PROFILE = "tech_pullback_cash_buffer"
 
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
@@ -27,7 +27,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     HYBRID_GROWTH_INCOME_PROFILE: frozenset({"schwab"}),
     SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"longbridge"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr"}),
-    CASH_BUFFER_BRANCH_DEFAULT_PROFILE: frozenset({"ibkr"}),
+    TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"ibkr"}),
 }
 
 # `supported_platforms` 仍保留为兼容镜像，避免一次性改动所有平台 runtime。
@@ -72,10 +72,10 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
     ),
-    CASH_BUFFER_BRANCH_DEFAULT_PROFILE: _build_strategy_definition(
-        CASH_BUFFER_BRANCH_DEFAULT_PROFILE,
+    TECH_PULLBACK_CASH_BUFFER_PROFILE: _build_strategy_definition(
+        TECH_PULLBACK_CASH_BUFFER_PROFILE,
         component_name="signal_logic",
-        module_path="us_equity_strategies.strategies.cash_buffer_branch_default",
+        module_path="us_equity_strategies.strategies.tech_pullback_cash_buffer",
     ),
 }
 
@@ -125,11 +125,11 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         role="defensive_stock_baseline",
         status="runtime_enabled",
     ),
-    CASH_BUFFER_BRANCH_DEFAULT_PROFILE: StrategyMetadata(
-        canonical_profile=CASH_BUFFER_BRANCH_DEFAULT_PROFILE,
+    TECH_PULLBACK_CASH_BUFFER_PROFILE: StrategyMetadata(
+        canonical_profile=TECH_PULLBACK_CASH_BUFFER_PROFILE,
         display_name="Tech Pullback Cash Buffer",
         description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
-        aliases=("tech_pullback_cash_buffer",),
+        aliases=(),
         cadence="monthly",
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",
@@ -180,10 +180,8 @@ def get_strategy_definition(profile: str) -> StrategyDefinition:
     return get_catalog_strategy_definition(STRATEGY_CATALOG, profile)
 
 
-
 def get_strategy_index_rows() -> list[dict[str, object]]:
     return build_strategy_index_rows(STRATEGY_CATALOG)
-
 
 
 def get_strategy_metadata_map() -> dict[str, StrategyMetadata]:
