@@ -11,7 +11,7 @@ import pandas as pd
 
 SIGNAL_SOURCE = "feature_snapshot"
 STATUS_ICON = "🧲"
-PROFILE_NAME = "cash_buffer_branch_default"
+PROFILE_NAME = "tech_pullback_cash_buffer"
 BRANCH_ROLE = "cash-buffered parallel branch"
 BENCHMARK_SYMBOL = "QQQ"
 SAFE_HAVEN = "BOXX"
@@ -33,7 +33,7 @@ DEFAULT_EXECUTION_CASH_RESERVE_RATIO = 0.0
 SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
 MAX_SNAPSHOT_MONTH_LAG = 1
 REQUIRE_SNAPSHOT_MANIFEST = True
-SNAPSHOT_CONTRACT_VERSION = "cash_buffer_branch_default.feature_snapshot.v1"
+SNAPSHOT_CONTRACT_VERSION = "tech_pullback_cash_buffer.feature_snapshot.v1"
 
 REQUIRED_FEATURE_COLUMNS = frozenset(
     {

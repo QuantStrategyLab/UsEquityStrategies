@@ -3,7 +3,7 @@ import unittest
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
-    CASH_BUFFER_BRANCH_DEFAULT_PROFILE,
+    TECH_PULLBACK_CASH_BUFFER_PROFILE,
     GLOBAL_ETF_ROTATION_PROFILE,
     HYBRID_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
@@ -38,9 +38,9 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
         self.assertEqual(get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE), frozenset({"ibkr"}))
 
-        self.assertIn(CASH_BUFFER_BRANCH_DEFAULT_PROFILE, catalog)
-        self.assertEqual(catalog[CASH_BUFFER_BRANCH_DEFAULT_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(CASH_BUFFER_BRANCH_DEFAULT_PROFILE), frozenset({"ibkr"}))
+        self.assertIn(TECH_PULLBACK_CASH_BUFFER_PROFILE, catalog)
+        self.assertEqual(catalog[TECH_PULLBACK_CASH_BUFFER_PROFILE].domain, "us_equity")
+        self.assertEqual(get_compatible_platforms(TECH_PULLBACK_CASH_BUFFER_PROFILE), frozenset({"ibkr"}))
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
@@ -81,40 +81,45 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
         )
 
-        cash_buffer_definition = get_strategy_definition("cash_buffer_branch_default")
-        self.assertEqual(cash_buffer_definition.profile, CASH_BUFFER_BRANCH_DEFAULT_PROFILE)
+        cash_buffer_definition = get_strategy_definition("tech_pullback_cash_buffer")
+        self.assertEqual(cash_buffer_definition.profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
         cash_buffer_module = get_strategy_component_map(cash_buffer_definition)["signal_logic"]
         self.assertEqual(
             cash_buffer_module.module_path,
-            "us_equity_strategies.strategies.cash_buffer_branch_default",
+            "us_equity_strategies.strategies.tech_pullback_cash_buffer",
         )
 
     def test_aliases_resolve_to_canonical_profiles(self):
-        self.assertEqual(resolve_canonical_profile("tech_pullback_cash_buffer"), CASH_BUFFER_BRANCH_DEFAULT_PROFILE)
+        self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
         self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
         self.assertEqual(resolve_canonical_profile("qqq_tqqq_growth_income"), HYBRID_GROWTH_INCOME_PROFILE)
         self.assertEqual(resolve_canonical_profile("semiconductor_trend_income"), SEMICONDUCTOR_ROTATION_INCOME_PROFILE)
-        self.assertEqual(get_strategy_definition("tech_pullback_cash_buffer").profile, CASH_BUFFER_BRANCH_DEFAULT_PROFILE)
+        self.assertEqual(get_strategy_definition("tech_pullback_cash_buffer").profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
 
     def test_metadata_map_exposes_display_names_and_roles(self):
         metadata_map = get_strategy_metadata_map()
-        self.assertEqual(metadata_map[CASH_BUFFER_BRANCH_DEFAULT_PROFILE].display_name, "Tech Pullback Cash Buffer")
-        self.assertEqual(metadata_map[CASH_BUFFER_BRANCH_DEFAULT_PROFILE].role, "parallel_cash_buffer_branch")
+        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].display_name, "Tech Pullback Cash Buffer")
+        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].role, "parallel_cash_buffer_branch")
         self.assertEqual(metadata_map[GLOBAL_ETF_ROTATION_PROFILE].benchmark, "VOO")
-        self.assertEqual(get_strategy_metadata("tech_pullback_cash_buffer").canonical_profile, CASH_BUFFER_BRANCH_DEFAULT_PROFILE)
+        self.assertEqual(get_strategy_metadata("tech_pullback_cash_buffer").canonical_profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
         aliases = get_profile_aliases()
-        self.assertEqual(aliases["tech_pullback_cash_buffer"], CASH_BUFFER_BRANCH_DEFAULT_PROFILE)
+        self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
-        self.assertEqual(compatibility[CASH_BUFFER_BRANCH_DEFAULT_PROFILE], frozenset({"ibkr"}))
+        self.assertEqual(compatibility[TECH_PULLBACK_CASH_BUFFER_PROFILE], frozenset({"ibkr"}))
 
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}
-        self.assertEqual(by_profile[CASH_BUFFER_BRANCH_DEFAULT_PROFILE]["display_name"], "Tech Pullback Cash Buffer")
+        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["display_name"], "Tech Pullback Cash Buffer")
         self.assertEqual(by_profile[HYBRID_GROWTH_INCOME_PROFILE]["aliases"], ("qqq_tqqq_growth_income",))
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
-        self.assertEqual(by_profile[CASH_BUFFER_BRANCH_DEFAULT_PROFILE]["compatible_platforms"], frozenset({"ibkr"}))
+        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["compatible_platforms"], frozenset({"ibkr"}))
 
+
+class LegacyProfileCompatibilityTest(unittest.TestCase):
+    def test_legacy_cash_buffer_profile_is_not_supported_anymore(self):
+        with self.assertRaises(ValueError):
+            get_strategy_definition("cash_buffer_branch_default")
 
 
 if __name__ == "__main__":
