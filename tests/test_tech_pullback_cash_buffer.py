@@ -98,7 +98,7 @@ def _feature_snapshot() -> pd.DataFrame:
 
 class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
     def test_build_target_weights_is_geometry_honest(self):
-        from us_equity_strategies.strategies.cash_buffer_branch_default import build_target_weights
+        from us_equity_strategies.strategies.tech_pullback_cash_buffer import build_target_weights
 
         weights, signal, metadata = build_target_weights(
             _feature_snapshot(),
@@ -113,7 +113,7 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
         self.assertAlmostEqual(weights["BOXX"], 0.2, places=8)
 
     def test_compute_signals_noops_outside_execution_window(self):
-        from us_equity_strategies.strategies.cash_buffer_branch_default import compute_signals
+        from us_equity_strategies.strategies.tech_pullback_cash_buffer import compute_signals
 
         weights, _signal, _emergency, status_desc, metadata = compute_signals(
             _feature_snapshot(),
@@ -126,14 +126,14 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
         self.assertIn("no-op", status_desc)
 
     def test_load_runtime_parameters_reads_canonical_config(self):
-        from us_equity_strategies.strategies.cash_buffer_branch_default import load_runtime_parameters
+        from us_equity_strategies.strategies.tech_pullback_cash_buffer import load_runtime_parameters
 
         with TemporaryDirectory() as tmp_dir:
-            config_path = Path(tmp_dir) / "cash_buffer_branch_default.json"
+            config_path = Path(tmp_dir) / "tech_pullback_cash_buffer.json"
             config_path.write_text(
                 json.dumps(
                     {
-                        "name": "cash_buffer_branch_default",
+                        "name": "tech_pullback_cash_buffer",
                         "family": "tech_heavy_pullback",
                         "branch_role": "cash-buffered parallel branch",
                         "benchmark_symbol": "QQQ",
@@ -157,7 +157,7 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
             params = load_runtime_parameters(config_path=config_path)
 
         self.assertEqual(params["runtime_config_source"], "external_config")
-        self.assertEqual(params["runtime_config_name"], "cash_buffer_branch_default")
+        self.assertEqual(params["runtime_config_name"], "tech_pullback_cash_buffer")
         self.assertEqual(params["sector_whitelist"], ("Information Technology", "Communication"))
         self.assertEqual(params["execution_cash_reserve_ratio"], 0.0)
 
