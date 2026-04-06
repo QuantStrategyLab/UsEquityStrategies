@@ -11,6 +11,17 @@ Standalone `us_equity` strategy repository for QuantStrategyLab platforms.
 
 This repository is the strategy layer: it owns pure signal, allocation, and target-computation logic plus strategy metadata. Downstream platform repositories still own broker adapters, order routing, schedule, secrets, and notifications.
 
+### Contract boundary
+
+The current integration path is:
+
+- live profiles expose manifest-backed unified entrypoints
+- downstream platforms load those entrypoints through `QuantPlatformKit`
+- strategy outputs stay inside the shared `StrategyDecision` contract
+- broker-specific execution order, UI rows, and notification layout stay in platform repositories
+
+Legacy strategy functions may still exist as internal adapters, but downstream runtimes should treat `entrypoints/` and manifests as the supported integration surface.
+
 ### Strategy index
 
 | Canonical profile | Display name | Compatible platforms | Cadence | Benchmark | Role | Status |
@@ -272,6 +283,17 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 这是 `QuantStrategyLab` 的独立美股策略仓。
 
 这个仓库负责**纯策略层**：信号、仓位、目标权重计算，以及策略元数据。下游平台仓库继续负责券商适配、下单方式、调度、密钥和通知。
+
+### 契约边界
+
+当前主线集成方式已经固定为：
+
+- live profile 暴露 manifest 驱动的统一 entrypoint
+- 下游平台通过 `QuantPlatformKit` 加载这些 entrypoint
+- 策略输出保持在共享 `StrategyDecision` 契约内
+- 券商专属执行顺序、UI 展示行和通知布局继续留在平台仓库
+
+旧策略函数可以继续作为仓库内部 adapter 存在，但下游运行时应把 `entrypoints/` 和 manifest 当成正式接入面。
 
 ### 策略索引
 
