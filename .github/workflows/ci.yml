@@ -38,8 +38,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . numpy pandas ruff
-          python -m pip install -e external/QuantPlatformKit
+          python -m pip install -e . numpy pandas pandas_market_calendars ruff
+          python -m pip install --no-deps -e external/QuantPlatformKit
 
       - name: Run Ruff
         run: |
