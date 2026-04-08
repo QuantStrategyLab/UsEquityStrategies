@@ -27,7 +27,7 @@ TECH_PULLBACK_CASH_BUFFER_PROFILE = "tech_pullback_cash_buffer"
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"ibkr"}),
     HYBRID_GROWTH_INCOME_PROFILE: frozenset({"schwab"}),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"longbridge"}),
+    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"longbridge", "schwab"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr"}),
     TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"ibkr"}),
 }
@@ -133,6 +133,18 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     TECH_PULLBACK_CASH_BUFFER_PROFILE: "tech_pullback_cash_buffer_entrypoint",
 }
 
+STRATEGY_TARGET_MODES: dict[str, str] = {
+    GLOBAL_ETF_ROTATION_PROFILE: "weight",
+    HYBRID_GROWTH_INCOME_PROFILE: "value",
+    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: "value",
+    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
+    TECH_PULLBACK_CASH_BUFFER_PROFILE: "weight",
+}
+
+STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
+    TECH_PULLBACK_CASH_BUFFER_PROFILE: "research/configs/growth_pullback_tech_pullback_cash_buffer.json",
+}
+
 
 # `supported_platforms` 仍保留为兼容镜像，避免一次性改动所有平台 runtime。
 # 平台真正的启用状态由各自 runtime 仓库维护；UES 这里只表达策略层兼容性。
@@ -158,6 +170,8 @@ def _build_strategy_definition(
         ),
         required_inputs=STRATEGY_REQUIRED_INPUTS[profile],
         default_config=STRATEGY_DEFAULT_CONFIG[profile],
+        target_mode=STRATEGY_TARGET_MODES[profile],
+        bundled_config_relpath=STRATEGY_BUNDLED_CONFIG_RELPATHS.get(profile),
     )
 
 
