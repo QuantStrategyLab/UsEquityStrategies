@@ -27,9 +27,9 @@ TECH_PULLBACK_CASH_BUFFER_PROFILE = "tech_pullback_cash_buffer"
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"ibkr"}),
     HYBRID_GROWTH_INCOME_PROFILE: frozenset({"schwab", "longbridge"}),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"longbridge", "schwab"}),
+    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"ibkr", "longbridge", "schwab"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr"}),
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"ibkr"}),
+    TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"ibkr", "longbridge"}),
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
@@ -258,7 +258,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",
         role="parallel_cash_buffer_branch",
-        status="paper_dry_run",
+        status="runtime_enabled",
     ),
 }
 

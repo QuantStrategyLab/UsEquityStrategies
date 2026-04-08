@@ -8,8 +8,8 @@ current US equity value-mode profiles:
 
 It started as the P2.2 planning document for contract convergence.
 Both current value-mode live profiles have since been migrated in code; the
-remaining sections still define the end-state contract for the broader
-value-mode track.
+remaining sections describe the current contract plus the still-open follow-up
+work around rollout and deeper payload normalization.
 
 ## Why this document exists
 
@@ -24,6 +24,13 @@ strategy-facing canonical inputs:
 
 This document defines the end-state contract that later P2/P4 code changes
 should implement.
+
+Current implementation status:
+
+- `hybrid_growth_income` already uses canonical strategy-facing inputs on
+  `schwab` and `longbridge`
+- `semiconductor_rotation_income` already uses canonical strategy-facing inputs
+  on `ibkr`, `schwab`, and `longbridge`
 
 ## Fixed end-state summary
 
@@ -190,8 +197,7 @@ End-state entrypoint expectations:
 
 ### Target adapter shape
 
-For every intended platform (`ibkr`, `schwab`, `longbridge`), the target
-adapter shape is:
+For every platform that supports this profile today, the adapter shape is:
 
 ```python
 StrategyRuntimeAdapter(
@@ -201,6 +207,12 @@ StrategyRuntimeAdapter(
 ```
 
 No broker capability requirement should be declared for this profile.
+
+Current status:
+
+- implemented on `schwab`
+- implemented on `longbridge`
+- `ibkr` remains future work for this specific profile
 
 ## Profile contract: `semiconductor_rotation_income`
 
@@ -283,8 +295,7 @@ End-state entrypoint expectations:
 
 ### Target adapter shape
 
-For every intended platform (`ibkr`, `schwab`, `longbridge`), the target
-adapter shape is:
+For every platform that supports this profile today, the adapter shape is:
 
 ```python
 StrategyRuntimeAdapter(
@@ -295,23 +306,29 @@ StrategyRuntimeAdapter(
 
 No broker capability requirement should be declared for this profile.
 
+Current status:
+
+- implemented on `ibkr`
+- implemented on `schwab`
+- implemented on `longbridge`
+
 ## Platform matrix implied by this document
 
-| Profile | `ibkr` target adapter | `schwab` target adapter | `longbridge` target adapter |
+| Profile | Current `ibkr` adapter | Current `schwab` adapter | Current `longbridge` adapter |
 | --- | --- | --- | --- |
-| `hybrid_growth_income` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
+| `hybrid_growth_income` | not yet implemented | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
 | `semiconductor_rotation_income` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 
-This matrix defines **eligibility target state**, not rollout state.
+This matrix defines current adapter state, not rollout state.
 Whether a platform becomes `enabled=true` stays a separate rollout decision.
 
 ## Migration guidance for later implementation PRs
 
-When code changes start, prefer this order:
+When later code changes are still needed, prefer this order:
 
 1. update entrypoints/normalization helpers so they can consume the canonical
    contract
-2. update strategy definitions + manifests to advertise the canonical input names
+2. update strategy definitions + manifests if any profile adds new platform coverage
 3. update runtime adapters to advertise canonical `available_inputs` and
    `portfolio_input_name="portfolio_snapshot"`
 4. update platform input builders to pass canonical keys
@@ -324,7 +341,7 @@ and half-platform-specific without documenting the short-lived bridge.
 
 This document does not decide:
 
-- how `value -> weight` translation will work on `ibkr`
+- how any future `hybrid_growth_income` `value -> weight` translation should work on `ibkr`
 - how rollout allowlists should change
 - whether the value-mode formulas themselves should change
 - whether benchmark history should later tighten from record lists to a shared
