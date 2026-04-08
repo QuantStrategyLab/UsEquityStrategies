@@ -25,6 +25,10 @@ class CatalogTest(unittest.TestCase):
         self.assertIn(GLOBAL_ETF_ROTATION_PROFILE, catalog)
         self.assertEqual(catalog[GLOBAL_ETF_ROTATION_PROFILE].domain, "us_equity")
         self.assertEqual(get_compatible_platforms(GLOBAL_ETF_ROTATION_PROFILE), frozenset({"ibkr"}))
+        self.assertEqual(
+            catalog[GLOBAL_ETF_ROTATION_PROFILE].required_inputs,
+            frozenset({"market_history"}),
+        )
 
         self.assertIn(HYBRID_GROWTH_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[HYBRID_GROWTH_INCOME_PROFILE].domain, "us_equity")
@@ -32,12 +36,20 @@ class CatalogTest(unittest.TestCase):
             get_compatible_platforms(HYBRID_GROWTH_INCOME_PROFILE),
             frozenset({"schwab", "longbridge"}),
         )
+        self.assertEqual(
+            catalog[HYBRID_GROWTH_INCOME_PROFILE].required_inputs,
+            frozenset({"benchmark_history", "portfolio_snapshot"}),
+        )
 
         self.assertIn(SEMICONDUCTOR_ROTATION_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(SEMICONDUCTOR_ROTATION_INCOME_PROFILE),
             frozenset({"longbridge", "schwab"}),
+        )
+        self.assertEqual(
+            catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].required_inputs,
+            frozenset({"derived_indicators", "portfolio_snapshot"}),
         )
 
         self.assertIn(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE, catalog)
@@ -104,7 +116,7 @@ class CatalogTest(unittest.TestCase):
 
     def test_metadata_map_exposes_display_names_and_roles(self):
         metadata_map = get_strategy_metadata_map()
-        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].display_name, "Tech Pullback Cash Buffer")
+        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].display_name, "QQQ Tech Enhancement")
         self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].role, "parallel_cash_buffer_branch")
         self.assertEqual(metadata_map[GLOBAL_ETF_ROTATION_PROFILE].benchmark, "VOO")
         self.assertEqual(get_strategy_metadata("tech_pullback_cash_buffer").canonical_profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
@@ -117,7 +129,7 @@ class CatalogTest(unittest.TestCase):
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}
-        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["display_name"], "Tech Pullback Cash Buffer")
+        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["display_name"], "QQQ Tech Enhancement")
         self.assertEqual(by_profile[HYBRID_GROWTH_INCOME_PROFILE]["aliases"], ("qqq_tqqq_growth_income",))
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
         self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["compatible_platforms"], frozenset({"ibkr"}))

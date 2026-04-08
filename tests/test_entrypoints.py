@@ -49,7 +49,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of="2026-04-06",
-                market_data={"historical_close_loader": get_historical_close},
+                market_data={"market_history": get_historical_close},
                 state={"current_holdings": {"VOO"}},
                 runtime_config={
                     "translator": lambda key, **kwargs: f"{key}:{kwargs}",
@@ -63,6 +63,11 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, legacy_weights)
         self.assertEqual(decision.diagnostics["signal_description"], legacy_signal)
         self.assertEqual(decision.diagnostics["canary_status"], legacy_canary)
+
+    def test_global_etf_runtime_adapter_uses_canonical_market_history(self) -> None:
+        adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id="ibkr")
+        self.assertEqual(adapter.available_inputs, frozenset({"market_history"}))
+        self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
 
     def test_hybrid_growth_income_entrypoint_maps_target_values_without_platform_layout(self) -> None:
         entrypoint = get_strategy_entrypoint("hybrid_growth_income")
@@ -101,7 +106,10 @@ class StrategyEntrypointTests(unittest.TestCase):
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of="2026-04-06",
-                market_data={"qqq_history": qqq_history},
+                market_data={
+                    "benchmark_history": qqq_history,
+                    "portfolio_snapshot": snapshot,
+                },
                 portfolio=snapshot,
                 runtime_config={"signal_text_fn": str, "translator": lambda key, **kwargs: key},
             )
@@ -118,6 +126,15 @@ class StrategyEntrypointTests(unittest.TestCase):
             entrypoint.manifest.default_config["managed_symbols"],
             ("TQQQ", "BOXX", "SPYI", "QQQI"),
         )
+
+    def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
+        for platform_id in ("schwab", "longbridge"):
+            adapter = get_platform_runtime_adapter("hybrid_growth_income", platform_id=platform_id)
+            self.assertEqual(
+                adapter.available_inputs,
+                frozenset({"benchmark_history", "portfolio_snapshot"}),
+            )
+            self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
     def test_semiconductor_rotation_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
         entrypoint = get_strategy_entrypoint("semiconductor_rotation_income")
@@ -143,7 +160,31 @@ class StrategyEntrypointTests(unittest.TestCase):
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of="2026-04-06",
-                market_data={"indicators": indicators, "account_state": account_state},
+                market_data={
+                    "derived_indicators": indicators,
+                    "portfolio_snapshot": PortfolioSnapshot(
+                        as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+                        total_equity=50000.0,
+                        buying_power=10000.0,
+                        positions=(
+                            Position(symbol="BOXX", quantity=50, market_value=5000.0),
+                            Position(symbol="QQQI", quantity=10, market_value=1000.0),
+                            Position(symbol="SPYI", quantity=10, market_value=1000.0),
+                        ),
+                        metadata={"account_hash": "demo"},
+                    ),
+                },
+                portfolio=PortfolioSnapshot(
+                    as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+                    total_equity=50000.0,
+                    buying_power=10000.0,
+                    positions=(
+                        Position(symbol="BOXX", quantity=50, market_value=5000.0),
+                        Position(symbol="QQQI", quantity=10, market_value=1000.0),
+                        Position(symbol="SPYI", quantity=10, market_value=1000.0),
+                    ),
+                    metadata={"account_hash": "demo"},
+                ),
                 runtime_config={
                     "signal_text_fn": str,
                     "translator": lambda key, **kwargs: key,
@@ -162,6 +203,15 @@ class StrategyEntrypointTests(unittest.TestCase):
             entrypoint.manifest.default_config["managed_symbols"],
             ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
         )
+
+    def test_value_mode_semiconductor_runtime_adapters_use_canonical_inputs(self) -> None:
+        for platform_id in ("schwab", "longbridge"):
+            adapter = get_platform_runtime_adapter("semiconductor_rotation_income", platform_id=platform_id)
+            self.assertEqual(
+                adapter.available_inputs,
+                frozenset({"derived_indicators", "portfolio_snapshot"}),
+            )
+            self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
     def test_russell_and_tech_entrypoints_match_legacy_weight_outputs(self) -> None:
         russell = get_strategy_entrypoint("russell_1000_multi_factor_defensive")
