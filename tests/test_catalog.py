@@ -32,7 +32,10 @@ class CatalogTest(unittest.TestCase):
 
         self.assertIn(SEMICONDUCTOR_ROTATION_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(SEMICONDUCTOR_ROTATION_INCOME_PROFILE), frozenset({"longbridge"}))
+        self.assertEqual(
+            get_compatible_platforms(SEMICONDUCTOR_ROTATION_INCOME_PROFILE),
+            frozenset({"longbridge", "schwab"}),
+        )
 
         self.assertIn(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE, catalog)
         self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
@@ -106,6 +109,7 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
         self.assertEqual(compatibility[TECH_PULLBACK_CASH_BUFFER_PROFILE], frozenset({"ibkr"}))
+        self.assertEqual(get_strategy_definition("tech_pullback_cash_buffer").target_mode, "weight")
 
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()

@@ -84,6 +84,16 @@ def evaluate_hybrid_growth_income(ctx: StrategyContext) -> StrategyDecision:
         "exit_line": plan["exit_line"],
         "real_buying_power": plan["real_buying_power"],
         "total_equity": plan["total_equity"],
+        "execution_annotations": {
+            "trade_threshold_value": plan["threshold"],
+            "reserved_cash": plan["reserved"],
+            "signal_display": plan["sig_display"],
+            "dashboard_text": plan["dashboard"],
+            "benchmark_symbol": "QQQ",
+            "benchmark_price": plan["qqq_p"],
+            "long_trend_value": plan["ma200"],
+            "exit_line": plan["exit_line"],
+        },
     }
     return StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
@@ -118,6 +128,17 @@ def evaluate_semiconductor_rotation_income(ctx: StrategyContext) -> StrategyDeci
         "threshold_value": plan["threshold_value"],
         "current_min_trade": plan["current_min_trade"],
         "total_strategy_equity": plan["total_strategy_equity"],
+        "execution_annotations": {
+            "trade_threshold_value": plan["threshold_value"],
+            "signal_display": plan["signal_message"],
+            "status_display": plan["market_status"],
+            "deploy_ratio_text": plan["deploy_ratio_text"],
+            "income_ratio_text": plan["income_ratio_text"],
+            "income_locked_ratio_text": plan["income_locked_ratio_text"],
+            "active_risk_asset": plan["active_risk_asset"],
+            "investable_cash": plan["investable_cash"],
+            "current_min_trade": plan["current_min_trade"],
+        },
     }
     return StrategyDecision(
         positions=target_values_to_positions(plan["targets"]),

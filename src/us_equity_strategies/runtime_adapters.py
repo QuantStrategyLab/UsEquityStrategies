@@ -13,19 +13,25 @@ from us_equity_strategies.strategies import (
 
 
 IBKR_PLATFORM = "ibkr"
+SCHWAB_PLATFORM = "schwab"
+LONGBRIDGE_PLATFORM = "longbridge"
 
 
 IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     "global_etf_rotation": StrategyRuntimeAdapter(
         status_icon="🐤",
+        available_inputs=frozenset({"historical_close_loader"}),
+        available_capabilities=frozenset({"broker_client"}),
     ),
     "russell_1000_multi_factor_defensive": StrategyRuntimeAdapter(
         status_icon=legacy_russell.STATUS_ICON,
+        available_inputs=frozenset({"feature_snapshot"}),
         required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
         managed_symbols_extractor=legacy_russell.extract_managed_symbols,
     ),
     "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
         status_icon=legacy_tech_pullback.STATUS_ICON,
+        available_inputs=frozenset({"feature_snapshot"}),
         required_feature_columns=legacy_tech_pullback.REQUIRED_FEATURE_COLUMNS,
         snapshot_date_columns=legacy_tech_pullback.SNAPSHOT_DATE_COLUMNS,
         max_snapshot_month_lag=legacy_tech_pullback.MAX_SNAPSHOT_MONTH_LAG,
@@ -38,6 +44,24 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
 
 PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
     IBKR_PLATFORM: IBKR_RUNTIME_ADAPTERS,
+    SCHWAB_PLATFORM: {
+        "hybrid_growth_income": StrategyRuntimeAdapter(
+            status_icon="🐤",
+            available_inputs=frozenset({"qqq_history", "snapshot"}),
+            portfolio_input_name="snapshot",
+        ),
+        "semiconductor_rotation_income": StrategyRuntimeAdapter(
+            status_icon="🐤",
+            available_inputs=frozenset({"indicators", "account_state", "snapshot"}),
+            portfolio_input_name="snapshot",
+        ),
+    },
+    LONGBRIDGE_PLATFORM: {
+        "semiconductor_rotation_income": StrategyRuntimeAdapter(
+            status_icon="🐤",
+            available_inputs=frozenset({"indicators", "account_state"}),
+        ),
+    },
 }
 
 
@@ -57,6 +81,8 @@ def get_platform_runtime_adapter(profile: str | None, *, platform_id: str) -> St
 
 __all__ = [
     "IBKR_PLATFORM",
+    "SCHWAB_PLATFORM",
+    "LONGBRIDGE_PLATFORM",
     "IBKR_RUNTIME_ADAPTERS",
     "PLATFORM_RUNTIME_ADAPTERS",
     "get_platform_runtime_adapter",
