@@ -144,7 +144,10 @@ class StrategyEntrypointTests(unittest.TestCase):
             StrategyContext(
                 as_of="2026-04-06",
                 market_data={"indicators": indicators, "account_state": account_state},
-                runtime_config={"translator": lambda key, **kwargs: key},
+                runtime_config={
+                    "signal_text_fn": str,
+                    "translator": lambda key, **kwargs: key,
+                },
             )
         )
 
