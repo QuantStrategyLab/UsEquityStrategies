@@ -33,9 +33,9 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
-    GLOBAL_ETF_ROTATION_PROFILE: frozenset({"historical_close_loader"}),
-    HYBRID_GROWTH_INCOME_PROFILE: frozenset({"qqq_history"}),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"indicators", "account_state"}),
+    GLOBAL_ETF_ROTATION_PROFILE: frozenset({"market_history"}),
+    HYBRID_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
+    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
     TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"feature_snapshot"}),
 }
@@ -207,7 +207,7 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
 STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     GLOBAL_ETF_ROTATION_PROFILE: StrategyMetadata(
         canonical_profile=GLOBAL_ETF_ROTATION_PROFILE,
-        display_name="Global ETF Rotation Defense",
+        display_name="Global ETF Rotation",
         description="Quarterly top-2 global ETF rotation with daily canary defense and BIL safe haven.",
         aliases=("global_macro_etf_rotation",),
         cadence="quarterly + daily canary",
@@ -218,7 +218,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     ),
     HYBRID_GROWTH_INCOME_PROFILE: StrategyMetadata(
         canonical_profile=HYBRID_GROWTH_INCOME_PROFILE,
-        display_name="QQQ/TQQQ Growth Income",
+        display_name="TQQQ Growth Income",
         description="QQQ-led TQQQ attack sleeve with SPYI / QQQI income and BOXX defense.",
         aliases=("qqq_tqqq_growth_income",),
         cadence="daily",
@@ -229,7 +229,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     ),
     SEMICONDUCTOR_ROTATION_INCOME_PROFILE: StrategyMetadata(
         canonical_profile=SEMICONDUCTOR_ROTATION_INCOME_PROFILE,
-        display_name="Semiconductor Trend Income",
+        display_name="SOXL/SOXX Semiconductor Trend Income",
         description="SOXL / SOXX semiconductor trend switch with BOXX parking and additive income sleeve.",
         aliases=("semiconductor_trend_income",),
         cadence="daily",
@@ -240,7 +240,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     ),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: StrategyMetadata(
         canonical_profile=RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-        display_name="Russell 1000 Multi-Factor Defensive",
+        display_name="Russell 1000 Multi-Factor",
         description="Monthly price-only Russell 1000 stock selection with SPY+breadth defense and BOXX parking.",
         aliases=("r1000_multifactor_defensive",),
         cadence="monthly",
@@ -251,7 +251,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     ),
     TECH_PULLBACK_CASH_BUFFER_PROFILE: StrategyMetadata(
         canonical_profile=TECH_PULLBACK_CASH_BUFFER_PROFILE,
-        display_name="Tech Pullback Cash Buffer",
+        display_name="QQQ Tech Enhancement",
         description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
         aliases=(),
         cadence="monthly",

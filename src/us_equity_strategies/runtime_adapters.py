@@ -20,7 +20,7 @@ LONGBRIDGE_PLATFORM = "longbridge"
 IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     "global_etf_rotation": StrategyRuntimeAdapter(
         status_icon="🐤",
-        available_inputs=frozenset({"historical_close_loader"}),
+        available_inputs=frozenset({"market_history"}),
         available_capabilities=frozenset({"broker_client"}),
     ),
     "russell_1000_multi_factor_defensive": StrategyRuntimeAdapter(
@@ -40,6 +40,11 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         runtime_parameter_loader=legacy_tech_pullback.load_runtime_parameters,
         managed_symbols_extractor=legacy_tech_pullback.extract_managed_symbols,
     ),
+    "semiconductor_rotation_income": StrategyRuntimeAdapter(
+        status_icon="🐤",
+        available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
+        portfolio_input_name="portfolio_snapshot",
+    ),
 }
 
 PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
@@ -47,24 +52,37 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
     SCHWAB_PLATFORM: {
         "hybrid_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
-            available_inputs=frozenset({"qqq_history", "snapshot"}),
-            portfolio_input_name="snapshot",
+            available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
         ),
         "semiconductor_rotation_income": StrategyRuntimeAdapter(
             status_icon="🐤",
-            available_inputs=frozenset({"indicators", "account_state", "snapshot"}),
-            portfolio_input_name="snapshot",
+            available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
         ),
     },
     LONGBRIDGE_PLATFORM: {
         "hybrid_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
-            available_inputs=frozenset({"qqq_history", "snapshot"}),
-            portfolio_input_name="snapshot",
+            available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
         ),
         "semiconductor_rotation_income": StrategyRuntimeAdapter(
             status_icon="🐤",
-            available_inputs=frozenset({"indicators", "account_state"}),
+            available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
+        ),
+        "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
+            status_icon=legacy_tech_pullback.STATUS_ICON,
+            available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            required_feature_columns=legacy_tech_pullback.REQUIRED_FEATURE_COLUMNS,
+            snapshot_date_columns=legacy_tech_pullback.SNAPSHOT_DATE_COLUMNS,
+            max_snapshot_month_lag=legacy_tech_pullback.MAX_SNAPSHOT_MONTH_LAG,
+            require_snapshot_manifest=legacy_tech_pullback.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=legacy_tech_pullback.SNAPSHOT_CONTRACT_VERSION,
+            runtime_parameter_loader=legacy_tech_pullback.load_runtime_parameters,
+            managed_symbols_extractor=legacy_tech_pullback.extract_managed_symbols,
+            portfolio_input_name="portfolio_snapshot",
         ),
     },
 }

@@ -36,7 +36,7 @@ class PlatformRegistrySupportTest(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["canonical_profile"], "tech_pullback_cash_buffer")
-        self.assertEqual(rows[0]["display_name"], "Tech Pullback Cash Buffer")
+        self.assertEqual(rows[0]["display_name"], "QQQ Tech Enhancement")
         self.assertEqual(rows[0]["aliases"], ())
         self.assertFalse(rows[0]["is_default"])
         self.assertFalse(rows[0]["is_rollback"])

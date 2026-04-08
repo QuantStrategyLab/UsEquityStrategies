@@ -36,10 +36,11 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(global_etf_rotation_manifest.default_config, ctx)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
+    market_history = require_market_data(ctx, "market_history")
     weights, signal_desc, is_emergency, canary_str = legacy_global_etf_rotation.compute_signals(
         ctx.capabilities.get("broker_client"),
         get_current_holdings(ctx),
-        get_historical_close=require_market_data(ctx, "historical_close_loader"),
+        get_historical_close=market_history,
         translator=config.pop("translator", default_translator),
         pacing_sec=float(config.pop("pacing_sec", 0.0)),
         **config,
@@ -68,7 +69,7 @@ def evaluate_hybrid_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
     plan = legacy_hybrid_growth_income.build_rebalance_plan(
-        require_market_data(ctx, "qqq_history"),
+        require_market_data(ctx, "benchmark_history"),
         require_portfolio(ctx),
         signal_text_fn=config.pop("signal_text_fn", default_signal_text_fn),
         translator=config.pop("translator", default_translator),
@@ -108,13 +109,42 @@ legacy_hybrid_growth_income.build_rebalance_plan.__doc__ = (
 )
 
 
+def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_symbols: tuple[str, ...]) -> dict[str, object]:
+    market_values = {symbol: 0.0 for symbol in strategy_symbols}
+    quantities = {symbol: 0 for symbol in strategy_symbols}
+    sellable_quantities = {symbol: 0 for symbol in strategy_symbols}
+    for position in getattr(portfolio, "positions", ()):
+        if position.symbol not in market_values:
+            continue
+        market_values[position.symbol] = float(position.market_value)
+        quantity = int(position.quantity)
+        quantities[position.symbol] = quantity
+        sellable_quantities[position.symbol] = quantity
+    available_cash = float(
+        getattr(portfolio, "buying_power", None)
+        or getattr(portfolio, "cash_balance", None)
+        or 0.0
+    )
+    return {
+        "available_cash": available_cash,
+        "market_values": market_values,
+        "quantities": quantities,
+        "sellable_quantities": sellable_quantities,
+        "total_strategy_equity": float(portfolio.total_equity),
+    }
+
+
 def evaluate_semiconductor_rotation_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(semiconductor_rotation_income_manifest.default_config, ctx)
-    config.pop("managed_symbols", None)
+    strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
+    portfolio = require_portfolio(ctx)
     plan = legacy_semiconductor.build_rebalance_plan(
-        require_market_data(ctx, "indicators"),
-        require_market_data(ctx, "account_state"),
+        require_market_data(ctx, "derived_indicators"),
+        _build_semiconductor_account_state_from_portfolio(
+            portfolio,
+            strategy_symbols=strategy_symbols,
+        ),
         translator=config.pop("translator", default_translator),
         **config,
     )
