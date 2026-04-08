@@ -4,10 +4,10 @@ from quant_platform_kit.strategy_contracts import CallableStrategyEntrypoint, St
 
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
-    hybrid_growth_income_manifest,
+    qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
-    semiconductor_rotation_income_manifest,
-    tech_pullback_cash_buffer_manifest,
+    soxl_soxx_trend_income_manifest,
+    tqqq_growth_income_manifest,
 )
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
@@ -65,7 +65,7 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 
 
 def evaluate_hybrid_growth_income(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(hybrid_growth_income_manifest.default_config, ctx)
+    config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
     plan = legacy_hybrid_growth_income.build_rebalance_plan(
@@ -135,7 +135,7 @@ def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_sym
 
 
 def evaluate_semiconductor_rotation_income(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(semiconductor_rotation_income_manifest.default_config, ctx)
+    config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
     portfolio = require_portfolio(ctx)
@@ -213,7 +213,7 @@ legacy_russell.compute_signals.__doc__ = (
 
 
 def evaluate_tech_pullback_cash_buffer(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(tech_pullback_cash_buffer_manifest.default_config, ctx)
+    config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
     config.pop("execution_cash_reserve_ratio", None)
     weights, signal_desc, is_emergency, status_desc, metadata = legacy_tech_pullback.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
@@ -250,28 +250,35 @@ global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=global_etf_rotation_manifest,
     _evaluate=evaluate_global_etf_rotation,
 )
-hybrid_growth_income_entrypoint = CallableStrategyEntrypoint(
-    manifest=hybrid_growth_income_manifest,
+tqqq_growth_income_entrypoint = CallableStrategyEntrypoint(
+    manifest=tqqq_growth_income_manifest,
     _evaluate=evaluate_hybrid_growth_income,
 )
-semiconductor_rotation_income_entrypoint = CallableStrategyEntrypoint(
-    manifest=semiconductor_rotation_income_manifest,
+soxl_soxx_trend_income_entrypoint = CallableStrategyEntrypoint(
+    manifest=soxl_soxx_trend_income_manifest,
     _evaluate=evaluate_semiconductor_rotation_income,
 )
 russell_1000_multi_factor_defensive_entrypoint = CallableStrategyEntrypoint(
     manifest=russell_1000_multi_factor_defensive_manifest,
     _evaluate=evaluate_russell_1000_multi_factor_defensive,
 )
-tech_pullback_cash_buffer_entrypoint = CallableStrategyEntrypoint(
-    manifest=tech_pullback_cash_buffer_manifest,
+qqq_tech_enhancement_entrypoint = CallableStrategyEntrypoint(
+    manifest=qqq_tech_enhancement_manifest,
     _evaluate=evaluate_tech_pullback_cash_buffer,
 )
+
+hybrid_growth_income_entrypoint = tqqq_growth_income_entrypoint
+semiconductor_rotation_income_entrypoint = soxl_soxx_trend_income_entrypoint
+tech_pullback_cash_buffer_entrypoint = qqq_tech_enhancement_entrypoint
 
 
 __all__ = [
     "global_etf_rotation_entrypoint",
+    "tqqq_growth_income_entrypoint",
+    "soxl_soxx_trend_income_entrypoint",
     "hybrid_growth_income_entrypoint",
     "semiconductor_rotation_income_entrypoint",
+    "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "tech_pullback_cash_buffer_entrypoint",
     "evaluate_global_etf_rotation",

@@ -3,8 +3,8 @@
 This document fixes the **strategy-facing canonical input contract** for the two
 current US equity value-mode profiles:
 
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+- `tqqq_growth_income`
+- `soxl_soxx_trend_income`
 
 It started as the P2.2 planning document for contract convergence.
 Both current value-mode live profiles have since been migrated in code; the
@@ -19,25 +19,25 @@ canonical input names.
 The current two value-mode live profiles are now aligned on their
 strategy-facing canonical inputs:
 
-- `hybrid_growth_income` uses `benchmark_history` + `portfolio_snapshot`
-- `semiconductor_rotation_income` uses `derived_indicators` + `portfolio_snapshot`
+- `tqqq_growth_income` uses `benchmark_history` + `portfolio_snapshot`
+- `soxl_soxx_trend_income` uses `derived_indicators` + `portfolio_snapshot`
 
 This document defines the end-state contract that later P2/P4 code changes
 should implement.
 
 Current implementation status:
 
-- `hybrid_growth_income` already uses canonical strategy-facing inputs on
+- `tqqq_growth_income` already uses canonical strategy-facing inputs on
   `schwab` and `longbridge`
-- `semiconductor_rotation_income` already uses canonical strategy-facing inputs
+- `soxl_soxx_trend_income` already uses canonical strategy-facing inputs
   on `ibkr`, `schwab`, and `longbridge`
 
 ## Fixed end-state summary
 
 | Profile | Keep `target_mode` | Current strategy-facing inputs | Fixed canonical strategy-facing inputs |
 | --- | --- | --- | --- |
-| `hybrid_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
-| `semiconductor_rotation_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
+| `tqqq_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
+| `soxl_soxx_trend_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 
 Shared rules for both profiles:
 
@@ -54,9 +54,9 @@ Value-mode profiles should declare only canonical `required_inputs`.
 
 For this track, the exact target is:
 
-- `hybrid_growth_income`
+- `tqqq_growth_income`
   - `required_inputs = {"benchmark_history", "portfolio_snapshot"}`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
   - `required_inputs = {"derived_indicators", "portfolio_snapshot"}`
 
 `portfolio_snapshot` is not just an adapter-local helper. It is part of the
@@ -108,7 +108,7 @@ canonical strategy-facing input contract:
 If a platform still needs them, keep them in the platform mapper/runtime layer.
 Do not preserve them as permanent strategy inputs.
 
-## Profile contract: `hybrid_growth_income`
+## Profile contract: `tqqq_growth_income`
 
 ### Intent
 
@@ -214,7 +214,7 @@ Current status:
 - implemented on `longbridge`
 - `ibkr` remains future work for this specific profile
 
-## Profile contract: `semiconductor_rotation_income`
+## Profile contract: `soxl_soxx_trend_income`
 
 ### Intent
 
@@ -316,8 +316,8 @@ Current status:
 
 | Profile | Current `ibkr` adapter | Current `schwab` adapter | Current `longbridge` adapter |
 | --- | --- | --- | --- |
-| `hybrid_growth_income` | not yet implemented | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
-| `semiconductor_rotation_income` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
+| `tqqq_growth_income` | not yet implemented | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
+| `soxl_soxx_trend_income` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 
 This matrix defines current adapter state, not rollout state.
 Whether a platform becomes `enabled=true` stays a separate rollout decision.
@@ -341,7 +341,7 @@ and half-platform-specific without documenting the short-lived bridge.
 
 This document does not decide:
 
-- how any future `hybrid_growth_income` `value -> weight` translation should work on `ibkr`
+- how any future `tqqq_growth_income` `value -> weight` translation should work on `ibkr`
 - how rollout allowlists should change
 - whether the value-mode formulas themselves should change
 - whether benchmark history should later tighten from record lists to a shared
