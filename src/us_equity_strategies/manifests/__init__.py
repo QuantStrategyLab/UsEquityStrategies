@@ -64,11 +64,11 @@ global_etf_rotation_manifest = _manifest(
     },
 )
 
-hybrid_growth_income_manifest = _manifest(
-    profile="hybrid_growth_income",
+tqqq_growth_income_manifest = _manifest(
+    profile="tqqq_growth_income",
     display_name="TQQQ Growth Income",
     description="QQQ-led TQQQ attack sleeve with SPYI / QQQI income and BOXX defense.",
-    aliases=("qqq_tqqq_growth_income",),
+    aliases=("hybrid_growth_income", "qqq_tqqq_growth_income"),
     required_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
     default_config={
         "benchmark_symbol": "QQQ",
@@ -93,11 +93,11 @@ hybrid_growth_income_manifest = _manifest(
     },
 )
 
-semiconductor_rotation_income_manifest = _manifest(
-    profile="semiconductor_rotation_income",
+soxl_soxx_trend_income_manifest = _manifest(
+    profile="soxl_soxx_trend_income",
     display_name="SOXL/SOXX Semiconductor Trend Income",
     description="SOXL / SOXX semiconductor trend switch with BOXX parking and additive income sleeve.",
-    aliases=("semiconductor_trend_income",),
+    aliases=("semiconductor_rotation_income", "semiconductor_trend_income"),
     required_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
     default_config={
         "managed_symbols": ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
@@ -137,10 +137,11 @@ russell_1000_multi_factor_defensive_manifest = _manifest(
     },
 )
 
-tech_pullback_cash_buffer_manifest = _manifest(
-    profile="tech_pullback_cash_buffer",
+qqq_tech_enhancement_manifest = _manifest(
+    profile="qqq_tech_enhancement",
     display_name="QQQ Tech Enhancement",
     description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
+    aliases=("tech_pullback_cash_buffer",),
     required_inputs=frozenset({"feature_snapshot"}),
     default_config={
         "benchmark_symbol": "QQQ",
@@ -166,11 +167,15 @@ tech_pullback_cash_buffer_manifest = _manifest(
 
 MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
-    hybrid_growth_income_manifest.profile: hybrid_growth_income_manifest,
-    semiconductor_rotation_income_manifest.profile: semiconductor_rotation_income_manifest,
+    tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
+    soxl_soxx_trend_income_manifest.profile: soxl_soxx_trend_income_manifest,
     russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
-    tech_pullback_cash_buffer_manifest.profile: tech_pullback_cash_buffer_manifest,
+    qqq_tech_enhancement_manifest.profile: qqq_tech_enhancement_manifest,
 }
+
+hybrid_growth_income_manifest = tqqq_growth_income_manifest
+semiconductor_rotation_income_manifest = soxl_soxx_trend_income_manifest
+tech_pullback_cash_buffer_manifest = qqq_tech_enhancement_manifest
 
 
 def get_strategy_manifest(profile: str) -> StrategyManifest:
@@ -181,8 +186,11 @@ __all__ = [
     "MANIFESTS",
     "get_strategy_manifest",
     "global_etf_rotation_manifest",
+    "tqqq_growth_income_manifest",
+    "soxl_soxx_trend_income_manifest",
     "hybrid_growth_income_manifest",
     "semiconductor_rotation_income_manifest",
+    "qqq_tech_enhancement_manifest",
     "russell_1000_multi_factor_defensive_manifest",
     "tech_pullback_cash_buffer_manifest",
 ]

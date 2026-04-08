@@ -18,26 +18,30 @@ from quant_platform_kit.common.strategies import (
 )
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
-HYBRID_GROWTH_INCOME_PROFILE = "hybrid_growth_income"
-SEMICONDUCTOR_ROTATION_INCOME_PROFILE = "semiconductor_rotation_income"
+TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
+SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
-TECH_PULLBACK_CASH_BUFFER_PROFILE = "tech_pullback_cash_buffer"
+QQQ_TECH_ENHANCEMENT_PROFILE = "qqq_tech_enhancement"
+
+HYBRID_GROWTH_INCOME_PROFILE = TQQQ_GROWTH_INCOME_PROFILE
+SEMICONDUCTOR_ROTATION_INCOME_PROFILE = SOXL_SOXX_TREND_INCOME_PROFILE
+TECH_PULLBACK_CASH_BUFFER_PROFILE = QQQ_TECH_ENHANCEMENT_PROFILE
 
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"ibkr"}),
-    HYBRID_GROWTH_INCOME_PROFILE: frozenset({"schwab", "longbridge"}),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"ibkr", "longbridge", "schwab"}),
+    TQQQ_GROWTH_INCOME_PROFILE: frozenset({"schwab", "longbridge"}),
+    SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"ibkr", "longbridge", "schwab"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr"}),
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"ibkr", "longbridge"}),
+    QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"ibkr", "longbridge"}),
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"market_history"}),
-    HYBRID_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
+    TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
+    SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: frozenset({"feature_snapshot"}),
+    QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"feature_snapshot"}),
 }
 
 STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
@@ -54,7 +58,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "rebalance_months": (3, 6, 9, 12),
         "sma_period": 200,
     },
-    HYBRID_GROWTH_INCOME_PROFILE: {
+    TQQQ_GROWTH_INCOME_PROFILE: {
         "benchmark_symbol": "QQQ",
         "managed_symbols": ("TQQQ", "BOXX", "SPYI", "QQQI"),
         "income_threshold_usd": 100000.0,
@@ -75,7 +79,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "entry_line_floor": 1.02,
         "entry_line_cap": 1.08,
     },
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: {
+    SOXL_SOXX_TREND_INCOME_PROFILE: {
         "managed_symbols": ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
         "trend_ma_window": 150,
         "cash_reserve_ratio": 0.03,
@@ -103,7 +107,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "soft_breadth_threshold": 0.55,
         "hard_breadth_threshold": 0.35,
     },
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: {
+    QQQ_TECH_ENHANCEMENT_PROFILE: {
         "benchmark_symbol": "QQQ",
         "safe_haven": "BOXX",
         "holdings_count": 8,
@@ -127,22 +131,22 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
 
 STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "global_etf_rotation_entrypoint",
-    HYBRID_GROWTH_INCOME_PROFILE: "hybrid_growth_income_entrypoint",
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: "semiconductor_rotation_income_entrypoint",
+    TQQQ_GROWTH_INCOME_PROFILE: "tqqq_growth_income_entrypoint",
+    SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: "tech_pullback_cash_buffer_entrypoint",
+    QQQ_TECH_ENHANCEMENT_PROFILE: "qqq_tech_enhancement_entrypoint",
 }
 
 STRATEGY_TARGET_MODES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "weight",
-    HYBRID_GROWTH_INCOME_PROFILE: "value",
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: "value",
+    TQQQ_GROWTH_INCOME_PROFILE: "value",
+    SOXL_SOXX_TREND_INCOME_PROFILE: "value",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: "weight",
+    QQQ_TECH_ENHANCEMENT_PROFILE: "weight",
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: "research/configs/growth_pullback_tech_pullback_cash_buffer.json",
+    QQQ_TECH_ENHANCEMENT_PROFILE: "research/configs/growth_pullback_tech_pullback_cash_buffer.json",
 }
 
 
@@ -181,13 +185,13 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.global_etf_rotation",
     ),
-    HYBRID_GROWTH_INCOME_PROFILE: _build_strategy_definition(
-        HYBRID_GROWTH_INCOME_PROFILE,
+    TQQQ_GROWTH_INCOME_PROFILE: _build_strategy_definition(
+        TQQQ_GROWTH_INCOME_PROFILE,
         component_name="allocation",
         module_path="us_equity_strategies.strategies.hybrid_growth_income",
     ),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: _build_strategy_definition(
-        SEMICONDUCTOR_ROTATION_INCOME_PROFILE,
+    SOXL_SOXX_TREND_INCOME_PROFILE: _build_strategy_definition(
+        SOXL_SOXX_TREND_INCOME_PROFILE,
         component_name="allocation",
         module_path="us_equity_strategies.strategies.semiconductor_rotation_income",
     ),
@@ -196,8 +200,8 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
     ),
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: _build_strategy_definition(
-        TECH_PULLBACK_CASH_BUFFER_PROFILE,
+    QQQ_TECH_ENHANCEMENT_PROFILE: _build_strategy_definition(
+        QQQ_TECH_ENHANCEMENT_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.tech_pullback_cash_buffer",
     ),
@@ -216,22 +220,22 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         role="defensive_rotation",
         status="runtime_enabled",
     ),
-    HYBRID_GROWTH_INCOME_PROFILE: StrategyMetadata(
-        canonical_profile=HYBRID_GROWTH_INCOME_PROFILE,
+    TQQQ_GROWTH_INCOME_PROFILE: StrategyMetadata(
+        canonical_profile=TQQQ_GROWTH_INCOME_PROFILE,
         display_name="TQQQ Growth Income",
         description="QQQ-led TQQQ attack sleeve with SPYI / QQQI income and BOXX defense.",
-        aliases=("qqq_tqqq_growth_income",),
+        aliases=("hybrid_growth_income", "qqq_tqqq_growth_income"),
         cadence="daily",
         asset_scope="us_equity_etf_plus_income",
         benchmark="QQQ",
         role="offensive_income",
         status="runtime_enabled",
     ),
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE: StrategyMetadata(
-        canonical_profile=SEMICONDUCTOR_ROTATION_INCOME_PROFILE,
+    SOXL_SOXX_TREND_INCOME_PROFILE: StrategyMetadata(
+        canonical_profile=SOXL_SOXX_TREND_INCOME_PROFILE,
         display_name="SOXL/SOXX Semiconductor Trend Income",
         description="SOXL / SOXX semiconductor trend switch with BOXX parking and additive income sleeve.",
-        aliases=("semiconductor_trend_income",),
+        aliases=("semiconductor_rotation_income", "semiconductor_trend_income"),
         cadence="daily",
         asset_scope="semiconductor_etf_plus_income",
         benchmark="SOXX",
@@ -249,11 +253,11 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         role="defensive_stock_baseline",
         status="runtime_enabled",
     ),
-    TECH_PULLBACK_CASH_BUFFER_PROFILE: StrategyMetadata(
-        canonical_profile=TECH_PULLBACK_CASH_BUFFER_PROFILE,
+    QQQ_TECH_ENHANCEMENT_PROFILE: StrategyMetadata(
+        canonical_profile=QQQ_TECH_ENHANCEMENT_PROFILE,
         display_name="QQQ Tech Enhancement",
         description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
-        aliases=(),
+        aliases=("tech_pullback_cash_buffer",),
         cadence="monthly",
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",

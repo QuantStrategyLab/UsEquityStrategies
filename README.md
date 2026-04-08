@@ -35,9 +35,9 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 | --- | --- | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `tech_pullback_cash_buffer` | QQQ Tech Enhancement | `InteractiveBrokersPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
-| `hybrid_growth_income` | TQQQ Growth Income | `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
-| `semiconductor_rotation_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
+| `qqq_tech_enhancement` | QQQ Tech Enhancement | `InteractiveBrokersPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `tqqq_growth_income` | TQQQ Growth Income | `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
+| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
 These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
 
@@ -196,7 +196,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
   --output-dir /tmp/r1000_backtest
 ```
 
-### hybrid_growth_income
+### tqqq_growth_income
 
 **Objective**
 - Combine growth exposure, income production, and idle-cash defense in one profile.
@@ -244,7 +244,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 - `ATR_EXIT_SCALE = 2.0`, `ATR_ENTRY_SCALE = 2.5`
 - `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`, `ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
 
-### semiconductor_rotation_income
+### soxl_soxx_trend_income
 
 **Objective**
 - Use a simpler semiconductor trend switch than the Schwab profile.
@@ -315,9 +315,9 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 | --- | --- | --- | --- |
 | `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
-| `tech_pullback_cash_buffer` | QQQ 科技增强 | `InteractiveBrokersPlatform`, `LongBridgePlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
-| `hybrid_growth_income` | TQQQ 增长收益 | `CharlesSchwabPlatform`, `LongBridgePlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
-| `semiconductor_rotation_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
+| `qqq_tech_enhancement` | QQQ 科技增强 | `InteractiveBrokersPlatform`, `LongBridgePlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `tqqq_growth_income` | TQQQ 增长收益 | `CharlesSchwabPlatform`, `LongBridgePlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
+| `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
 这些策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口，被各个平台仓库引用。运行时和部署配置统一使用 canonical profile key。
 
@@ -476,7 +476,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
   --output-dir /tmp/r1000_backtest
 ```
 
-### hybrid_growth_income
+### tqqq_growth_income
 
 **策略目标**
 - 把增长、分红收入、闲置现金防守放进同一个档位里。
@@ -524,7 +524,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 - `ATR_EXIT_SCALE = 2.0`，`ATR_ENTRY_SCALE = 2.5`
 - `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`，`ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
 
-### semiconductor_rotation_income
+### soxl_soxx_trend_income
 
 **策略目标**
 - 用一套比 Schwab 档位更直接的半导体趋势切换逻辑。

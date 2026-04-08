@@ -29,7 +29,7 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
         managed_symbols_extractor=legacy_russell.extract_managed_symbols,
     ),
-    "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
+    "qqq_tech_enhancement": StrategyRuntimeAdapter(
         status_icon=legacy_tech_pullback.STATUS_ICON,
         available_inputs=frozenset({"feature_snapshot"}),
         required_feature_columns=legacy_tech_pullback.REQUIRED_FEATURE_COLUMNS,
@@ -40,7 +40,7 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         runtime_parameter_loader=legacy_tech_pullback.load_runtime_parameters,
         managed_symbols_extractor=legacy_tech_pullback.extract_managed_symbols,
     ),
-    "semiconductor_rotation_income": StrategyRuntimeAdapter(
+    "soxl_soxx_trend_income": StrategyRuntimeAdapter(
         status_icon="🐤",
         available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
         portfolio_input_name="portfolio_snapshot",
@@ -50,29 +50,29 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
 PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
     IBKR_PLATFORM: IBKR_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM: {
-        "hybrid_growth_income": StrategyRuntimeAdapter(
+        "tqqq_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
-        "semiconductor_rotation_income": StrategyRuntimeAdapter(
+        "soxl_soxx_trend_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
     },
     LONGBRIDGE_PLATFORM: {
-        "hybrid_growth_income": StrategyRuntimeAdapter(
+        "tqqq_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
-        "semiconductor_rotation_income": StrategyRuntimeAdapter(
+        "soxl_soxx_trend_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
-        "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
+        "qqq_tech_enhancement": StrategyRuntimeAdapter(
             status_icon=legacy_tech_pullback.STATUS_ICON,
             available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
             required_feature_columns=legacy_tech_pullback.REQUIRED_FEATURE_COLUMNS,

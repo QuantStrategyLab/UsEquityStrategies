@@ -21,10 +21,10 @@ class StrategyEntrypointTests(unittest.TestCase):
     def test_all_live_profiles_expose_unified_entrypoints(self) -> None:
         for profile in (
             "global_etf_rotation",
-            "hybrid_growth_income",
-            "semiconductor_rotation_income",
+            "tqqq_growth_income",
+            "soxl_soxx_trend_income",
             "russell_1000_multi_factor_defensive",
-            "tech_pullback_cash_buffer",
+            "qqq_tech_enhancement",
         ):
             entrypoint = get_strategy_entrypoint(profile)
             self.assertEqual(entrypoint.manifest.profile, profile)
@@ -70,7 +70,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
 
     def test_hybrid_growth_income_entrypoint_maps_target_values_without_platform_layout(self) -> None:
-        entrypoint = get_strategy_entrypoint("hybrid_growth_income")
+        entrypoint = get_strategy_entrypoint("tqqq_growth_income")
         qqq_history = [
             {
                 "close": 300.0 + day * 0.4,
@@ -129,7 +129,7 @@ class StrategyEntrypointTests(unittest.TestCase):
 
     def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
         for platform_id in ("schwab", "longbridge"):
-            adapter = get_platform_runtime_adapter("hybrid_growth_income", platform_id=platform_id)
+            adapter = get_platform_runtime_adapter("tqqq_growth_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
                 frozenset({"benchmark_history", "portfolio_snapshot"}),
@@ -137,7 +137,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
     def test_semiconductor_rotation_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
-        entrypoint = get_strategy_entrypoint("semiconductor_rotation_income")
+        entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
         indicators = {"soxl": {"price": 80.0, "ma_trend": 75.0}}
         account_state = {
             "available_cash": 10000.0,
@@ -206,7 +206,7 @@ class StrategyEntrypointTests(unittest.TestCase):
 
     def test_value_mode_semiconductor_runtime_adapters_use_canonical_inputs(self) -> None:
         for platform_id in ("schwab", "longbridge"):
-            adapter = get_platform_runtime_adapter("semiconductor_rotation_income", platform_id=platform_id)
+            adapter = get_platform_runtime_adapter("soxl_soxx_trend_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
                 frozenset({"derived_indicators", "portfolio_snapshot"}),
@@ -231,7 +231,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("BBB", {position.symbol for position in russell_decision.positions})
         self.assertEqual(russell_decision.diagnostics["signal_source"], "feature_snapshot")
 
-        tech = get_strategy_entrypoint("tech_pullback_cash_buffer")
+        tech = get_strategy_entrypoint("qqq_tech_enhancement")
         tech_decision = tech.evaluate(
             StrategyContext(
                 as_of="2026-04-01",
@@ -269,7 +269,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             ),
         )
 
-        tech_adapter = get_platform_runtime_adapter("tech_pullback_cash_buffer", platform_id="ibkr")
+        tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="ibkr")
         self.assertEqual(tech_adapter.status_icon, "🧲")
         self.assertEqual(tech_adapter.snapshot_date_columns, ("as_of", "snapshot_date"))
         self.assertTrue(tech_adapter.require_snapshot_manifest)
@@ -292,7 +292,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             )["runtime_config_name"],
             "tech_pullback_cash_buffer",
         )
-        longbridge_tech_adapter = get_platform_runtime_adapter("tech_pullback_cash_buffer", platform_id="longbridge")
+        longbridge_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="longbridge")
         self.assertEqual(
             longbridge_tech_adapter.available_inputs,
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
@@ -300,7 +300,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(longbridge_tech_adapter.portfolio_input_name, "portfolio_snapshot")
 
         semiconductor_ibkr_adapter = get_platform_runtime_adapter(
-            "semiconductor_rotation_income",
+            "soxl_soxx_trend_income",
             platform_id="ibkr",
         )
         self.assertEqual(
