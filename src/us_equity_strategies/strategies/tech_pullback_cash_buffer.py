@@ -33,7 +33,7 @@ DEFAULT_EXECUTION_CASH_RESERVE_RATIO = 0.0
 SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
 MAX_SNAPSHOT_MONTH_LAG = 1
 REQUIRE_SNAPSHOT_MANIFEST = True
-SNAPSHOT_CONTRACT_VERSION = "tech_pullback_cash_buffer.feature_snapshot.v1"
+SNAPSHOT_CONTRACT_VERSION = "qqq_tech_enhancement.feature_snapshot.v1"
 
 REQUIRED_FEATURE_COLUMNS = frozenset(
     {
