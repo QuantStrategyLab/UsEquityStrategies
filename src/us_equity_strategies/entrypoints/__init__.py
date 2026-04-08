@@ -111,6 +111,7 @@ legacy_hybrid_growth_income.build_rebalance_plan.__doc__ = (
 def evaluate_semiconductor_rotation_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(semiconductor_rotation_income_manifest.default_config, ctx)
     config.pop("managed_symbols", None)
+    config.pop("signal_text_fn", None)
     plan = legacy_semiconductor.build_rebalance_plan(
         require_market_data(ctx, "indicators"),
         require_market_data(ctx, "account_state"),
