@@ -57,6 +57,11 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
         ),
     },
     LONGBRIDGE_PLATFORM: {
+        "hybrid_growth_income": StrategyRuntimeAdapter(
+            status_icon="🐤",
+            available_inputs=frozenset({"qqq_history", "snapshot"}),
+            portfolio_input_name="snapshot",
+        ),
         "semiconductor_rotation_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"indicators", "account_state"}),
