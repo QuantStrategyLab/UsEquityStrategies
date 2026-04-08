@@ -28,7 +28,10 @@ class CatalogTest(unittest.TestCase):
 
         self.assertIn(HYBRID_GROWTH_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[HYBRID_GROWTH_INCOME_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(HYBRID_GROWTH_INCOME_PROFILE), frozenset({"schwab"}))
+        self.assertEqual(
+            get_compatible_platforms(HYBRID_GROWTH_INCOME_PROFILE),
+            frozenset({"schwab", "longbridge"}),
+        )
 
         self.assertIn(SEMICONDUCTOR_ROTATION_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].domain, "us_equity")
