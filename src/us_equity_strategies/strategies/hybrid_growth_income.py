@@ -1,4 +1,4 @@
-"""Allocation and plan helpers for CharlesSchwabPlatform."""
+"""Allocation and plan helpers for the unified value-mode growth income profile."""
 
 from __future__ import annotations
 

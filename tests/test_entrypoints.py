@@ -292,3 +292,19 @@ class StrategyEntrypointTests(unittest.TestCase):
             )["runtime_config_name"],
             "tech_pullback_cash_buffer",
         )
+        longbridge_tech_adapter = get_platform_runtime_adapter("tech_pullback_cash_buffer", platform_id="longbridge")
+        self.assertEqual(
+            longbridge_tech_adapter.available_inputs,
+            frozenset({"feature_snapshot", "portfolio_snapshot"}),
+        )
+        self.assertEqual(longbridge_tech_adapter.portfolio_input_name, "portfolio_snapshot")
+
+        semiconductor_ibkr_adapter = get_platform_runtime_adapter(
+            "semiconductor_rotation_income",
+            platform_id="ibkr",
+        )
+        self.assertEqual(
+            semiconductor_ibkr_adapter.available_inputs,
+            frozenset({"derived_indicators", "portfolio_snapshot"}),
+        )
+        self.assertEqual(semiconductor_ibkr_adapter.portfolio_input_name, "portfolio_snapshot")

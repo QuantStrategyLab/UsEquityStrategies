@@ -33,14 +33,17 @@ As of this document update, the platform status scripts show:
   - `global_etf_rotation`
   - `russell_1000_multi_factor_defensive`
   - `tech_pullback_cash_buffer`
+  - `semiconductor_rotation_income`
 - `schwab` enabled:
   - `hybrid_growth_income`
   - `semiconductor_rotation_income`
 - `longbridge` enabled:
   - `hybrid_growth_income`
   - `semiconductor_rotation_income`
+  - `tech_pullback_cash_buffer`
 
-That means the current profile split is still platform-shaped even though the shared strategy contract already exists.
+That means the shared contract has already spread beyond the original
+platform-shaped split, but coverage is still uneven by profile.
 
 ## Canonical end-state input vocabulary
 
@@ -69,11 +72,11 @@ All five current live profiles now use canonical `required_inputs` names at the 
 
 | Profile | Current `target_mode` | Current `required_inputs` | Current adapter coverage | Current enabled platforms | Intended canonical inputs | Main P2 contract gap | Follow-up after P2 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | `weight` | `market_history` | `ibkr` only | `ibkr` | `market_history` | strategy-facing input name is now canonical, but the current IBKR payload is still loader-shaped and adapter coverage is single-platform | P3/P4 add weight/value translation path and normalized market-history builders for `schwab` / `longbridge` |
-| `hybrid_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `schwab`, `longbridge` | `schwab`, `longbridge` | `benchmark_history` + `portfolio_snapshot` | strategy-facing contract is now canonical; remaining gap is platform coverage beyond the current two value-mode runtimes | P3/P4 add `ibkr` translation path and keep benchmark/portfolio builders canonical |
-| `semiconductor_rotation_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `schwab`, `longbridge` | `schwab`, `longbridge` | `derived_indicators` + `portfolio_snapshot` | strategy-facing contract is now canonical; remaining gap is platform coverage beyond the current two value-mode runtimes | P3/P4 add `ibkr` translation path and keep indicator/portfolio builders canonical |
+| `global_etf_rotation` | `weight` | `market_history` | `ibkr` only | `ibkr` | `market_history` | strategy-facing input name is now canonical, but the current IBKR payload is still loader-shaped and adapter coverage is still single-platform | P3/P4 add weight/value translation path and normalized market-history builders for `schwab` / `longbridge` |
+| `hybrid_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `schwab`, `longbridge` | `schwab`, `longbridge` | `benchmark_history` + `portfolio_snapshot` | strategy-facing contract is canonical; the main remaining gap is still missing `ibkr` adapter coverage | P3/P4 add `ibkr` translation path and keep benchmark/portfolio builders canonical |
+| `semiconductor_rotation_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `derived_indicators` + `portfolio_snapshot` | strategy-facing contract and runtime-adapter coverage are both canonical for the current three-platform scope | P3/P4 keep indicator/portfolio builders canonical and lock this state in CI |
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr` only | `ibkr` | `feature_snapshot` | input name is already canonical, but runtime adapter coverage is still single-platform | P3/P4 standardize artifact transport and add value-runtime paths for `schwab` / `longbridge` |
-| `tech_pullback_cash_buffer` | `weight` | `feature_snapshot` | `ibkr` only | `ibkr` | `feature_snapshot` | input name is already canonical, but runtime adapter coverage is still single-platform | P3/P4 standardize artifact transport and add value-runtime paths for `schwab` / `longbridge` |
+| `tech_pullback_cash_buffer` | `weight` | `feature_snapshot` | `ibkr`, `longbridge` | `ibkr`, `longbridge` | `feature_snapshot` | input name is canonical and runtime-adapter coverage now spans two runtimes; remaining gap is only `schwab` plus artifact rollout discipline | P3/P4 standardize artifact transport and decide whether `schwab` needs a value-runtime path |
 
 ## Current adapter details that matter for migration
 
@@ -96,19 +99,21 @@ All five current live profiles now use canonical `required_inputs` names at the 
   - `longbridge`: `portfolio_input_name="portfolio_snapshot"`
 - contract observation:
   - this profile now matches the canonical value-mode contract on strategy-facing inputs
-  - the remaining gap is future `ibkr` adapter coverage, not naming
+  - the remaining gap is still `ibkr` adapter coverage, not naming
 
 ### `semiconductor_rotation_income`
 
 - current adapter inputs:
+  - `ibkr`: `derived_indicators`, `portfolio_snapshot`
   - `schwab`: `derived_indicators`, `portfolio_snapshot`
   - `longbridge`: `derived_indicators`, `portfolio_snapshot`
 - current portfolio injection:
+  - `ibkr`: `portfolio_input_name="portfolio_snapshot"`
   - `schwab`: `portfolio_input_name="portfolio_snapshot"`
   - `longbridge`: `portfolio_input_name="portfolio_snapshot"`
 - contract observation:
   - this profile now matches the canonical value-mode contract on strategy-facing inputs
-  - the remaining gap is future `ibkr` adapter coverage, not naming
+  - adapter coverage is already aligned across the current three-platform runtime scope
 
 ### `russell_1000_multi_factor_defensive`
 
@@ -122,9 +127,11 @@ All five current live profiles now use canonical `required_inputs` names at the 
 
 - current adapter inputs:
   - `ibkr`: `feature_snapshot`
+  - `longbridge`: `feature_snapshot`, `portfolio_snapshot`
 - contract observation:
   - same contract shape as `russell_1000_multi_factor_defensive`
-  - the gap is not naming, but cross-platform adapter + artifact-delivery support
+  - the gap is no longer naming
+  - the remaining work is artifact-delivery discipline and any future `schwab` path
 
 ## Cross-profile conclusions
 
@@ -134,21 +141,27 @@ All five current live profiles now use canonical `required_inputs` names at the 
 - all five live profiles already expose metadata, manifest, and unified entrypoint
 - all five live profiles now use canonical `required_inputs` names at the strategy boundary
 - both feature-snapshot profiles already use the canonical artifact input name
+- `semiconductor_rotation_income` already has three-platform runtime-adapter coverage
+- `tech_pullback_cash_buffer` already spans `ibkr` and `longbridge`
 
 ### What still blocks the end state
 
-1. runtime-adapter coverage is still split by current platform ownership
-2. `global_etf_rotation` now uses the canonical `market_history` name, but the current IBKR payload is still a loader-shaped compatibility bridge
-3. none of the current live profiles yet represent the full three-platform end state in `runtime_adapters.py`
+1. `global_etf_rotation` still uses a loader-shaped `market_history` bridge on `ibkr`
+2. `hybrid_growth_income` still lacks an `ibkr` adapter path
+3. `russell_1000_multi_factor_defensive` is still `ibkr`-only
+4. feature-snapshot delivery still needs disciplined rollout and validation outside pure strategy code
 
 ## Recommended migration order after this document
 
 1. **P2 status**: all five live profiles now use canonical input names at the strategy boundary
-2. **P3**: add explicit execution translation rules for:
+2. **P3**: keep explicit execution translation rules in place for:
    - `weight -> value`
    - `value -> weight`
-3. **P4**: update platform input builders to emit canonical input names and normalize the `market_history` payload beyond the current IBKR loader bridge
-4. **P5**: migrate the five live profiles one by one with smoke coverage per platform
+3. **P4**: finish platform input builders so `market_history` is normalized beyond the current IBKR loader bridge and feature-snapshot transport stays portable
+4. **P5**: close the remaining profile-specific gaps:
+   - `hybrid_growth_income` on `ibkr`
+   - `russell_1000_multi_factor_defensive` outside `ibkr`
+   - any future `schwab` path for `tech_pullback_cash_buffer`
 
 ## Review rule for future PRs in this track
 

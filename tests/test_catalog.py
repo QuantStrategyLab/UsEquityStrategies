@@ -45,7 +45,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(SEMICONDUCTOR_ROTATION_INCOME_PROFILE),
-            frozenset({"longbridge", "schwab"}),
+            frozenset({"ibkr", "longbridge", "schwab"}),
         )
         self.assertEqual(
             catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].required_inputs,
@@ -58,7 +58,7 @@ class CatalogTest(unittest.TestCase):
 
         self.assertIn(TECH_PULLBACK_CASH_BUFFER_PROFILE, catalog)
         self.assertEqual(catalog[TECH_PULLBACK_CASH_BUFFER_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(TECH_PULLBACK_CASH_BUFFER_PROFILE), frozenset({"ibkr"}))
+        self.assertEqual(get_compatible_platforms(TECH_PULLBACK_CASH_BUFFER_PROFILE), frozenset({"ibkr", "longbridge"}))
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
@@ -123,7 +123,8 @@ class CatalogTest(unittest.TestCase):
         aliases = get_profile_aliases()
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
-        self.assertEqual(compatibility[TECH_PULLBACK_CASH_BUFFER_PROFILE], frozenset({"ibkr"}))
+        self.assertEqual(compatibility[TECH_PULLBACK_CASH_BUFFER_PROFILE], frozenset({"ibkr", "longbridge"}))
+        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].status, "runtime_enabled")
         self.assertEqual(get_strategy_definition("tech_pullback_cash_buffer").target_mode, "weight")
 
     def test_strategy_index_rows_are_human_readable(self):
@@ -132,7 +133,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["display_name"], "QQQ Tech Enhancement")
         self.assertEqual(by_profile[HYBRID_GROWTH_INCOME_PROFILE]["aliases"], ("qqq_tqqq_growth_income",))
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
-        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["compatible_platforms"], frozenset({"ibkr"}))
+        self.assertEqual(
+            by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["compatible_platforms"],
+            frozenset({"ibkr", "longbridge"}),
+        )
 
 
 class LegacyProfileCompatibilityTest(unittest.TestCase):
