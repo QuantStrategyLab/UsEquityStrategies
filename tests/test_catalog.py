@@ -24,7 +24,10 @@ class CatalogTest(unittest.TestCase):
         catalog = get_strategy_definitions()
         self.assertIn(GLOBAL_ETF_ROTATION_PROFILE, catalog)
         self.assertEqual(catalog[GLOBAL_ETF_ROTATION_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(GLOBAL_ETF_ROTATION_PROFILE), frozenset({"ibkr"}))
+        self.assertEqual(
+            get_compatible_platforms(GLOBAL_ETF_ROTATION_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
         self.assertEqual(
             catalog[GLOBAL_ETF_ROTATION_PROFILE].required_inputs,
             frozenset({"market_history"}),

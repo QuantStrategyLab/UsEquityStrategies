@@ -69,6 +69,15 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(adapter.available_inputs, frozenset({"market_history"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
 
+    def test_weight_mode_global_etf_runtime_adapters_use_portfolio_snapshot_on_value_native_platforms(self) -> None:
+        for platform_id in ("schwab", "longbridge"):
+            adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id=platform_id)
+            self.assertEqual(
+                adapter.available_inputs,
+                frozenset({"market_history", "portfolio_snapshot"}),
+            )
+            self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
+
     def test_tqqq_growth_income_entrypoint_maps_target_values_without_platform_layout(self) -> None:
         entrypoint = get_strategy_entrypoint("tqqq_growth_income")
         qqq_history = [
