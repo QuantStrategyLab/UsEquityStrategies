@@ -57,7 +57,7 @@ class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
             prices_path = tmp_path / "prices.csv"
             universe_path = tmp_path / "universe.csv"
             output_path = tmp_path / "snapshot.csv"
-            config_path = tmp_path / "tech_pullback_cash_buffer.json"
+            config_path = tmp_path / "qqq_tech_enhancement.json"
 
             _price_frame().to_csv(prices_path, index=False)
             universe_path.write_text(
@@ -67,7 +67,7 @@ class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
             config_path.write_text(
                 json.dumps(
                     {
-                        "name": "tech_pullback_cash_buffer",
+                        "name": "qqq_tech_enhancement",
                     }
                 ),
                 encoding="utf-8",

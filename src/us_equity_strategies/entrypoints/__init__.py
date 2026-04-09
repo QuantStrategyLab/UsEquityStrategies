@@ -267,20 +267,13 @@ qqq_tech_enhancement_entrypoint = CallableStrategyEntrypoint(
     _evaluate=evaluate_tech_pullback_cash_buffer,
 )
 
-hybrid_growth_income_entrypoint = tqqq_growth_income_entrypoint
-semiconductor_rotation_income_entrypoint = soxl_soxx_trend_income_entrypoint
-tech_pullback_cash_buffer_entrypoint = qqq_tech_enhancement_entrypoint
-
 
 __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
-    "hybrid_growth_income_entrypoint",
-    "semiconductor_rotation_income_entrypoint",
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
-    "tech_pullback_cash_buffer_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_hybrid_growth_income",
     "evaluate_semiconductor_rotation_income",
