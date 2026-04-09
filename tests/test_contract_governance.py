@@ -23,6 +23,19 @@ CANONICAL_REQUIRED_INPUTS = frozenset(
         "feature_snapshot",
     }
 )
+GOVERNED_REPO_ROOT = Path(__file__).resolve().parents[1]
+LEGACY_PROFILE_KEYS = (
+    "hybrid_growth_income",
+    "semiconductor_rotation_income",
+    "tech_pullback_cash_buffer",
+)
+LEGACY_PROFILE_KEY_ALLOWED_PATHS = frozenset(
+    {
+        "docs/us_equity_portability_checklist.md",
+        "tests/test_catalog.py",
+        "tests/test_contract_governance.py",
+    }
+)
 LIVE_PROFILE_LEGACY_ALIASES = {
     "tqqq_growth_income",
     "soxl_soxx_trend_income",
@@ -38,6 +51,27 @@ GOVERNED_SOURCE_ROOTS = (
     Path(__file__).resolve().parents[1] / "src" / "us_equity_strategies" / "strategies",
     Path(__file__).resolve().parents[1] / "src" / "us_equity_strategies" / "entrypoints",
 )
+
+
+def _iter_governed_repo_files(root: Path):
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if any(part in {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"} for part in path.parts):
+            continue
+        yield path
+
+
+def _find_legacy_profile_key_offenders(root: Path, *, allowed_paths: frozenset[str]) -> dict[str, tuple[str, ...]]:
+    offenders: dict[str, tuple[str, ...]] = {}
+    for path in _iter_governed_repo_files(root):
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        hits = tuple(key for key in LEGACY_PROFILE_KEYS if key in text)
+        if hits and rel not in allowed_paths:
+            offenders[rel] = hits
+    return offenders
+
 BANNED_SOURCE_SNIPPETS = (
     "os.getenv(",
     "os.environ",
@@ -123,6 +157,13 @@ class ContractGovernanceTests(unittest.TestCase):
         for profile in LIVE_PROFILE_LEGACY_ALIASES:
             with self.subTest(profile=profile):
                 self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, ())
+
+    def test_legacy_profile_keys_only_exist_in_explicit_rejection_tests(self) -> None:
+        offenders = _find_legacy_profile_key_offenders(
+            GOVERNED_REPO_ROOT,
+            allowed_paths=LEGACY_PROFILE_KEY_ALLOWED_PATHS,
+        )
+        self.assertEqual(offenders, {})
 
 
 if __name__ == "__main__":

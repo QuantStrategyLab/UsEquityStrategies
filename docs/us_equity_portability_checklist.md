@@ -82,13 +82,22 @@ Suggested evidence:
 - profile-specific regression tests
 - runtime smoke fixtures using normalized `StrategyContext`
 
-## 8. Eligible vs enabled
+## 8. Legacy profile-key policy
+
+- [ ] canonical profile keys are used everywhere in source, examples, docs, configs, and manifests
+- [ ] removed legacy keys appear only in explicit rejection tests
+- [ ] no new alias was added for a retired engineering name
+- [ ] migration compatibility, if absolutely needed, is documented as a temporary runtime bridge rather than hidden in catalog aliases
+
+Legacy keys such as `hybrid_growth_income`, `semiconductor_rotation_income`, and `tech_pullback_cash_buffer` should now be treated as retired names. They may remain only in negative tests that prove the old keys are rejected.
+
+## 9. Eligible vs enabled
 
 - [ ] PR notes say whether each platform is only `eligible` or also `enabled`
 - [ ] rollout allowlist changes are kept separate from portability logic
 - [ ] unsupported platforms are explained explicitly instead of being hidden in strategy code
 
-## 9. Reviewer sign-off summary
+## 10. Reviewer sign-off summary
 
 Paste a short note like this into the PR before merge:
 
