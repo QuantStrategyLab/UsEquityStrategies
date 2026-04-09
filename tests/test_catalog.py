@@ -58,7 +58,10 @@ class CatalogTest(unittest.TestCase):
 
         self.assertIn(QQQ_TECH_ENHANCEMENT_PROFILE, catalog)
         self.assertEqual(catalog[QQQ_TECH_ENHANCEMENT_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(QQQ_TECH_ENHANCEMENT_PROFILE), frozenset({"ibkr", "longbridge"}))
+        self.assertEqual(
+            get_compatible_platforms(QQQ_TECH_ENHANCEMENT_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
@@ -132,7 +135,10 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn("qqq_tech_enhancement", aliases)
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
-        self.assertEqual(compatibility[QQQ_TECH_ENHANCEMENT_PROFILE], frozenset({"ibkr", "longbridge"}))
+        self.assertEqual(
+            compatibility[QQQ_TECH_ENHANCEMENT_PROFILE],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
         self.assertEqual(
             compatibility[TQQQ_GROWTH_INCOME_PROFILE],
             frozenset({"ibkr", "schwab", "longbridge"}),
@@ -148,7 +154,7 @@ class CatalogTest(unittest.TestCase):
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
         self.assertEqual(
             by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
-            frozenset({"ibkr", "longbridge"}),
+            frozenset({"ibkr", "schwab", "longbridge"}),
         )
 
 

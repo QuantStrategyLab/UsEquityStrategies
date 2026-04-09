@@ -298,6 +298,12 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_tech_adapter.portfolio_input_name, "portfolio_snapshot")
+        schwab_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="schwab")
+        self.assertEqual(
+            schwab_tech_adapter.available_inputs,
+            frozenset({"feature_snapshot", "portfolio_snapshot"}),
+        )
+        self.assertEqual(schwab_tech_adapter.portfolio_input_name, "portfolio_snapshot")
 
         semiconductor_ibkr_adapter = get_platform_runtime_adapter(
             "soxl_soxx_trend_income",
