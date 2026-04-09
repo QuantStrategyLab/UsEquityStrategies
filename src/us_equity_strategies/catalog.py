@@ -183,12 +183,12 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     TQQQ_GROWTH_INCOME_PROFILE: _build_strategy_definition(
         TQQQ_GROWTH_INCOME_PROFILE,
         component_name="allocation",
-        module_path="us_equity_strategies.strategies.hybrid_growth_income",
+        module_path="us_equity_strategies.strategies.tqqq_growth_income",
     ),
     SOXL_SOXX_TREND_INCOME_PROFILE: _build_strategy_definition(
         SOXL_SOXX_TREND_INCOME_PROFILE,
         component_name="allocation",
-        module_path="us_equity_strategies.strategies.semiconductor_rotation_income",
+        module_path="us_equity_strategies.strategies.soxl_soxx_trend_income",
     ),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: _build_strategy_definition(
         RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
@@ -198,7 +198,7 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     QQQ_TECH_ENHANCEMENT_PROFILE: _build_strategy_definition(
         QQQ_TECH_ENHANCEMENT_PROFILE,
         component_name="signal_logic",
-        module_path="us_equity_strategies.strategies.tech_pullback_cash_buffer",
+        module_path="us_equity_strategies.strategies.qqq_tech_enhancement",
     ),
 }
 

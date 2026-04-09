@@ -24,7 +24,7 @@ def _skip_if_missing_numeric_stack() -> None:
 class StrategyPlanMetadataTest(unittest.TestCase):
     def test_hybrid_growth_income_exposes_execution_metadata(self):
         _skip_if_missing_numeric_stack()
-        from us_equity_strategies.strategies.hybrid_growth_income import (
+        from us_equity_strategies.strategies.tqqq_growth_income import (
             build_rebalance_plan as build_hybrid_plan,
         )
 
@@ -77,7 +77,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
 
     def test_semiconductor_rotation_income_exposes_execution_metadata(self):
         _skip_if_missing_numeric_stack()
-        from us_equity_strategies.strategies.semiconductor_rotation_income import (
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
             build_rebalance_plan as build_semiconductor_plan,
         )
 
