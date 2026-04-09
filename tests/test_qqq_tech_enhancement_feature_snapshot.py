@@ -23,9 +23,9 @@ def _price_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
+class QQQTechEnhancementFeatureSnapshotTest(unittest.TestCase):
     def test_build_feature_snapshot_filters_to_tech_sectors(self):
-        from us_equity_strategies.snapshots.tech_pullback_cash_buffer import build_feature_snapshot
+        from us_equity_strategies.snapshots.qqq_tech_enhancement import build_feature_snapshot
 
         snapshot = build_feature_snapshot(
             _price_frame(),
@@ -50,7 +50,7 @@ class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
         self.assertFalse(base_flags["BOXX"])
 
     def test_cli_writes_snapshot(self):
-        from scripts.generate_tech_pullback_cash_buffer_feature_snapshot import main
+        from scripts.generate_qqq_tech_enhancement_feature_snapshot import main
 
         with TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

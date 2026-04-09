@@ -96,9 +96,9 @@ def _feature_snapshot() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
+class QQQTechEnhancementStrategyTest(unittest.TestCase):
     def test_build_target_weights_is_geometry_honest(self):
-        from us_equity_strategies.strategies.tech_pullback_cash_buffer import build_target_weights
+        from us_equity_strategies.strategies.qqq_tech_enhancement import build_target_weights
 
         weights, signal, metadata = build_target_weights(
             _feature_snapshot(),
@@ -113,7 +113,7 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
         self.assertAlmostEqual(weights["BOXX"], 0.2, places=8)
 
     def test_compute_signals_noops_outside_execution_window(self):
-        from us_equity_strategies.strategies.tech_pullback_cash_buffer import compute_signals
+        from us_equity_strategies.strategies.qqq_tech_enhancement import compute_signals
 
         weights, _signal, _emergency, status_desc, metadata = compute_signals(
             _feature_snapshot(),
@@ -126,7 +126,7 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
         self.assertIn("no-op", status_desc)
 
     def test_load_runtime_parameters_reads_canonical_config(self):
-        from us_equity_strategies.strategies.tech_pullback_cash_buffer import load_runtime_parameters
+        from us_equity_strategies.strategies.qqq_tech_enhancement import load_runtime_parameters
 
         with TemporaryDirectory() as tmp_dir:
             config_path = Path(tmp_dir) / "qqq_tech_enhancement.json"

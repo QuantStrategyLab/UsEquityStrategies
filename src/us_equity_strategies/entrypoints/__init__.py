@@ -11,10 +11,10 @@ from us_equity_strategies.manifests import (
 )
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
-    hybrid_growth_income as legacy_hybrid_growth_income,
+    tqqq_growth_income as tqqq_growth_income_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
-    semiconductor_rotation_income as legacy_semiconductor,
-    tech_pullback_cash_buffer as legacy_tech_pullback,
+    soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
+    qqq_tech_enhancement as qqq_tech_enhancement_strategy,
 )
 
 from ._common import (
@@ -64,11 +64,11 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
-def evaluate_hybrid_growth_income(ctx: StrategyContext) -> StrategyDecision:
+def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
-    plan = legacy_hybrid_growth_income.build_rebalance_plan(
+    plan = tqqq_growth_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "benchmark_history"),
         require_portfolio(ctx),
         signal_text_fn=config.pop("signal_text_fn", default_signal_text_fn),
@@ -102,8 +102,8 @@ def evaluate_hybrid_growth_income(ctx: StrategyContext) -> StrategyDecision:
     )
 
 
-legacy_hybrid_growth_income.build_rebalance_plan.__doc__ = (
-    ((legacy_hybrid_growth_income.build_rebalance_plan.__doc__ or "").strip() +
+tqqq_growth_income_strategy.build_rebalance_plan.__doc__ = (
+    ((tqqq_growth_income_strategy.build_rebalance_plan.__doc__ or "").strip() +
      "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
     .strip()
 )
@@ -134,12 +134,12 @@ def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_sym
     }
 
 
-def evaluate_semiconductor_rotation_income(ctx: StrategyContext) -> StrategyDecision:
+def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
     portfolio = require_portfolio(ctx)
-    plan = legacy_semiconductor.build_rebalance_plan(
+    plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "derived_indicators"),
         _build_semiconductor_account_state_from_portfolio(
             portfolio,
@@ -177,8 +177,8 @@ def evaluate_semiconductor_rotation_income(ctx: StrategyContext) -> StrategyDeci
     )
 
 
-legacy_semiconductor.build_rebalance_plan.__doc__ = (
-    ((legacy_semiconductor.build_rebalance_plan.__doc__ or "").strip() +
+soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
+    ((soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ or "").strip() +
      "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
     .strip()
 )
@@ -212,10 +212,10 @@ legacy_russell.compute_signals.__doc__ = (
 )
 
 
-def evaluate_tech_pullback_cash_buffer(ctx: StrategyContext) -> StrategyDecision:
+def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
     config.pop("execution_cash_reserve_ratio", None)
-    weights, signal_desc, is_emergency, status_desc, metadata = legacy_tech_pullback.compute_signals(
+    weights, signal_desc, is_emergency, status_desc, metadata = qqq_tech_enhancement_strategy.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
         get_current_holdings(ctx),
         **config,
@@ -224,7 +224,7 @@ def evaluate_tech_pullback_cash_buffer(ctx: StrategyContext) -> StrategyDecision
         **metadata,
         "signal_description": signal_desc,
         "status_description": status_desc,
-        "signal_source": legacy_tech_pullback.SIGNAL_SOURCE,
+        "signal_source": qqq_tech_enhancement_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
     risk_flags: tuple[str, ...] = ()
@@ -239,8 +239,8 @@ def evaluate_tech_pullback_cash_buffer(ctx: StrategyContext) -> StrategyDecision
     )
 
 
-legacy_tech_pullback.compute_signals.__doc__ = (
-    ((legacy_tech_pullback.compute_signals.__doc__ or "").strip() +
+qqq_tech_enhancement_strategy.compute_signals.__doc__ = (
+    ((qqq_tech_enhancement_strategy.compute_signals.__doc__ or "").strip() +
      "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
     .strip()
 )
@@ -252,11 +252,11 @@ global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
 )
 tqqq_growth_income_entrypoint = CallableStrategyEntrypoint(
     manifest=tqqq_growth_income_manifest,
-    _evaluate=evaluate_hybrid_growth_income,
+    _evaluate=evaluate_tqqq_growth_income,
 )
 soxl_soxx_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=soxl_soxx_trend_income_manifest,
-    _evaluate=evaluate_semiconductor_rotation_income,
+    _evaluate=evaluate_soxl_soxx_trend_income,
 )
 russell_1000_multi_factor_defensive_entrypoint = CallableStrategyEntrypoint(
     manifest=russell_1000_multi_factor_defensive_manifest,
@@ -264,7 +264,7 @@ russell_1000_multi_factor_defensive_entrypoint = CallableStrategyEntrypoint(
 )
 qqq_tech_enhancement_entrypoint = CallableStrategyEntrypoint(
     manifest=qqq_tech_enhancement_manifest,
-    _evaluate=evaluate_tech_pullback_cash_buffer,
+    _evaluate=evaluate_qqq_tech_enhancement,
 )
 
 
@@ -275,8 +275,8 @@ __all__ = [
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "evaluate_global_etf_rotation",
-    "evaluate_hybrid_growth_income",
-    "evaluate_semiconductor_rotation_income",
+    "evaluate_tqqq_growth_income",
+    "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
-    "evaluate_tech_pullback_cash_buffer",
+    "evaluate_qqq_tech_enhancement",
 ]

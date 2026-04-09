@@ -8,7 +8,7 @@ from quant_platform_kit.strategy_contracts import (
 from us_equity_strategies.catalog import resolve_canonical_profile
 from us_equity_strategies.strategies import (
     russell_1000_multi_factor_defensive as legacy_russell,
-    tech_pullback_cash_buffer as legacy_tech_pullback,
+    qqq_tech_enhancement as qqq_tech_enhancement_strategy,
 )
 
 
@@ -30,15 +30,15 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         managed_symbols_extractor=legacy_russell.extract_managed_symbols,
     ),
     "qqq_tech_enhancement": StrategyRuntimeAdapter(
-        status_icon=legacy_tech_pullback.STATUS_ICON,
+        status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
         available_inputs=frozenset({"feature_snapshot"}),
-        required_feature_columns=legacy_tech_pullback.REQUIRED_FEATURE_COLUMNS,
-        snapshot_date_columns=legacy_tech_pullback.SNAPSHOT_DATE_COLUMNS,
-        max_snapshot_month_lag=legacy_tech_pullback.MAX_SNAPSHOT_MONTH_LAG,
-        require_snapshot_manifest=legacy_tech_pullback.REQUIRE_SNAPSHOT_MANIFEST,
-        snapshot_contract_version=legacy_tech_pullback.SNAPSHOT_CONTRACT_VERSION,
-        runtime_parameter_loader=legacy_tech_pullback.load_runtime_parameters,
-        managed_symbols_extractor=legacy_tech_pullback.extract_managed_symbols,
+        required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,
+        snapshot_date_columns=qqq_tech_enhancement_strategy.SNAPSHOT_DATE_COLUMNS,
+        max_snapshot_month_lag=qqq_tech_enhancement_strategy.MAX_SNAPSHOT_MONTH_LAG,
+        require_snapshot_manifest=qqq_tech_enhancement_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+        snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
+        runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
+        managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
     ),
     "soxl_soxx_trend_income": StrategyRuntimeAdapter(
         status_icon="🐤",
@@ -73,15 +73,15 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             portfolio_input_name="portfolio_snapshot",
         ),
         "qqq_tech_enhancement": StrategyRuntimeAdapter(
-            status_icon=legacy_tech_pullback.STATUS_ICON,
+            status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
             available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
-            required_feature_columns=legacy_tech_pullback.REQUIRED_FEATURE_COLUMNS,
-            snapshot_date_columns=legacy_tech_pullback.SNAPSHOT_DATE_COLUMNS,
-            max_snapshot_month_lag=legacy_tech_pullback.MAX_SNAPSHOT_MONTH_LAG,
-            require_snapshot_manifest=legacy_tech_pullback.REQUIRE_SNAPSHOT_MANIFEST,
-            snapshot_contract_version=legacy_tech_pullback.SNAPSHOT_CONTRACT_VERSION,
-            runtime_parameter_loader=legacy_tech_pullback.load_runtime_parameters,
-            managed_symbols_extractor=legacy_tech_pullback.extract_managed_symbols,
+            required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,
+            snapshot_date_columns=qqq_tech_enhancement_strategy.SNAPSHOT_DATE_COLUMNS,
+            max_snapshot_month_lag=qqq_tech_enhancement_strategy.MAX_SNAPSHOT_MONTH_LAG,
+            require_snapshot_manifest=qqq_tech_enhancement_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
+            runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
+            managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
             portfolio_input_name="portfolio_snapshot",
         ),
     },

@@ -80,7 +80,7 @@ class CatalogTest(unittest.TestCase):
         allocation_module = get_strategy_component_map(schwab_definition)["allocation"]
         self.assertEqual(
             allocation_module.module_path,
-            "us_equity_strategies.strategies.hybrid_growth_income",
+            "us_equity_strategies.strategies.tqqq_growth_income",
         )
 
         longbridge_definition = get_strategy_definition("soxl_soxx_trend_income")
@@ -88,7 +88,7 @@ class CatalogTest(unittest.TestCase):
         longbridge_module = get_strategy_component_map(longbridge_definition)["allocation"]
         self.assertEqual(
             longbridge_module.module_path,
-            "us_equity_strategies.strategies.semiconductor_rotation_income",
+            "us_equity_strategies.strategies.soxl_soxx_trend_income",
         )
 
         ibkr_definition = get_strategy_definition("russell_1000_multi_factor_defensive")
@@ -104,7 +104,7 @@ class CatalogTest(unittest.TestCase):
         cash_buffer_module = get_strategy_component_map(cash_buffer_definition)["signal_logic"]
         self.assertEqual(
             cash_buffer_module.module_path,
-            "us_equity_strategies.strategies.tech_pullback_cash_buffer",
+            "us_equity_strategies.strategies.qqq_tech_enhancement",
         )
 
     def test_aliases_resolve_to_canonical_profiles(self):

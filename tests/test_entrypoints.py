@@ -8,13 +8,13 @@ from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
 from us_equity_strategies.strategies.global_etf_rotation import compute_signals as legacy_global_compute_signals
-from us_equity_strategies.strategies.hybrid_growth_income import build_rebalance_plan as legacy_hybrid_build_rebalance_plan
-from us_equity_strategies.strategies.semiconductor_rotation_income import build_rebalance_plan as legacy_semiconductor_build_rebalance_plan
+from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
+from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan as soxl_soxx_trend_build_rebalance_plan
 from us_equity_strategies.strategies.russell_1000_multi_factor_defensive import extract_managed_symbols as legacy_russell_managed_symbols
-from us_equity_strategies.strategies.tech_pullback_cash_buffer import extract_managed_symbols as legacy_tech_managed_symbols
+from us_equity_strategies.strategies.qqq_tech_enhancement import extract_managed_symbols as qqq_tech_managed_symbols
 
 from tests.test_russell_1000_multi_factor_defensive import _normal_snapshot
-from tests.test_tech_pullback_cash_buffer import _feature_snapshot
+from tests.test_qqq_tech_enhancement import _feature_snapshot
 
 
 class StrategyEntrypointTests(unittest.TestCase):
@@ -69,7 +69,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(adapter.available_inputs, frozenset({"market_history"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
 
-    def test_hybrid_growth_income_entrypoint_maps_target_values_without_platform_layout(self) -> None:
+    def test_tqqq_growth_income_entrypoint_maps_target_values_without_platform_layout(self) -> None:
         entrypoint = get_strategy_entrypoint("tqqq_growth_income")
         qqq_history = [
             {
@@ -91,7 +91,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             ),
             metadata={"account_hash": "demo"},
         )
-        legacy_plan = legacy_hybrid_build_rebalance_plan(
+        legacy_plan = tqqq_growth_build_rebalance_plan(
             qqq_history,
             snapshot,
             signal_text_fn=str,
@@ -136,7 +136,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
-    def test_semiconductor_rotation_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
+    def test_soxl_soxx_trend_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
         indicators = {"soxl": {"price": 80.0, "ma_trend": 75.0}}
         account_state = {
@@ -146,7 +146,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 50, "QQQI": 10, "SPYI": 10},
             "total_strategy_equity": 50000.0,
         }
-        legacy_plan = legacy_semiconductor_build_rebalance_plan(
+        legacy_plan = soxl_soxx_trend_build_rebalance_plan(
             indicators,
             account_state,
             translator=lambda key, **kwargs: key,
@@ -279,7 +279,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 benchmark_symbol="QQQ",
                 safe_haven="BOXX",
             ),
-            legacy_tech_managed_symbols(
+            qqq_tech_managed_symbols(
                 _feature_snapshot(),
                 benchmark_symbol="QQQ",
                 safe_haven="BOXX",

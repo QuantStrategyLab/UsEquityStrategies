@@ -6,12 +6,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from us_equity_strategies.snapshots.tech_pullback_cash_buffer import (
+from us_equity_strategies.snapshots.qqq_tech_enhancement import (
     build_feature_snapshot,
     read_table,
     write_table,
 )
-from us_equity_strategies.strategies.tech_pullback_cash_buffer import (
+from us_equity_strategies.strategies.qqq_tech_enhancement import (
     PROFILE_NAME,
     SNAPSHOT_CONTRACT_VERSION,
 )
