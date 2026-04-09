@@ -60,6 +60,13 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             available_inputs=frozenset({"market_history", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
+        "russell_1000_multi_factor_defensive": StrategyRuntimeAdapter(
+            status_icon=legacy_russell.STATUS_ICON,
+            available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
+            managed_symbols_extractor=legacy_russell.extract_managed_symbols,
+            portfolio_input_name="portfolio_snapshot",
+        ),
         "tqqq_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
@@ -87,6 +94,13 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
         "global_etf_rotation": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"market_history", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
+        ),
+        "russell_1000_multi_factor_defensive": StrategyRuntimeAdapter(
+            status_icon=legacy_russell.STATUS_ICON,
+            available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
+            managed_symbols_extractor=legacy_russell.extract_managed_symbols,
             portfolio_input_name="portfolio_snapshot",
         ),
         "tqqq_growth_income": StrategyRuntimeAdapter(

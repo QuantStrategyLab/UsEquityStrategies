@@ -277,6 +277,17 @@ class StrategyEntrypointTests(unittest.TestCase):
                 safe_haven="BOXX",
             ),
         )
+        for platform_id in ("schwab", "longbridge"):
+            russell_value_native_adapter = get_platform_runtime_adapter(
+                "russell_1000_multi_factor_defensive",
+                platform_id=platform_id,
+            )
+            self.assertEqual(
+                russell_value_native_adapter.available_inputs,
+                frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            )
+            self.assertEqual(russell_value_native_adapter.portfolio_input_name, "portfolio_snapshot")
+            self.assertEqual(russell_value_native_adapter.status_icon, "📏")
 
         tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="ibkr")
         self.assertEqual(tech_adapter.status_icon, "🧲")

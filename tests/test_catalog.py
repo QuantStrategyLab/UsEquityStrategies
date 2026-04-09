@@ -57,7 +57,10 @@ class CatalogTest(unittest.TestCase):
 
         self.assertIn(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE, catalog)
         self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE), frozenset({"ibkr"}))
+        self.assertEqual(
+            get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
 
         self.assertIn(QQQ_TECH_ENHANCEMENT_PROFILE, catalog)
         self.assertEqual(catalog[QQQ_TECH_ENHANCEMENT_PROFILE].domain, "us_equity")
