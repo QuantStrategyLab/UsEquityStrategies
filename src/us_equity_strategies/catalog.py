@@ -14,7 +14,6 @@ from quant_platform_kit.common.strategies import (
     get_catalog_strategy_metadata,
     load_strategy_entrypoint,
     normalize_profile_name as qpk_normalize_profile_name,
-    resolve_catalog_profile,
 )
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
