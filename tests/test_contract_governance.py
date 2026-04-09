@@ -41,12 +41,28 @@ LIVE_PROFILE_LEGACY_ALIASES = {
     "soxl_soxx_trend_income",
     "qqq_tech_enhancement",
 }
+LIVE_US_EQUITY_FULL_MATRIX_PROFILES = frozenset(
+    {
+        "global_etf_rotation",
+        "tqqq_growth_income",
+        "soxl_soxx_trend_income",
+        "russell_1000_multi_factor_defensive",
+        "qqq_tech_enhancement",
+    }
+)
 ALLOWED_TARGET_MODES = frozenset({"weight", "value"})
 PLATFORM_NATIVE_TARGET_MODES = {
     IBKR_PLATFORM: "weight",
     SCHWAB_PLATFORM: "value",
     LONGBRIDGE_PLATFORM: "value",
 }
+FULL_MATRIX_PLATFORMS = frozenset(
+    {
+        IBKR_PLATFORM,
+        SCHWAB_PLATFORM,
+        LONGBRIDGE_PLATFORM,
+    }
+)
 GOVERNED_SOURCE_ROOTS = (
     Path(__file__).resolve().parents[1] / "src" / "us_equity_strategies" / "strategies",
     Path(__file__).resolve().parents[1] / "src" / "us_equity_strategies" / "entrypoints",
@@ -157,6 +173,15 @@ class ContractGovernanceTests(unittest.TestCase):
         for profile in LIVE_PROFILE_LEGACY_ALIASES:
             with self.subTest(profile=profile):
                 self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, ())
+
+    def test_live_us_equity_profiles_now_cover_the_full_three_platform_matrix(self) -> None:
+        for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES:
+            definition = STRATEGY_CATALOG.definitions[profile]
+            with self.subTest(profile=profile):
+                self.assertEqual(definition.supported_platforms, FULL_MATRIX_PLATFORMS)
+                for platform_id in FULL_MATRIX_PLATFORMS:
+                    adapter = get_platform_runtime_adapter(profile, platform_id=platform_id)
+                    self.assertLessEqual(definition.required_inputs, adapter.available_inputs)
 
     def test_legacy_profile_keys_only_exist_in_explicit_rejection_tests(self) -> None:
         offenders = _find_legacy_profile_key_offenders(
