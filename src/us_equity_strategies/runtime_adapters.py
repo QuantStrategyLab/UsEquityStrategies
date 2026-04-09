@@ -65,6 +65,18 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
+        "qqq_tech_enhancement": StrategyRuntimeAdapter(
+            status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
+            available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,
+            snapshot_date_columns=qqq_tech_enhancement_strategy.SNAPSHOT_DATE_COLUMNS,
+            max_snapshot_month_lag=qqq_tech_enhancement_strategy.MAX_SNAPSHOT_MONTH_LAG,
+            require_snapshot_manifest=qqq_tech_enhancement_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
+            runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
+            managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
+            portfolio_input_name="portfolio_snapshot",
+        ),
     },
     LONGBRIDGE_PLATFORM: {
         "tqqq_growth_income": StrategyRuntimeAdapter(
