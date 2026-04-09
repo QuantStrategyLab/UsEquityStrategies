@@ -23,10 +23,6 @@ SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
 QQQ_TECH_ENHANCEMENT_PROFILE = "qqq_tech_enhancement"
 
-HYBRID_GROWTH_INCOME_PROFILE = TQQQ_GROWTH_INCOME_PROFILE
-SEMICONDUCTOR_ROTATION_INCOME_PROFILE = SOXL_SOXX_TREND_INCOME_PROFILE
-TECH_PULLBACK_CASH_BUFFER_PROFILE = QQQ_TECH_ENHANCEMENT_PROFILE
-
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"ibkr"}),
@@ -224,7 +220,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=TQQQ_GROWTH_INCOME_PROFILE,
         display_name="TQQQ Growth Income",
         description="QQQ-led TQQQ attack sleeve with SPYI / QQQI income and BOXX defense.",
-        aliases=("hybrid_growth_income", "qqq_tqqq_growth_income"),
+        aliases=(),
         cadence="daily",
         asset_scope="us_equity_etf_plus_income",
         benchmark="QQQ",
@@ -235,7 +231,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=SOXL_SOXX_TREND_INCOME_PROFILE,
         display_name="SOXL/SOXX Semiconductor Trend Income",
         description="SOXL / SOXX semiconductor trend switch with BOXX parking and additive income sleeve.",
-        aliases=("semiconductor_rotation_income", "semiconductor_trend_income"),
+        aliases=(),
         cadence="daily",
         asset_scope="semiconductor_etf_plus_income",
         benchmark="SOXX",
@@ -257,7 +253,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=QQQ_TECH_ENHANCEMENT_PROFILE,
         display_name="QQQ Tech Enhancement",
         description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
-        aliases=("tech_pullback_cash_buffer",),
+        aliases=(),
         cadence="monthly",
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",
@@ -285,7 +281,11 @@ def normalize_profile_name(profile: str | None) -> str:
 
 
 def resolve_canonical_profile(profile: str | None) -> str:
-    return resolve_catalog_profile(profile, strategy_catalog=STRATEGY_CATALOG)
+    normalized = normalize_profile_name(profile)
+    if not normalized:
+        return normalized
+    definition = get_catalog_strategy_definition(STRATEGY_CATALOG, normalized)
+    return definition.profile
 
 
 def get_strategy_definitions() -> dict[str, StrategyDefinition]:

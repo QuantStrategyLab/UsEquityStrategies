@@ -12,7 +12,6 @@ import pandas as pd
 SIGNAL_SOURCE = "feature_snapshot"
 STATUS_ICON = "🧲"
 PROFILE_NAME = "qqq_tech_enhancement"
-LEGACY_PROFILE_NAMES = ("tech_pullback_cash_buffer",)
 BRANCH_ROLE = "cash-buffered parallel branch"
 BENCHMARK_SYMBOL = "QQQ"
 SAFE_HAVEN = "BOXX"
@@ -638,10 +637,8 @@ def load_runtime_parameters(
     if not config_file.exists():
         raise FileNotFoundError(f"Runtime strategy config not found: {config_file}")
     payload = json.loads(config_file.read_text(encoding="utf-8"))
-    config_name = str(payload.get("name") or "").strip()
-    if config_name not in {PROFILE_NAME, *LEGACY_PROFILE_NAMES}:
-        accepted = ", ".join((PROFILE_NAME, *LEGACY_PROFILE_NAMES))
-        raise ValueError(f"Runtime config name must be one of: {accepted}")
+    if str(payload.get("name") or "").strip() != PROFILE_NAME:
+        raise ValueError(f"Runtime config name must be {PROFILE_NAME!r}")
     if str(payload.get("family")).strip() != "tech_heavy_pullback":
         raise ValueError("Runtime config family must be 'tech_heavy_pullback'")
     if str(payload.get("branch_role")).strip() != BRANCH_ROLE:

@@ -23,6 +23,11 @@ CANONICAL_REQUIRED_INPUTS = frozenset(
         "feature_snapshot",
     }
 )
+LIVE_PROFILE_LEGACY_ALIASES = {
+    "tqqq_growth_income",
+    "soxl_soxx_trend_income",
+    "qqq_tech_enhancement",
+}
 ALLOWED_TARGET_MODES = frozenset({"weight", "value"})
 PLATFORM_NATIVE_TARGET_MODES = {
     IBKR_PLATFORM: "weight",
@@ -113,6 +118,11 @@ class ContractGovernanceTests(unittest.TestCase):
         for profile in STRATEGY_CATALOG.definitions:
             definition = STRATEGY_CATALOG.definitions[profile]
             self.assertEqual(definition.profile, profile)
+
+    def test_live_profiles_do_not_keep_legacy_aliases(self) -> None:
+        for profile in LIVE_PROFILE_LEGACY_ALIASES:
+            with self.subTest(profile=profile):
+                self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, ())
 
 
 if __name__ == "__main__":
