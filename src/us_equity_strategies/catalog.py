@@ -25,7 +25,7 @@ QQQ_TECH_ENHANCEMENT_PROFILE = "qqq_tech_enhancement"
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"ibkr"}),
-    TQQQ_GROWTH_INCOME_PROFILE: frozenset({"schwab", "longbridge"}),
+    TQQQ_GROWTH_INCOME_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"ibkr", "longbridge", "schwab"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"ibkr", "longbridge"}),

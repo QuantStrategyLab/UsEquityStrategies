@@ -128,7 +128,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
 
     def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
-        for platform_id in ("schwab", "longbridge"):
+        for platform_id in ("ibkr", "schwab", "longbridge"):
             adapter = get_platform_runtime_adapter("tqqq_growth_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
