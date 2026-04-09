@@ -55,6 +55,11 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
 PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
     IBKR_PLATFORM: IBKR_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM: {
+        "global_etf_rotation": StrategyRuntimeAdapter(
+            status_icon="🐤",
+            available_inputs=frozenset({"market_history", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
+        ),
         "tqqq_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
@@ -79,6 +84,11 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
         ),
     },
     LONGBRIDGE_PLATFORM: {
+        "global_etf_rotation": StrategyRuntimeAdapter(
+            status_icon="🐤",
+            available_inputs=frozenset({"market_history", "portfolio_snapshot"}),
+            portfolio_input_name="portfolio_snapshot",
+        ),
         "tqqq_growth_income": StrategyRuntimeAdapter(
             status_icon="🐤",
             available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
