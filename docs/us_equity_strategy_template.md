@@ -210,6 +210,7 @@ For **new** US equity profiles, `required_inputs` may only use these canonical n
 ### Rules
 
 - Do **not** add a new ad-hoc input name in `catalog.py`, `manifest`, or runtime adapters.
+- Do **not** introduce a new alias for a retired engineering profile key. If an old key has already been removed, keep it only in explicit rejection tests.
 - If the canonical list is insufficient, update the spec in `QuantPlatformKit` first.
 - Existing live profiles may still use legacy names during migration. New profiles should not copy those legacy names forward.
 
