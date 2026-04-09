@@ -290,7 +290,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 config_path=None,
                 logger=lambda _message: None,
             )["runtime_config_name"],
-            "tech_pullback_cash_buffer",
+            "qqq_tech_enhancement",
         )
         longbridge_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="longbridge")
         self.assertEqual(

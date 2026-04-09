@@ -146,7 +146,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
-    QQQ_TECH_ENHANCEMENT_PROFILE: "research/configs/growth_pullback_tech_pullback_cash_buffer.json",
+    QQQ_TECH_ENHANCEMENT_PROFILE: "research/configs/growth_pullback_qqq_tech_enhancement.json",
 }
 
 
