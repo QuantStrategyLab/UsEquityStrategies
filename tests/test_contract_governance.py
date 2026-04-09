@@ -57,7 +57,7 @@ def _iter_governed_repo_files(root: Path):
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
-        if any(part in {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"} for part in path.parts):
+        if any(part in {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "external"} for part in path.parts):
             continue
         yield path
 
