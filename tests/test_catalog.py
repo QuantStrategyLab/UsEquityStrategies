@@ -34,7 +34,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[TQQQ_GROWTH_INCOME_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(TQQQ_GROWTH_INCOME_PROFILE),
-            frozenset({"schwab", "longbridge"}),
+            frozenset({"ibkr", "schwab", "longbridge"}),
         )
         self.assertEqual(
             catalog[TQQQ_GROWTH_INCOME_PROFILE].required_inputs,
@@ -133,6 +133,10 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
         self.assertEqual(compatibility[QQQ_TECH_ENHANCEMENT_PROFILE], frozenset({"ibkr", "longbridge"}))
+        self.assertEqual(
+            compatibility[TQQQ_GROWTH_INCOME_PROFILE],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
         self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
 

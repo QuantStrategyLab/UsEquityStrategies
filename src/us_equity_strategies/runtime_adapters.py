@@ -40,6 +40,11 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
         managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
     ),
+    "tqqq_growth_income": StrategyRuntimeAdapter(
+        status_icon="🐤",
+        available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
+        portfolio_input_name="portfolio_snapshot",
+    ),
     "soxl_soxx_trend_income": StrategyRuntimeAdapter(
         status_icon="🐤",
         available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
