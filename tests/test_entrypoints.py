@@ -7,6 +7,7 @@ import pandas as pd
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
+from us_equity_strategies.runtime_adapters import describe_platform_runtime_requirements
 from us_equity_strategies.strategies.global_etf_rotation import compute_signals as legacy_global_compute_signals
 from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
 from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan as soxl_soxx_trend_build_rebalance_plan
@@ -144,6 +145,19 @@ class StrategyEntrypointTests(unittest.TestCase):
                 frozenset({"benchmark_history", "portfolio_snapshot"}),
             )
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
+
+    def test_runtime_requirements_classify_snapshot_and_non_snapshot_profiles(self) -> None:
+        tech = describe_platform_runtime_requirements("qqq_tech_enhancement", platform_id="schwab")
+        self.assertEqual(tech["profile_group"], "snapshot_backed")
+        self.assertEqual(tech["input_mode"], "feature_snapshot")
+        self.assertTrue(tech["requires_snapshot_artifacts"])
+        self.assertTrue(tech["requires_strategy_config_path"])
+
+        tqqq = describe_platform_runtime_requirements("tqqq_growth_income", platform_id="ibkr")
+        self.assertEqual(tqqq["profile_group"], "direct_runtime_inputs")
+        self.assertEqual(tqqq["input_mode"], "benchmark_history+portfolio_snapshot")
+        self.assertFalse(tqqq["requires_snapshot_artifacts"])
+        self.assertFalse(tqqq["requires_strategy_config_path"])
 
     def test_soxl_soxx_trend_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
