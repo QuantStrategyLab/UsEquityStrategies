@@ -683,6 +683,8 @@ def compute_signals(
     runtime_execution_window_trading_days: int = DEFAULT_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS,
     **kwargs,
 ):
+    kwargs.pop("translator", None)
+    kwargs.pop("signal_text_fn", None)
     managed_symbols = extract_managed_symbols(
         feature_snapshot,
         benchmark_symbol=kwargs.get("benchmark_symbol", BENCHMARK_SYMBOL),

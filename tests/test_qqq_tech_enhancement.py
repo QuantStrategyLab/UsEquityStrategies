@@ -125,6 +125,21 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
         self.assertIn("outside_monthly_execution_window", metadata["no_op_reason"])
         self.assertIn("no-op", status_desc)
 
+    def test_compute_signals_ignores_runtime_translator(self):
+        from us_equity_strategies.strategies.qqq_tech_enhancement import compute_signals
+
+        weights, _signal, _emergency, status_desc, metadata = compute_signals(
+            _feature_snapshot(),
+            current_holdings={"AAPL"},
+            run_as_of="2026-04-01",
+            translator=lambda key, **_kwargs: key,
+        )
+
+        self.assertIsNotNone(weights)
+        self.assertIn("regime=", status_desc)
+        self.assertEqual(metadata["selected_count"], 8)
+
+
     def test_load_runtime_parameters_reads_canonical_config(self):
         from us_equity_strategies.strategies.qqq_tech_enhancement import load_runtime_parameters
 
