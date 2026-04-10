@@ -5,7 +5,7 @@ from quant_platform_kit.strategy_contracts import (
     validate_strategy_runtime_adapter,
 )
 
-from us_equity_strategies.catalog import resolve_canonical_profile
+from us_equity_strategies.catalog import get_strategy_definition, resolve_canonical_profile
 from us_equity_strategies.strategies import (
     russell_1000_multi_factor_defensive as legacy_russell,
     qqq_tech_enhancement as qqq_tech_enhancement_strategy,
@@ -129,6 +129,35 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
 }
 
 
+def derive_runtime_input_mode(required_inputs: frozenset[str] | set[str] | tuple[str, ...]) -> str:
+    normalized = frozenset(str(value).strip() for value in required_inputs)
+    if normalized == frozenset({"market_history"}):
+        return "market_history"
+    if normalized == frozenset({"benchmark_history", "portfolio_snapshot"}):
+        return "benchmark_history+portfolio_snapshot"
+    if normalized == frozenset({"derived_indicators", "portfolio_snapshot"}):
+        return "derived_indicators+portfolio_snapshot"
+    if normalized == frozenset({"feature_snapshot"}):
+        return "feature_snapshot"
+    return "+".join(sorted(normalized)) or "none"
+
+
+def describe_platform_runtime_requirements(profile: str | None, *, platform_id: str) -> dict[str, object]:
+    canonical_profile = resolve_canonical_profile(profile)
+    definition = get_strategy_definition(canonical_profile)
+    adapter = get_platform_runtime_adapter(canonical_profile, platform_id=platform_id)
+    requires_snapshot_artifacts = "feature_snapshot" in frozenset(definition.required_inputs)
+    requires_strategy_config_path = bool(
+        requires_snapshot_artifacts and callable(adapter.runtime_parameter_loader)
+    )
+    return {
+        "input_mode": derive_runtime_input_mode(definition.required_inputs),
+        "requires_snapshot_artifacts": requires_snapshot_artifacts,
+        "requires_strategy_config_path": requires_strategy_config_path,
+        "profile_group": "snapshot_backed" if requires_snapshot_artifacts else "direct_runtime_inputs",
+    }
+
+
 def get_platform_runtime_adapter(profile: str | None, *, platform_id: str) -> StrategyRuntimeAdapter:
     canonical_profile = resolve_canonical_profile(profile)
     adapters = PLATFORM_RUNTIME_ADAPTERS.get(str(platform_id).strip().lower())
@@ -149,5 +178,7 @@ __all__ = [
     "LONGBRIDGE_PLATFORM",
     "IBKR_RUNTIME_ADAPTERS",
     "PLATFORM_RUNTIME_ADAPTERS",
+    "derive_runtime_input_mode",
+    "describe_platform_runtime_requirements",
     "get_platform_runtime_adapter",
 ]
