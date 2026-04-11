@@ -114,87 +114,31 @@ These strategies are consumed by platform repositories through `QuantPlatformKit
   - `as_of`, `symbol`, `sector`, `close`, `volume`, `adv20_usd`, `history_days`
   - `mom_6_1`, `mom_12_1`, `sma200_gap`, `vol_63`, `maxdd_126`, `eligible`
 
-**CLI task entry**
+**Snapshot pipeline ownership**
 
-Generate one snapshot directly:
+Feature-snapshot generation, Russell 1000 input preparation, ranking artifacts, and the research backtest CLI now live in `../UsEquitySnapshotPipelines`.
+This repo only owns the runtime strategy logic and catalog metadata.
 
-```bash
-PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
-  --prices /path/to/russell_1000_prices.csv \
-  --universe /path/to/russell_1000_universe.csv \
-  --output /path/to/r1000_feature_snapshot.csv \
-  --benchmark-symbol SPY
-```
-
-Or run the env-driven wrapper task:
+Use the upstream repo for artifact jobs:
 
 ```bash
-export R1000_PRICE_HISTORY_PATH=/path/to/russell_1000_prices.csv
-export R1000_UNIVERSE_PATH=/path/to/russell_1000_universe.csv
-export R1000_FEATURE_SNAPSHOT_PATH=/path/to/r1000_feature_snapshot.csv
-PYTHONPATH=src:. python3 scripts/run_russell_1000_snapshot_task.py
+cd ../UsEquitySnapshotPipelines
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/update_russell_1000_input_data.py \
+  --output-dir data/input/refreshed/r1000_official_monthly_v2_alias \
+  --universe-start 2018-01-01 \
+  --price-start 2018-01-01 \
+  --extra-symbols QQQ,SPY,BOXX
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/build_russell_1000_feature_snapshot.py \
+  --prices data/input/refreshed/r1000_official_monthly_v2_alias/r1000_price_history.csv \
+  --universe data/input/refreshed/r1000_official_monthly_v2_alias/r1000_universe_history.csv \
+  --output-dir data/output/russell_1000_multi_factor_defensive
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/backtest_russell_1000_multi_factor_defensive.py \
+  --prices data/input/refreshed/r1000_official_monthly_v2_alias/r1000_price_history.csv \
+  --universe data/input/refreshed/r1000_official_monthly_v2_alias/r1000_universe_history.csv \
+  --output-dir data/output/russell_1000_multi_factor_defensive_backtest
 ```
 
-Starter sample inputs live in:
-
-- `examples/russell_1000_snapshot/universe.sample.csv`
-- `examples/russell_1000_snapshot/prices.sample.csv`
-- `examples/russell_1000_universe_snapshots/`
-
-**Minimal backtest entry**
-
-```bash
-PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
-  --prices /path/to/russell_1000_prices.csv \
-  --universe /path/to/russell_1000_universe.csv \
-  --start 2018-01-01 \
-  --end 2025-12-31 \
-  --output-dir /path/to/backtest_outputs
-```
-
-The output directory will include:
-
-- `summary.csv`
-- `portfolio_returns.csv`
-- `weights_history.csv`
-- `turnover_history.csv`
-
-**End-to-end local research workflow**
-
-1. Build interval-form universe history from dated constituent snapshots:
-
-```bash
-PYTHONPATH=src:. python3 scripts/build_russell_1000_universe_history.py \
-  --input-dir examples/russell_1000_universe_snapshots \
-  --output /tmp/r1000_universe_history.csv
-```
-
-2. Fetch price history with Yahoo Finance:
-
-```bash
-PYTHONPATH=src:. python3 scripts/fetch_russell_1000_price_history.py \
-  --universe-history /tmp/r1000_universe_history.csv \
-  --output /tmp/r1000_price_history.csv \
-  --start 2024-01-01
-```
-
-3. Generate a latest feature snapshot:
-
-```bash
-PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
-  --prices /tmp/r1000_price_history.csv \
-  --universe /tmp/r1000_universe_history.csv \
-  --output /tmp/r1000_feature_snapshot.csv
-```
-
-4. Run the backtest:
-
-```bash
-PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
-  --prices /tmp/r1000_price_history.csv \
-  --universe /tmp/r1000_universe_history.csv \
-  --output-dir /tmp/r1000_backtest
-```
+The backtest output directory still includes `summary.csv`, `portfolio_returns.csv`, `weights_history.csv`, and `turnover_history.csv`.
 
 ### tqqq_growth_income
 
@@ -394,87 +338,31 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
   - `as_of`、`symbol`、`sector`、`close`、`volume`、`adv20_usd`、`history_days`
   - `mom_6_1`、`mom_12_1`、`sma200_gap`、`vol_63`、`maxdd_126`、`eligible`
 
-**命令行任务入口**
+**Snapshot 流水线归属**
 
-直接生成 snapshot：
+Feature snapshot 生成、Russell 1000 输入数据准备、ranking 产物和研究回测 CLI 已迁移到 `../UsEquitySnapshotPipelines`。
+本仓库只保留运行时策略逻辑和策略目录元数据。
 
-```bash
-PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
-  --prices /path/to/russell_1000_prices.csv \
-  --universe /path/to/russell_1000_universe.csv \
-  --output /path/to/r1000_feature_snapshot.csv \
-  --benchmark-symbol SPY
-```
-
-或者用环境变量包装脚本：
+产物任务请在上游仓库执行：
 
 ```bash
-export R1000_PRICE_HISTORY_PATH=/path/to/russell_1000_prices.csv
-export R1000_UNIVERSE_PATH=/path/to/russell_1000_universe.csv
-export R1000_FEATURE_SNAPSHOT_PATH=/path/to/r1000_feature_snapshot.csv
-PYTHONPATH=src:. python3 scripts/run_russell_1000_snapshot_task.py
+cd ../UsEquitySnapshotPipelines
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/update_russell_1000_input_data.py \
+  --output-dir data/input/refreshed/r1000_official_monthly_v2_alias \
+  --universe-start 2018-01-01 \
+  --price-start 2018-01-01 \
+  --extra-symbols QQQ,SPY,BOXX
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/build_russell_1000_feature_snapshot.py \
+  --prices data/input/refreshed/r1000_official_monthly_v2_alias/r1000_price_history.csv \
+  --universe data/input/refreshed/r1000_official_monthly_v2_alias/r1000_universe_history.csv \
+  --output-dir data/output/russell_1000_multi_factor_defensive
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/backtest_russell_1000_multi_factor_defensive.py \
+  --prices data/input/refreshed/r1000_official_monthly_v2_alias/r1000_price_history.csv \
+  --universe data/input/refreshed/r1000_official_monthly_v2_alias/r1000_universe_history.csv \
+  --output-dir data/output/russell_1000_multi_factor_defensive_backtest
 ```
 
-示例输入文件：
-
-- `examples/russell_1000_snapshot/universe.sample.csv`
-- `examples/russell_1000_snapshot/prices.sample.csv`
-- `examples/russell_1000_universe_snapshots/`
-
-**最小回测入口**
-
-```bash
-PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
-  --prices /path/to/russell_1000_prices.csv \
-  --universe /path/to/russell_1000_universe.csv \
-  --start 2018-01-01 \
-  --end 2025-12-31 \
-  --output-dir /path/to/backtest_outputs
-```
-
-输出目录默认会写：
-
-- `summary.csv`
-- `portfolio_returns.csv`
-- `weights_history.csv`
-- `turnover_history.csv`
-
-**本地完整研究流程**
-
-1. 先把带日期的成分股快照目录整理成 interval 历史：
-
-```bash
-PYTHONPATH=src:. python3 scripts/build_russell_1000_universe_history.py \
-  --input-dir examples/russell_1000_universe_snapshots \
-  --output /tmp/r1000_universe_history.csv
-```
-
-2. 再用 Yahoo Finance 拉价格历史：
-
-```bash
-PYTHONPATH=src:. python3 scripts/fetch_russell_1000_price_history.py \
-  --universe-history /tmp/r1000_universe_history.csv \
-  --output /tmp/r1000_price_history.csv \
-  --start 2024-01-01
-```
-
-3. 生成最新 feature snapshot：
-
-```bash
-PYTHONPATH=src:. python3 scripts/generate_russell_1000_feature_snapshot.py \
-  --prices /tmp/r1000_price_history.csv \
-  --universe /tmp/r1000_universe_history.csv \
-  --output /tmp/r1000_feature_snapshot.csv
-```
-
-4. 最后跑回测：
-
-```bash
-PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py \
-  --prices /tmp/r1000_price_history.csv \
-  --universe /tmp/r1000_universe_history.csv \
-  --output-dir /tmp/r1000_backtest
-```
+回测输出目录仍然会包含 `summary.csv`、`portfolio_returns.csv`、`weights_history.csv`、`turnover_history.csv`。
 
 ### tqqq_growth_income
 
