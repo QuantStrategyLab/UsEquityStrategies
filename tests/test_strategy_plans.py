@@ -133,6 +133,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
 
         self.assertEqual(plan["limit_order_symbols"], ("SOXL", "SOXX", "QQQI", "SPYI"))
+        self.assertEqual(plan["market_status"], "market_status_risk_on(asset=SOXL)")
+        self.assertEqual(plan["signal_message"], "signal_risk_on(ratio=59.4%, window=150)")
         self.assertEqual(
             plan["portfolio_rows"],
             (("SOXL", "SOXX"), ("QQQI", "SPYI"), ("BOXX",)),

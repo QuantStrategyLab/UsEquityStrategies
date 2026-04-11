@@ -3,6 +3,11 @@ from __future__ import annotations
 import numpy as np
 
 
+def _translate_with_fallback(translator, key, fallback, **kwargs):
+    rendered = translator(key, **kwargs)
+    return fallback if rendered == key else rendered
+
+
 def get_dynamic_allocation(
     total_equity_usd,
     *,
@@ -115,15 +120,22 @@ def build_rebalance_plan(
     soxl_price = indicators["soxl"]["price"]
     soxl_ma_trend = indicators["soxl"]["ma_trend"]
     active_risk_asset = "SOXL" if soxl_price > soxl_ma_trend else "SOXX"
-    market_status = (
+    market_status = _translate_with_fallback(
+        translator,
+        "market_status_risk_on" if active_risk_asset == "SOXL" else "market_status_delever",
         f"🚀 RISK-ON ({active_risk_asset})"
         if active_risk_asset == "SOXL"
-        else "🛡️ DE-LEVER (SOXX)"
+        else f"🛡️ DE-LEVER ({active_risk_asset})",
+        asset=active_risk_asset,
     )
-    signal_message = (
-        translator("signal_risk_on", window=trend_ma_window, ratio=deploy_ratio_text)
+    signal_message = _translate_with_fallback(
+        translator,
+        "signal_risk_on" if active_risk_asset == "SOXL" else "signal_delever",
+        f"SOXL above {trend_ma_window}d MA, hold SOXL, risk {deploy_ratio_text}"
         if active_risk_asset == "SOXL"
-        else translator("signal_delever", window=trend_ma_window, ratio=deploy_ratio_text)
+        else f"SOXL below {trend_ma_window}d MA, switch to SOXX, risk {deploy_ratio_text}",
+        window=trend_ma_window,
+        ratio=deploy_ratio_text,
     )
 
     targets = {
