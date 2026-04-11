@@ -10,20 +10,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Resolve QuantPlatformKit ref
         id: quant-platform-kit-ref
         run: |
           set -euo pipefail
           ref="main"
-          if [ -n "${GITHUB_HEAD_REF:-}" ] && git ls-remote --exit-code --heads https://github.com/QuantStrategyLab/QuantPlatformKit.git "${GITHUB_HEAD_REF}" >/dev/null 2>&1; then
-            ref="${GITHUB_HEAD_REF}"
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            case "${GITHUB_HEAD_REF}" in
+              dependabot/*)
+                ;;
+              *)
+                if git ls-remote --exit-code --heads https://github.com/QuantStrategyLab/QuantPlatformKit.git "${GITHUB_HEAD_REF}" >/dev/null 2>&1; then
+                  ref="${GITHUB_HEAD_REF}"
+                fi
+                ;;
+            esac
           fi
           echo "ref=${ref}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout QuantPlatformKit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
           ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}
