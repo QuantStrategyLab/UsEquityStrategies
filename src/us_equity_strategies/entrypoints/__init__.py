@@ -215,6 +215,10 @@ legacy_russell.compute_signals.__doc__ = (
 def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
     config.pop("execution_cash_reserve_ratio", None)
+    if ctx.portfolio is not None and "portfolio_total_equity" not in config:
+        total_equity = getattr(ctx.portfolio, "total_equity", None)
+        if total_equity is not None:
+            config["portfolio_total_equity"] = float(total_equity)
     weights, signal_desc, is_emergency, status_desc, metadata = qqq_tech_enhancement_strategy.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
         get_current_holdings(ctx),
