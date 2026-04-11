@@ -20,6 +20,9 @@ SAFE_HAVEN = "BOXX"
 DEFAULT_HOLDINGS_COUNT = 8
 DEFAULT_SINGLE_NAME_CAP = 0.10
 DEFAULT_SECTOR_CAP = 0.40
+DEFAULT_MIN_POSITION_VALUE_USD = 3_000.0
+DEFAULT_MAX_DYNAMIC_SINGLE_NAME_CAP = 0.40
+DEFAULT_MAX_DYNAMIC_SECTOR_CAP = 0.60
 DEFAULT_HOLD_BONUS = 0.10
 DEFAULT_RISK_ON_EXPOSURE = 0.80
 DEFAULT_SOFT_DEFENSE_EXPOSURE = 0.60
@@ -65,6 +68,10 @@ FEATURE_SIGNAL_KWARG_KEYS = (
     "holdings_count",
     "single_name_cap",
     "sector_cap",
+    "min_position_value_usd",
+    "max_dynamic_single_name_cap",
+    "max_dynamic_sector_cap",
+    "portfolio_total_equity",
     "hold_bonus",
     "risk_on_exposure",
     "soft_defense_exposure",
@@ -301,6 +308,39 @@ def _stock_exposure_for_regime(
     return float(risk_on_exposure)
 
 
+def _resolve_effective_position_limits(
+    *,
+    holdings_count: int,
+    single_name_cap: float,
+    sector_cap: float,
+    stock_exposure: float,
+    portfolio_total_equity: float | None,
+    min_position_value_usd: float,
+    max_dynamic_single_name_cap: float,
+    max_dynamic_sector_cap: float,
+) -> tuple[int, float, float, float | None]:
+    target_stock_value = None
+    if portfolio_total_equity is None or min_position_value_usd <= 0 or stock_exposure <= 0:
+        return holdings_count, float(single_name_cap), float(sector_cap), target_stock_value
+
+    target_stock_value = max(0.0, float(portfolio_total_equity) * float(stock_exposure))
+    if target_stock_value <= 0:
+        return holdings_count, float(single_name_cap), float(sector_cap), target_stock_value
+
+    count_by_value = max(1, int(math.floor(target_stock_value / float(min_position_value_usd))))
+    effective_holdings_count = max(1, min(int(holdings_count), count_by_value))
+    if effective_holdings_count >= holdings_count:
+        return effective_holdings_count, float(single_name_cap), float(sector_cap), target_stock_value
+
+    target_weight_per_name = float(stock_exposure) / float(effective_holdings_count)
+    effective_single_name_cap = max(
+        float(single_name_cap),
+        min(float(max_dynamic_single_name_cap), target_weight_per_name),
+    )
+    effective_sector_cap = max(float(sector_cap), float(max_dynamic_sector_cap))
+    return effective_holdings_count, effective_single_name_cap, effective_sector_cap, target_stock_value
+
+
 def build_target_weights(
     feature_snapshot,
     current_holdings,
@@ -310,6 +350,10 @@ def build_target_weights(
     holdings_count: int = DEFAULT_HOLDINGS_COUNT,
     single_name_cap: float = DEFAULT_SINGLE_NAME_CAP,
     sector_cap: float = DEFAULT_SECTOR_CAP,
+    min_position_value_usd: float = DEFAULT_MIN_POSITION_VALUE_USD,
+    max_dynamic_single_name_cap: float = DEFAULT_MAX_DYNAMIC_SINGLE_NAME_CAP,
+    max_dynamic_sector_cap: float = DEFAULT_MAX_DYNAMIC_SECTOR_CAP,
+    portfolio_total_equity: float | None = None,
     hold_bonus: float = DEFAULT_HOLD_BONUS,
     risk_on_exposure: float = DEFAULT_RISK_ON_EXPOSURE,
     soft_defense_exposure: float = DEFAULT_SOFT_DEFENSE_EXPOSURE,
@@ -329,6 +373,10 @@ def build_target_weights(
         raise ValueError("holdings_count must be positive")
     if single_name_cap <= 0 or sector_cap <= 0:
         raise ValueError("single_name_cap and sector_cap must be positive")
+    if min_position_value_usd < 0:
+        raise ValueError("min_position_value_usd must be non-negative")
+    if max_dynamic_single_name_cap <= 0 or max_dynamic_sector_cap <= 0:
+        raise ValueError("max dynamic caps must be positive")
 
     benchmark_symbol = str(benchmark_symbol or "").strip().upper()
     safe_haven = str(safe_haven or "").strip().upper()
@@ -360,6 +408,18 @@ def build_target_weights(
         soft_defense_exposure=float(soft_defense_exposure),
         hard_defense_exposure=float(hard_defense_exposure),
     )
+    effective_holdings_count, effective_single_name_cap, effective_sector_cap, target_stock_value = (
+        _resolve_effective_position_limits(
+            holdings_count=int(holdings_count),
+            single_name_cap=float(single_name_cap),
+            sector_cap=float(sector_cap),
+            stock_exposure=float(stock_exposure),
+            portfolio_total_equity=portfolio_total_equity,
+            min_position_value_usd=float(min_position_value_usd),
+            max_dynamic_single_name_cap=float(max_dynamic_single_name_cap),
+            max_dynamic_sector_cap=float(max_dynamic_sector_cap),
+        )
+    )
 
     if eligible_for_breadth.empty or stock_exposure <= 0:
         signal = (
@@ -377,6 +437,12 @@ def build_target_weights(
             "selected_symbols": (),
             "selected_count": 0,
             "candidate_count": int(len(eligible_for_breadth)),
+            "requested_holdings_count": int(holdings_count),
+            "effective_holdings_count": int(effective_holdings_count),
+            "target_stock_value": target_stock_value,
+            "min_position_value_usd": float(min_position_value_usd),
+            "effective_single_name_cap": float(effective_single_name_cap),
+            "effective_sector_cap": float(effective_sector_cap),
             "runtime_config_name": runtime_config_name,
             "runtime_config_path": runtime_config_path,
             "runtime_config_source": runtime_config_source,
@@ -410,6 +476,12 @@ def build_target_weights(
             "selected_symbols": (),
             "selected_count": 0,
             "candidate_count": 0,
+            "requested_holdings_count": int(holdings_count),
+            "effective_holdings_count": int(effective_holdings_count),
+            "target_stock_value": target_stock_value,
+            "min_position_value_usd": float(min_position_value_usd),
+            "effective_single_name_cap": float(effective_single_name_cap),
+            "effective_sector_cap": float(effective_sector_cap),
             "runtime_config_name": runtime_config_name,
             "runtime_config_path": runtime_config_path,
             "runtime_config_source": runtime_config_source,
@@ -421,8 +493,12 @@ def build_target_weights(
         ascending=[False, False, False, True],
     )
 
-    per_name_target = stock_exposure / max(holdings_count, 1)
-    sector_slot_cap = holdings_count if per_name_target <= 0 else max(1, int(math.floor(float(sector_cap) / per_name_target)))
+    per_name_target = stock_exposure / max(effective_holdings_count, 1)
+    sector_slot_cap = (
+        effective_holdings_count
+        if per_name_target <= 0
+        else max(1, int(math.floor(float(effective_sector_cap) / per_name_target)))
+    )
     selected_rows = []
     sector_counts: dict[str, int] = {}
     for row in ranked.itertuples(index=False):
@@ -431,7 +507,7 @@ def build_target_weights(
             continue
         selected_rows.append(row._asdict())
         sector_counts[sector] = sector_counts.get(sector, 0) + 1
-        if len(selected_rows) >= holdings_count:
+        if len(selected_rows) >= effective_holdings_count:
             break
     selected = pd.DataFrame(selected_rows)
     if selected.empty:
@@ -447,13 +523,19 @@ def build_target_weights(
             "selected_count": 0,
             "candidate_count": int(len(scored)),
             "sector_slot_cap": sector_slot_cap,
+            "requested_holdings_count": int(holdings_count),
+            "effective_holdings_count": int(effective_holdings_count),
+            "target_stock_value": target_stock_value,
+            "min_position_value_usd": float(min_position_value_usd),
+            "effective_single_name_cap": float(effective_single_name_cap),
+            "effective_sector_cap": float(effective_sector_cap),
             "runtime_config_name": runtime_config_name,
             "runtime_config_path": runtime_config_path,
             "runtime_config_source": runtime_config_source,
             "residual_proxy": residual_proxy,
         }
 
-    per_name_weight = min(float(single_name_cap), stock_exposure / len(selected))
+    per_name_weight = min(float(effective_single_name_cap), stock_exposure / len(selected))
     invested_weight = float(per_name_weight * len(selected))
     safe_haven_weight = max(0.0, float(1.0 - invested_weight))
     weights = {row.symbol: float(per_name_weight) for row in selected.itertuples(index=False)}
@@ -482,6 +564,12 @@ def build_target_weights(
         "selected_count": int(len(selected)),
         "candidate_count": int(len(scored)),
         "sector_slot_cap": sector_slot_cap,
+        "requested_holdings_count": int(holdings_count),
+        "effective_holdings_count": int(effective_holdings_count),
+        "target_stock_value": target_stock_value,
+        "min_position_value_usd": float(min_position_value_usd),
+        "effective_single_name_cap": float(effective_single_name_cap),
+        "effective_sector_cap": float(effective_sector_cap),
         "runtime_config_name": runtime_config_name,
         "runtime_config_path": runtime_config_path,
         "runtime_config_source": runtime_config_source,
@@ -614,6 +702,9 @@ def load_runtime_parameters(
         "holdings_count": DEFAULT_HOLDINGS_COUNT,
         "single_name_cap": DEFAULT_SINGLE_NAME_CAP,
         "sector_cap": DEFAULT_SECTOR_CAP,
+        "min_position_value_usd": DEFAULT_MIN_POSITION_VALUE_USD,
+        "max_dynamic_single_name_cap": DEFAULT_MAX_DYNAMIC_SINGLE_NAME_CAP,
+        "max_dynamic_sector_cap": DEFAULT_MAX_DYNAMIC_SECTOR_CAP,
         "hold_bonus": DEFAULT_HOLD_BONUS,
         "risk_on_exposure": DEFAULT_RISK_ON_EXPOSURE,
         "soft_defense_exposure": DEFAULT_SOFT_DEFENSE_EXPOSURE,
@@ -656,6 +747,11 @@ def load_runtime_parameters(
             "holdings_count": int(payload.get("holdings_count", DEFAULT_HOLDINGS_COUNT)),
             "single_name_cap": float(payload.get("single_name_cap", DEFAULT_SINGLE_NAME_CAP)),
             "sector_cap": float(payload.get("sector_cap", DEFAULT_SECTOR_CAP)),
+            "min_position_value_usd": float(payload.get("min_position_value_usd", DEFAULT_MIN_POSITION_VALUE_USD)),
+            "max_dynamic_single_name_cap": float(
+                payload.get("max_dynamic_single_name_cap", DEFAULT_MAX_DYNAMIC_SINGLE_NAME_CAP)
+            ),
+            "max_dynamic_sector_cap": float(payload.get("max_dynamic_sector_cap", DEFAULT_MAX_DYNAMIC_SECTOR_CAP)),
             "hold_bonus": float(payload.get("hold_bonus", DEFAULT_HOLD_BONUS)),
             "risk_on_exposure": float(exposures.get("risk_on", DEFAULT_RISK_ON_EXPOSURE)),
             "soft_defense_exposure": float(exposures.get("soft_defense", DEFAULT_SOFT_DEFENSE_EXPOSURE)),

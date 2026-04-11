@@ -112,6 +112,25 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
         self.assertEqual(len(metadata["selected_symbols"]), 8)
         self.assertAlmostEqual(weights["BOXX"], 0.2, places=8)
 
+    def test_build_target_weights_reduces_holdings_for_small_accounts(self):
+        from us_equity_strategies.strategies.qqq_tech_enhancement import build_target_weights
+
+        weights, signal, metadata = build_target_weights(
+            _feature_snapshot(),
+            current_holdings={"AAPL"},
+            portfolio_total_equity=10_000.0,
+        )
+
+        self.assertIn("target_stock=80.0%", signal)
+        self.assertEqual(metadata["requested_holdings_count"], 8)
+        self.assertEqual(metadata["effective_holdings_count"], 2)
+        self.assertEqual(metadata["selected_count"], 2)
+        self.assertAlmostEqual(metadata["target_stock_value"], 8_000.0, places=8)
+        self.assertAlmostEqual(metadata["effective_single_name_cap"], 0.4, places=8)
+        self.assertAlmostEqual(metadata["effective_sector_cap"], 0.6, places=8)
+        self.assertAlmostEqual(metadata["realized_stock_weight"], 0.8, places=8)
+        self.assertAlmostEqual(weights["BOXX"], 0.2, places=8)
+
     def test_compute_signals_noops_outside_execution_window(self):
         from us_equity_strategies.strategies.qqq_tech_enhancement import compute_signals
 
@@ -155,6 +174,9 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
                         "holdings_count": 8,
                         "single_name_cap": 0.10,
                         "sector_cap": 0.40,
+                        "min_position_value_usd": 3000.0,
+                        "max_dynamic_single_name_cap": 0.40,
+                        "max_dynamic_sector_cap": 0.60,
                         "hold_bonus": 0.10,
                         "min_adv20_usd": 50_000_000.0,
                         "normalization": "universe_cross_sectional",
@@ -175,6 +197,9 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
         self.assertEqual(params["runtime_config_name"], "tech_communication_pullback_enhancement")
         self.assertEqual(params["sector_whitelist"], ("Information Technology", "Communication"))
         self.assertEqual(params["execution_cash_reserve_ratio"], 0.0)
+        self.assertEqual(params["min_position_value_usd"], 3000.0)
+        self.assertEqual(params["max_dynamic_single_name_cap"], 0.40)
+        self.assertEqual(params["max_dynamic_sector_cap"], 0.60)
 
 
 if __name__ == "__main__":

@@ -259,12 +259,20 @@ class StrategyEntrypointTests(unittest.TestCase):
             StrategyContext(
                 as_of="2026-04-01",
                 market_data={"feature_snapshot": _feature_snapshot()},
+                portfolio=PortfolioSnapshot(
+                    as_of="2026-04-01",
+                    total_equity=10_000.0,
+                    buying_power=10_000.0,
+                    cash_balance=10_000.0,
+                    positions=(),
+                ),
                 state={"current_holdings": {"AAPL"}},
             )
             )
         self.assertIn("BOXX", {position.symbol for position in tech_decision.positions})
         self.assertNotIn("portfolio_rows", tech_decision.diagnostics)
         self.assertEqual(tech_decision.diagnostics["signal_source"], "feature_snapshot")
+        self.assertEqual(tech_decision.diagnostics["effective_holdings_count"], 2)
 
     def test_ibkr_runtime_adapters_expose_unified_snapshot_runtime_metadata(self) -> None:
         global_adapter = get_platform_runtime_adapter("global_macro_etf_rotation", platform_id="ibkr")
