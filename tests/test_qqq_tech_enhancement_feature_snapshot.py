@@ -23,9 +23,9 @@ def _price_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
+class QQQTechEnhancementFeatureSnapshotTest(unittest.TestCase):
     def test_build_feature_snapshot_filters_to_tech_sectors(self):
-        from us_equity_strategies.snapshots.tech_pullback_cash_buffer import build_feature_snapshot
+        from us_equity_strategies.snapshots.qqq_tech_enhancement import build_feature_snapshot
 
         snapshot = build_feature_snapshot(
             _price_frame(),
@@ -50,14 +50,14 @@ class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
         self.assertFalse(base_flags["BOXX"])
 
     def test_cli_writes_snapshot(self):
-        from scripts.generate_tech_pullback_cash_buffer_feature_snapshot import main
+        from scripts.generate_qqq_tech_enhancement_feature_snapshot import main
 
         with TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             prices_path = tmp_path / "prices.csv"
             universe_path = tmp_path / "universe.csv"
             output_path = tmp_path / "snapshot.csv"
-            config_path = tmp_path / "tech_pullback_cash_buffer.json"
+            config_path = tmp_path / "tech_communication_pullback_enhancement.json"
 
             _price_frame().to_csv(prices_path, index=False)
             universe_path.write_text(
@@ -67,7 +67,7 @@ class CashBufferBranchFeatureSnapshotTest(unittest.TestCase):
             config_path.write_text(
                 json.dumps(
                     {
-                        "name": "tech_pullback_cash_buffer",
+                        "name": "tech_communication_pullback_enhancement",
                     }
                 ),
                 encoding="utf-8",

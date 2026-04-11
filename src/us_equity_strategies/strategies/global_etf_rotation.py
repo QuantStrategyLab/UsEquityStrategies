@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
+from importlib import import_module
 from typing import Callable
 
 import numpy as np
 import pandas as pd
-import pandas_market_calendars as mcal
 import pytz
 
 RANKING_POOL = [
@@ -40,6 +40,35 @@ SMA_PERIOD = 200
 HOLD_BONUS = 0.02
 CANARY_BAD_THRESHOLD = 4
 REBALANCE_MONTHS = {3, 6, 9, 12}
+
+
+def _load_nyse_calendar():
+    try:
+        module = import_module("pandas_market_calendars")
+    except Exception:
+        return None
+    try:
+        return module.get_calendar("NYSE")
+    except Exception:
+        return None
+
+
+def _is_rebalance_day(now_ny: datetime, *, rebalance_months) -> bool:
+    if now_ny.month not in rebalance_months:
+        return False
+
+    month_start = pd.Timestamp(now_ny.date()).replace(day=1)
+    month_end = month_start + pd.offsets.MonthEnd(0)
+    calendar = _load_nyse_calendar()
+    if calendar is None:
+        last_trading_day = pd.bdate_range(start=month_start, end=month_end)[-1].date()
+        return now_ny.date() == last_trading_day
+
+    schedule = calendar.schedule(start_date=month_start, end_date=month_end)
+    if schedule.empty:
+        return False
+    last_trading_day = pd.Timestamp(schedule.index[-1]).date()
+    return now_ny.date() == last_trading_day
 
 
 def compute_13612w_momentum(closes: pd.Series, as_of_date=None) -> float:
@@ -128,15 +157,7 @@ def compute_signals(
 
     tz_ny = pytz.timezone("America/New_York")
     now_ny = datetime.now(tz_ny)
-    nyse = mcal.get_calendar("NYSE")
-    is_rebal_day = False
-    if now_ny.month in rebalance_months:
-        month_start = now_ny.replace(day=1)
-        month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-        schedule = nyse.schedule(start_date=month_start, end_date=month_end)
-        if not schedule.empty:
-            last_trading_day = schedule.index[-1].date()
-            is_rebal_day = now_ny.date() == last_trading_day
+    is_rebal_day = _is_rebalance_day(now_ny, rebalance_months=rebalance_months)
 
     if not is_rebal_day:
         signal_desc = translator("daily_check")

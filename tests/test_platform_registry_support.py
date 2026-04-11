@@ -9,7 +9,7 @@ from us_equity_strategies.platform_registry_support import (
 
 class PlatformRegistrySupportTest(unittest.TestCase):
     def test_get_enabled_profiles_for_platform_filters_by_platform(self):
-        enabled = frozenset({"tech_pullback_cash_buffer"})
+        enabled = frozenset({"tech_communication_pullback_enhancement"})
         self.assertEqual(
             get_enabled_profiles_for_platform(
                 "ibkr",
@@ -30,27 +30,40 @@ class PlatformRegistrySupportTest(unittest.TestCase):
     def test_build_platform_profile_matrix_uses_metadata(self):
         rows = build_platform_profile_matrix(
             platform_id="ibkr",
-            enabled_profiles=frozenset({"tech_pullback_cash_buffer"}),
+            enabled_profiles=frozenset({"tech_communication_pullback_enhancement"}),
             default_profile="global_etf_rotation",
             rollback_profile="global_etf_rotation",
         )
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["canonical_profile"], "tech_pullback_cash_buffer")
-        self.assertEqual(rows[0]["display_name"], "Tech Pullback Cash Buffer")
-        self.assertEqual(rows[0]["aliases"], ())
+        self.assertEqual(rows[0]["canonical_profile"], "tech_communication_pullback_enhancement")
+        self.assertEqual(rows[0]["display_name"], "Tech/Communication Pullback Enhancement")
+        self.assertEqual(rows[0]["aliases"], ("qqq_tech_enhancement",))
         self.assertFalse(rows[0]["is_default"])
         self.assertFalse(rows[0]["is_rollback"])
 
     def test_resolve_platform_strategy_definition_supports_canonical_profile(self):
         definition = resolve_platform_strategy_definition(
-            "tech_pullback_cash_buffer",
+            "tech_communication_pullback_enhancement",
             platform_id="ibkr",
             expected_platform_id="ibkr",
-            enabled_profiles=frozenset({"tech_pullback_cash_buffer"}),
+            enabled_profiles=frozenset({"tech_communication_pullback_enhancement"}),
             platform_supported_domains={"ibkr": frozenset({"us_equity"})},
             require_explicit=True,
         )
-        self.assertEqual(definition.profile, "tech_pullback_cash_buffer")
+        self.assertEqual(definition.profile, "tech_communication_pullback_enhancement")
+
+
+class PlatformRegistryAliasSupportTest(unittest.TestCase):
+    def test_resolve_platform_strategy_definition_supports_legacy_alias(self):
+        definition = resolve_platform_strategy_definition(
+            "qqq_tech_enhancement",
+            platform_id="ibkr",
+            expected_platform_id="ibkr",
+            enabled_profiles=frozenset({"tech_communication_pullback_enhancement"}),
+            platform_supported_domains={"ibkr": frozenset({"us_equity"})},
+            require_explicit=True,
+        )
+        self.assertEqual(definition.profile, "tech_communication_pullback_enhancement")
 
 
 if __name__ == "__main__":

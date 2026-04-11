@@ -22,10 +22,10 @@ def _skip_if_missing_numeric_stack() -> None:
 
 
 class StrategyPlanMetadataTest(unittest.TestCase):
-    def test_hybrid_growth_income_exposes_execution_metadata(self):
+    def test_tqqq_growth_income_exposes_execution_metadata(self):
         _skip_if_missing_numeric_stack()
-        from us_equity_strategies.strategies.hybrid_growth_income import (
-            build_rebalance_plan as build_hybrid_plan,
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
         )
 
         qqq_history = [
@@ -46,7 +46,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             metadata={"account_hash": "acct-1"},
         )
 
-        plan = build_hybrid_plan(
+        plan = build_tqqq_plan(
             qqq_history,
             snapshot,
             signal_text_fn=lambda icon: icon,
@@ -75,10 +75,10 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["cash_sweep_symbol"], "BOXX")
         self.assertEqual(plan["portfolio_rows"], (("TQQQ", "BOXX"), ("QQQI", "SPYI")))
 
-    def test_semiconductor_rotation_income_exposes_execution_metadata(self):
+    def test_soxl_soxx_trend_income_exposes_execution_metadata(self):
         _skip_if_missing_numeric_stack()
-        from us_equity_strategies.strategies.semiconductor_rotation_income import (
-            build_rebalance_plan as build_semiconductor_plan,
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            build_rebalance_plan as build_soxl_soxx_plan,
         )
 
         indicators = {
@@ -113,7 +113,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "total_strategy_equity": 26000.0,
         }
 
-        plan = build_semiconductor_plan(
+        plan = build_soxl_soxx_plan(
             indicators,
             account_state,
             trend_ma_window=150,

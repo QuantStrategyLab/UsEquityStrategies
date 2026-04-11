@@ -3,11 +3,11 @@ import unittest
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
-    TECH_PULLBACK_CASH_BUFFER_PROFILE,
     GLOBAL_ETF_ROTATION_PROFILE,
-    HYBRID_GROWTH_INCOME_PROFILE,
+    QQQ_TECH_ENHANCEMENT_PROFILE,
+    TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-    SEMICONDUCTOR_ROTATION_INCOME_PROFILE,
+    SOXL_SOXX_TREND_INCOME_PROFILE,
     get_compatible_platforms,
     get_profile_aliases,
     get_strategy_index_rows,
@@ -24,23 +24,50 @@ class CatalogTest(unittest.TestCase):
         catalog = get_strategy_definitions()
         self.assertIn(GLOBAL_ETF_ROTATION_PROFILE, catalog)
         self.assertEqual(catalog[GLOBAL_ETF_ROTATION_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(GLOBAL_ETF_ROTATION_PROFILE), frozenset({"ibkr"}))
+        self.assertEqual(
+            get_compatible_platforms(GLOBAL_ETF_ROTATION_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+        self.assertEqual(
+            catalog[GLOBAL_ETF_ROTATION_PROFILE].required_inputs,
+            frozenset({"market_history"}),
+        )
 
-        self.assertIn(HYBRID_GROWTH_INCOME_PROFILE, catalog)
-        self.assertEqual(catalog[HYBRID_GROWTH_INCOME_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(HYBRID_GROWTH_INCOME_PROFILE), frozenset({"schwab"}))
+        self.assertIn(TQQQ_GROWTH_INCOME_PROFILE, catalog)
+        self.assertEqual(catalog[TQQQ_GROWTH_INCOME_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            get_compatible_platforms(TQQQ_GROWTH_INCOME_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+        self.assertEqual(
+            catalog[TQQQ_GROWTH_INCOME_PROFILE].required_inputs,
+            frozenset({"benchmark_history", "portfolio_snapshot"}),
+        )
 
-        self.assertIn(SEMICONDUCTOR_ROTATION_INCOME_PROFILE, catalog)
-        self.assertEqual(catalog[SEMICONDUCTOR_ROTATION_INCOME_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(SEMICONDUCTOR_ROTATION_INCOME_PROFILE), frozenset({"longbridge"}))
+        self.assertIn(SOXL_SOXX_TREND_INCOME_PROFILE, catalog)
+        self.assertEqual(catalog[SOXL_SOXX_TREND_INCOME_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            get_compatible_platforms(SOXL_SOXX_TREND_INCOME_PROFILE),
+            frozenset({"ibkr", "longbridge", "schwab"}),
+        )
+        self.assertEqual(
+            catalog[SOXL_SOXX_TREND_INCOME_PROFILE].required_inputs,
+            frozenset({"derived_indicators", "portfolio_snapshot"}),
+        )
 
         self.assertIn(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE, catalog)
         self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE), frozenset({"ibkr"}))
+        self.assertEqual(
+            get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
 
-        self.assertIn(TECH_PULLBACK_CASH_BUFFER_PROFILE, catalog)
-        self.assertEqual(catalog[TECH_PULLBACK_CASH_BUFFER_PROFILE].domain, "us_equity")
-        self.assertEqual(get_compatible_platforms(TECH_PULLBACK_CASH_BUFFER_PROFILE), frozenset({"ibkr"}))
+        self.assertIn(QQQ_TECH_ENHANCEMENT_PROFILE, catalog)
+        self.assertEqual(catalog[QQQ_TECH_ENHANCEMENT_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            get_compatible_platforms(QQQ_TECH_ENHANCEMENT_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
@@ -57,20 +84,20 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.global_etf_rotation",
         )
 
-        schwab_definition = get_strategy_definition("hybrid_growth_income")
-        self.assertEqual(schwab_definition.profile, HYBRID_GROWTH_INCOME_PROFILE)
+        schwab_definition = get_strategy_definition("tqqq_growth_income")
+        self.assertEqual(schwab_definition.profile, TQQQ_GROWTH_INCOME_PROFILE)
         allocation_module = get_strategy_component_map(schwab_definition)["allocation"]
         self.assertEqual(
             allocation_module.module_path,
-            "us_equity_strategies.strategies.hybrid_growth_income",
+            "us_equity_strategies.strategies.tqqq_growth_income",
         )
 
-        longbridge_definition = get_strategy_definition("semiconductor_rotation_income")
-        self.assertEqual(longbridge_definition.profile, SEMICONDUCTOR_ROTATION_INCOME_PROFILE)
+        longbridge_definition = get_strategy_definition("soxl_soxx_trend_income")
+        self.assertEqual(longbridge_definition.profile, SOXL_SOXX_TREND_INCOME_PROFILE)
         longbridge_module = get_strategy_component_map(longbridge_definition)["allocation"]
         self.assertEqual(
             longbridge_module.module_path,
-            "us_equity_strategies.strategies.semiconductor_rotation_income",
+            "us_equity_strategies.strategies.soxl_soxx_trend_income",
         )
 
         ibkr_definition = get_strategy_definition("russell_1000_multi_factor_defensive")
@@ -81,39 +108,60 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
         )
 
-        cash_buffer_definition = get_strategy_definition("tech_pullback_cash_buffer")
-        self.assertEqual(cash_buffer_definition.profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
+        cash_buffer_definition = get_strategy_definition("qqq_tech_enhancement")
+        self.assertEqual(cash_buffer_definition.profile, QQQ_TECH_ENHANCEMENT_PROFILE)
         cash_buffer_module = get_strategy_component_map(cash_buffer_definition)["signal_logic"]
         self.assertEqual(
             cash_buffer_module.module_path,
-            "us_equity_strategies.strategies.tech_pullback_cash_buffer",
+            "us_equity_strategies.strategies.qqq_tech_enhancement",
         )
 
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
         self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
-        self.assertEqual(resolve_canonical_profile("qqq_tqqq_growth_income"), HYBRID_GROWTH_INCOME_PROFILE)
-        self.assertEqual(resolve_canonical_profile("semiconductor_trend_income"), SEMICONDUCTOR_ROTATION_INCOME_PROFILE)
-        self.assertEqual(get_strategy_definition("tech_pullback_cash_buffer").profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
+        self.assertEqual(get_strategy_definition("qqq_tech_enhancement").profile, QQQ_TECH_ENHANCEMENT_PROFILE)
+        for legacy_profile in (
+            "hybrid_growth_income",
+            "qqq_tqqq_growth_income",
+            "semiconductor_rotation_income",
+            "semiconductor_trend_income",
+            "tech_pullback_cash_buffer",
+        ):
+            with self.subTest(profile=legacy_profile):
+                with self.assertRaises(ValueError):
+                    resolve_canonical_profile(legacy_profile)
 
     def test_metadata_map_exposes_display_names_and_roles(self):
         metadata_map = get_strategy_metadata_map()
-        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].display_name, "Tech Pullback Cash Buffer")
-        self.assertEqual(metadata_map[TECH_PULLBACK_CASH_BUFFER_PROFILE].role, "parallel_cash_buffer_branch")
+        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].display_name, "Tech/Communication Pullback Enhancement")
+        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].role, "parallel_cash_buffer_branch")
         self.assertEqual(metadata_map[GLOBAL_ETF_ROTATION_PROFILE].benchmark, "VOO")
-        self.assertEqual(get_strategy_metadata("tech_pullback_cash_buffer").canonical_profile, TECH_PULLBACK_CASH_BUFFER_PROFILE)
+        self.assertEqual(get_strategy_metadata("qqq_tech_enhancement").canonical_profile, QQQ_TECH_ENHANCEMENT_PROFILE)
         aliases = get_profile_aliases()
+        self.assertEqual(aliases["qqq_tech_enhancement"], QQQ_TECH_ENHANCEMENT_PROFILE)
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
-        self.assertEqual(compatibility[TECH_PULLBACK_CASH_BUFFER_PROFILE], frozenset({"ibkr"}))
+        self.assertEqual(
+            compatibility[QQQ_TECH_ENHANCEMENT_PROFILE],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+        self.assertEqual(
+            compatibility[TQQQ_GROWTH_INCOME_PROFILE],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
+        self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
 
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}
-        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["display_name"], "Tech Pullback Cash Buffer")
-        self.assertEqual(by_profile[HYBRID_GROWTH_INCOME_PROFILE]["aliases"], ("qqq_tqqq_growth_income",))
+        self.assertEqual(by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["display_name"], "Tech/Communication Pullback Enhancement")
+        self.assertEqual(by_profile[TQQQ_GROWTH_INCOME_PROFILE]["aliases"], ())
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
-        self.assertEqual(by_profile[TECH_PULLBACK_CASH_BUFFER_PROFILE]["compatible_platforms"], frozenset({"ibkr"}))
+        self.assertEqual(
+            by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
 
 
 class LegacyProfileCompatibilityTest(unittest.TestCase):

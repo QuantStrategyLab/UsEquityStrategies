@@ -11,15 +11,33 @@ Standalone `us_equity` strategy repository for QuantStrategyLab platforms.
 
 This repository is the strategy layer: it owns pure signal, allocation, and target-computation logic plus strategy metadata. Downstream platform repositories still own broker adapters, order routing, schedule, secrets, and notifications.
 
+### Contract boundary
+
+The current integration path is:
+
+- live profiles expose manifest-backed unified entrypoints
+- downstream platforms load those entrypoints through `QuantPlatformKit`
+- strategy outputs stay inside the shared `StrategyDecision` contract
+- broker-specific execution order, UI rows, and notification layout stay in platform repositories
+
+Legacy strategy functions may still exist as internal adapters, but downstream runtimes should treat `entrypoints/` and manifests as the supported integration surface.
+
+### Authoring and portability guides
+
+- [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md): template for adding a new US equity profile in this repository.
+- [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md): reviewer checklist before enabling a profile on broker runtimes.
+- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): current live-profile contract gaps versus the cross-platform target.
+- [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md): fixed canonical input contract for the two current value-mode profiles.
+
 ### Strategy index
 
 | Canonical profile | Display name | Compatible platforms | Cadence | Benchmark | Role | Status |
-| --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation Defense | `InteractiveBrokersPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
-| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor Defensive | `InteractiveBrokersPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `tech_pullback_cash_buffer` | Tech Pullback Cash Buffer | `InteractiveBrokersPlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `paper_dry_run` |
-| `hybrid_growth_income` | QQQ/TQQQ Growth Income | `CharlesSchwabPlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
-| `semiconductor_rotation_income` | Semiconductor Trend Income | `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
+| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `tqqq_growth_income` | TQQQ Growth Income | `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
+| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
 These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
 
@@ -178,7 +196,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
   --output-dir /tmp/r1000_backtest
 ```
 
-### hybrid_growth_income
+### tqqq_growth_income
 
 **Objective**
 - Combine growth exposure, income production, and idle-cash defense in one profile.
@@ -226,7 +244,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 - `ATR_EXIT_SCALE = 2.0`, `ATR_ENTRY_SCALE = 2.5`
 - `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`, `ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
 
-### semiconductor_rotation_income
+### soxl_soxx_trend_income
 
 **Objective**
 - Use a simpler semiconductor trend switch than the Schwab profile.
@@ -273,15 +291,33 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 
 这个仓库负责**纯策略层**：信号、仓位、目标权重计算，以及策略元数据。下游平台仓库继续负责券商适配、下单方式、调度、密钥和通知。
 
+### 契约边界
+
+当前主线集成方式已经固定为：
+
+- live profile 暴露 manifest 驱动的统一 entrypoint
+- 下游平台通过 `QuantPlatformKit` 加载这些 entrypoint
+- 策略输出保持在共享 `StrategyDecision` 契约内
+- 券商专属执行顺序、UI 展示行和通知布局继续留在平台仓库
+
+旧策略函数可以继续作为仓库内部 adapter 存在，但下游运行时应把 `entrypoints/` 和 manifest 当成正式接入面。
+
+### 编写与可移植性文档
+
+- [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md)：新增美股策略时使用的模板文档。
+- [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
+- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：当前 5 条 live profile 距离跨平台目标契约的差异矩阵。
+- [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
+
 ### 策略索引
 
-| Canonical profile | 显示名 | 当前下游运行仓库 | 核心思路 |
+| Canonical profile | 显示名 | 兼容平台仓库 | 核心思路 |
 | --- | --- | --- | --- |
-| `global_etf_rotation` | 全球 ETF 轮动防守 | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
-| `russell_1000_multi_factor_defensive` | Russell 1000 多因子防守 | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
-| `tech_pullback_cash_buffer` | 科技回调现金缓冲分支 | `InteractiveBrokersPlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
-| `hybrid_growth_income` | QQQ/TQQQ 增长收入混合 | `CharlesSchwabPlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
-| `semiconductor_rotation_income` | 半导体趋势收入增强 | `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
+| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
+| `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
+| `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `LongBridgePlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `tqqq_growth_income` | TQQQ 增长收益 | `CharlesSchwabPlatform`, `LongBridgePlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
+| `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
 这些策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口，被各个平台仓库引用。运行时和部署配置统一使用 canonical profile key。
 
@@ -440,7 +476,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
   --output-dir /tmp/r1000_backtest
 ```
 
-### hybrid_growth_income
+### tqqq_growth_income
 
 **策略目标**
 - 把增长、分红收入、闲置现金防守放进同一个档位里。
@@ -488,7 +524,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 - `ATR_EXIT_SCALE = 2.0`，`ATR_ENTRY_SCALE = 2.5`
 - `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`，`ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
 
-### semiconductor_rotation_income
+### soxl_soxx_trend_income
 
 **策略目标**
 - 用一套比 Schwab 档位更直接的半导体趋势切换逻辑。

@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from us_equity_strategies.strategies.tech_pullback_cash_buffer import (
+from us_equity_strategies.strategies.qqq_tech_enhancement import (
     BENCHMARK_SYMBOL,
     DEFAULT_MIN_ADV20_USD,
     DEFAULT_SECTOR_WHITELIST,

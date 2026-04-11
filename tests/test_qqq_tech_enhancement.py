@@ -96,9 +96,9 @@ def _feature_snapshot() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
+class QQQTechEnhancementStrategyTest(unittest.TestCase):
     def test_build_target_weights_is_geometry_honest(self):
-        from us_equity_strategies.strategies.tech_pullback_cash_buffer import build_target_weights
+        from us_equity_strategies.strategies.qqq_tech_enhancement import build_target_weights
 
         weights, signal, metadata = build_target_weights(
             _feature_snapshot(),
@@ -112,8 +112,27 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
         self.assertEqual(len(metadata["selected_symbols"]), 8)
         self.assertAlmostEqual(weights["BOXX"], 0.2, places=8)
 
+    def test_build_target_weights_reduces_holdings_for_small_accounts(self):
+        from us_equity_strategies.strategies.qqq_tech_enhancement import build_target_weights
+
+        weights, signal, metadata = build_target_weights(
+            _feature_snapshot(),
+            current_holdings={"AAPL"},
+            portfolio_total_equity=10_000.0,
+        )
+
+        self.assertIn("target_stock=80.0%", signal)
+        self.assertEqual(metadata["requested_holdings_count"], 8)
+        self.assertEqual(metadata["effective_holdings_count"], 2)
+        self.assertEqual(metadata["selected_count"], 2)
+        self.assertAlmostEqual(metadata["target_stock_value"], 8_000.0, places=8)
+        self.assertAlmostEqual(metadata["effective_single_name_cap"], 0.4, places=8)
+        self.assertAlmostEqual(metadata["effective_sector_cap"], 0.6, places=8)
+        self.assertAlmostEqual(metadata["realized_stock_weight"], 0.8, places=8)
+        self.assertAlmostEqual(weights["BOXX"], 0.2, places=8)
+
     def test_compute_signals_noops_outside_execution_window(self):
-        from us_equity_strategies.strategies.tech_pullback_cash_buffer import compute_signals
+        from us_equity_strategies.strategies.qqq_tech_enhancement import compute_signals
 
         weights, _signal, _emergency, status_desc, metadata = compute_signals(
             _feature_snapshot(),
@@ -125,21 +144,39 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
         self.assertIn("outside_monthly_execution_window", metadata["no_op_reason"])
         self.assertIn("no-op", status_desc)
 
+    def test_compute_signals_ignores_runtime_translator(self):
+        from us_equity_strategies.strategies.qqq_tech_enhancement import compute_signals
+
+        weights, _signal, _emergency, status_desc, metadata = compute_signals(
+            _feature_snapshot(),
+            current_holdings={"AAPL"},
+            run_as_of="2026-04-01",
+            translator=lambda key, **_kwargs: key,
+        )
+
+        self.assertIsNotNone(weights)
+        self.assertIn("regime=", status_desc)
+        self.assertEqual(metadata["selected_count"], 8)
+
+
     def test_load_runtime_parameters_reads_canonical_config(self):
-        from us_equity_strategies.strategies.tech_pullback_cash_buffer import load_runtime_parameters
+        from us_equity_strategies.strategies.qqq_tech_enhancement import load_runtime_parameters
 
         with TemporaryDirectory() as tmp_dir:
-            config_path = Path(tmp_dir) / "tech_pullback_cash_buffer.json"
+            config_path = Path(tmp_dir) / "tech_communication_pullback_enhancement.json"
             config_path.write_text(
                 json.dumps(
                     {
-                        "name": "tech_pullback_cash_buffer",
+                        "name": "tech_communication_pullback_enhancement",
                         "family": "tech_heavy_pullback",
                         "branch_role": "cash-buffered parallel branch",
                         "benchmark_symbol": "QQQ",
                         "holdings_count": 8,
                         "single_name_cap": 0.10,
                         "sector_cap": 0.40,
+                        "min_position_value_usd": 3000.0,
+                        "max_dynamic_single_name_cap": 0.40,
+                        "max_dynamic_sector_cap": 0.60,
                         "hold_bonus": 0.10,
                         "min_adv20_usd": 50_000_000.0,
                         "normalization": "universe_cross_sectional",
@@ -157,9 +194,12 @@ class CashBufferBranchDefaultStrategyTest(unittest.TestCase):
             params = load_runtime_parameters(config_path=config_path)
 
         self.assertEqual(params["runtime_config_source"], "external_config")
-        self.assertEqual(params["runtime_config_name"], "tech_pullback_cash_buffer")
+        self.assertEqual(params["runtime_config_name"], "tech_communication_pullback_enhancement")
         self.assertEqual(params["sector_whitelist"], ("Information Technology", "Communication"))
         self.assertEqual(params["execution_cash_reserve_ratio"], 0.0)
+        self.assertEqual(params["min_position_value_usd"], 3000.0)
+        self.assertEqual(params["max_dynamic_single_name_cap"], 0.40)
+        self.assertEqual(params["max_dynamic_sector_cap"], 0.60)
 
 
 if __name__ == "__main__":
