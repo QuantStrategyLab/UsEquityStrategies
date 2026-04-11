@@ -139,7 +139,7 @@ russell_1000_multi_factor_defensive_manifest = _manifest(
 
 qqq_tech_enhancement_manifest = _manifest(
     profile="qqq_tech_enhancement",
-    display_name="QQQ Tech Enhancement",
+    display_name="Tech/Communication Pullback Enhancement",
     description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
     aliases=(),
     required_inputs=frozenset({"feature_snapshot"}),

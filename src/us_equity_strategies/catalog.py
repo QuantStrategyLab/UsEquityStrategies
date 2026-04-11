@@ -250,7 +250,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     ),
     QQQ_TECH_ENHANCEMENT_PROFILE: StrategyMetadata(
         canonical_profile=QQQ_TECH_ENHANCEMENT_PROFILE,
-        display_name="QQQ Tech Enhancement",
+        display_name="Tech/Communication Pullback Enhancement",
         description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
         aliases=(),
         cadence="monthly",
