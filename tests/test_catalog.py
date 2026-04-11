@@ -133,7 +133,7 @@ class CatalogTest(unittest.TestCase):
 
     def test_metadata_map_exposes_display_names_and_roles(self):
         metadata_map = get_strategy_metadata_map()
-        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].display_name, "QQQ Tech Enhancement")
+        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].display_name, "Tech/Communication Pullback Enhancement")
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].role, "parallel_cash_buffer_branch")
         self.assertEqual(metadata_map[GLOBAL_ETF_ROTATION_PROFILE].benchmark, "VOO")
         self.assertEqual(get_strategy_metadata("qqq_tech_enhancement").canonical_profile, QQQ_TECH_ENHANCEMENT_PROFILE)
@@ -155,7 +155,7 @@ class CatalogTest(unittest.TestCase):
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}
-        self.assertEqual(by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["display_name"], "QQQ Tech Enhancement")
+        self.assertEqual(by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["display_name"], "Tech/Communication Pullback Enhancement")
         self.assertEqual(by_profile[TQQQ_GROWTH_INCOME_PROFILE]["aliases"], ())
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
         self.assertEqual(
