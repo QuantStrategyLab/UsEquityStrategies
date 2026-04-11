@@ -5,7 +5,11 @@ from quant_platform_kit.strategy_contracts import (
     validate_strategy_runtime_adapter,
 )
 
-from us_equity_strategies.catalog import get_strategy_definition, resolve_canonical_profile
+from us_equity_strategies.catalog import (
+    QQQ_TECH_ENHANCEMENT_PROFILE,
+    get_strategy_definition,
+    resolve_canonical_profile,
+)
 from us_equity_strategies.strategies import (
     russell_1000_multi_factor_defensive as legacy_russell,
     qqq_tech_enhancement as qqq_tech_enhancement_strategy,
@@ -29,7 +33,7 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
         managed_symbols_extractor=legacy_russell.extract_managed_symbols,
     ),
-    "qqq_tech_enhancement": StrategyRuntimeAdapter(
+    QQQ_TECH_ENHANCEMENT_PROFILE: StrategyRuntimeAdapter(
         status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
         available_inputs=frozenset({"feature_snapshot"}),
         required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,
@@ -77,7 +81,7 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
-        "qqq_tech_enhancement": StrategyRuntimeAdapter(
+        QQQ_TECH_ENHANCEMENT_PROFILE: StrategyRuntimeAdapter(
             status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
             available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
             required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,
@@ -113,7 +117,7 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             available_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
             portfolio_input_name="portfolio_snapshot",
         ),
-        "qqq_tech_enhancement": StrategyRuntimeAdapter(
+        QQQ_TECH_ENHANCEMENT_PROFILE: StrategyRuntimeAdapter(
             status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
             available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
             required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,

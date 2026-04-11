@@ -144,11 +144,11 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
         from us_equity_strategies.strategies.qqq_tech_enhancement import load_runtime_parameters
 
         with TemporaryDirectory() as tmp_dir:
-            config_path = Path(tmp_dir) / "qqq_tech_enhancement.json"
+            config_path = Path(tmp_dir) / "tech_communication_pullback_enhancement.json"
             config_path.write_text(
                 json.dumps(
                     {
-                        "name": "qqq_tech_enhancement",
+                        "name": "tech_communication_pullback_enhancement",
                         "family": "tech_heavy_pullback",
                         "branch_role": "cash-buffered parallel branch",
                         "benchmark_symbol": "QQQ",
@@ -172,7 +172,7 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
             params = load_runtime_parameters(config_path=config_path)
 
         self.assertEqual(params["runtime_config_source"], "external_config")
-        self.assertEqual(params["runtime_config_name"], "qqq_tech_enhancement")
+        self.assertEqual(params["runtime_config_name"], "tech_communication_pullback_enhancement")
         self.assertEqual(params["sector_whitelist"], ("Information Technology", "Communication"))
         self.assertEqual(params["execution_cash_reserve_ratio"], 0.0)
 

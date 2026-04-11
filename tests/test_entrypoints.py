@@ -25,7 +25,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "tqqq_growth_income",
             "soxl_soxx_trend_income",
             "russell_1000_multi_factor_defensive",
-            "qqq_tech_enhancement",
+            "tech_communication_pullback_enhancement",
         ):
             entrypoint = get_strategy_entrypoint(profile)
             self.assertEqual(entrypoint.manifest.profile, profile)
@@ -324,7 +324,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 config_path=None,
                 logger=lambda _message: None,
             )["runtime_config_name"],
-            "qqq_tech_enhancement",
+            "tech_communication_pullback_enhancement",
         )
         longbridge_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="longbridge")
         self.assertEqual(

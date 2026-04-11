@@ -138,7 +138,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(metadata_map[GLOBAL_ETF_ROTATION_PROFILE].benchmark, "VOO")
         self.assertEqual(get_strategy_metadata("qqq_tech_enhancement").canonical_profile, QQQ_TECH_ENHANCEMENT_PROFILE)
         aliases = get_profile_aliases()
-        self.assertNotIn("qqq_tech_enhancement", aliases)
+        self.assertEqual(aliases["qqq_tech_enhancement"], QQQ_TECH_ENHANCEMENT_PROFILE)
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
         self.assertEqual(

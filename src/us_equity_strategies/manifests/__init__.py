@@ -3,6 +3,10 @@ from __future__ import annotations
 from quant_platform_kit.strategy_contracts import StrategyManifest
 
 
+TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
+QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
+
+
 def _manifest(
     *,
     profile: str,
@@ -138,10 +142,10 @@ russell_1000_multi_factor_defensive_manifest = _manifest(
 )
 
 qqq_tech_enhancement_manifest = _manifest(
-    profile="qqq_tech_enhancement",
+    profile=TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE,
     display_name="Tech/Communication Pullback Enhancement",
     description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
-    aliases=(),
+    aliases=(QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE,),
     required_inputs=frozenset({"feature_snapshot"}),
     default_config={
         "benchmark_symbol": "QQQ",
@@ -173,8 +177,16 @@ MANIFESTS = {
     qqq_tech_enhancement_manifest.profile: qqq_tech_enhancement_manifest,
 }
 
+MANIFEST_ALIASES = {
+    str(alias).strip().lower(): manifest.profile
+    for manifest in MANIFESTS.values()
+    for alias in manifest.aliases
+}
+
+
 def get_strategy_manifest(profile: str) -> StrategyManifest:
-    return MANIFESTS[profile]
+    normalized = str(profile or "").strip().lower()
+    return MANIFESTS[MANIFEST_ALIASES.get(normalized, normalized)]
 
 
 __all__ = [
