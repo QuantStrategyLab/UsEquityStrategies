@@ -20,7 +20,9 @@ GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
-QQQ_TECH_ENHANCEMENT_PROFILE = "qqq_tech_enhancement"
+TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
+QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
+QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
 
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
@@ -141,7 +143,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
-    QQQ_TECH_ENHANCEMENT_PROFILE: "research/configs/growth_pullback_qqq_tech_enhancement.json",
+    QQQ_TECH_ENHANCEMENT_PROFILE: "research/configs/growth_pullback_tech_communication_pullback_enhancement.json",
 }
 
 
@@ -252,7 +254,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=QQQ_TECH_ENHANCEMENT_PROFILE,
         display_name="Tech/Communication Pullback Enhancement",
         description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
-        aliases=(),
+        aliases=(QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE,),
         cadence="monthly",
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",

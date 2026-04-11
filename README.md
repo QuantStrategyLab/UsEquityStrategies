@@ -35,7 +35,7 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 | --- | --- | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `qqq_tech_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
@@ -315,7 +315,7 @@ PYTHONPATH=src:. python3 scripts/backtest_russell_1000_multi_factor_defensive.py
 | --- | --- | --- | --- |
 | `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
-| `qqq_tech_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `LongBridgePlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `LongBridgePlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `tqqq_growth_income` | TQQQ 增长收益 | `CharlesSchwabPlatform`, `LongBridgePlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 

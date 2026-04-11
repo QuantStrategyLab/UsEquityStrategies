@@ -16,7 +16,7 @@ This matrix tracks the five current live US equity profiles:
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_1000_multi_factor_defensive`
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
 
 Out of scope for this document:
 
@@ -34,19 +34,19 @@ As of this document update, the platform status scripts show that all five live 
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
   - `russell_1000_multi_factor_defensive`
-  - `qqq_tech_enhancement`
+  - `tech_communication_pullback_enhancement`
 - `schwab`
   - `global_etf_rotation`
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
   - `russell_1000_multi_factor_defensive`
-  - `qqq_tech_enhancement`
+  - `tech_communication_pullback_enhancement`
 - `longbridge`
   - `global_etf_rotation`
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
   - `russell_1000_multi_factor_defensive`
-  - `qqq_tech_enhancement`
+  - `tech_communication_pullback_enhancement`
 
 That means the original profile-by-profile platform gaps for the current five live strategies are closed. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
 
@@ -81,7 +81,7 @@ All five runtime-enabled profiles now use canonical `required_inputs` names at t
 | `tqqq_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `benchmark_history` + `portfolio_snapshot` | full three-platform coverage is in place and the value-mode contract is canonical | keep benchmark and portfolio builders aligned across runtimes and avoid platform-specific drift |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `derived_indicators` + `portfolio_snapshot` | full three-platform coverage is in place and the contract is already canonical | keep indicator and portfolio builders canonical and keep the current matrix locked in CI |
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; canonical artifact input is shared across all runtimes | keep artifact transport, manifest validation, and rollout discipline consistent |
-| `qqq_tech_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place and canonical config or snapshot names are now used on the mainline path | keep artifact rollout and config naming discipline tight, especially for future research outputs |
+| `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place and canonical config or snapshot names are now used on the mainline path | keep artifact rollout and config naming discipline tight, especially for future research outputs |
 
 ## Current adapter details that matter for migration
 
@@ -134,7 +134,7 @@ All five runtime-enabled profiles now use canonical `required_inputs` names at t
   - the strategy already sits on the canonical artifact input
   - the current three-platform portability gap is closed; remaining work is artifact transport discipline and payload cleanup
 
-### `qqq_tech_enhancement`
+### `tech_communication_pullback_enhancement`
 
 - current adapter inputs:
   - `ibkr`: `feature_snapshot`

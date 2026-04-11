@@ -11,7 +11,9 @@ import pandas as pd
 
 SIGNAL_SOURCE = "feature_snapshot"
 STATUS_ICON = "🧲"
-PROFILE_NAME = "qqq_tech_enhancement"
+PROFILE_NAME = "tech_communication_pullback_enhancement"
+LEGACY_PROFILE_NAMES = ("qqq_tech_enhancement",)
+ACCEPTED_CONFIG_NAMES = (PROFILE_NAME, *LEGACY_PROFILE_NAMES)
 BRANCH_ROLE = "cash-buffered parallel branch"
 BENCHMARK_SYMBOL = "QQQ"
 SAFE_HAVEN = "BOXX"
@@ -33,7 +35,7 @@ DEFAULT_EXECUTION_CASH_RESERVE_RATIO = 0.0
 SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
 MAX_SNAPSHOT_MONTH_LAG = 1
 REQUIRE_SNAPSHOT_MANIFEST = True
-SNAPSHOT_CONTRACT_VERSION = "qqq_tech_enhancement.feature_snapshot.v1"
+SNAPSHOT_CONTRACT_VERSION = "tech_communication_pullback_enhancement.feature_snapshot.v1"
 
 REQUIRED_FEATURE_COLUMNS = frozenset(
     {
@@ -637,8 +639,10 @@ def load_runtime_parameters(
     if not config_file.exists():
         raise FileNotFoundError(f"Runtime strategy config not found: {config_file}")
     payload = json.loads(config_file.read_text(encoding="utf-8"))
-    if str(payload.get("name") or "").strip() != PROFILE_NAME:
-        raise ValueError(f"Runtime config name must be {PROFILE_NAME!r}")
+    config_name = str(payload.get("name") or "").strip()
+    if config_name not in ACCEPTED_CONFIG_NAMES:
+        accepted = ", ".join(repr(name) for name in ACCEPTED_CONFIG_NAMES)
+        raise ValueError(f"Runtime config name must be one of: {accepted}")
     if str(payload.get("family")).strip() != "tech_heavy_pullback":
         raise ValueError("Runtime config family must be 'tech_heavy_pullback'")
     if str(payload.get("branch_role")).strip() != BRANCH_ROLE:

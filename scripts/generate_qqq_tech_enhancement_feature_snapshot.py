@@ -34,7 +34,7 @@ def _default_config_path() -> Path | None:
         / "InteractiveBrokersPlatform"
         / "research"
         / "configs"
-        / "growth_pullback_qqq_tech_enhancement.json"
+        / "growth_pullback_tech_communication_pullback_enhancement.json"
     )
     return sibling if sibling.exists() else None
 
@@ -49,7 +49,7 @@ def write_snapshot_manifest(
     resolved_manifest = manifest_path or Path(f"{snapshot_path}.manifest.json")
     if config_path is None or not config_path.exists():
         raise FileNotFoundError(
-            f"qqq_tech_enhancement snapshot manifest requires a valid config_path, got: {config_path}"
+            f"tech_communication_pullback_enhancement snapshot manifest requires a valid config_path, got: {config_path}"
         )
     config_payload = json.loads(config_path.read_text(encoding="utf-8"))
     config_sha256 = _sha256_file(config_path)
@@ -72,7 +72,7 @@ def write_snapshot_manifest(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate a qqq_tech_enhancement feature snapshot.",
+        description="Generate a tech_communication_pullback_enhancement feature snapshot.",
     )
     parser.add_argument("--prices", required=True, help="Input price history file (.csv/.json/.jsonl/.parquet)")
     parser.add_argument("--universe", required=True, help="Input universe file (.csv/.json/.jsonl/.parquet)")

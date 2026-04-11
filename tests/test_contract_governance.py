@@ -39,7 +39,9 @@ LEGACY_PROFILE_KEY_ALLOWED_PATHS = frozenset(
 LIVE_PROFILE_LEGACY_ALIASES = {
     "tqqq_growth_income",
     "soxl_soxx_trend_income",
-    "qqq_tech_enhancement",
+}
+LIVE_PROFILE_TRANSITION_ALIASES = {
+    "tech_communication_pullback_enhancement": ("qqq_tech_enhancement",),
 }
 LIVE_US_EQUITY_FULL_MATRIX_PROFILES = frozenset(
     {
@@ -47,7 +49,7 @@ LIVE_US_EQUITY_FULL_MATRIX_PROFILES = frozenset(
         "tqqq_growth_income",
         "soxl_soxx_trend_income",
         "russell_1000_multi_factor_defensive",
-        "qqq_tech_enhancement",
+        "tech_communication_pullback_enhancement",
     }
 )
 ALLOWED_TARGET_MODES = frozenset({"weight", "value"})
@@ -169,10 +171,13 @@ class ContractGovernanceTests(unittest.TestCase):
             definition = STRATEGY_CATALOG.definitions[profile]
             self.assertEqual(definition.profile, profile)
 
-    def test_live_profiles_do_not_keep_legacy_aliases(self) -> None:
+    def test_live_profiles_do_not_keep_unplanned_legacy_aliases(self) -> None:
         for profile in LIVE_PROFILE_LEGACY_ALIASES:
             with self.subTest(profile=profile):
                 self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, ())
+        for profile, aliases in LIVE_PROFILE_TRANSITION_ALIASES.items():
+            with self.subTest(profile=profile):
+                self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, aliases)
 
     def test_live_us_equity_profiles_now_cover_the_full_three_platform_matrix(self) -> None:
         for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES:
