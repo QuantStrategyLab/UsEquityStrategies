@@ -13,9 +13,11 @@ from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_p
 from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan as soxl_soxx_trend_build_rebalance_plan
 from us_equity_strategies.strategies.russell_1000_multi_factor_defensive import extract_managed_symbols as legacy_russell_managed_symbols
 from us_equity_strategies.strategies.qqq_tech_enhancement import extract_managed_symbols as qqq_tech_managed_symbols
+from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import extract_managed_symbols as mega_cap_managed_symbols
 
 from tests.test_russell_1000_multi_factor_defensive import _normal_snapshot
 from tests.test_qqq_tech_enhancement import _feature_snapshot
+from tests.test_mega_cap_leader_rotation_dynamic_top20 import _mega_snapshot
 
 
 class StrategyEntrypointTests(unittest.TestCase):
@@ -26,6 +28,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "soxl_soxx_trend_income",
             "russell_1000_multi_factor_defensive",
             "tech_communication_pullback_enhancement",
+            "mega_cap_leader_rotation_dynamic_top20",
         ):
             entrypoint = get_strategy_entrypoint(profile)
             self.assertEqual(entrypoint.manifest.profile, profile)
@@ -153,6 +156,12 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertTrue(tech["requires_snapshot_artifacts"])
         self.assertTrue(tech["requires_strategy_config_path"])
 
+        mega = describe_platform_runtime_requirements("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
+        self.assertEqual(mega["profile_group"], "snapshot_backed")
+        self.assertEqual(mega["input_mode"], "feature_snapshot")
+        self.assertTrue(mega["requires_snapshot_artifacts"])
+        self.assertFalse(mega["requires_strategy_config_path"])
+
         tqqq = describe_platform_runtime_requirements("tqqq_growth_income", platform_id="ibkr")
         self.assertEqual(tqqq["profile_group"], "direct_runtime_inputs")
         self.assertEqual(tqqq["input_mode"], "benchmark_history+portfolio_snapshot")
@@ -274,6 +283,24 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(tech_decision.diagnostics["signal_source"], "feature_snapshot")
         self.assertEqual(tech_decision.diagnostics["effective_holdings_count"], 2)
 
+        mega = get_strategy_entrypoint("mega_cap_leader_rotation_dynamic_top20")
+        mega_decision = mega.evaluate(
+            StrategyContext(
+                as_of="2026-04-01",
+                market_data={"feature_snapshot": _mega_snapshot()},
+                portfolio=PortfolioSnapshot(
+                    as_of="2026-04-01",
+                    total_equity=100_000.0,
+                    buying_power=100_000.0,
+                    cash_balance=100_000.0,
+                    positions=(),
+                ),
+            )
+        )
+        self.assertEqual(mega_decision.diagnostics["signal_source"], "feature_snapshot")
+        self.assertEqual(mega_decision.diagnostics["selected_count"], 4)
+        self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
+
     def test_ibkr_runtime_adapters_expose_unified_snapshot_runtime_metadata(self) -> None:
         global_adapter = get_platform_runtime_adapter("global_macro_etf_rotation", platform_id="ibkr")
         self.assertEqual(global_adapter.status_icon, "🐤")
@@ -346,6 +373,33 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(schwab_tech_adapter.portfolio_input_name, "portfolio_snapshot")
+
+        mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
+        self.assertEqual(mega_adapter.status_icon, "👑")
+        self.assertEqual(mega_adapter.snapshot_date_columns, ("as_of", "snapshot_date"))
+        self.assertTrue(mega_adapter.require_snapshot_manifest)
+        self.assertEqual(
+            mega_adapter.snapshot_contract_version,
+            "mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1",
+        )
+        self.assertEqual(
+            mega_adapter.managed_symbols_extractor(
+                _mega_snapshot(),
+                benchmark_symbol="QQQ",
+                safe_haven="BOXX",
+            ),
+            mega_cap_managed_symbols(
+                _mega_snapshot(),
+                benchmark_symbol="QQQ",
+                safe_haven="BOXX",
+            ),
+        )
+        longbridge_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="longbridge")
+        self.assertEqual(
+            longbridge_mega_adapter.available_inputs,
+            frozenset({"feature_snapshot", "portfolio_snapshot"}),
+        )
+        self.assertEqual(longbridge_mega_adapter.portfolio_input_name, "portfolio_snapshot")
 
         semiconductor_ibkr_adapter = get_platform_runtime_adapter(
             "soxl_soxx_trend_income",

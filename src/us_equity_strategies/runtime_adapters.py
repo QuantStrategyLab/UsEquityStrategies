@@ -6,11 +6,13 @@ from quant_platform_kit.strategy_contracts import (
 )
 
 from us_equity_strategies.catalog import (
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     get_strategy_definition,
     resolve_canonical_profile,
 )
 from us_equity_strategies.strategies import (
+    mega_cap_leader_rotation_dynamic_top20 as mega_cap_leader_rotation_dynamic_top20_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
     qqq_tech_enhancement as qqq_tech_enhancement_strategy,
 )
@@ -43,6 +45,16 @@ IBKR_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
         runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
         managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
+    ),
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: StrategyRuntimeAdapter(
+        status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
+        available_inputs=frozenset({"feature_snapshot"}),
+        required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
+        snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
+        max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
+        require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+        snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
+        managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
     ),
     "tqqq_growth_income": StrategyRuntimeAdapter(
         status_icon="🐤",
@@ -93,6 +105,17 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
             portfolio_input_name="portfolio_snapshot",
         ),
+        MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: StrategyRuntimeAdapter(
+            status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
+            available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
+            snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
+            max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
+            require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
+            managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
+            portfolio_input_name="portfolio_snapshot",
+        ),
     },
     LONGBRIDGE_PLATFORM: {
         "global_etf_rotation": StrategyRuntimeAdapter(
@@ -127,6 +150,17 @@ PLATFORM_RUNTIME_ADAPTERS: dict[str, dict[str, StrategyRuntimeAdapter]] = {
             snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
             runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
             managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
+            portfolio_input_name="portfolio_snapshot",
+        ),
+        MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: StrategyRuntimeAdapter(
+            status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
+            available_inputs=frozenset({"feature_snapshot", "portfolio_snapshot"}),
+            required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
+            snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
+            max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
+            require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
+            managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
             portfolio_input_name="portfolio_snapshot",
         ),
     },

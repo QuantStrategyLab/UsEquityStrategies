@@ -50,6 +50,7 @@ LIVE_US_EQUITY_FULL_MATRIX_PROFILES = frozenset(
         "soxl_soxx_trend_income",
         "russell_1000_multi_factor_defensive",
         "tech_communication_pullback_enhancement",
+        "mega_cap_leader_rotation_dynamic_top20",
     }
 )
 ALLOWED_TARGET_MODES = frozenset({"weight", "value"})

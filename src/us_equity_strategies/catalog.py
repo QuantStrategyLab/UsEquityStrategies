@@ -21,6 +21,7 @@ TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
+MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
 
@@ -31,6 +32,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"ibkr", "longbridge", "schwab"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
@@ -39,6 +41,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"feature_snapshot"}),
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"feature_snapshot"}),
 }
 
 STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
@@ -127,6 +130,25 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "execution_cash_reserve_ratio": 0.0,
         "residual_proxy": "simple_excess_return_vs_QQQ",
     },
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: {
+        "benchmark_symbol": "QQQ",
+        "broad_benchmark_symbol": "SPY",
+        "safe_haven": "BOXX",
+        "dynamic_universe_size": 20,
+        "holdings_count": 4,
+        "single_name_cap": 0.25,
+        "min_position_value_usd": 3000.0,
+        "hold_buffer": 2,
+        "hold_bonus": 0.10,
+        "risk_on_exposure": 1.0,
+        "soft_defense_exposure": 0.50,
+        "hard_defense_exposure": 0.50,
+        "soft_breadth_threshold": 0.0,
+        "hard_breadth_threshold": 0.0,
+        "min_adv20_usd": 20000000.0,
+        "runtime_execution_window_trading_days": 3,
+        "execution_cash_reserve_ratio": 0.0,
+    },
 }
 
 STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
@@ -135,6 +157,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
     QQQ_TECH_ENHANCEMENT_PROFILE: "qqq_tech_enhancement_entrypoint",
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "mega_cap_leader_rotation_dynamic_top20_entrypoint",
 }
 
 STRATEGY_TARGET_MODES: dict[str, str] = {
@@ -143,6 +166,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     SOXL_SOXX_TREND_INCOME_PROFILE: "value",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
     QQQ_TECH_ENHANCEMENT_PROFILE: "weight",
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "weight",
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
@@ -205,6 +229,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.qqq_tech_enhancement",
     ),
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: _build_strategy_definition(
+        MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+    ),
 }
 
 
@@ -262,6 +291,17 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",
         role="parallel_cash_buffer_branch",
+        status="runtime_enabled",
+    ),
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: StrategyMetadata(
+        canonical_profile=MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
+        display_name="Mega Cap Leader Rotation Dynamic Top20",
+        description="Monthly dynamic top-20 mega-cap leader rotation with QQQ trend defense and BOXX parking.",
+        aliases=(),
+        cadence="monthly",
+        asset_scope="us_mega_cap_stocks",
+        benchmark="QQQ",
+        role="concentrated_leader_rotation",
         status="runtime_enabled",
     ),
 }

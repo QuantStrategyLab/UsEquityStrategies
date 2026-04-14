@@ -4,6 +4,7 @@ from quant_platform_kit.strategy_contracts import CallableStrategyEntrypoint, St
 
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
+    mega_cap_leader_rotation_dynamic_top20_manifest,
     qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
     soxl_soxx_trend_income_manifest,
@@ -11,6 +12,7 @@ from us_equity_strategies.manifests import (
 )
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
+    mega_cap_leader_rotation_dynamic_top20 as mega_cap_leader_rotation_dynamic_top20_strategy,
     tqqq_growth_income as tqqq_growth_income_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
@@ -250,6 +252,46 @@ qqq_tech_enhancement_strategy.compute_signals.__doc__ = (
 )
 
 
+def evaluate_mega_cap_leader_rotation_dynamic_top20(ctx: StrategyContext) -> StrategyDecision:
+    config = merge_runtime_config(mega_cap_leader_rotation_dynamic_top20_manifest.default_config, ctx)
+    config.pop("execution_cash_reserve_ratio", None)
+    if ctx.as_of is not None and "run_as_of" not in config:
+        config["run_as_of"] = ctx.as_of
+    if ctx.portfolio is not None and "portfolio_total_equity" not in config:
+        total_equity = getattr(ctx.portfolio, "total_equity", None)
+        if total_equity is not None:
+            config["portfolio_total_equity"] = float(total_equity)
+    weights, signal_desc, is_emergency, status_desc, metadata = mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals(
+        require_market_data(ctx, "feature_snapshot"),
+        get_current_holdings(ctx),
+        **config,
+    )
+    diagnostics = {
+        **metadata,
+        "signal_description": signal_desc,
+        "status_description": status_desc,
+        "signal_source": mega_cap_leader_rotation_dynamic_top20_strategy.SIGNAL_SOURCE,
+        "actionable": weights is not None,
+    }
+    risk_flags: tuple[str, ...] = ()
+    if is_emergency:
+        risk_flags += ("hard_defense",)
+    if weights is None:
+        risk_flags += ("no_execute",)
+    return StrategyDecision(
+        positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
+        risk_flags=risk_flags,
+        diagnostics=diagnostics,
+    )
+
+
+mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ = (
+    ((mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ or "").strip() +
+     "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
+    .strip()
+)
+
+
 global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=global_etf_rotation_manifest,
     _evaluate=evaluate_global_etf_rotation,
@@ -270,6 +312,10 @@ qqq_tech_enhancement_entrypoint = CallableStrategyEntrypoint(
     manifest=qqq_tech_enhancement_manifest,
     _evaluate=evaluate_qqq_tech_enhancement,
 )
+mega_cap_leader_rotation_dynamic_top20_entrypoint = CallableStrategyEntrypoint(
+    manifest=mega_cap_leader_rotation_dynamic_top20_manifest,
+    _evaluate=evaluate_mega_cap_leader_rotation_dynamic_top20,
+)
 
 
 __all__ = [
@@ -278,9 +324,11 @@ __all__ = [
     "soxl_soxx_trend_income_entrypoint",
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
+    "mega_cap_leader_rotation_dynamic_top20_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
     "evaluate_qqq_tech_enhancement",
+    "evaluate_mega_cap_leader_rotation_dynamic_top20",
 ]
