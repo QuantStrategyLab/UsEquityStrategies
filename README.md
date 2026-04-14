@@ -28,6 +28,7 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md): reviewer checklist before enabling a profile on broker runtimes.
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): runtime-enabled profile contract gaps versus the cross-platform target.
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md): fixed canonical input contract for the two current value-mode profiles.
+- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): research-only mega-cap leader rotation brief and backtest entrypoint.
 
 ### Strategy index
 
@@ -50,6 +51,10 @@ Cloud Scheduler / GitHub Actions cron settings:
 - monthly snapshot profiles: publish feature snapshots monthly from
   `UsEquitySnapshotPipelines`, then execute once in the downstream runtime's
   monthly window.
+
+### Research candidates
+
+- `mega_cap_leader_rotation`: research/backtest-only mega-cap leader rotation. It is intentionally not registered as a live catalog profile yet; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
 
 ### global_etf_rotation
 
@@ -262,6 +267,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：当前 5 条 live profile 距离跨平台目标契约的差异矩阵。
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
+- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的 research-only 说明和回测入口。
 
 ### 策略索引
 
@@ -282,6 +288,10 @@ cron 配置由各个平台仓库负责：
   `3 / 6 / 9 / 12` 月最后一个 NYSE 交易日触发。
 - 月频 snapshot 策略：由 `UsEquitySnapshotPipelines` 按月发布 feature
   snapshot，再由下游运行时在月度窗口内执行一次。
+
+### 研究候选策略
+
+- `mega_cap_leader_rotation`：巨头强者轮动，目前只做研究和回测，不注册为 live profile，也不接任何券商运行时；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation
 
