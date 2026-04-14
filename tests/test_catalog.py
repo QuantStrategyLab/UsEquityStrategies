@@ -4,6 +4,7 @@ from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     GLOBAL_ETF_ROTATION_PROFILE,
+    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
@@ -69,6 +70,13 @@ class CatalogTest(unittest.TestCase):
             frozenset({"ibkr", "schwab", "longbridge"}),
         )
 
+        self.assertIn(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE, catalog)
+        self.assertEqual(catalog[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            get_compatible_platforms(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE),
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
         compatibility = get_strategy_platform_compatibility_map()
@@ -116,6 +124,14 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.qqq_tech_enhancement",
         )
 
+        mega_definition = get_strategy_definition("mega_cap_leader_rotation_dynamic_top20")
+        self.assertEqual(mega_definition.profile, MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE)
+        mega_module = get_strategy_component_map(mega_definition)["signal_logic"]
+        self.assertEqual(
+            mega_module.module_path,
+            "us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+        )
+
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
         self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
@@ -151,6 +167,14 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
         self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
+        self.assertEqual(
+            metadata_map[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].role,
+            "concentrated_leader_rotation",
+        )
+        self.assertEqual(
+            compatibility[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
 
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
@@ -161,6 +185,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(
             by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
             frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+        self.assertEqual(
+            by_profile[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE]["display_name"],
+            "Mega Cap Leader Rotation Dynamic Top20",
         )
 
 

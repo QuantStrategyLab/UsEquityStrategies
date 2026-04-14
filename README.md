@@ -28,7 +28,7 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md): reviewer checklist before enabling a profile on broker runtimes.
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): runtime-enabled profile contract gaps versus the cross-platform target.
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md): fixed canonical input contract for the two current value-mode profiles.
-- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): research-only mega-cap leader rotation brief and backtest entrypoint.
+- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): mega-cap leader rotation research notes and dynamic top20 runtime profile notes.
 
 ### Strategy index
 
@@ -37,6 +37,7 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 | `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `mega_cap_leader_rotation_dynamic_top20` | Mega Cap Leader Rotation Dynamic Top20 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `concentrated_leader_rotation` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
@@ -54,7 +55,8 @@ Cloud Scheduler / GitHub Actions cron settings:
 
 ### Research candidates
 
-- `mega_cap_leader_rotation`: research/backtest-only mega-cap leader rotation. It is intentionally not registered as a live catalog profile yet; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
+- `mega_cap_leader_rotation_dynamic_top20`: runtime-enabled monthly profile for the historical dynamic top-20 mega-cap universe. It keeps the research defaults that held 4 names at a 25% single-name cap and uses QQQ 200-day trend to reduce stock exposure to 50% when QQQ is below trend.
+- `mega_cap_leader_rotation`: umbrella research/backtest name for the static and dynamic variants; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
 
 ### global_etf_rotation
 
@@ -265,9 +267,9 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 - [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md)：新增美股策略时使用的模板文档。
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
-- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：当前 5 条 live profile 距离跨平台目标契约的差异矩阵。
+- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：当前 6 条 live profile 距离跨平台目标契约的差异矩阵。
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
-- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的 research-only 说明和回测入口。
+- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的研究说明，以及 dynamic top20 运行 profile 说明。
 
 ### 策略索引
 
@@ -276,6 +278,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 | `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `mega_cap_leader_rotation_dynamic_top20` | Mega Cap 动态 Top20 龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 从历史动态 mega-cap top20 池里选 4 只强势龙头，默认单票 25%，QQQ 跌破 200 日线时降到 50% 股票仓位 |
 | `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
@@ -291,7 +294,8 @@ cron 配置由各个平台仓库负责：
 
 ### 研究候选策略
 
-- `mega_cap_leader_rotation`：巨头强者轮动，目前只做研究和回测，不注册为 live profile，也不接任何券商运行时；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
+- `mega_cap_leader_rotation_dynamic_top20`：已注册为 runtime-enabled 月频 profile，使用历史动态 mega-cap top20 池，默认选 4 只、单票 25%，QQQ 跌破 200 日线时股票仓位降到 50%。
+- `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation
 

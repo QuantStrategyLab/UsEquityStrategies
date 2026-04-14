@@ -1,6 +1,6 @@
 # mega_cap_leader_rotation research brief
 
-Status: research/backtest only. This is not a live `StrategyCatalog` profile and should not be enabled in broker runtimes until a separate promotion review is done.
+Status: the static `mag7` / `expanded` variants remain research/backtest only. The historical dynamic top-20 variant is promoted as the selectable live profile `mega_cap_leader_rotation_dynamic_top20`.
 
 ## Objective
 
@@ -10,9 +10,9 @@ This is intentionally different from the existing live profiles:
 
 - `russell_1000_multi_factor_defensive`: broad Russell 1000 stock selection.
 - `tech_communication_pullback_enhancement`: tech/communication pullback entry with an explicit cash buffer.
-- `mega_cap_leader_rotation`: a narrow leader-only pool, focused on relative strength among mega caps.
+- `mega_cap_leader_rotation_dynamic_top20`: a narrow leader-only runtime profile, focused on relative strength among the historical top-20 mega-cap pool.
 
-## First research scope
+## Research and runtime scope
 
 - Cadence: monthly.
 - Input style: price-only research backtest.
@@ -43,18 +43,18 @@ The research script ranks eligible names using only price-derived features:
 
 ## Initial portfolio rules
 
-- Select the top 3 names by default.
+- Research default started at top 3; the promoted dynamic top20 runtime default selects 4 names.
 - Keep an existing holding if it remains inside `top_n + hold_buffer`.
-- Default single-name cap: 35%.
+- Static research default single-name cap: 35%; promoted dynamic top20 runtime default single-name cap: 25%.
 - Optional account-size guard: set `--portfolio-total-equity` plus
   `--min-position-value-usd` to lower the effective top-N when a small account
   cannot support the requested number of minimum-sized stock positions.
-- Market defense uses `QQQ` 200-day trend and mega-cap pool breadth.
+- Market defense uses `QQQ` 200-day trend. The promoted dynamic top20 default uses a simple QQQ 200-day filter: full stock exposure when QQQ is above trend, 50% stock exposure when QQQ is below trend.
 - Unused allocation goes to `BOXX` in the research output.
 
 ## Current implementation location
 
-The research backtest lives in `../UsEquitySnapshotPipelines`:
+The live strategy module is `src/us_equity_strategies/strategies/mega_cap_leader_rotation_dynamic_top20.py`. The research backtest lives in `../UsEquitySnapshotPipelines`:
 
 ```bash
 cd ../UsEquitySnapshotPipelines
@@ -117,11 +117,17 @@ The robustness command writes:
 - `robustness_summary.csv`
 - `robustness_summary_by_run.csv`
 
-## Promotion criteria
+## Runtime profile
 
-Do not promote this into a live profile unless the research result shows:
+`mega_cap_leader_rotation_dynamic_top20` is the promoted selectable profile. Defaults:
 
-1. better drawdown control than `QQQ` or equal-weight mega-cap references;
-2. acceptable turnover after costs;
-3. behavior that is not just a duplicate of `tech_communication_pullback_enhancement`;
-4. no obvious single-period overfit, especially around one dominant stock cycle.
+- feature snapshot input: `mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1`;
+- dynamic universe size: 20;
+- selected holdings: 4;
+- single-name cap: 25%;
+- safe haven: `BOXX`;
+- benchmark trend filter: `QQQ` 200-day SMA;
+- stock exposure: 100% when QQQ is above trend, 50% when QQQ is below trend;
+- execution window: first 3 NYSE trading days after the monthly snapshot date.
+
+Remaining risk: this is still a simple price-only model. It is meant as a small parallel paper/live sleeve, not a replacement for broader allocation strategies.

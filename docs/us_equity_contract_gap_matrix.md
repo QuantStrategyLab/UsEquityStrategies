@@ -10,13 +10,14 @@ At this point it mainly records what was migrated, what is now fully portable ac
 
 ## Scope of this matrix
 
-This matrix tracks the five current live US equity profiles:
+This matrix tracks the six current live US equity profiles:
 
 - `global_etf_rotation`
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_1000_multi_factor_defensive`
 - `tech_communication_pullback_enhancement`
+- `mega_cap_leader_rotation_dynamic_top20`
 
 Out of scope for this document:
 
@@ -27,7 +28,7 @@ Out of scope for this document:
 
 ## Current platform status snapshot
 
-As of this document update, the platform status scripts show that all five live US equity profiles are enabled on all three current broker runtimes:
+As of this document update, the platform status scripts show that all six live US equity profiles are enabled on all three current broker runtimes:
 
 - `ibkr`
   - `global_etf_rotation`
@@ -35,20 +36,23 @@ As of this document update, the platform status scripts show that all five live 
   - `soxl_soxx_trend_income`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
+  - `mega_cap_leader_rotation_dynamic_top20`
 - `schwab`
   - `global_etf_rotation`
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
+  - `mega_cap_leader_rotation_dynamic_top20`
 - `longbridge`
   - `global_etf_rotation`
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
+  - `mega_cap_leader_rotation_dynamic_top20`
 
-That means the original profile-by-profile platform gaps for the current five live strategies are closed. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
+That means the original profile-by-profile platform gaps for the current six live strategies are closed. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
 
 ## Canonical end-state input vocabulary
 
@@ -60,7 +64,7 @@ New US equity profiles should only use these canonical `required_inputs`:
 - `derived_indicators`
 - `feature_snapshot`
 
-All five runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
+All six runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
 
 ## Legacy-to-canonical mapping used for migration planning
 
@@ -82,6 +86,7 @@ All five runtime-enabled profiles now use canonical `required_inputs` names at t
 | `soxl_soxx_trend_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `derived_indicators` + `portfolio_snapshot` | full three-platform coverage is in place and the contract is already canonical | keep indicator and portfolio builders canonical and keep the current matrix locked in CI |
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; canonical artifact input is shared across all runtimes | keep artifact transport, manifest validation, and rollout discipline consistent |
 | `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place and canonical config or snapshot names are now used on the mainline path | keep artifact rollout and config naming discipline tight, especially for future research outputs |
+| `mega_cap_leader_rotation_dynamic_top20` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; dynamic top20 artifacts use a separate feature-snapshot contract | keep universe-ranking provenance and snapshot manifest validation explicit |
 
 ## Current adapter details that matter for migration
 
@@ -149,12 +154,12 @@ All five runtime-enabled profiles now use canonical `required_inputs` names at t
 
 ### What is already in good shape
 
-- all five live profiles already declare `target_mode`
-- all five live profiles already expose metadata, manifest, and unified entrypoint
-- all five live profiles now use canonical `required_inputs` names at the strategy boundary
-- all five live profiles now have runtime-adapter coverage on `ibkr`, `schwab`, and `longbridge`
-- both feature-snapshot profiles already use the canonical artifact input name
-- the current five-profile by three-platform matrix is now fully portable for the current scope
+- all six live profiles already declare `target_mode`
+- all six live profiles already expose metadata, manifest, and unified entrypoint
+- all six live profiles now use canonical `required_inputs` names at the strategy boundary
+- all six live profiles now have runtime-adapter coverage on `ibkr`, `schwab`, and `longbridge`
+- the feature-snapshot profiles already use the canonical artifact input name
+- the current six-profile by three-platform matrix is now fully portable for the current scope
 
 ### What is still worth cleaning up after the migration
 
@@ -165,14 +170,14 @@ All five runtime-enabled profiles now use canonical `required_inputs` names at t
 
 ## Recommended migration order after this document
 
-1. **Current status**: the five live profiles now use canonical input names and have full three-platform adapter coverage for the current US equity scope
+1. **Current status**: the six live profiles now use canonical input names and have full three-platform adapter coverage for the current US equity scope
 2. **P3/P4 follow-up**: keep explicit execution translation rules in place and keep normalizing runtime payload builders
 3. **Artifact follow-up**: keep feature-snapshot transport, manifest validation, and config naming consistent across runtimes
 4. **Future expansion**: treat any new US equity profile or future platform as required to reach the same full-matrix bar before claiming rollout parity
 
 ## Review rule for future PRs in this track
 
-Now that the current five live profiles are migrated, each future PR in this track should state clearly:
+Now that the current six live profiles are migrated, each future PR in this track should state clearly:
 
 - which profile contract changed
 - whether `required_inputs` moved closer to canonical names
