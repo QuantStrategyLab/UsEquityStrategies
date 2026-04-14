@@ -42,6 +42,9 @@ The research script ranks eligible names using only price-derived features:
 - Select the top 3 names by default.
 - Keep an existing holding if it remains inside `top_n + hold_buffer`.
 - Default single-name cap: 35%.
+- Optional account-size guard: set `--portfolio-total-equity` plus
+  `--min-position-value-usd` to lower the effective top-N when a small account
+  cannot support the requested number of minimum-sized stock positions.
 - Market defense uses `QQQ` 200-day trend and mega-cap pool breadth.
 - Unused allocation goes to `BOXX` in the research output.
 
