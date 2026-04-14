@@ -21,6 +21,10 @@ This is intentionally different from the existing live profiles:
 - First pools:
   - `mag7`: `AAPL`, `MSFT`, `NVDA`, `AMZN`, `GOOGL`, `META`, `TSLA`.
   - `expanded`: MAG7 plus `AVGO`, `NFLX`, `AMD`, `COST`, `JPM`, `BRK.B`, `LLY`.
+  - `dynamic_top20`: rebuilds the mega-cap candidate pool each month from the
+    top iShares Russell 1000 ETF holdings weights, reducing the "today's
+    winners" look-ahead bias in pre-MAG7 periods. Known duplicate share classes
+    such as `GOOG` / `GOOGL` are collapsed to one issuer before ranking.
 
 ## Initial signal design
 
@@ -62,6 +66,25 @@ python scripts/backtest_mega_cap_leader_rotation.py \
   --start 2016-01-01 \
   --turnover-cost-bps 5 \
   --output-dir data/output/mega_cap_leader_rotation_backtest
+```
+
+Historical dynamic-universe check. The documented start uses the earliest
+monthly iShares JSON snapshot range that resolved reliably in research:
+
+```bash
+cd ../UsEquitySnapshotPipelines
+PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src \
+python scripts/backtest_mega_cap_leader_rotation.py \
+  --download \
+  --dynamic-universe \
+  --universe-start 2017-09-01 \
+  --price-start 2015-01-01 \
+  --start 2017-10-01 \
+  --mega-universe-size 20 \
+  --top-n 4 \
+  --single-name-cap 0.25 \
+  --turnover-cost-bps 5 \
+  --output-dir data/output/mega_cap_leader_rotation_dynamic_universe_top20_backtest
 ```
 
 Expected research outputs:
