@@ -33,13 +33,23 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 
 | Canonical profile | Display name | Compatible platforms | Cadence | Benchmark | Role | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
-| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
-| `tqqq_growth_income` | TQQQ Growth Income | `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
+| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
+| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
 These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
+
+Cadence here is the strategy-level intent. Platform repositories own the actual
+Cloud Scheduler / GitHub Actions cron settings:
+
+- daily profiles: run once per trading day near the US close.
+- `global_etf_rotation`: evaluate canary risk daily, but perform normal rotation
+  only on the last NYSE trading day of March, June, September, and December.
+- monthly snapshot profiles: publish feature snapshots monthly from
+  `UsEquitySnapshotPipelines`, then execute once in the downstream runtime's
+  monthly window.
 
 ### global_etf_rotation
 
@@ -255,15 +265,23 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 ### 策略索引
 
-| Canonical profile | 显示名 | 兼容平台仓库 | 核心思路 |
-| --- | --- | --- | --- |
-| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform` | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
-| `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform` | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
-| `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `LongBridgePlatform` | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
-| `tqqq_growth_income` | TQQQ 增长收益 | `CharlesSchwabPlatform`, `LongBridgePlatform` | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
-| `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
+| Canonical profile | 显示名 | 兼容平台仓库 | 策略频率 | 核心思路 |
+| --- | --- | --- | --- | --- |
+| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
+| `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
+| `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
+| `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
 这些策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口，被各个平台仓库引用。运行时和部署配置统一使用 canonical profile key。
+这里的策略频率表达的是策略层意图；实际 Cloud Scheduler / GitHub Actions
+cron 配置由各个平台仓库负责：
+
+- 日频策略：每个美股交易日临近收盘运行一次。
+- `global_etf_rotation`：每日检查 canary 风险，但正常轮动只在
+  `3 / 6 / 9 / 12` 月最后一个 NYSE 交易日触发。
+- 月频 snapshot 策略：由 `UsEquitySnapshotPipelines` 按月发布 feature
+  snapshot，再由下游运行时在月度窗口内执行一次。
 
 ### global_etf_rotation
 
