@@ -100,6 +100,9 @@ tqqq_growth_income_manifest = _manifest(
         "exit_line_cap": 0.98,
         "entry_line_floor": 1.02,
         "entry_line_cap": 1.08,
+        "dual_drive_idle_symbol": "BOXX",
+        "dual_drive_idle_fraction": 0.0,
+        "dual_drive_idle_trigger": "tqqq_active",
     },
 )
 

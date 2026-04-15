@@ -74,10 +74,15 @@ def build_rebalance_plan(
     exit_line_cap,
     entry_line_floor,
     entry_line_cap,
+    dual_drive_idle_symbol="BOXX",
+    dual_drive_idle_fraction=0.0,
+    dual_drive_idle_trigger="tqqq_active",
 ):
     df_qqq = pd.DataFrame(qqq_history)
     qqq_p = df_qqq["close"].iloc[-1]
     ma200 = df_qqq["close"].rolling(200).mean().iloc[-1]
+    ma20 = df_qqq["close"].rolling(20).mean()
+    ma20_slope = ma20.diff().iloc[-1]
 
     true_range = pd.concat(
         [
@@ -97,7 +102,13 @@ def build_rebalance_plan(
         min(entry_line_cap, 1.0 + (atr_pct * atr_entry_scale)),
     )
 
+    dual_drive_symbol = str(dual_drive_idle_symbol or "BOXX").strip().upper()
+    dual_drive_fraction = max(0.0, min(1.0, float(dual_drive_idle_fraction or 0.0)))
+    dual_drive_enabled = dual_drive_symbol == "QQQ" and dual_drive_fraction > 0.0
+
     strategy_symbols = ["TQQQ", "BOXX", "SPYI", "QQQI"]
+    if dual_drive_enabled and dual_drive_symbol not in strategy_symbols:
+        strategy_symbols.insert(1, dual_drive_symbol)
     market_values = {symbol: 0.0 for symbol in strategy_symbols}
     quantities = {symbol: 0 for symbol in strategy_symbols}
     for position in snapshot.positions:
@@ -143,7 +154,24 @@ def build_rebalance_plan(
         target_tqqq_ratio, icon = agg_ratio, "entry"
 
     target_tqqq_val = strategy_equity * target_tqqq_ratio
-    target_boxx_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val)
+    target_idle_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val)
+    trigger_name = str(dual_drive_idle_trigger or "tqqq_active").strip().lower()
+    if trigger_name == "tqqq_active":
+        use_dual_drive_idle = target_tqqq_ratio > 0.0
+    elif trigger_name == "above_ma200":
+        use_dual_drive_idle = qqq_p > ma200
+    elif trigger_name == "above_ma200_ma20_slope":
+        use_dual_drive_idle = qqq_p > ma200 and ma20_slope > 0.0
+    elif trigger_name == "always":
+        use_dual_drive_idle = True
+    else:
+        use_dual_drive_idle = False
+    target_dual_drive_idle_val = (
+        target_idle_val * dual_drive_fraction
+        if dual_drive_enabled and use_dual_drive_idle
+        else 0.0
+    )
+    target_boxx_val = max(0.0, target_idle_val - target_dual_drive_idle_val)
     threshold = total_equity * rebalance_threshold_ratio
 
     sig_display = signal_text_fn(icon)
@@ -155,14 +183,21 @@ def build_rebalance_plan(
         f"{translator('buying_power')}: ${real_buying_power:,.2f} | {translator('signal_label')}: {sig_display}\n"
         f"QQQ: {qqq_p:.2f} | MA200: {ma200:.2f} | Exit: {exit_line:.2f}"
     )
+    sell_order_symbols = ("TQQQ", "SPYI", "QQQI", "BOXX")
+    buy_order_symbols = ("SPYI", "QQQI", "TQQQ")
+    if dual_drive_enabled:
+        sell_order_symbols = tuple(dict.fromkeys(("TQQQ", dual_drive_symbol, "SPYI", "QQQI", "BOXX")))
+        buy_order_symbols = tuple(dict.fromkeys(("SPYI", "QQQI", "TQQQ", dual_drive_symbol)))
 
     return {
         "strategy_symbols": strategy_symbols,
         # Execution metadata consumed by downstream platform repos.
-        "sell_order_symbols": ("TQQQ", "SPYI", "QQQI", "BOXX"),
-        "buy_order_symbols": ("SPYI", "QQQI", "TQQQ"),
+        "sell_order_symbols": sell_order_symbols,
+        "buy_order_symbols": buy_order_symbols,
         "cash_sweep_symbol": "BOXX",
-        "portfolio_rows": (("TQQQ", "BOXX"), ("QQQI", "SPYI")),
+        "portfolio_rows": (("TQQQ", dual_drive_symbol, "BOXX"), ("QQQI", "SPYI"))
+        if dual_drive_enabled
+        else (("TQQQ", "BOXX"), ("QQQI", "SPYI")),
         "account_hash": snapshot.metadata["account_hash"],
         "market_values": market_values,
         "quantities": quantities,
@@ -175,6 +210,7 @@ def build_rebalance_plan(
             "BOXX": target_boxx_val,
             "SPYI": target_spyi_val,
             "QQQI": target_qqqi_val,
+            **({dual_drive_symbol: target_dual_drive_idle_val} if dual_drive_enabled else {}),
         },
         "sig_display": sig_display,
         "dashboard": dashboard,

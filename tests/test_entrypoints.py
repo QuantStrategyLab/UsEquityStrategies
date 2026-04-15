@@ -150,6 +150,52 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
+    def test_tqqq_growth_income_entrypoint_accepts_dual_drive_runtime_config(self) -> None:
+        entrypoint = get_strategy_entrypoint("tqqq_growth_income")
+        qqq_history = [
+            {
+                "close": 300.0 + day * 0.4,
+                "high": 301.0 + day * 0.4,
+                "low": 299.0 + day * 0.4,
+            }
+            for day in range(260)
+        ]
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+            total_equity=120000.0,
+            buying_power=20000.0,
+            positions=(
+                Position(symbol="TQQQ", quantity=10, market_value=8000.0),
+                Position(symbol="BOXX", quantity=20, market_value=4000.0),
+                Position(symbol="QQQ", quantity=0, market_value=0.0),
+                Position(symbol="SPYI", quantity=30, market_value=1500.0),
+                Position(symbol="QQQI", quantity=30, market_value=1700.0),
+            ),
+            metadata={"account_hash": "demo"},
+        )
+
+        decision = entrypoint.evaluate(
+            StrategyContext(
+                as_of="2026-04-06",
+                market_data={
+                    "benchmark_history": qqq_history,
+                    "portfolio_snapshot": snapshot,
+                },
+                portfolio=snapshot,
+                runtime_config={
+                    "signal_text_fn": str,
+                    "translator": lambda key, **kwargs: key,
+                    "dual_drive_idle_symbol": "QQQ",
+                    "dual_drive_idle_fraction": 0.5,
+                    "dual_drive_idle_trigger": "tqqq_active",
+                },
+            )
+        )
+
+        target_values = {position.symbol: position.target_value for position in decision.positions}
+        self.assertIn("QQQ", target_values)
+        self.assertGreater(target_values["QQQ"], 0.0)
+
     def test_runtime_requirements_classify_snapshot_and_non_snapshot_profiles(self) -> None:
         tech = describe_platform_runtime_requirements("qqq_tech_enhancement", platform_id="schwab")
         self.assertEqual(tech["profile_group"], "snapshot_backed")
