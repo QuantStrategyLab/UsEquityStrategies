@@ -250,6 +250,10 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["target_values"]["QQQ"], 150000.0 * 0.45)
         self.assertAlmostEqual(plan["reserved"], 150000.0 * 0.10)
         self.assertEqual(plan["target_values"]["BOXX"], 0.0)
+        self.assertEqual(plan["exit_line"], plan["ma200"])
+        self.assertIn("MA200 Exit:", plan["dashboard"])
+        self.assertIn("MA20Δ:", plan["dashboard"])
+        self.assertNotIn(" | Exit:", plan["dashboard"])
 
     def test_tqqq_growth_income_fixed_dual_drive_uses_stateful_ma200_exit(self):
         _skip_if_missing_numeric_stack()
