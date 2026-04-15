@@ -102,7 +102,7 @@ def build_rebalance_plan(
         axis=1,
     ).max(axis=1)
     atr_pct = true_range.rolling(14).mean().iloc[-1] / qqq_p
-    exit_line = ma200 * max(
+    atr_exit_line = ma200 * max(
         exit_line_floor,
         min(exit_line_cap, 1.0 - (atr_pct * atr_exit_scale)),
     )
@@ -143,7 +143,7 @@ def build_rebalance_plan(
     agg_ratio, _ = get_hybrid_allocation(
         strategy_equity,
         qqq_p,
-        exit_line,
+        atr_exit_line,
         alloc_tier1_breakpoints=alloc_tier1_breakpoints,
         alloc_tier1_values=alloc_tier1_values,
         alloc_tier2_breakpoints=alloc_tier2_breakpoints,
@@ -155,7 +155,7 @@ def build_rebalance_plan(
 
     target_tqqq_ratio, icon, _reason = 0.0, "idle", "no signal"
     if quantities["TQQQ"] > 0:
-        if qqq_p < exit_line:
+        if qqq_p < atr_exit_line:
             target_tqqq_ratio, icon = 0.0, "exit"
         elif qqq_p < ma200:
             target_tqqq_ratio, icon = agg_ratio * 0.33, "reduce"
@@ -239,6 +239,18 @@ def build_rebalance_plan(
         target_boxx_val = max(0.0, target_idle_val - target_dual_drive_idle_val)
     threshold = total_equity * rebalance_threshold_ratio
 
+    effective_exit_line = ma200 if fixed_dual_drive_enabled else atr_exit_line
+    if fixed_dual_drive_enabled:
+        ma20_slope_text = "n/a" if pd.isna(ma20_slope) else f"{ma20_slope:+.2f}"
+        benchmark_line = (
+            f"QQQ: {qqq_p:.2f} | MA200 Exit: {effective_exit_line:.2f} | "
+            f"MA20Δ: {ma20_slope_text}"
+        )
+    else:
+        benchmark_line = (
+            f"QQQ: {qqq_p:.2f} | MA200: {ma200:.2f} | Exit: {effective_exit_line:.2f}"
+        )
+
     sig_display = signal_text_fn(icon)
     separator = translator("separator")
     dashboard = (
@@ -246,7 +258,7 @@ def build_rebalance_plan(
         f"TQQQ: ${market_values['TQQQ']:,.2f} | SPYI: ${market_values['SPYI']:,.2f} | "
         f"QQQI: ${market_values['QQQI']:,.2f} | BOXX: ${market_values['BOXX']:,.2f}\n"
         f"{translator('buying_power')}: ${real_buying_power:,.2f} | {translator('signal_label')}: {sig_display}\n"
-        f"QQQ: {qqq_p:.2f} | MA200: {ma200:.2f} | Exit: {exit_line:.2f}"
+        f"{benchmark_line}"
     )
     sell_order_symbols = ("TQQQ", "SPYI", "QQQI", "BOXX")
     buy_order_symbols = ("SPYI", "QQQI", "TQQQ")
@@ -281,7 +293,8 @@ def build_rebalance_plan(
         "dashboard": dashboard,
         "qqq_p": qqq_p,
         "ma200": ma200,
-        "exit_line": exit_line,
+        "exit_line": effective_exit_line,
+        "atr_exit_line": atr_exit_line,
         "attack_scale": attack_scale,
         "separator": separator,
     }
