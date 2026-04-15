@@ -113,7 +113,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             **{
                 key: value
                 for key, value in entrypoint.manifest.default_config.items()
-                if key not in {"benchmark_symbol", "managed_symbols"}
+                if key not in {"benchmark_symbol", "managed_symbols", "execution_cash_reserve_ratio"}
             },
         )
 
@@ -129,17 +129,30 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(
-            {position.symbol: position.target_value for position in decision.positions},
-            legacy_plan["target_values"],
-        )
+        target_values = {position.symbol: position.target_value for position in decision.positions}
+        self.assertEqual(target_values, legacy_plan["target_values"])
+        self.assertAlmostEqual(target_values["QQQ"] / snapshot.total_equity, 0.45)
+        self.assertAlmostEqual(target_values["TQQQ"] / snapshot.total_equity, 0.45)
+        self.assertAlmostEqual(target_values["BOXX"] / snapshot.total_equity, 0.08)
         self.assertNotIn("sell_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["threshold"], legacy_plan["threshold"])
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
-            ("TQQQ", "BOXX", "SPYI", "QQQI"),
+            ("TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"),
         )
+
+    def test_tqqq_growth_income_defaults_to_fixed_dual_drive_live_profile(self) -> None:
+        config = get_strategy_entrypoint("tqqq_growth_income").manifest.default_config
+
+        self.assertEqual(config["attack_allocation_mode"], "fixed_qqq_tqqq_pullback")
+        self.assertEqual(config["dual_drive_qqq_weight"], 0.45)
+        self.assertEqual(config["dual_drive_tqqq_weight"], 0.45)
+        self.assertEqual(config["dual_drive_cash_reserve_ratio"], 0.02)
+        self.assertEqual(config["cash_reserve_ratio"], 0.02)
+        self.assertEqual(config["income_threshold_usd"], 1_000_000_000.0)
+        self.assertEqual(config["execution_cash_reserve_ratio"], 0.0)
+        self.assertIn("QQQ", config["managed_symbols"])
 
     def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
         for platform_id in ("ibkr", "schwab", "longbridge"):

@@ -83,7 +83,7 @@ def build_rebalance_plan(
     attack_allocation_mode="atr_staged",
     dual_drive_qqq_weight=0.45,
     dual_drive_tqqq_weight=0.45,
-    dual_drive_cash_reserve_ratio=0.10,
+    dual_drive_cash_reserve_ratio=0.02,
     dual_drive_allow_pullback=True,
     dual_drive_require_ma20_slope=True,
 ):
@@ -197,7 +197,8 @@ def build_rebalance_plan(
             and positive_ma20_slope
         )
         if risk_active or pullback_risk_on:
-            reserved = strategy_equity * max(0.0, min(1.0, float(dual_drive_cash_reserve_ratio or 0.10)))
+            dual_drive_reserve_ratio = 0.02 if dual_drive_cash_reserve_ratio is None else float(dual_drive_cash_reserve_ratio)
+            reserved = strategy_equity * max(0.0, min(1.0, dual_drive_reserve_ratio))
             target_tqqq_ratio = max(0.0, min(1.0, float(dual_drive_tqqq_weight or 0.45)))
             target_dual_drive_idle_ratio = max(0.0, min(1.0, float(dual_drive_qqq_weight or 0.45)))
             total_risk_ratio = target_tqqq_ratio + target_dual_drive_idle_ratio
