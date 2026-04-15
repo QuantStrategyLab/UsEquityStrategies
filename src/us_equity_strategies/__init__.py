@@ -10,6 +10,7 @@ __all__ = [
     "get_strategy_definitions",
     "get_strategy_metadata",
     "get_strategy_metadata_map",
+    "get_runtime_enabled_profiles",
     "get_platform_runtime_adapter",
     "get_strategy_platform_compatibility_map",
     "resolve_canonical_profile",
@@ -29,6 +30,7 @@ def __getattr__(name: str):
         "get_strategy_definitions",
         "get_strategy_metadata",
         "get_strategy_metadata_map",
+        "get_runtime_enabled_profiles",
         "get_strategy_platform_compatibility_map",
         "resolve_canonical_profile",
     }:

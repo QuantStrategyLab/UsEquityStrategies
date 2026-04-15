@@ -29,6 +29,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "russell_1000_multi_factor_defensive",
             "tech_communication_pullback_enhancement",
             "mega_cap_leader_rotation_dynamic_top20",
+            "dynamic_mega_leveraged_pullback",
         ):
             entrypoint = get_strategy_entrypoint(profile)
             self.assertEqual(entrypoint.manifest.profile, profile)
@@ -154,13 +155,25 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(tech["profile_group"], "snapshot_backed")
         self.assertEqual(tech["input_mode"], "feature_snapshot")
         self.assertTrue(tech["requires_snapshot_artifacts"])
+        self.assertTrue(tech["requires_snapshot_manifest_path"])
         self.assertTrue(tech["requires_strategy_config_path"])
 
         mega = describe_platform_runtime_requirements("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
         self.assertEqual(mega["profile_group"], "snapshot_backed")
         self.assertEqual(mega["input_mode"], "feature_snapshot")
         self.assertTrue(mega["requires_snapshot_artifacts"])
+        self.assertTrue(mega["requires_snapshot_manifest_path"])
         self.assertFalse(mega["requires_strategy_config_path"])
+
+        leveraged = describe_platform_runtime_requirements("dynamic_mega_leveraged_pullback", platform_id="ibkr")
+        self.assertEqual(leveraged["profile_group"], "snapshot_backed")
+        self.assertEqual(
+            leveraged["input_mode"],
+            "feature_snapshot+market_history+benchmark_history+portfolio_snapshot",
+        )
+        self.assertTrue(leveraged["requires_snapshot_artifacts"])
+        self.assertTrue(leveraged["requires_snapshot_manifest_path"])
+        self.assertFalse(leveraged["requires_strategy_config_path"])
 
         tqqq = describe_platform_runtime_requirements("tqqq_growth_income", platform_id="ibkr")
         self.assertEqual(tqqq["profile_group"], "direct_runtime_inputs")
@@ -400,6 +413,18 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_mega_adapter.portfolio_input_name, "portfolio_snapshot")
+
+        for platform_id in ("schwab", "longbridge"):
+            dynamic_leveraged_adapter = get_platform_runtime_adapter(
+                "dynamic_mega_leveraged_pullback",
+                platform_id=platform_id,
+            )
+            self.assertEqual(dynamic_leveraged_adapter.status_icon, "2x")
+            self.assertEqual(
+                dynamic_leveraged_adapter.available_inputs,
+                frozenset({"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}),
+            )
+            self.assertEqual(dynamic_leveraged_adapter.portfolio_input_name, "portfolio_snapshot")
 
         semiconductor_ibkr_adapter = get_platform_runtime_adapter(
             "soxl_soxx_trend_income",
