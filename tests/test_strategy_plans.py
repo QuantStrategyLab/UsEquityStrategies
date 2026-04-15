@@ -74,6 +74,66 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ"))
         self.assertEqual(plan["cash_sweep_symbol"], "BOXX")
         self.assertEqual(plan["portfolio_rows"], (("TQQQ", "BOXX"), ("QQQI", "SPYI")))
+        self.assertNotIn("QQQ", plan["strategy_symbols"])
+
+    def test_tqqq_growth_income_can_route_idle_sleeve_to_qqq_when_enabled(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {
+                "close": 100.0 + index * 0.5,
+                "high": 101.0 + index * 0.5,
+                "low": 99.0 + index * 0.5,
+            }
+            for index in range(220)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=5000.0, quantity=10),
+                SimpleNamespace(symbol="BOXX", market_value=1000.0, quantity=8),
+                SimpleNamespace(symbol="QQQ", market_value=0.0, quantity=0),
+            ],
+            total_equity=150000.0,
+            buying_power=20000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=100000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.03,
+            rebalance_threshold_ratio=0.01,
+            alloc_tier1_breakpoints=(0, 50000),
+            alloc_tier1_values=(0.1, 0.2),
+            alloc_tier2_breakpoints=(50000, 100000),
+            alloc_tier2_values=(0.2, 0.3),
+            risk_leverage_factor=3.0,
+            risk_agg_cap=0.6,
+            risk_numerator=0.03,
+            atr_exit_scale=1.0,
+            atr_entry_scale=1.0,
+            exit_line_floor=0.85,
+            exit_line_cap=0.99,
+            entry_line_floor=1.0,
+            entry_line_cap=1.15,
+            dual_drive_idle_symbol="QQQ",
+            dual_drive_idle_fraction=0.5,
+            dual_drive_idle_trigger="tqqq_active",
+        )
+
+        self.assertIn("QQQ", plan["strategy_symbols"])
+        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX"))
+        self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQ"))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), ("QQQI", "SPYI")))
+        self.assertGreater(plan["target_values"]["QQQ"], 0.0)
+        self.assertGreater(plan["target_values"]["BOXX"], 0.0)
 
     def test_soxl_soxx_trend_income_exposes_execution_metadata(self):
         _skip_if_missing_numeric_stack()
