@@ -39,7 +39,7 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
 | `mega_cap_leader_rotation_dynamic_top20` | Mega Cap Leader Rotation Dynamic Top20 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `concentrated_leader_rotation` | `runtime_enabled` |
 | `dynamic_mega_leveraged_pullback` | Dynamic Mega Leveraged Pullback | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly snapshot + daily runtime` | `QQQ` | `offensive_leveraged_pullback` | `runtime_enabled` |
-| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_income` | `runtime_enabled` |
+| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
 These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
@@ -161,50 +161,47 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 ### tqqq_growth_income
 
 **Objective**
-- Combine growth exposure, income production, and idle-cash defense in one profile.
-- Let the attack sleeve react to QQQ trend conditions while keeping a separate income sleeve for larger accounts.
+- Run the current live default as a no-income `QQQ` / `TQQQ` dual-drive growth profile.
+- Keep the legacy income and BOXX symbols in the managed universe so existing holdings can be reduced cleanly.
 
 **Portfolio layers**
-- Attack layer: `TQQQ`
-- Income layer: `SPYI`, `QQQI`
-- Defense / cash-like layer: `BOXX` plus a cash reserve
+- Growth layer: `QQQ` and `TQQQ`
+- Default active reserve: 2% cash plus 8% BOXX
+- Legacy / cleanup layer: `BOXX`, `SPYI`, `QQQI`
 
 **Signals and indicators**
 - Uses daily `QQQ` history as the signal source.
-- Core indicators are `MA200` and `ATR14%`.
-- The strategy derives two ATR-adjusted lines around `MA200`:
+- Live default uses `MA200`, `MA20`, and positive `MA20` slope.
+- ATR-adjusted staging remains available behind `attack_allocation_mode = "atr_staged"`:
   - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
   - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
 - The exact clamp floors/caps are injected by the downstream runtime.
 
-**Attack-layer rules (`TQQQ`)**
-- Position size comes from `get_hybrid_allocation(strategy_equity, qqq_p, exit_line)`.
-- That sizing is applied only to strategy-layer equity, which is total equity after subtracting the income layer.
-- If already holding `TQQQ`:
-  - `QQQ < exit_line` → target `TQQQ = 0`
-  - `exit_line <= QQQ < MA200` → target `TQQQ = agg_ratio × 0.33`
-  - `QQQ >= MA200` → target `TQQQ = agg_ratio`
-- If flat and `QQQ > entry_line` → open `TQQQ` at `agg_ratio`.
+**Default dual-drive rules (`QQQ` / `TQQQ`)**
+- Entry requires `QQQ > MA200` and positive `MA20` slope.
+- Once risk is active, the profile keeps `QQQ 45% / TQQQ 45% / BOXX 8% / cash 2%` while `QQQ` remains above `MA200`; a short-term negative `MA20` slope alone does not force an exit.
+- If `QQQ` falls below `MA200`, the profile exits `QQQ` and `TQQQ`, keeps 2% cash, and parks the rest in `BOXX` by default.
+- A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20` and `MA20` slope is positive.
 
 **Income-layer rules (`SPYI` / `QQQI`)**
-- `get_income_ratio(total_equity)` stays at `0` below the configured threshold.
-- From `1x` to `2x` the threshold, the income sleeve ramps linearly to `40%`.
-- Above `2x` the threshold, the income sleeve caps at `60%`.
-- `QQQI_INCOME_RATIO` decides the split between `QQQI` and `SPYI`.
+- The live default sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
+- Lowering that threshold opts back into the legacy income sleeve.
+- `QQQI_INCOME_RATIO` still decides the split between `QQQI` and `SPYI` when the income layer is enabled.
 
 **Defense behavior (`BOXX` and cash)**
-- A cash reserve is kept at the strategy layer.
-- After reserving cash and sizing `TQQQ`, the remaining strategy-layer capital is assigned to `BOXX`.
+- The fixed dual-drive live default keeps a small cash buffer and uses BOXX for the remaining idle capital.
+- `BOXX` remains a managed symbol so old BOXX holdings can be traded down if present.
 - Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
 
-**Current live Charles Schwab profile defaults**
-- `INCOME_THRESHOLD_USD = 100000`
-- `QQQI_INCOME_RATIO = 0.5`
-- `CASH_RESERVE_RATIO = 0.05`
+**Default runtime profile defaults**
+- `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
+- `DUAL_DRIVE_QQQ_WEIGHT = 0.45`, `DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
+- `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
+- `INCOME_THRESHOLD_USD = 1000000000`
+- `CASH_RESERVE_RATIO = 0.02`
+- `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
-- `RISK_LEVERAGE_FACTOR = 3.0`, `RISK_NUMERATOR = 0.30`, `RISK_AGG_CAP = 0.50`
-- `ATR_EXIT_SCALE = 2.0`, `ATR_ENTRY_SCALE = 2.5`
-- `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`, `ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
+- Legacy ATR parameters are still present but only affect `attack_allocation_mode = "atr_staged"`.
 
 ### soxl_soxx_trend_income
 
@@ -281,7 +278,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `mega_cap_leader_rotation_dynamic_top20` | Mega Cap 动态 Top20 龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 从历史动态 mega-cap top20 池里选 4 只强势龙头，默认单票 25%，QQQ 跌破 200 日线时降到 50% 股票仓位 |
 | `dynamic_mega_leveraged_pullback` | Mega Cap 2x 回调策略 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 snapshot + 日频运行 | 动态 mega-cap top15 池里选 top3，使用 QQQ 200SMA/ATR 门槛控制 2x 做多产品仓位，剩余资金停 BOXX |
-| `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | 由 QQQ 驱动的 TQQQ 攻击层，加上 SPYI / QQQI 收入层和 BOXX 防守层 |
+| `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
 这些策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口，被各个平台仓库引用。运行时和部署配置统一使用 canonical profile key。
@@ -401,50 +398,47 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 ### tqqq_growth_income
 
 **策略目标**
-- 把增长、分红收入、闲置现金防守放进同一个档位里。
-- 攻击层根据 `QQQ` 趋势动态调节，收入层则服务于更大的账户规模。
+- 默认运行采用不带收入层的 `QQQ` / `TQQQ` 双轮增长策略。
+- 继续把旧收入层和 BOXX 资产留在管理列表里，方便把已有持仓平滑降下来。
 
 **资产层级**
-- 攻击层：`TQQQ`
-- 收入层：`SPYI`、`QQQI`
-- 防守 / 现金类：`BOXX` 加现金储备
+- 增长层：`QQQ`、`TQQQ`
+- 默认激活时：2% 现金加 8% BOXX
+- 旧持仓清理 / 兼容层：`BOXX`、`SPYI`、`QQQI`
 
 **信号和指标**
 - 以 `QQQ` 的日线数据作为主信号源。
-- 核心指标是 `MA200` 和 `ATR14%`。
-- 策略会围绕 `MA200` 生成两条 ATR 调整后的线：
+- 默认运行使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
+- ATR 分段仓位逻辑仍保留在 `attack_allocation_mode = "atr_staged"` 里：
   - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
   - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
 - 具体的 clamp 上下界由下游运行仓库注入。
 
-**攻击层规则（`TQQQ`）**
-- 仓位大小来自 `get_hybrid_allocation(strategy_equity, qqq_p, exit_line)`。
-- 这个仓位只作用在**策略层资产**上，也就是总资产扣掉收入层之后的部分。
-- 如果当前已经持有 `TQQQ`：
-  - `QQQ < exit_line` → `TQQQ` 目标仓位归零
-  - `exit_line <= QQQ < MA200` → `TQQQ` 目标仓位降到 `agg_ratio × 0.33`
-  - `QQQ >= MA200` → `TQQQ` 维持 `agg_ratio`
-- 如果当前空仓且 `QQQ > entry_line` → 按 `agg_ratio` 开仓。
+**默认双轮规则（`QQQ` / `TQQQ`）**
+- 入场需要 `QQQ > MA200` 且 `MA20` 斜率为正。
+- 一旦进入风险状态，只要 `QQQ` 仍在 `MA200` 上方，就维持 `QQQ 45% / TQQQ 45% / BOXX 8% / 现金 2%`；短期 `MA20` 斜率转负不会单独触发离场。
+- 如果 `QQQ` 跌破 `MA200`，默认退出 `QQQ` 和 `TQQQ`，保留 2% 现金，其余转入 `BOXX`。
+- 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20` 且 `MA20` 斜率为正时，可重新打开风险仓位。
 
 **收入层规则（`SPYI` / `QQQI`）**
-- `get_income_ratio(total_equity)` 在阈值以下为 `0`。
-- 从 `1 倍阈值` 到 `2 倍阈值` 之间，收入层线性抬升到 `40%`。
-- 超过 `2 倍阈值` 后，收入层上限为 `60%`。
-- `QQQI_INCOME_RATIO` 决定 `QQQI` 和 `SPYI` 的拆分比例。
+- 实盘默认把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
+- 如果以后要重新启用收入层，可以把这个阈值调低。
+- `QQQI_INCOME_RATIO` 仍然决定收入层启用时 `QQQI` 和 `SPYI` 的拆分比例。
 
 **防守行为（`BOXX` 与现金）**
-- 策略层先保留一部分现金储备。
-- 扣掉现金储备并算出 `TQQQ` 目标后，剩余策略层资金进入 `BOXX`。
+- fixed dual-drive 实盘默认只保留一小部分现金，剩余闲置资金进入 BOXX。
+- `BOXX` 仍保留为管理资产，方便清理旧 BOXX 持仓。
 - 是否真的下单，由下游执行层再结合再平衡阈值判断。
 
-**当前 Charles Schwab live profile 默认值**
-- `INCOME_THRESHOLD_USD = 100000`
-- `QQQI_INCOME_RATIO = 0.5`
-- `CASH_RESERVE_RATIO = 0.05`
+**runtime-enabled profile 默认值**
+- `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
+- `DUAL_DRIVE_QQQ_WEIGHT = 0.45`，`DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
+- `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
+- `INCOME_THRESHOLD_USD = 1000000000`
+- `CASH_RESERVE_RATIO = 0.02`
+- `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
-- `RISK_LEVERAGE_FACTOR = 3.0`，`RISK_NUMERATOR = 0.30`，`RISK_AGG_CAP = 0.50`
-- `ATR_EXIT_SCALE = 2.0`，`ATR_ENTRY_SCALE = 2.5`
-- `EXIT_LINE_FLOOR / CAP = 0.92 / 0.98`，`ENTRY_LINE_FLOOR / CAP = 1.02 / 1.08`
+- 旧 ATR 参数仍保留，但只在 `attack_allocation_mode = "atr_staged"` 时生效。
 
 ### soxl_soxx_trend_income
 

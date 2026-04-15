@@ -251,6 +251,72 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["reserved"], 150000.0 * 0.10)
         self.assertEqual(plan["target_values"]["BOXX"], 0.0)
 
+    def test_tqqq_growth_income_fixed_dual_drive_uses_stateful_ma200_exit(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0, "high": 101.0, "low": 99.0}
+            for _ in range(220)
+        ] + [
+            {"close": 170.0 - index, "high": 171.0 - index, "low": 169.0 - index}
+            for index in range(40)
+        ]
+        common_kwargs = dict(
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            alloc_tier1_breakpoints=(0, 50000),
+            alloc_tier1_values=(0.1, 0.2),
+            alloc_tier2_breakpoints=(50000, 100000),
+            alloc_tier2_values=(0.2, 0.3),
+            risk_leverage_factor=3.0,
+            risk_agg_cap=0.6,
+            risk_numerator=0.03,
+            atr_exit_scale=1.0,
+            atr_entry_scale=1.0,
+            exit_line_floor=0.85,
+            exit_line_cap=0.99,
+            entry_line_floor=1.0,
+            entry_line_cap=1.15,
+            attack_allocation_mode="fixed_qqq_tqqq_pullback",
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        flat_snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=100000.0, quantity=1000)],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+        flat_plan = build_tqqq_plan(qqq_history, flat_snapshot, **common_kwargs)
+        self.assertEqual(flat_plan["target_values"]["TQQQ"], 0.0)
+        self.assertEqual(flat_plan["target_values"]["QQQ"], 0.0)
+        self.assertAlmostEqual(flat_plan["target_values"]["BOXX"], 100000.0 * 0.98)
+
+        active_snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
+            ],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+        active_plan = build_tqqq_plan(qqq_history, active_snapshot, **common_kwargs)
+        self.assertAlmostEqual(active_plan["target_values"]["TQQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(active_plan["target_values"]["QQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(active_plan["target_values"]["BOXX"], 100000.0 * 0.08)
+        self.assertAlmostEqual(active_plan["reserved"], 100000.0 * 0.02)
+
     def test_soxl_soxx_trend_income_exposes_execution_metadata(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (

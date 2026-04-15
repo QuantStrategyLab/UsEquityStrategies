@@ -72,6 +72,7 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
+    config.pop("execution_cash_reserve_ratio", None)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "benchmark_history"),
         require_portfolio(ctx),
