@@ -4,13 +4,23 @@ import unittest
 from pathlib import Path
 
 from us_equity_strategies import get_strategy_definitions
-from us_equity_strategies.catalog import STRATEGY_CATALOG
+from us_equity_strategies.catalog import (
+    STRATEGY_CATALOG,
+    STRATEGY_DEFAULT_CONFIG,
+    get_runtime_enabled_profiles,
+)
+from us_equity_strategies.manifests import dynamic_mega_leveraged_pullback_manifest
 from us_equity_strategies.runtime_adapters import (
+    BASE_RUNTIME_ADAPTERS,
     IBKR_PLATFORM,
     LONGBRIDGE_PLATFORM,
     PLATFORM_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM,
     get_platform_runtime_adapter,
+)
+from us_equity_strategies.strategies.dynamic_mega_leveraged_pullback import (
+    DEFAULT_CONFIG as DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
+    PROFILE_NAME as DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
 )
 
 
@@ -43,16 +53,7 @@ LIVE_PROFILE_LEGACY_ALIASES = {
 LIVE_PROFILE_TRANSITION_ALIASES = {
     "tech_communication_pullback_enhancement": ("qqq_tech_enhancement",),
 }
-LIVE_US_EQUITY_FULL_MATRIX_PROFILES = frozenset(
-    {
-        "global_etf_rotation",
-        "tqqq_growth_income",
-        "soxl_soxx_trend_income",
-        "russell_1000_multi_factor_defensive",
-        "tech_communication_pullback_enhancement",
-        "mega_cap_leader_rotation_dynamic_top20",
-    }
-)
+LIVE_US_EQUITY_FULL_MATRIX_PROFILES = get_runtime_enabled_profiles()
 ALLOWED_TARGET_MODES = frozenset({"weight", "value"})
 PLATFORM_NATIVE_TARGET_MODES = {
     IBKR_PLATFORM: "weight",
@@ -145,6 +146,12 @@ class ContractGovernanceTests(unittest.TestCase):
             with self.subTest(platform_id=platform_id):
                 self.assertEqual(frozenset(adapters), supported_profiles)
 
+    def test_base_runtime_adapter_specs_cover_all_strategy_profiles(self) -> None:
+        self.assertEqual(
+            frozenset(BASE_RUNTIME_ADAPTERS),
+            frozenset(get_strategy_definitions()),
+        )
+
     def test_feature_snapshot_profiles_declare_snapshot_contract_metadata(self) -> None:
         for profile, definition in get_strategy_definitions().items():
             if "feature_snapshot" not in definition.required_inputs:
@@ -158,6 +165,16 @@ class ContractGovernanceTests(unittest.TestCase):
                         self.assertTrue(adapter.snapshot_contract_version)
                     if definition.bundled_config_relpath:
                         self.assertTrue(callable(adapter.runtime_parameter_loader))
+
+    def test_dynamic_mega_leveraged_pullback_default_config_has_single_source(self) -> None:
+        self.assertEqual(
+            STRATEGY_DEFAULT_CONFIG[DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE],
+            DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
+        )
+        self.assertEqual(
+            dynamic_mega_leveraged_pullback_manifest.default_config,
+            DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
+        )
 
     def test_strategy_and_entrypoint_sources_do_not_branch_on_platform_or_env(self) -> None:
         for root in GOVERNED_SOURCE_ROOTS:

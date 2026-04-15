@@ -16,14 +16,18 @@ from quant_platform_kit.common.strategies import (
     normalize_profile_name as qpk_normalize_profile_name,
 )
 
+from .strategies.dynamic_mega_leveraged_pullback import DEFAULT_CONFIG as DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG
+
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
+_DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = "dynamic_mega_leveraged_pullback"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
+DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = _DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE
 
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
@@ -33,6 +37,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
@@ -42,6 +47,9 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"feature_snapshot"}),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"feature_snapshot"}),
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: frozenset(
+        {"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}
+    ),
 }
 
 STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
@@ -149,6 +157,9 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
     },
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: {
+        **DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
+    },
 }
 
 STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
@@ -158,6 +169,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
     QQQ_TECH_ENHANCEMENT_PROFILE: "qqq_tech_enhancement_entrypoint",
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "mega_cap_leader_rotation_dynamic_top20_entrypoint",
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: "dynamic_mega_leveraged_pullback_entrypoint",
 }
 
 STRATEGY_TARGET_MODES: dict[str, str] = {
@@ -167,6 +179,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
     QQQ_TECH_ENHANCEMENT_PROFILE: "weight",
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "weight",
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: "weight",
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
@@ -233,6 +246,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+    ),
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: _build_strategy_definition(
+        DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.dynamic_mega_leveraged_pullback",
     ),
 }
 
@@ -304,6 +322,17 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         role="concentrated_leader_rotation",
         status="runtime_enabled",
     ),
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: StrategyMetadata(
+        canonical_profile=DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
+        display_name="Dynamic Mega Leveraged Pullback",
+        description="Monthly dynamic mega-cap candidate snapshot with daily QQQ ATR/SMA gate and top-3 2x long pullback execution.",
+        aliases=(),
+        cadence="monthly snapshot + daily runtime",
+        asset_scope="us_mega_cap_single_stock_leveraged_products",
+        benchmark="QQQ",
+        role="offensive_leveraged_pullback",
+        status="runtime_enabled",
+    ),
 }
 
 PROFILE_ALIASES: dict[str, str] = {
@@ -364,6 +393,14 @@ def get_strategy_index_rows() -> list[dict[str, object]]:
 
 def get_strategy_metadata_map() -> dict[str, StrategyMetadata]:
     return dict(STRATEGY_METADATA)
+
+
+def get_runtime_enabled_profiles() -> frozenset[str]:
+    return frozenset(
+        profile
+        for profile, metadata in STRATEGY_METADATA.items()
+        if str(metadata.status or "").strip().lower() == "runtime_enabled"
+    )
 
 
 def get_strategy_metadata(profile: str) -> StrategyMetadata:

@@ -10,7 +10,7 @@ At this point it mainly records what was migrated, what is now fully portable ac
 
 ## Scope of this matrix
 
-This matrix tracks the six current live US equity profiles:
+This matrix tracks the seven current live US equity profiles:
 
 - `global_etf_rotation`
 - `tqqq_growth_income`
@@ -18,6 +18,7 @@ This matrix tracks the six current live US equity profiles:
 - `russell_1000_multi_factor_defensive`
 - `tech_communication_pullback_enhancement`
 - `mega_cap_leader_rotation_dynamic_top20`
+- `dynamic_mega_leveraged_pullback`
 
 Out of scope for this document:
 
@@ -28,7 +29,7 @@ Out of scope for this document:
 
 ## Current platform status snapshot
 
-As of this document update, the platform status scripts show that all six live US equity profiles are enabled on all three current broker runtimes:
+As of this document update, the platform status scripts show that all seven live US equity profiles are enabled on all three current broker runtimes:
 
 - `ibkr`
   - `global_etf_rotation`
@@ -37,6 +38,7 @@ As of this document update, the platform status scripts show that all six live U
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
   - `mega_cap_leader_rotation_dynamic_top20`
+  - `dynamic_mega_leveraged_pullback`
 - `schwab`
   - `global_etf_rotation`
   - `tqqq_growth_income`
@@ -44,6 +46,7 @@ As of this document update, the platform status scripts show that all six live U
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
   - `mega_cap_leader_rotation_dynamic_top20`
+  - `dynamic_mega_leveraged_pullback`
 - `longbridge`
   - `global_etf_rotation`
   - `tqqq_growth_income`
@@ -51,6 +54,7 @@ As of this document update, the platform status scripts show that all six live U
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
   - `mega_cap_leader_rotation_dynamic_top20`
+  - `dynamic_mega_leveraged_pullback`
 
 That means the original profile-by-profile platform gaps for the current six live strategies are closed. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
 
@@ -64,7 +68,7 @@ New US equity profiles should only use these canonical `required_inputs`:
 - `derived_indicators`
 - `feature_snapshot`
 
-All six runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
+All seven runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
 
 ## Legacy-to-canonical mapping used for migration planning
 
@@ -87,6 +91,7 @@ All six runtime-enabled profiles now use canonical `required_inputs` names at th
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; canonical artifact input is shared across all runtimes | keep artifact transport, manifest validation, and rollout discipline consistent |
 | `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place and canonical config or snapshot names are now used on the mainline path | keep artifact rollout and config naming discipline tight, especially for future research outputs |
 | `mega_cap_leader_rotation_dynamic_top20` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; dynamic top20 artifacts use a separate feature-snapshot contract | keep universe-ranking provenance and snapshot manifest validation explicit |
+| `dynamic_mega_leveraged_pullback` | `weight` | `feature_snapshot` + `market_history` + `benchmark_history` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` + `market_history` + `benchmark_history` + `portfolio_snapshot` | full three-platform coverage is in place; the strategy uses monthly dynamic mega-cap product snapshots plus daily market gates | keep product-map provenance, snapshot manifest validation, and hybrid input builders aligned |
 
 ## Current adapter details that matter for migration
 

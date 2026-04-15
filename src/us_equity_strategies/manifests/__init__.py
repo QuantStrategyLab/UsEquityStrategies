@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from quant_platform_kit.strategy_contracts import StrategyManifest
 
+from us_equity_strategies.strategies.dynamic_mega_leveraged_pullback import (
+    DEFAULT_CONFIG as DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
+)
+
 
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
+DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = "dynamic_mega_leveraged_pullback"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 
 
@@ -200,6 +205,15 @@ mega_cap_leader_rotation_dynamic_top20_manifest = _manifest(
     },
 )
 
+dynamic_mega_leveraged_pullback_manifest = _manifest(
+    profile=DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
+    display_name="Dynamic Mega Leveraged Pullback",
+    description="Monthly dynamic mega-cap candidate snapshot with daily QQQ ATR/SMA gate and top-3 2x long pullback execution.",
+    aliases=(),
+    required_inputs=frozenset({"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}),
+    default_config=dict(DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG),
+)
+
 MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
@@ -207,6 +221,7 @@ MANIFESTS = {
     russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
     qqq_tech_enhancement_manifest.profile: qqq_tech_enhancement_manifest,
     mega_cap_leader_rotation_dynamic_top20_manifest.profile: mega_cap_leader_rotation_dynamic_top20_manifest,
+    dynamic_mega_leveraged_pullback_manifest.profile: dynamic_mega_leveraged_pullback_manifest,
 }
 
 MANIFEST_ALIASES = {
@@ -230,4 +245,5 @@ __all__ = [
     "qqq_tech_enhancement_manifest",
     "russell_1000_multi_factor_defensive_manifest",
     "mega_cap_leader_rotation_dynamic_top20_manifest",
+    "dynamic_mega_leveraged_pullback_manifest",
 ]
