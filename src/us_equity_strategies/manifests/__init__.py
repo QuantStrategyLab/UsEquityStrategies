@@ -103,6 +103,15 @@ tqqq_growth_income_manifest = _manifest(
         "dual_drive_idle_symbol": "BOXX",
         "dual_drive_idle_fraction": 0.0,
         "dual_drive_idle_trigger": "tqqq_active",
+        "attack_scale_mode": "baseline",
+        "attack_scale_min": 0.55,
+        "attack_scale_gap_limit": 0.08,
+        "attack_allocation_mode": "atr_staged",
+        "dual_drive_qqq_weight": 0.45,
+        "dual_drive_tqqq_weight": 0.45,
+        "dual_drive_cash_reserve_ratio": 0.10,
+        "dual_drive_allow_pullback": True,
+        "dual_drive_require_ma20_slope": True,
     },
 )
 

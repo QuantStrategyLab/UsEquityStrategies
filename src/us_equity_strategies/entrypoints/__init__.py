@@ -98,6 +98,7 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "benchmark_price": plan["qqq_p"],
             "long_trend_value": plan["ma200"],
             "exit_line": plan["exit_line"],
+            "attack_scale": plan.get("attack_scale", 1.0),
         },
     }
     return StrategyDecision(

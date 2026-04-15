@@ -77,6 +77,15 @@ def build_rebalance_plan(
     dual_drive_idle_symbol="BOXX",
     dual_drive_idle_fraction=0.0,
     dual_drive_idle_trigger="tqqq_active",
+    attack_scale_mode="baseline",
+    attack_scale_min=0.55,
+    attack_scale_gap_limit=0.08,
+    attack_allocation_mode="atr_staged",
+    dual_drive_qqq_weight=0.45,
+    dual_drive_tqqq_weight=0.45,
+    dual_drive_cash_reserve_ratio=0.10,
+    dual_drive_allow_pullback=True,
+    dual_drive_require_ma20_slope=True,
 ):
     df_qqq = pd.DataFrame(qqq_history)
     qqq_p = df_qqq["close"].iloc[-1]
@@ -102,9 +111,11 @@ def build_rebalance_plan(
         min(entry_line_cap, 1.0 + (atr_pct * atr_entry_scale)),
     )
 
-    dual_drive_symbol = str(dual_drive_idle_symbol or "BOXX").strip().upper()
+    allocation_mode = str(attack_allocation_mode or "atr_staged").strip().lower()
+    fixed_dual_drive_enabled = allocation_mode == "fixed_qqq_tqqq_pullback"
+    dual_drive_symbol = "QQQ" if fixed_dual_drive_enabled else str(dual_drive_idle_symbol or "BOXX").strip().upper()
     dual_drive_fraction = max(0.0, min(1.0, float(dual_drive_idle_fraction or 0.0)))
-    dual_drive_enabled = dual_drive_symbol == "QQQ" and dual_drive_fraction > 0.0
+    dual_drive_enabled = fixed_dual_drive_enabled or (dual_drive_symbol == "QQQ" and dual_drive_fraction > 0.0)
 
     strategy_symbols = ["TQQQ", "BOXX", "SPYI", "QQQI"]
     if dual_drive_enabled and dual_drive_symbol not in strategy_symbols:
@@ -153,25 +164,78 @@ def build_rebalance_plan(
     elif qqq_p > entry_line:
         target_tqqq_ratio, icon = agg_ratio, "entry"
 
-    target_tqqq_val = strategy_equity * target_tqqq_ratio
-    target_idle_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val)
-    trigger_name = str(dual_drive_idle_trigger or "tqqq_active").strip().lower()
-    if trigger_name == "tqqq_active":
-        use_dual_drive_idle = target_tqqq_ratio > 0.0
-    elif trigger_name == "above_ma200":
-        use_dual_drive_idle = qqq_p > ma200
-    elif trigger_name == "above_ma200_ma20_slope":
-        use_dual_drive_idle = qqq_p > ma200 and ma20_slope > 0.0
-    elif trigger_name == "always":
-        use_dual_drive_idle = True
+    attack_scale = 1.0
+    scale_mode = str(attack_scale_mode or "baseline").strip().lower()
+    if target_tqqq_ratio > 0.0 and scale_mode == "ma20_gap_trim_only":
+        latest_ma20 = ma20.iloc[-1]
+        if pd.notna(latest_ma20) and latest_ma20 > 0.0:
+            gap = qqq_p / latest_ma20 - 1.0
+            if gap < 0.0:
+                gap_limit = max(0.0001, float(attack_scale_gap_limit or 0.08))
+                scale_floor = max(0.0, min(1.0, float(attack_scale_min or 0.55)))
+                negative_gap = max(gap, -gap_limit)
+                attack_scale = 1.0 + (negative_gap / gap_limit) * (1.0 - scale_floor)
+                target_tqqq_ratio *= attack_scale
+
+    target_dual_drive_idle_val = 0.0
+    if fixed_dual_drive_enabled:
+        latest_ma20 = ma20.iloc[-1]
+        above_ma200 = qqq_p > ma200
+        positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
+        slope_ok = positive_ma20_slope if bool(dual_drive_require_ma20_slope) else True
+        current_risk_active = quantities.get("TQQQ", 0) > 0 or quantities.get("QQQ", 0) > 0
+        risk_active = current_risk_active
+        if current_risk_active and not above_ma200:
+            risk_active = False
+        elif not current_risk_active and above_ma200 and slope_ok:
+            risk_active = True
+        pullback_risk_on = (
+            bool(dual_drive_allow_pullback)
+            and not above_ma200
+            and pd.notna(latest_ma20)
+            and qqq_p > latest_ma20
+            and positive_ma20_slope
+        )
+        if risk_active or pullback_risk_on:
+            reserved = strategy_equity * max(0.0, min(1.0, float(dual_drive_cash_reserve_ratio or 0.10)))
+            target_tqqq_ratio = max(0.0, min(1.0, float(dual_drive_tqqq_weight or 0.45)))
+            target_dual_drive_idle_ratio = max(0.0, min(1.0, float(dual_drive_qqq_weight or 0.45)))
+            total_risk_ratio = target_tqqq_ratio + target_dual_drive_idle_ratio
+            max_risk_ratio = max(0.0, 1.0 - reserved / strategy_equity) if strategy_equity > 0.0 else 0.0
+            if total_risk_ratio > max_risk_ratio and total_risk_ratio > 0.0:
+                scale = max_risk_ratio / total_risk_ratio
+                target_tqqq_ratio *= scale
+                target_dual_drive_idle_ratio *= scale
+            target_tqqq_val = strategy_equity * target_tqqq_ratio
+            target_dual_drive_idle_val = strategy_equity * target_dual_drive_idle_ratio
+            target_idle_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val - target_dual_drive_idle_val)
+            target_boxx_val = target_idle_val
+        else:
+            target_tqqq_ratio = 0.0
+            reserved = strategy_equity * cash_reserve_ratio
+            target_tqqq_val = 0.0
+            target_dual_drive_idle_val = 0.0
+            target_boxx_val = max(0.0, strategy_equity - reserved)
     else:
-        use_dual_drive_idle = False
-    target_dual_drive_idle_val = (
-        target_idle_val * dual_drive_fraction
-        if dual_drive_enabled and use_dual_drive_idle
-        else 0.0
-    )
-    target_boxx_val = max(0.0, target_idle_val - target_dual_drive_idle_val)
+        target_tqqq_val = strategy_equity * target_tqqq_ratio
+        target_idle_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val)
+        trigger_name = str(dual_drive_idle_trigger or "tqqq_active").strip().lower()
+        if trigger_name == "tqqq_active":
+            use_dual_drive_idle = target_tqqq_ratio > 0.0
+        elif trigger_name == "above_ma200":
+            use_dual_drive_idle = qqq_p > ma200
+        elif trigger_name == "above_ma200_ma20_slope":
+            use_dual_drive_idle = qqq_p > ma200 and ma20_slope > 0.0
+        elif trigger_name == "always":
+            use_dual_drive_idle = True
+        else:
+            use_dual_drive_idle = False
+        target_dual_drive_idle_val = (
+            target_idle_val * dual_drive_fraction
+            if dual_drive_enabled and use_dual_drive_idle
+            else 0.0
+        )
+        target_boxx_val = max(0.0, target_idle_val - target_dual_drive_idle_val)
     threshold = total_equity * rebalance_threshold_ratio
 
     sig_display = signal_text_fn(icon)
@@ -217,5 +281,6 @@ def build_rebalance_plan(
         "qqq_p": qqq_p,
         "ma200": ma200,
         "exit_line": exit_line,
+        "attack_scale": attack_scale,
         "separator": separator,
     }
