@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import replace
 
 from quant_platform_kit.strategy_contracts import (
+    StrategyArtifactContract,
     StrategyRuntimeAdapter,
+    StrategyRuntimePolicy,
+    resolve_strategy_artifact_contract,
     validate_strategy_runtime_adapter,
 )
 
@@ -47,6 +50,7 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         status_icon=legacy_russell.STATUS_ICON,
         required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
         managed_symbols_extractor=legacy_russell.extract_managed_symbols,
+        artifact_contract=StrategyArtifactContract(requires_snapshot_artifacts=True),
     ),
     QQQ_TECH_ENHANCEMENT_PROFILE: StrategyRuntimeAdapter(
         status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
@@ -57,6 +61,14 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
         runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
         managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
+        artifact_contract=StrategyArtifactContract(
+            requires_snapshot_artifacts=True,
+            requires_snapshot_manifest_path=qqq_tech_enhancement_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            requires_strategy_config_path=True,
+            snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
+            config_source_policy="bundled_or_env",
+        ),
+        runtime_policy=StrategyRuntimePolicy(reconciliation_output_policy="optional"),
     ),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: StrategyRuntimeAdapter(
         status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
@@ -66,6 +78,11 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
         snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
         managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
+        artifact_contract=StrategyArtifactContract(
+            requires_snapshot_artifacts=True,
+            requires_snapshot_manifest_path=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
+        ),
     ),
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: StrategyRuntimeAdapter(
         status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
@@ -75,6 +92,11 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
         snapshot_contract_version="mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
         managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
+        artifact_contract=StrategyArtifactContract(
+            requires_snapshot_artifacts=True,
+            requires_snapshot_manifest_path=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version="mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
+        ),
     ),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: StrategyRuntimeAdapter(
         status_icon=dynamic_mega_leveraged_pullback_strategy.STATUS_ICON,
@@ -84,6 +106,11 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         require_snapshot_manifest=dynamic_mega_leveraged_pullback_strategy.REQUIRE_SNAPSHOT_MANIFEST,
         snapshot_contract_version=dynamic_mega_leveraged_pullback_strategy.SNAPSHOT_CONTRACT_VERSION,
         managed_symbols_extractor=dynamic_mega_leveraged_pullback_strategy.extract_managed_symbols,
+        artifact_contract=StrategyArtifactContract(
+            requires_snapshot_artifacts=True,
+            requires_snapshot_manifest_path=dynamic_mega_leveraged_pullback_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=dynamic_mega_leveraged_pullback_strategy.SNAPSHOT_CONTRACT_VERSION,
+        ),
     ),
 }
 
@@ -124,12 +151,20 @@ def _build_runtime_adapter_for_platform(
     if normalized_platform == IBKR_PLATFORM:
         available_capabilities.add("broker_client")
 
+    runtime_policy = base_adapter.runtime_policy
+    if (
+        canonical_profile == QQQ_TECH_ENHANCEMENT_PROFILE
+        and normalized_platform == LONGBRIDGE_PLATFORM
+    ):
+        runtime_policy = replace(runtime_policy, runtime_execution_window_trading_days=1)
+
     return validate_strategy_runtime_adapter(
         replace(
             base_adapter,
             available_inputs=frozenset(available_inputs),
             available_capabilities=frozenset(available_capabilities),
             portfolio_input_name=portfolio_input_name,
+            runtime_policy=runtime_policy,
         )
     )
 
@@ -173,17 +208,22 @@ def describe_platform_runtime_requirements(profile: str | None, *, platform_id: 
     canonical_profile = resolve_canonical_profile(profile)
     definition = get_strategy_definition(canonical_profile)
     adapter = get_platform_runtime_adapter(canonical_profile, platform_id=platform_id)
-    requires_snapshot_artifacts = "feature_snapshot" in frozenset(definition.required_inputs)
-    requires_strategy_config_path = bool(
-        requires_snapshot_artifacts and callable(adapter.runtime_parameter_loader)
+    artifact_contract = resolve_strategy_artifact_contract(
+        adapter,
+        required_inputs=definition.required_inputs,
     )
+    requires_snapshot_artifacts = artifact_contract.requires_snapshot_artifacts
     return {
         "input_mode": derive_runtime_input_mode(definition.required_inputs),
         "requires_snapshot_artifacts": requires_snapshot_artifacts,
-        "requires_snapshot_manifest_path": bool(
-            requires_snapshot_artifacts and adapter.require_snapshot_manifest
+        "requires_snapshot_manifest_path": artifact_contract.requires_snapshot_manifest_path,
+        "requires_strategy_config_path": artifact_contract.requires_strategy_config_path,
+        "snapshot_contract_version": artifact_contract.snapshot_contract_version,
+        "config_source_policy": artifact_contract.config_source_policy,
+        "reconciliation_output_policy": adapter.runtime_policy.reconciliation_output_policy,
+        "runtime_execution_window_trading_days": (
+            adapter.runtime_policy.runtime_execution_window_trading_days
         ),
-        "requires_strategy_config_path": requires_strategy_config_path,
         "profile_group": "snapshot_backed" if requires_snapshot_artifacts else "direct_runtime_inputs",
     }
 
