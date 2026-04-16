@@ -161,10 +161,26 @@ class ContractGovernanceTests(unittest.TestCase):
                 with self.subTest(profile=profile, platform_id=platform_id):
                     self.assertIn("feature_snapshot", adapter.available_inputs)
                     self.assertTrue(adapter.required_feature_columns)
+                    self.assertIsNotNone(adapter.artifact_contract)
+                    self.assertTrue(adapter.artifact_contract.requires_snapshot_artifacts)
                     if adapter.require_snapshot_manifest:
                         self.assertTrue(adapter.snapshot_contract_version)
+                        self.assertTrue(
+                            adapter.artifact_contract.requires_snapshot_manifest_path
+                        )
+                        self.assertEqual(
+                            adapter.artifact_contract.snapshot_contract_version,
+                            adapter.snapshot_contract_version,
+                        )
                     if definition.bundled_config_relpath:
                         self.assertTrue(callable(adapter.runtime_parameter_loader))
+                        self.assertTrue(
+                            adapter.artifact_contract.requires_strategy_config_path
+                        )
+                        self.assertEqual(
+                            adapter.artifact_contract.config_source_policy,
+                            "bundled_or_env",
+                        )
 
     def test_dynamic_mega_leveraged_pullback_default_config_has_single_source(self) -> None:
         self.assertEqual(

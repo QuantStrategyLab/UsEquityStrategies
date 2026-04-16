@@ -197,10 +197,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 **Signals and indicators**
 - Uses daily `QQQ` history as the signal source.
 - The live configuration uses `MA200`, `MA20`, and positive `MA20` slope.
-- ATR-adjusted staging remains available behind `attack_allocation_mode = "atr_staged"`:
-  - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
-  - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
-- The exact clamp floors/caps are injected by the downstream runtime.
+- Retired ATR-staged sizing has been removed from the live TQQQ profile; `fixed_qqq_tqqq_pullback` is the only supported allocation mode.
 
 **Default dual-drive rules (`QQQ` / `TQQQ`)**
 - Entry requires `QQQ > MA200` and positive `MA20` slope.
@@ -226,12 +223,11 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
-- Legacy ATR parameters are still present but only affect `attack_allocation_mode = "atr_staged"`.
 
 ### soxl_soxx_trend_income
 
 **Objective**
-- Use a simpler semiconductor trend switch than the Schwab profile.
+- Use the optimized `SOXX`-gated tiered blend profile for semiconductor exposure.
 - Keep a dedicated income sleeve for larger accounts without forcing that sleeve to shrink during normal trading-layer changes.
 
 **Portfolio layers**
@@ -246,9 +242,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Unused trading-layer capital is parked in `BOXX`.
 
 **Sizing behavior**
-- The deploy ratio is dynamic and depends on account size.
-- Small, mid, and large accounts use different base deploy ratios.
-- Above the large-account breakpoint, the trading-layer deploy ratio decays logarithmically so very large accounts do not keep scaling risk linearly.
+- The tiered gate directly sets core-sleeve exposure: full, mid, or defensive.
+- There is no separate account-size deploy-ratio decay in the live SOXL/SOXX profile.
 - The downstream runtime also keeps a cash reserve and only trades when the rebalance gap is large enough.
 
 **Income-layer rules**
@@ -258,12 +253,14 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - New income allocation is split by configurable `QQQI` / `SPYI` weights.
 
 **Current live LongBridge profile settings**
-- `TREND_MA_WINDOW = 150`
+- `TREND_MA_WINDOW = 140`
 - `CASH_RESERVE_RATIO = 0.03`
 - `MIN_TRADE_RATIO = 0.01`, `MIN_TRADE_FLOOR = 100 USD`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
-- Deploy ratios: `0.60 / 0.57 / 0.50` for small / mid / large accounts
-- `TRADE_LAYER_DECAY_COEFF = 0.04` above `180000 USD`
+- `ATTACK_ALLOCATION_MODE = soxx_gate_tiered_blend`
+- `BLEND_GATE_SOXL_WEIGHT = 0.70`, `BLEND_GATE_MID_SOXL_WEIGHT = 0.65`
+- `BLEND_GATE_ACTIVE_SOXX_WEIGHT = 0.20`, `BLEND_GATE_DEFENSIVE_SOXX_WEIGHT = 0.15`
+- Gate buffers: entry `8%`, mid `6%`, exit `2%`
 - Income layer starts at `150000 USD`, caps at `15%`
 - Income split: `QQQI 70%`, `SPYI 30%`
 
@@ -454,10 +451,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 **信号和指标**
 - 以 `QQQ` 的日线数据作为主信号源。
 - 当前实盘配置使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
-- ATR 分段仓位逻辑仍保留在 `attack_allocation_mode = "atr_staged"` 里：
-  - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
-  - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
-- 具体的 clamp 上下界由下游运行仓库注入。
+- 旧 ATR 分段仓位已经从 live TQQQ profile 移除；当前只支持 `fixed_qqq_tqqq_pullback`。
 
 **默认双轮规则（`QQQ` / `TQQQ`）**
 - 入场需要 `QQQ > MA200` 且 `MA20` 斜率为正。
@@ -483,12 +477,11 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
-- 旧 ATR 参数仍保留，但只在 `attack_allocation_mode = "atr_staged"` 时生效。
 
 ### soxl_soxx_trend_income
 
 **策略目标**
-- 用一套比 Schwab 档位更直接的半导体趋势切换逻辑。
+- 使用优化后的 `SOXX` 趋势分层闸门半导体策略。
 - 给大账户保留收入层，但不因为交易层切换就强制把收入层减回来。
 
 **资产层级**
@@ -503,9 +496,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 交易层没有部署出去的资金停在 `BOXX`。
 
 **仓位规则**
-- 交易层 deploy ratio 会随账户规模变化。
-- 小账户、中账户、大账户各有一档基础 deploy ratio。
-- 超过大账户断点后，交易层 deploy ratio 会按对数方式继续衰减，避免超大账户风险线性放大。
+- 分层闸门直接决定核心层风险暴露：full、mid 或 defensive。
+- live SOXL/SOXX profile 不再保留单独的账户规模 deploy-ratio 衰减。
 - 下游运行层另外还会保留现金储备，并且只有偏离目标足够大时才触发调仓。
 
 **收入层规则**
@@ -515,11 +507,13 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 新增收入资金按可配置的 `QQQI / SPYI` 比例拆分。
 
 **当前 LongBridge live profile 配置值**
-- `TREND_MA_WINDOW = 150`
+- `TREND_MA_WINDOW = 140`
 - `CASH_RESERVE_RATIO = 0.03`
 - `MIN_TRADE_RATIO = 0.01`，`MIN_TRADE_FLOOR = 100 USD`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
-- 小 / 中 / 大账户 deploy ratio：`0.60 / 0.57 / 0.50`
-- `TRADE_LAYER_DECAY_COEFF = 0.04`，在 `180000 USD` 以上继续衰减
+- `ATTACK_ALLOCATION_MODE = soxx_gate_tiered_blend`
+- `BLEND_GATE_SOXL_WEIGHT = 0.70`，`BLEND_GATE_MID_SOXL_WEIGHT = 0.65`
+- `BLEND_GATE_ACTIVE_SOXX_WEIGHT = 0.20`，`BLEND_GATE_DEFENSIVE_SOXX_WEIGHT = 0.15`
+- 闸门缓冲：入场 `8%`，中档 `6%`，退出 `2%`
 - 收入层起点 `150000 USD`，上限 `15%`
 - 收入层配比：`QQQI 70%`，`SPYI 30%`
