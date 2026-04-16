@@ -92,6 +92,7 @@ tqqq_growth_income_manifest = _manifest(
         "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
         "dual_drive_qqq_weight": 0.45,
         "dual_drive_tqqq_weight": 0.45,
+        "dual_drive_unlevered_symbol": "QQQ",
         "dual_drive_cash_reserve_ratio": 0.02,
         "dual_drive_allow_pullback": True,
         "dual_drive_require_ma20_slope": True,
