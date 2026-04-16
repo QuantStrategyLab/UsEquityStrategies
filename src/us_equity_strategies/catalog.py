@@ -77,25 +77,6 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "cash_reserve_ratio": 0.02,
         "rebalance_threshold_ratio": 0.01,
         "execution_cash_reserve_ratio": 0.0,
-        "alloc_tier1_breakpoints": (0, 15000, 30000, 70000),
-        "alloc_tier1_values": (1.0, 0.95, 0.85, 0.70),
-        "alloc_tier2_breakpoints": (70000, 140000),
-        "alloc_tier2_values": (0.70, 0.50),
-        "risk_leverage_factor": 3.0,
-        "risk_agg_cap": 0.50,
-        "risk_numerator": 0.30,
-        "atr_exit_scale": 2.0,
-        "atr_entry_scale": 2.5,
-        "exit_line_floor": 0.92,
-        "exit_line_cap": 0.98,
-        "entry_line_floor": 1.02,
-        "entry_line_cap": 1.08,
-        "dual_drive_idle_symbol": "BOXX",
-        "dual_drive_idle_fraction": 0.0,
-        "dual_drive_idle_trigger": "tqqq_active",
-        "attack_scale_mode": "baseline",
-        "attack_scale_min": 0.55,
-        "attack_scale_gap_limit": 0.08,
         "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
         "dual_drive_qqq_weight": 0.45,
         "dual_drive_tqqq_weight": 0.45,
@@ -110,10 +91,6 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "min_trade_ratio": 0.01,
         "min_trade_floor": 100.0,
         "rebalance_threshold_ratio": 0.01,
-        "small_account_deploy_ratio": 0.60,
-        "mid_account_deploy_ratio": 0.57,
-        "large_account_deploy_ratio": 0.50,
-        "trade_layer_decay_coeff": 0.04,
         "income_layer_start_usd": 150000.0,
         "income_layer_max_ratio": 0.15,
         "income_layer_qqqi_weight": 0.70,
@@ -229,7 +206,9 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
-    QQQ_TECH_ENHANCEMENT_PROFILE: "research/configs/growth_pullback_tech_communication_pullback_enhancement.json",
+    QQQ_TECH_ENHANCEMENT_PROFILE: (
+        "package://us_equity_strategies/configs/tech_communication_pullback_enhancement.json"
+    ),
 }
 
 
