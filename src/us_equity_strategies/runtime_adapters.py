@@ -9,6 +9,7 @@ from quant_platform_kit.strategy_contracts import (
 
 from us_equity_strategies.catalog import (
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     get_strategy_definition,
@@ -64,6 +65,15 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
         require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
         snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
+        managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
+    ),
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: StrategyRuntimeAdapter(
+        status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
+        required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
+        snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
+        max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
+        require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+        snapshot_contract_version="mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
         managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
     ),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: StrategyRuntimeAdapter(

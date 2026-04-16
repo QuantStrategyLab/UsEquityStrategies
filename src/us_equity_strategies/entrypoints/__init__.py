@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from quant_platform_kit.strategy_contracts import CallableStrategyEntrypoint, StrategyDecision, StrategyContext
 
+from us_equity_strategies.account_sizing import (
+    append_account_size_warning,
+    build_account_size_diagnostics_from_context,
+)
 from us_equity_strategies.manifests import (
     dynamic_mega_leveraged_pullback_manifest,
     global_etf_rotation_manifest,
+    mega_cap_leader_rotation_aggressive_manifest,
     mega_cap_leader_rotation_dynamic_top20_manifest,
     qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
@@ -36,6 +41,10 @@ from ._common import (
 """Unified strategy entrypoints built as adapters over legacy implementations."""
 
 
+def _account_size_diagnostics(profile: str, ctx: StrategyContext) -> dict[str, object]:
+    return build_account_size_diagnostics_from_context(profile, ctx)
+
+
 def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(global_etf_rotation_manifest.default_config, ctx)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
@@ -54,6 +63,11 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
         "canary_status": canary_str,
         "actionable": weights is not None,
     }
+    diagnostics.update(_account_size_diagnostics(global_etf_rotation_manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+    )
     risk_flags = ("emergency",) if is_emergency else ()
     return StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BIL"))),
@@ -80,8 +94,10 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         translator=config.pop("translator", default_translator),
         **config,
     )
+    account_size_diagnostics = _account_size_diagnostics(tqqq_growth_income_manifest.profile, ctx)
+    signal_display = append_account_size_warning(str(plan["sig_display"]), account_size_diagnostics)
     diagnostics = {
-        "signal_display": plan["sig_display"],
+        "signal_display": signal_display,
         "dashboard": plan["dashboard"],
         "threshold": plan["threshold"],
         "reserved": plan["reserved"],
@@ -90,10 +106,11 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         "exit_line": plan["exit_line"],
         "real_buying_power": plan["real_buying_power"],
         "total_equity": plan["total_equity"],
+        **account_size_diagnostics,
         "execution_annotations": {
             "trade_threshold_value": plan["threshold"],
             "reserved_cash": plan["reserved"],
-            "signal_display": plan["sig_display"],
+            "signal_display": signal_display,
             "dashboard_text": plan["dashboard"],
             "benchmark_symbol": "QQQ",
             "benchmark_price": plan["qqq_p"],
@@ -154,9 +171,11 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         translator=config.pop("translator", default_translator),
         **config,
     )
+    account_size_diagnostics = _account_size_diagnostics(soxl_soxx_trend_income_manifest.profile, ctx)
+    signal_message = append_account_size_warning(str(plan["signal_message"]), account_size_diagnostics)
     diagnostics = {
         "market_status": plan["market_status"],
-        "signal_message": plan["signal_message"],
+        "signal_message": signal_message,
         "deploy_ratio_text": plan["deploy_ratio_text"],
         "income_ratio_text": plan["income_ratio_text"],
         "income_locked_ratio_text": plan["income_locked_ratio_text"],
@@ -165,9 +184,25 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "threshold_value": plan["threshold_value"],
         "current_min_trade": plan["current_min_trade"],
         "total_strategy_equity": plan["total_strategy_equity"],
+        "allocation_mode": plan.get("allocation_mode"),
+        "trend_entry_buffer": plan.get("trend_entry_buffer"),
+        "trend_mid_buffer": plan.get("trend_mid_buffer"),
+        "trend_exit_buffer": plan.get("trend_exit_buffer"),
+        "blend_tier": plan.get("blend_tier"),
+        "soxl_entry_line": plan.get("soxl_entry_line"),
+        "soxl_exit_line": plan.get("soxl_exit_line"),
+        "trend_entry_line": plan.get("trend_entry_line"),
+        "trend_mid_line": plan.get("trend_mid_line"),
+        "trend_exit_line": plan.get("trend_exit_line"),
+        "trend_symbol": plan.get("trend_symbol"),
+        "trend_price": plan.get("trend_price"),
+        "trend_ma": plan.get("trend_ma"),
+        "trend_ma20": plan.get("trend_ma20"),
+        "trend_ma20_slope": plan.get("trend_ma20_slope"),
+        **account_size_diagnostics,
         "execution_annotations": {
             "trade_threshold_value": plan["threshold_value"],
-            "signal_display": plan["signal_message"],
+            "signal_display": signal_message,
             "status_display": plan["market_status"],
             "deploy_ratio_text": plan["deploy_ratio_text"],
             "income_ratio_text": plan["income_ratio_text"],
@@ -175,6 +210,21 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "active_risk_asset": plan["active_risk_asset"],
             "investable_cash": plan["investable_cash"],
             "current_min_trade": plan["current_min_trade"],
+            "allocation_mode": plan.get("allocation_mode"),
+            "trend_entry_buffer": plan.get("trend_entry_buffer"),
+            "trend_mid_buffer": plan.get("trend_mid_buffer"),
+            "trend_exit_buffer": plan.get("trend_exit_buffer"),
+            "blend_tier": plan.get("blend_tier"),
+            "soxl_entry_line": plan.get("soxl_entry_line"),
+            "soxl_exit_line": plan.get("soxl_exit_line"),
+            "trend_entry_line": plan.get("trend_entry_line"),
+            "trend_mid_line": plan.get("trend_mid_line"),
+            "trend_exit_line": plan.get("trend_exit_line"),
+            "trend_symbol": plan.get("trend_symbol"),
+            "trend_price": plan.get("trend_price"),
+            "trend_ma": plan.get("trend_ma"),
+            "trend_ma20": plan.get("trend_ma20"),
+            "trend_ma20_slope": plan.get("trend_ma20_slope"),
         },
     }
     return StrategyDecision(
@@ -203,6 +253,11 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
         "status_description": status_desc,
         "signal_source": legacy_russell.SIGNAL_SOURCE,
     }
+    diagnostics.update(_account_size_diagnostics(russell_1000_multi_factor_defensive_manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+    )
     risk_flags = ("hard_defense",) if is_emergency else ()
     return StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
@@ -237,6 +292,11 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
         "signal_source": qqq_tech_enhancement_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
+    diagnostics.update(_account_size_diagnostics(qqq_tech_enhancement_manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+    )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)
@@ -256,8 +316,12 @@ qqq_tech_enhancement_strategy.compute_signals.__doc__ = (
 )
 
 
-def evaluate_mega_cap_leader_rotation_dynamic_top20(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(mega_cap_leader_rotation_dynamic_top20_manifest.default_config, ctx)
+def _evaluate_mega_cap_leader_rotation_snapshot_profile(
+    ctx: StrategyContext,
+    *,
+    manifest,
+) -> StrategyDecision:
+    config = merge_runtime_config(manifest.default_config, ctx)
     config.pop("execution_cash_reserve_ratio", None)
     if ctx.as_of is not None and "run_as_of" not in config:
         config["run_as_of"] = ctx.as_of
@@ -277,6 +341,11 @@ def evaluate_mega_cap_leader_rotation_dynamic_top20(ctx: StrategyContext) -> Str
         "signal_source": mega_cap_leader_rotation_dynamic_top20_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
+    diagnostics.update(_account_size_diagnostics(manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+    )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)
@@ -286,6 +355,20 @@ def evaluate_mega_cap_leader_rotation_dynamic_top20(ctx: StrategyContext) -> Str
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
+    )
+
+
+def evaluate_mega_cap_leader_rotation_dynamic_top20(ctx: StrategyContext) -> StrategyDecision:
+    return _evaluate_mega_cap_leader_rotation_snapshot_profile(
+        ctx,
+        manifest=mega_cap_leader_rotation_dynamic_top20_manifest,
+    )
+
+
+def evaluate_mega_cap_leader_rotation_aggressive(ctx: StrategyContext) -> StrategyDecision:
+    return _evaluate_mega_cap_leader_rotation_snapshot_profile(
+        ctx,
+        manifest=mega_cap_leader_rotation_aggressive_manifest,
     )
 
 
@@ -319,6 +402,11 @@ def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDe
         "signal_source": dynamic_mega_leveraged_pullback_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
+    diagnostics.update(_account_size_diagnostics(dynamic_mega_leveraged_pullback_manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+    )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)
@@ -362,6 +450,10 @@ mega_cap_leader_rotation_dynamic_top20_entrypoint = CallableStrategyEntrypoint(
     manifest=mega_cap_leader_rotation_dynamic_top20_manifest,
     _evaluate=evaluate_mega_cap_leader_rotation_dynamic_top20,
 )
+mega_cap_leader_rotation_aggressive_entrypoint = CallableStrategyEntrypoint(
+    manifest=mega_cap_leader_rotation_aggressive_manifest,
+    _evaluate=evaluate_mega_cap_leader_rotation_aggressive,
+)
 dynamic_mega_leveraged_pullback_entrypoint = CallableStrategyEntrypoint(
     manifest=dynamic_mega_leveraged_pullback_manifest,
     _evaluate=evaluate_dynamic_mega_leveraged_pullback,
@@ -375,6 +467,7 @@ __all__ = [
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_dynamic_top20_entrypoint",
+    "mega_cap_leader_rotation_aggressive_entrypoint",
     "dynamic_mega_leveraged_pullback_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
@@ -382,5 +475,6 @@ __all__ = [
     "evaluate_russell_1000_multi_factor_defensive",
     "evaluate_qqq_tech_enhancement",
     "evaluate_mega_cap_leader_rotation_dynamic_top20",
+    "evaluate_mega_cap_leader_rotation_aggressive",
     "evaluate_dynamic_mega_leveraged_pullback",
 ]

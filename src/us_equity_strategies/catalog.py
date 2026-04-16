@@ -24,6 +24,7 @@ SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
+MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE = "mega_cap_leader_rotation_aggressive"
 _DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = "dynamic_mega_leveraged_pullback"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
@@ -37,6 +38,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
 }
 
@@ -47,6 +49,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"feature_snapshot"}),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"feature_snapshot"}),
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: frozenset({"feature_snapshot"}),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: frozenset(
         {"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}
     ),
@@ -102,7 +105,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
     },
     SOXL_SOXX_TREND_INCOME_PROFILE: {
         "managed_symbols": ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
-        "trend_ma_window": 150,
+        "trend_ma_window": 140,
         "cash_reserve_ratio": 0.03,
         "min_trade_ratio": 0.01,
         "min_trade_floor": 100.0,
@@ -115,6 +118,15 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "income_layer_max_ratio": 0.15,
         "income_layer_qqqi_weight": 0.70,
         "income_layer_spyi_weight": 0.30,
+        "trend_entry_buffer": 0.08,
+        "trend_mid_buffer": 0.06,
+        "trend_exit_buffer": 0.02,
+        "attack_allocation_mode": "soxx_gate_tiered_blend",
+        "blend_gate_trend_source": "SOXX",
+        "blend_gate_soxl_weight": 0.70,
+        "blend_gate_mid_soxl_weight": 0.65,
+        "blend_gate_active_soxx_weight": 0.20,
+        "blend_gate_defensive_soxx_weight": 0.15,
     },
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: {
         "benchmark_symbol": "SPY",
@@ -170,6 +182,25 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
     },
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: {
+        "benchmark_symbol": "QQQ",
+        "broad_benchmark_symbol": "SPY",
+        "safe_haven": "BOXX",
+        "dynamic_universe_size": 50,
+        "holdings_count": 3,
+        "single_name_cap": 0.35,
+        "min_position_value_usd": 3000.0,
+        "hold_buffer": 2,
+        "hold_bonus": 0.10,
+        "risk_on_exposure": 1.0,
+        "soft_defense_exposure": 1.0,
+        "hard_defense_exposure": 1.0,
+        "soft_breadth_threshold": 0.0,
+        "hard_breadth_threshold": 0.0,
+        "min_adv20_usd": 20000000.0,
+        "runtime_execution_window_trading_days": 3,
+        "execution_cash_reserve_ratio": 0.0,
+    },
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: {
         **DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
     },
@@ -182,6 +213,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
     QQQ_TECH_ENHANCEMENT_PROFILE: "qqq_tech_enhancement_entrypoint",
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "mega_cap_leader_rotation_dynamic_top20_entrypoint",
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: "mega_cap_leader_rotation_aggressive_entrypoint",
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: "dynamic_mega_leveraged_pullback_entrypoint",
 }
 
@@ -192,6 +224,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
     QQQ_TECH_ENHANCEMENT_PROFILE: "weight",
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "weight",
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: "weight",
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: "weight",
 }
 
@@ -257,6 +290,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     ),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: _build_strategy_definition(
         MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+    ),
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: _build_strategy_definition(
+        MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
     ),
@@ -333,6 +371,17 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_mega_cap_stocks",
         benchmark="QQQ",
         role="concentrated_leader_rotation",
+        status="runtime_enabled",
+    ),
+    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: StrategyMetadata(
+        canonical_profile=MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+        display_name="Mega Cap Leader Rotation Aggressive",
+        description="Aggressive mega-cap leader rotation using a larger/curated snapshot, top-3 concentration, and no trend de-risking by default.",
+        aliases=(),
+        cadence="monthly",
+        asset_scope="us_mega_cap_aggressive_stocks",
+        benchmark="QQQ",
+        role="aggressive_leader_rotation",
         status="runtime_enabled",
     ),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: StrategyMetadata(
