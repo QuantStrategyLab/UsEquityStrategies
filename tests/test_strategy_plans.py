@@ -62,6 +62,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["reserved"], 150000.0 * 0.10)
         self.assertEqual(plan["target_values"]["BOXX"], 0.0)
         self.assertEqual(plan["exit_line"], plan["ma200"])
+        self.assertIn("QQQ: $", plan["dashboard"])
         self.assertIn("MA200 Exit:", plan["dashboard"])
         self.assertIn("MA20Δ:", plan["dashboard"])
 
