@@ -66,6 +66,52 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertIn("MA200 Exit:", plan["dashboard"])
         self.assertIn("MA20Δ:", plan["dashboard"])
 
+    def test_tqqq_growth_income_can_trade_qqqm_while_using_qqq_signal(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQM", market_value=10000.0, quantity=40),
+                SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
+                SimpleNamespace(symbol="QQQ", market_value=99999.0, quantity=99),
+            ],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_unlevered_symbol="qqqm",
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        self.assertEqual(plan["strategy_symbols"], ["TQQQ", "QQQM", "BOXX", "SPYI", "QQQI"])
+        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQM", "SPYI", "QQQI", "BOXX"))
+        self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQM"))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQM", "BOXX"), ("QQQI", "SPYI")))
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.45)
+        self.assertNotIn("QQQ", plan["target_values"])
+        self.assertIn("QQQM: $", plan["dashboard"])
+        self.assertIn("QQQ: 229.50 | MA200 Exit:", plan["dashboard"])
+
     def test_tqqq_growth_income_live_dual_drive_uses_stateful_ma200_exit(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
