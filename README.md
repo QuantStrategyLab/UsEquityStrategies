@@ -38,11 +38,12 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
 | `mega_cap_leader_rotation_dynamic_top20` | Mega Cap Leader Rotation Dynamic Top20 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `concentrated_leader_rotation` | `runtime_enabled` |
+| `mega_cap_leader_rotation_aggressive` | Mega Cap Leader Rotation Aggressive | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `aggressive_leader_rotation` | `runtime_enabled` |
 | `dynamic_mega_leveraged_pullback` | Dynamic Mega Leveraged Pullback | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly snapshot + daily runtime` | `QQQ` | `offensive_leveraged_pullback` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
-These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Whether a profile is actually enabled, default, or rollback is now owned by each platform repository.
+These strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that broker stack. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own rollout enablement and broker-specific runtime wiring.
 
 Cadence here is the strategy-level intent. Platform repositories own the actual
 Cloud Scheduler / GitHub Actions cron settings:
@@ -54,9 +55,33 @@ Cloud Scheduler / GitHub Actions cron settings:
   `UsEquitySnapshotPipelines`, then execute once in the downstream runtime's
   monthly window.
 
+### Account-size suitability
+
+Current platform runtimes place **integer-share** orders. They do not assume
+fractional-share execution. Small accounts can therefore diverge materially from
+the weight-based research backtests, especially for multi-stock strategies and
+high-priced ETFs. Live entrypoints do not hard-block small accounts, but they
+emit `small_account_warning=true` in diagnostics when account equity is below
+the suggested minimum.
+
+| Canonical profile | Suggested minimum equity | Small-account behavior |
+| --- | ---: | --- |
+| `tqqq_growth_income` | `500 USD` | Most suitable for small accounts; TQQQ can usually trade, but BOXX/cash targets may drift. |
+| `soxl_soxx_trend_income` | `1000 USD` | Can run with drift; SOXX/BOXX legs may be skipped when target value cannot buy 1 share. |
+| `global_etf_rotation` | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account. |
+| `mega_cap_leader_rotation_dynamic_top20` | `10000 USD` | The strategy may collapse from 4 names to 1 name plus BOXX/cash. |
+| `mega_cap_leader_rotation_aggressive` | `10000 USD` | The top-3 concentrated stock basket can collapse to fewer names; integer shares can materially change risk. |
+| `dynamic_mega_leveraged_pullback` | `10000 USD` | The top3/max80 2x product backtest is not reproducible at 200-1000 USD. |
+| `tech_communication_pullback_enhancement` (`qqq_tech_enhancement` legacy alias) | `10000 USD` | Small accounts reduce position count and single-name concentration rises. |
+| `russell_1000_multi_factor_defensive` | `30000 USD` | The default 24-stock basket is not suitable for small accounts. |
+
+The warning is advisory. It is meant to make dry-runs, Telegram messages, and
+reports explicit about the gap between account size and backtest assumptions.
+
 ### Research candidates
 
 - `mega_cap_leader_rotation_dynamic_top20`: runtime-enabled monthly profile for the historical dynamic top-20 mega-cap universe. It keeps the research defaults that held 4 names at a 25% single-name cap and uses QQQ 200-day trend to reduce stock exposure to 50% when QQQ is below trend.
+- `mega_cap_leader_rotation_aggressive`: runtime-enabled monthly profile for higher-return mega-cap leader rotation. It uses the same feature snapshot contract, defaults to top-3 at a 35% single-name cap, and does not de-risk on QQQ trend by default. Historical static expanded-pool research is higher-return but has lookback bias; production should consume a transparent monthly snapshot.
 - `mega_cap_leader_rotation`: umbrella research/backtest name for the static and dynamic variants; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
 
 ### global_etf_rotation
@@ -161,7 +186,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 ### tqqq_growth_income
 
 **Objective**
-- Run the current live default as a no-income `QQQ` / `TQQQ` dual-drive growth profile.
+- Run the default configuration as a no-income `QQQ` / `TQQQ` dual-drive growth profile.
 - Keep the legacy income and BOXX symbols in the managed universe so existing holdings can be reduced cleanly.
 
 **Portfolio layers**
@@ -171,7 +196,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 **Signals and indicators**
 - Uses daily `QQQ` history as the signal source.
-- Live default uses `MA200`, `MA20`, and positive `MA20` slope.
+- The default configuration uses `MA200`, `MA20`, and positive `MA20` slope.
 - ATR-adjusted staging remains available behind `attack_allocation_mode = "atr_staged"`:
   - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
   - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
@@ -184,16 +209,16 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20` and `MA20` slope is positive.
 
 **Income-layer rules (`SPYI` / `QQQI`)**
-- The live default sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
+- The default configuration sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
 - Lowering that threshold opts back into the legacy income sleeve.
 - `QQQI_INCOME_RATIO` still decides the split between `QQQI` and `SPYI` when the income layer is enabled.
 
 **Defense behavior (`BOXX` and cash)**
-- The fixed dual-drive live default keeps a small cash buffer and uses BOXX for the remaining idle capital.
+- The fixed dual-drive default configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
 - `BOXX` remains a managed symbol so old BOXX holdings can be traded down if present.
 - Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
 
-**Default runtime profile defaults**
+**Default runtime profile settings**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`, `DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
@@ -214,9 +239,10 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Income layer: `QQQI`, `SPYI`
 
 **Trading-layer rules**
-- The core signal compares `SOXL` to a configurable trend moving average window.
-- If `SOXL > trend MA`, the active risk asset is `SOXL`.
-- If `SOXL <= trend MA`, the strategy delevers into `SOXX`.
+- The default runtime mode uses a tiered `SOXX` trend gate to avoid relying on one all-or-nothing threshold.
+- If `SOXX > MA140 * 1.08`, the core sleeve targets `SOXL 70% + SOXX 20%`.
+- If `SOXX > MA140 * 1.06`, or an existing SOXL sleeve has not broken `MA140 * 0.98`, the core sleeve targets `SOXL 65% + SOXX 20%`.
+- If the gate is off, the core sleeve holds defensive `SOXX 15%`.
 - Unused trading-layer capital is parked in `BOXX`.
 
 **Sizing behavior**
@@ -231,7 +257,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Existing income holdings are locked with `max(current_income_layer_value, desired_income_layer_value)`, so the layer only adds capital instead of force-selling down.
 - New income allocation is split by configurable `QQQI` / `SPYI` weights.
 
-**Current live LongBridge profile defaults**
+**Default runtime profile settings**
 - `TREND_MA_WINDOW = 150`
 - `CASH_RESERVE_RATIO = 0.03`
 - `MIN_TRADE_RATIO = 0.01`, `MIN_TRADE_FLOOR = 100 USD`
@@ -277,6 +303,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `mega_cap_leader_rotation_dynamic_top20` | Mega Cap 动态 Top20 龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 从历史动态 mega-cap top20 池里选 4 只强势龙头，默认单票 25%，QQQ 跌破 200 日线时降到 50% 股票仓位 |
+| `mega_cap_leader_rotation_aggressive` | Mega Cap 激进龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 更激进的 mega-cap 龙头轮动，默认 top3、单票 35%，不因 QQQ 趋势默认降仓 |
 | `dynamic_mega_leveraged_pullback` | Mega Cap 2x 回调策略 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 snapshot + 日频运行 | 动态 mega-cap top15 池里选 top3，使用 QQQ 200SMA/ATR 门槛控制 2x 做多产品仓位，剩余资金停 BOXX |
 | `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
@@ -291,9 +318,27 @@ cron 配置由各个平台仓库负责：
 - 月频 snapshot 策略：由 `UsEquitySnapshotPipelines` 按月发布 feature
   snapshot，再由下游运行时在月度窗口内执行一次。
 
+### 小资金适用性
+
+当前平台运行时按**整数股**下单，不假设碎股执行。因此小账户会明显偏离按权重回测得到的收益和回撤，尤其是多股票组合和高价 ETF。live entrypoint 不会硬性禁止小账户运行，但当账户净值低于建议资金时，会在 diagnostics 里输出 `small_account_warning=true`。
+
+| Canonical profile | 建议最低资金 | 小资金表现 |
+| --- | ---: | --- |
+| `tqqq_growth_income` | `500 USD` | 最适合小账户；通常能买到 TQQQ，但 BOXX / 现金层会有偏差。 |
+| `soxl_soxx_trend_income` | `1000 USD` | 可以运行但会偏离；SOXX / BOXX 目标金额不够买 1 股时会跳过。 |
+| `global_etf_rotation` | `3000 USD` | Top2 ETF 轮动遇到高价 ETF 时会明显偏离。 |
+| `mega_cap_leader_rotation_dynamic_top20` | `10000 USD` | 可能从 4 只股票降成 1 只股票加 BOXX / 现金。 |
+| `mega_cap_leader_rotation_aggressive` | `10000 USD` | top3 集中持股可能退化成更少股票，整数股会明显改变风险。 |
+| `dynamic_mega_leveraged_pullback` | `10000 USD` | top3 / max80 的 2x 产品回测，200-1000 USD 账户无法原样复现。 |
+| `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |
+| `russell_1000_multi_factor_defensive` | `30000 USD` | 默认 24 只股票组合，不适合小账户。 |
+
+这个提示只是软警告。目的是让 dry-run、Telegram 通知和报告明确显示：当前账户资金量和研究回测假设之间存在差距。
+
 ### 研究候选策略
 
 - `mega_cap_leader_rotation_dynamic_top20`：已注册为 runtime-enabled 月频 profile，使用历史动态 mega-cap top20 池，默认选 4 只、单票 25%，QQQ 跌破 200 日线时股票仓位降到 50%。
+- `mega_cap_leader_rotation_aggressive`：已注册为 runtime-enabled 月频 profile，目标是更高收益的 mega-cap 龙头轮动。默认 top3、单票 35%，不因 QQQ 趋势默认降仓；静态 expanded 池历史回测更高但有后视偏差，正式运行应消费透明的月度 snapshot。
 - `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation
@@ -398,7 +443,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 ### tqqq_growth_income
 
 **策略目标**
-- 默认运行采用不带收入层的 `QQQ` / `TQQQ` 双轮增长策略。
+- 默认配置采用不带收入层的 `QQQ` / `TQQQ` 双轮增长策略。
 - 继续把旧收入层和 BOXX 资产留在管理列表里，方便把已有持仓平滑降下来。
 
 **资产层级**
@@ -408,7 +453,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 
 **信号和指标**
 - 以 `QQQ` 的日线数据作为主信号源。
-- 默认运行使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
+- 默认配置使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
 - ATR 分段仓位逻辑仍保留在 `attack_allocation_mode = "atr_staged"` 里：
   - `entry_line = MA200 × clamp(1 + ATR% × atr_entry_scale)`
   - `exit_line = MA200 × clamp(1 - ATR% × atr_exit_scale)`
@@ -421,16 +466,16 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20` 且 `MA20` 斜率为正时，可重新打开风险仓位。
 
 **收入层规则（`SPYI` / `QQQI`）**
-- 实盘默认把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
+- 默认配置把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
 - 如果以后要重新启用收入层，可以把这个阈值调低。
 - `QQQI_INCOME_RATIO` 仍然决定收入层启用时 `QQQI` 和 `SPYI` 的拆分比例。
 
 **防守行为（`BOXX` 与现金）**
-- fixed dual-drive 实盘默认只保留一小部分现金，剩余闲置资金进入 BOXX。
+- fixed dual-drive 默认配置只保留一小部分现金，剩余闲置资金进入 BOXX。
 - `BOXX` 仍保留为管理资产，方便清理旧 BOXX 持仓。
 - 是否真的下单，由下游执行层再结合再平衡阈值判断。
 
-**runtime-enabled profile 默认值**
+**runtime-enabled profile 配置值**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`，`DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
@@ -451,9 +496,10 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 收入层：`QQQI`、`SPYI`
 
 **交易层规则**
-- 核心信号是比较 `SOXL` 与一条可配置的趋势均线。
-- 如果 `SOXL > trend MA`，风险资产使用 `SOXL`。
-- 如果 `SOXL <= trend MA`，策略降杠杆切到 `SOXX`。
+- 默认运行配置使用 `SOXX` 趋势分层闸门，避免仓位完全依赖单一开关。
+- 如果 `SOXX > MA140 * 1.08`，核心层目标为 `SOXL 70% + SOXX 20%`。
+- 如果 `SOXX > MA140 * 1.06`，或已有 SOXL 仓位尚未跌破 `MA140 * 0.98`，核心层目标为 `SOXL 65% + SOXX 20%`。
+- 如果趋势闸门关闭，核心层防守目标为 `SOXX 15%`。
 - 交易层没有部署出去的资金停在 `BOXX`。
 
 **仓位规则**
@@ -468,7 +514,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，所以默认只增配，不主动减配。
 - 新增收入资金按可配置的 `QQQI / SPYI` 比例拆分。
 
-**当前 LongBridge live profile 默认值**
+**默认运行 profile 配置值**
 - `TREND_MA_WINDOW = 150`
 - `CASH_RESERVE_RATIO = 0.03`
 - `MIN_TRADE_RATIO = 0.01`，`MIN_TRADE_FLOOR = 100 USD`

@@ -29,6 +29,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "russell_1000_multi_factor_defensive",
             "tech_communication_pullback_enhancement",
             "mega_cap_leader_rotation_dynamic_top20",
+            "mega_cap_leader_rotation_aggressive",
             "dynamic_mega_leveraged_pullback",
         ):
             entrypoint = get_strategy_entrypoint(profile)
@@ -224,6 +225,13 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertTrue(mega["requires_snapshot_manifest_path"])
         self.assertFalse(mega["requires_strategy_config_path"])
 
+        mega_aggressive = describe_platform_runtime_requirements("mega_cap_leader_rotation_aggressive", platform_id="ibkr")
+        self.assertEqual(mega_aggressive["profile_group"], "snapshot_backed")
+        self.assertEqual(mega_aggressive["input_mode"], "feature_snapshot")
+        self.assertTrue(mega_aggressive["requires_snapshot_artifacts"])
+        self.assertTrue(mega_aggressive["requires_snapshot_manifest_path"])
+        self.assertFalse(mega_aggressive["requires_strategy_config_path"])
+
         leveraged = describe_platform_runtime_requirements("dynamic_mega_leveraged_pullback", platform_id="ibkr")
         self.assertEqual(leveraged["profile_group"], "snapshot_backed")
         self.assertEqual(
@@ -308,6 +316,54 @@ class StrategyEntrypointTests(unittest.TestCase):
             ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
         )
 
+    def test_soxl_soxx_trend_income_entrypoint_accepts_fixed_dual_drive_runtime_config(self) -> None:
+        entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
+        decision = entrypoint.evaluate(
+            StrategyContext(
+                as_of="2026-04-06",
+                market_data={
+                    "derived_indicators": {
+                        "soxl": {"price": 50.0, "ma_trend": 45.0},
+                        "soxx": {
+                            "price": 110.0,
+                            "ma_trend": 100.0,
+                            "ma20": 105.0,
+                            "ma20_slope": 0.4,
+                        },
+                    },
+                    "portfolio_snapshot": PortfolioSnapshot(
+                        as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+                        total_equity=100000.0,
+                        buying_power=10000.0,
+                        positions=(Position(symbol="BOXX", quantity=1000, market_value=100000.0),),
+                        metadata={"account_hash": "demo"},
+                    ),
+                },
+                portfolio=PortfolioSnapshot(
+                    as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+                    total_equity=100000.0,
+                    buying_power=10000.0,
+                    positions=(Position(symbol="BOXX", quantity=1000, market_value=100000.0),),
+                    metadata={"account_hash": "demo"},
+                ),
+                runtime_config={
+                    "translator": lambda key, **kwargs: key,
+                    "attack_allocation_mode": "fixed_soxx_soxl_pullback",
+                    "dual_drive_soxx_weight": 0.45,
+                    "dual_drive_soxl_weight": 0.45,
+                    "dual_drive_trend_source": "SOXX",
+                    "income_layer_start_usd": 1_000_000_000.0,
+                },
+            )
+        )
+
+        targets = {position.symbol: position.target_value for position in decision.positions}
+        self.assertAlmostEqual(targets["SOXX"], 45000.0)
+        self.assertAlmostEqual(targets["SOXL"], 45000.0)
+        self.assertAlmostEqual(targets["BOXX"], 10000.0)
+        self.assertEqual(decision.diagnostics["allocation_mode"], "fixed_soxx_soxl_pullback")
+        self.assertEqual(decision.diagnostics["active_risk_asset"], "SOXX+SOXL")
+
     def test_value_mode_semiconductor_runtime_adapters_use_canonical_inputs(self) -> None:
         for platform_id in ("schwab", "longbridge"):
             adapter = get_platform_runtime_adapter("soxl_soxx_trend_income", platform_id=platform_id)
@@ -372,6 +428,25 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(mega_decision.diagnostics["signal_source"], "feature_snapshot")
         self.assertEqual(mega_decision.diagnostics["selected_count"], 4)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
+
+        aggressive = get_strategy_entrypoint("mega_cap_leader_rotation_aggressive")
+        aggressive_decision = aggressive.evaluate(
+            StrategyContext(
+                as_of="2026-04-01",
+                market_data={"feature_snapshot": _mega_snapshot(qqq_sma200_gap=-0.02)},
+                portfolio=PortfolioSnapshot(
+                    as_of="2026-04-01",
+                    total_equity=100_000.0,
+                    buying_power=100_000.0,
+                    cash_balance=100_000.0,
+                    positions=(),
+                ),
+            )
+        )
+        self.assertEqual(aggressive_decision.diagnostics["signal_source"], "feature_snapshot")
+        self.assertEqual(aggressive_decision.diagnostics["selected_count"], 3)
+        self.assertEqual(aggressive_decision.diagnostics["target_stock_weight"], 1.0)
+        self.assertNotIn("BOXX", {position.symbol for position in aggressive_decision.positions})
 
     def test_ibkr_runtime_adapters_expose_unified_snapshot_runtime_metadata(self) -> None:
         global_adapter = get_platform_runtime_adapter("global_macro_etf_rotation", platform_id="ibkr")
@@ -472,6 +547,14 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_mega_adapter.portfolio_input_name, "portfolio_snapshot")
+
+        aggressive_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_aggressive", platform_id="ibkr")
+        self.assertEqual(aggressive_adapter.status_icon, "👑")
+        self.assertTrue(aggressive_adapter.require_snapshot_manifest)
+        self.assertEqual(
+            aggressive_adapter.snapshot_contract_version,
+            "mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
+        )
 
         for platform_id in ("schwab", "longbridge"):
             dynamic_leveraged_adapter = get_platform_runtime_adapter(
