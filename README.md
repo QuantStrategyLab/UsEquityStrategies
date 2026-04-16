@@ -190,12 +190,13 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Keep the legacy income and BOXX symbols in the managed universe so existing holdings can be reduced cleanly.
 
 **Portfolio layers**
-- Growth layer: `QQQ` and `TQQQ`
+- Growth layer: `QQQ` and `TQQQ`; broker runtimes can replace the unlevered growth sleeve with a lower-price proxy such as `QQQM` while keeping `QQQ` as the signal source.
 - Default active reserve: 2% cash plus 8% BOXX
 - Legacy / cleanup layer: `BOXX`, `SPYI`, `QQQI`
 
 **Signals and indicators**
 - Uses daily `QQQ` history as the signal source.
+- `dual_drive_unlevered_symbol` controls the tradable unlevered growth sleeve and defaults to `QQQ`.
 - The live configuration uses `MA200`, `MA20`, and positive `MA20` slope.
 - Retired ATR-staged sizing has been removed from the live TQQQ profile; `fixed_qqq_tqqq_pullback` is the only supported allocation mode.
 
@@ -218,6 +219,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 **Current live profile settings**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`, `DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
+- `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`
 - `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
 - `INCOME_THRESHOLD_USD = 1000000000`
 - `CASH_RESERVE_RATIO = 0.02`
@@ -444,12 +446,13 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 继续把旧收入层和 BOXX 资产留在管理列表里，方便把已有持仓平滑降下来。
 
 **资产层级**
-- 增长层：`QQQ`、`TQQQ`
+- 增长层：`QQQ`、`TQQQ`；券商运行时可以把非杠杆增长袖子换成低单价代理，例如 `QQQM`，但主信号仍使用 `QQQ`。
 - 默认激活时：2% 现金加 8% BOXX
 - 旧持仓清理 / 兼容层：`BOXX`、`SPYI`、`QQQI`
 
 **信号和指标**
 - 以 `QQQ` 的日线数据作为主信号源。
+- `dual_drive_unlevered_symbol` 控制实际交易的非杠杆增长袖子，默认是 `QQQ`。
 - 当前实盘配置使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
 - 旧 ATR 分段仓位已经从 live TQQQ profile 移除；当前只支持 `fixed_qqq_tqqq_pullback`。
 
@@ -472,6 +475,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 **当前 live profile 配置值**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`，`DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
+- `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`
 - `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
 - `INCOME_THRESHOLD_USD = 1000000000`
 - `CASH_RESERVE_RATIO = 0.02`

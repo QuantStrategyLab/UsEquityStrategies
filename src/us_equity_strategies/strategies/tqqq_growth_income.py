@@ -33,6 +33,7 @@ def build_rebalance_plan(
     attack_allocation_mode="fixed_qqq_tqqq_pullback",
     dual_drive_qqq_weight=0.45,
     dual_drive_tqqq_weight=0.45,
+    dual_drive_unlevered_symbol="QQQ",
     dual_drive_cash_reserve_ratio=0.02,
     dual_drive_allow_pullback=True,
     dual_drive_require_ma20_slope=True,
@@ -47,7 +48,13 @@ def build_rebalance_plan(
     if allocation_mode != "fixed_qqq_tqqq_pullback":
         raise ValueError("tqqq_growth_income only supports fixed_qqq_tqqq_pullback")
 
-    strategy_symbols = ["TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"]
+    unlevered_symbol = str(dual_drive_unlevered_symbol or "QQQ").strip().upper()
+    if not unlevered_symbol:
+        raise ValueError("dual_drive_unlevered_symbol must be a non-empty ticker")
+    if unlevered_symbol in {"TQQQ", "BOXX", "SPYI", "QQQI"}:
+        raise ValueError("dual_drive_unlevered_symbol must not overlap another TQQQ profile sleeve")
+
+    strategy_symbols = ["TQQQ", unlevered_symbol, "BOXX", "SPYI", "QQQI"]
     market_values = {symbol: 0.0 for symbol in strategy_symbols}
     quantities = {symbol: 0 for symbol in strategy_symbols}
     for position in snapshot.positions:
@@ -73,7 +80,7 @@ def build_rebalance_plan(
     above_ma200 = qqq_p > ma200
     positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
     slope_ok = positive_ma20_slope if bool(dual_drive_require_ma20_slope) else True
-    current_risk_active = quantities.get("TQQQ", 0) > 0 or quantities.get("QQQ", 0) > 0
+    current_risk_active = quantities.get("TQQQ", 0) > 0 or quantities.get(unlevered_symbol, 0) > 0
     risk_active = current_risk_active
     if current_risk_active and not above_ma200:
         risk_active = False
@@ -87,21 +94,21 @@ def build_rebalance_plan(
         and positive_ma20_slope
     )
 
-    target_qqq_val = 0.0
+    target_unlevered_val = 0.0
     if risk_active or pullback_risk_on:
         dual_drive_reserve_ratio = 0.02 if dual_drive_cash_reserve_ratio is None else float(dual_drive_cash_reserve_ratio)
         reserved = strategy_equity * max(0.0, min(1.0, dual_drive_reserve_ratio))
         target_tqqq_ratio = max(0.0, min(1.0, float(dual_drive_tqqq_weight or 0.45)))
-        target_qqq_ratio = max(0.0, min(1.0, float(dual_drive_qqq_weight or 0.45)))
-        total_risk_ratio = target_tqqq_ratio + target_qqq_ratio
+        target_unlevered_ratio = max(0.0, min(1.0, float(dual_drive_qqq_weight or 0.45)))
+        total_risk_ratio = target_tqqq_ratio + target_unlevered_ratio
         max_risk_ratio = max(0.0, 1.0 - reserved / strategy_equity) if strategy_equity > 0.0 else 0.0
         if total_risk_ratio > max_risk_ratio and total_risk_ratio > 0.0:
             scale = max_risk_ratio / total_risk_ratio
             target_tqqq_ratio *= scale
-            target_qqq_ratio *= scale
+            target_unlevered_ratio *= scale
         target_tqqq_val = strategy_equity * target_tqqq_ratio
-        target_qqq_val = strategy_equity * target_qqq_ratio
-        target_boxx_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val - target_qqq_val)
+        target_unlevered_val = strategy_equity * target_unlevered_ratio
+        target_boxx_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val - target_unlevered_val)
         icon = "hold" if current_risk_active else "entry"
     else:
         target_tqqq_val = 0.0
@@ -119,14 +126,14 @@ def build_rebalance_plan(
     separator = translator("separator")
     dashboard = (
         f"{translator('dashboard_label')} | {translator('equity')}: ${total_equity:,.2f}\n"
-        f"TQQQ: ${market_values['TQQQ']:,.2f} | QQQ: ${market_values['QQQ']:,.2f} | "
+        f"TQQQ: ${market_values['TQQQ']:,.2f} | {unlevered_symbol}: ${market_values[unlevered_symbol]:,.2f} | "
         f"BOXX: ${market_values['BOXX']:,.2f}\n"
         f"SPYI: ${market_values['SPYI']:,.2f} | QQQI: ${market_values['QQQI']:,.2f}\n"
         f"{translator('buying_power')}: ${real_buying_power:,.2f} | {translator('signal_label')}: {sig_display}\n"
         f"{benchmark_line}"
     )
-    sell_order_symbols = ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX")
-    buy_order_symbols = ("SPYI", "QQQI", "TQQQ", "QQQ")
+    sell_order_symbols = ("TQQQ", unlevered_symbol, "SPYI", "QQQI", "BOXX")
+    buy_order_symbols = ("SPYI", "QQQI", "TQQQ", unlevered_symbol)
 
     return {
         "strategy_symbols": strategy_symbols,
@@ -134,7 +141,7 @@ def build_rebalance_plan(
         "sell_order_symbols": sell_order_symbols,
         "buy_order_symbols": buy_order_symbols,
         "cash_sweep_symbol": "BOXX",
-        "portfolio_rows": (("TQQQ", "QQQ", "BOXX"), ("QQQI", "SPYI")),
+        "portfolio_rows": (("TQQQ", unlevered_symbol, "BOXX"), ("QQQI", "SPYI")),
         "account_hash": snapshot.metadata["account_hash"],
         "market_values": market_values,
         "quantities": quantities,
@@ -144,7 +151,7 @@ def build_rebalance_plan(
         "threshold": threshold,
         "target_values": {
             "TQQQ": target_tqqq_val,
-            "QQQ": target_qqq_val,
+            unlevered_symbol: target_unlevered_val,
             "BOXX": target_boxx_val,
             "SPYI": target_spyi_val,
             "QQQI": target_qqqi_val,

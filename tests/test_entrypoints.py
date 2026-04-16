@@ -149,6 +149,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(config["attack_allocation_mode"], "fixed_qqq_tqqq_pullback")
         self.assertEqual(config["dual_drive_qqq_weight"], 0.45)
         self.assertEqual(config["dual_drive_tqqq_weight"], 0.45)
+        self.assertEqual(config["dual_drive_unlevered_symbol"], "QQQ")
         self.assertEqual(config["dual_drive_cash_reserve_ratio"], 0.02)
         self.assertEqual(config["cash_reserve_ratio"], 0.02)
         self.assertEqual(config["income_threshold_usd"], 1_000_000_000.0)
@@ -206,6 +207,54 @@ class StrategyEntrypointTests(unittest.TestCase):
         target_values = {position.symbol: position.target_value for position in decision.positions}
         self.assertIn("QQQ", target_values)
         self.assertGreater(target_values["QQQ"], 0.0)
+
+    def test_tqqq_growth_income_entrypoint_accepts_qqqm_unlevered_sleeve(self) -> None:
+        entrypoint = get_strategy_entrypoint("tqqq_growth_income")
+        qqq_history = [
+            {
+                "close": 300.0 + day * 0.4,
+                "high": 301.0 + day * 0.4,
+                "low": 299.0 + day * 0.4,
+            }
+            for day in range(260)
+        ]
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+            total_equity=120000.0,
+            buying_power=20000.0,
+            positions=(
+                Position(symbol="TQQQ", quantity=10, market_value=8000.0),
+                Position(symbol="QQQM", quantity=0, market_value=0.0),
+                Position(symbol="BOXX", quantity=20, market_value=4000.0),
+                Position(symbol="SPYI", quantity=30, market_value=1500.0),
+                Position(symbol="QQQI", quantity=30, market_value=1700.0),
+            ),
+            metadata={"account_hash": "demo"},
+        )
+
+        decision = entrypoint.evaluate(
+            StrategyContext(
+                as_of="2026-04-06",
+                market_data={
+                    "benchmark_history": qqq_history,
+                    "portfolio_snapshot": snapshot,
+                },
+                portfolio=snapshot,
+                runtime_config={
+                    "dual_drive_unlevered_symbol": "QQQM",
+                    "managed_symbols": ("TQQQ", "QQQM", "BOXX", "SPYI", "QQQI"),
+                    "signal_text_fn": str,
+                    "translator": lambda key, **kwargs: key,
+                },
+            )
+        )
+
+        target_values = {position.symbol: position.target_value for position in decision.positions}
+        self.assertIn("QQQM", target_values)
+        self.assertNotIn("QQQ", target_values)
+        self.assertGreater(target_values["QQQM"], 0.0)
+        self.assertIn("QQQM: $", decision.diagnostics["dashboard"])
+        self.assertIn("QQQ: ", decision.diagnostics["dashboard"])
 
     def test_runtime_requirements_classify_snapshot_and_non_snapshot_profiles(self) -> None:
         tech = describe_platform_runtime_requirements("qqq_tech_enhancement", platform_id="schwab")
