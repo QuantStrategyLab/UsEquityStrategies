@@ -119,8 +119,9 @@ def build_rebalance_plan(
     separator = translator("separator")
     dashboard = (
         f"{translator('dashboard_label')} | {translator('equity')}: ${total_equity:,.2f}\n"
-        f"TQQQ: ${market_values['TQQQ']:,.2f} | SPYI: ${market_values['SPYI']:,.2f} | "
-        f"QQQI: ${market_values['QQQI']:,.2f} | BOXX: ${market_values['BOXX']:,.2f}\n"
+        f"TQQQ: ${market_values['TQQQ']:,.2f} | QQQ: ${market_values['QQQ']:,.2f} | "
+        f"BOXX: ${market_values['BOXX']:,.2f}\n"
+        f"SPYI: ${market_values['SPYI']:,.2f} | QQQI: ${market_values['QQQI']:,.2f}\n"
         f"{translator('buying_power')}: ${real_buying_power:,.2f} | {translator('signal_label')}: {sig_display}\n"
         f"{benchmark_line}"
     )
