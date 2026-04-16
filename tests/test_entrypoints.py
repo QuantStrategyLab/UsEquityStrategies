@@ -164,7 +164,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
-    def test_tqqq_growth_income_entrypoint_accepts_dual_drive_runtime_config(self) -> None:
+    def test_tqqq_growth_income_entrypoint_uses_live_dual_drive_config(self) -> None:
         entrypoint = get_strategy_entrypoint("tqqq_growth_income")
         qqq_history = [
             {
@@ -199,9 +199,6 @@ class StrategyEntrypointTests(unittest.TestCase):
                 runtime_config={
                     "signal_text_fn": str,
                     "translator": lambda key, **kwargs: key,
-                    "dual_drive_idle_symbol": "QQQ",
-                    "dual_drive_idle_fraction": 0.5,
-                    "dual_drive_idle_trigger": "tqqq_active",
                 },
             )
         )
@@ -217,6 +214,15 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertTrue(tech["requires_snapshot_artifacts"])
         self.assertTrue(tech["requires_snapshot_manifest_path"])
         self.assertTrue(tech["requires_strategy_config_path"])
+        self.assertEqual(tech["config_source_policy"], "bundled_or_env")
+        self.assertEqual(tech["reconciliation_output_policy"], "optional")
+        self.assertIsNone(tech["runtime_execution_window_trading_days"])
+
+        longbridge_tech = describe_platform_runtime_requirements(
+            "qqq_tech_enhancement",
+            platform_id="longbridge",
+        )
+        self.assertEqual(longbridge_tech["runtime_execution_window_trading_days"], 1)
 
         mega = describe_platform_runtime_requirements("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
         self.assertEqual(mega["profile_group"], "snapshot_backed")
@@ -224,6 +230,11 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertTrue(mega["requires_snapshot_artifacts"])
         self.assertTrue(mega["requires_snapshot_manifest_path"])
         self.assertFalse(mega["requires_strategy_config_path"])
+        self.assertEqual(mega["config_source_policy"], "none")
+        self.assertEqual(
+            mega["snapshot_contract_version"],
+            "mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1",
+        )
 
         mega_aggressive = describe_platform_runtime_requirements("mega_cap_leader_rotation_aggressive", platform_id="ibkr")
         self.assertEqual(mega_aggressive["profile_group"], "snapshot_backed")
@@ -316,53 +327,44 @@ class StrategyEntrypointTests(unittest.TestCase):
             ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
         )
 
-    def test_soxl_soxx_trend_income_entrypoint_accepts_fixed_dual_drive_runtime_config(self) -> None:
+    def test_soxl_soxx_trend_income_entrypoint_rejects_retired_fixed_dual_drive_runtime_config(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
-        decision = entrypoint.evaluate(
-            StrategyContext(
-                as_of="2026-04-06",
-                market_data={
-                    "derived_indicators": {
-                        "soxl": {"price": 50.0, "ma_trend": 45.0},
-                        "soxx": {
-                            "price": 110.0,
-                            "ma_trend": 100.0,
-                            "ma20": 105.0,
-                            "ma20_slope": 0.4,
+        with self.assertRaisesRegex(ValueError, "soxx_gate_tiered_blend"):
+            entrypoint.evaluate(
+                StrategyContext(
+                    as_of="2026-04-06",
+                    market_data={
+                        "derived_indicators": {
+                            "soxl": {"price": 50.0, "ma_trend": 45.0},
+                            "soxx": {
+                                "price": 110.0,
+                                "ma_trend": 100.0,
+                                "ma20": 105.0,
+                                "ma20_slope": 0.4,
+                            },
                         },
+                        "portfolio_snapshot": PortfolioSnapshot(
+                            as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+                            total_equity=100000.0,
+                            buying_power=10000.0,
+                            positions=(Position(symbol="BOXX", quantity=1000, market_value=100000.0),),
+                            metadata={"account_hash": "demo"},
+                        ),
                     },
-                    "portfolio_snapshot": PortfolioSnapshot(
+                    portfolio=PortfolioSnapshot(
                         as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
                         total_equity=100000.0,
                         buying_power=10000.0,
                         positions=(Position(symbol="BOXX", quantity=1000, market_value=100000.0),),
                         metadata={"account_hash": "demo"},
                     ),
-                },
-                portfolio=PortfolioSnapshot(
-                    as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
-                    total_equity=100000.0,
-                    buying_power=10000.0,
-                    positions=(Position(symbol="BOXX", quantity=1000, market_value=100000.0),),
-                    metadata={"account_hash": "demo"},
-                ),
-                runtime_config={
-                    "translator": lambda key, **kwargs: key,
-                    "attack_allocation_mode": "fixed_soxx_soxl_pullback",
-                    "dual_drive_soxx_weight": 0.45,
-                    "dual_drive_soxl_weight": 0.45,
-                    "dual_drive_trend_source": "SOXX",
-                    "income_layer_start_usd": 1_000_000_000.0,
-                },
+                    runtime_config={
+                        "translator": lambda key, **kwargs: key,
+                        "attack_allocation_mode": "fixed_soxx_soxl_pullback",
+                        "income_layer_start_usd": 1_000_000_000.0,
+                    },
+                )
             )
-        )
-
-        targets = {position.symbol: position.target_value for position in decision.positions}
-        self.assertAlmostEqual(targets["SOXX"], 45000.0)
-        self.assertAlmostEqual(targets["SOXL"], 45000.0)
-        self.assertAlmostEqual(targets["BOXX"], 10000.0)
-        self.assertEqual(decision.diagnostics["allocation_mode"], "fixed_soxx_soxl_pullback")
-        self.assertEqual(decision.diagnostics["active_risk_asset"], "SOXX+SOXL")
 
     def test_value_mode_semiconductor_runtime_adapters_use_canonical_inputs(self) -> None:
         for platform_id in ("schwab", "longbridge"):
@@ -489,6 +491,10 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(tech_adapter.status_icon, "🧲")
         self.assertEqual(tech_adapter.snapshot_date_columns, ("as_of", "snapshot_date"))
         self.assertTrue(tech_adapter.require_snapshot_manifest)
+        self.assertIsNotNone(tech_adapter.artifact_contract)
+        self.assertTrue(tech_adapter.artifact_contract.requires_strategy_config_path)
+        self.assertEqual(tech_adapter.artifact_contract.config_source_policy, "bundled_or_env")
+        self.assertEqual(tech_adapter.runtime_policy.reconciliation_output_policy, "optional")
         self.assertEqual(
             tech_adapter.managed_symbols_extractor(
                 _feature_snapshot(),
@@ -514,6 +520,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_tech_adapter.portfolio_input_name, "portfolio_snapshot")
+        self.assertEqual(longbridge_tech_adapter.runtime_policy.runtime_execution_window_trading_days, 1)
         schwab_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="schwab")
         self.assertEqual(
             schwab_tech_adapter.available_inputs,
