@@ -6,6 +6,7 @@ from us_equity_strategies.catalog import (
     GLOBAL_ETF_ROTATION_PROFILE,
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
@@ -147,6 +148,13 @@ class CatalogTest(unittest.TestCase):
             aggressive_module.module_path,
             "us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
         )
+        balanced_definition = get_strategy_definition("mega_cap_leader_rotation_top50_balanced")
+        self.assertEqual(balanced_definition.profile, MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE)
+        balanced_module = get_strategy_component_map(balanced_definition)["signal_logic"]
+        self.assertEqual(
+            balanced_module.module_path,
+            "us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+        )
 
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
@@ -197,6 +205,14 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(
             compatibility[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE],
+            frozenset({"ibkr", "schwab", "longbridge"}),
+        )
+        self.assertEqual(
+            metadata_map[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE].role,
+            "balanced_leader_rotation",
+        )
+        self.assertEqual(
+            compatibility[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE],
             frozenset({"ibkr", "schwab", "longbridge"}),
         )
 

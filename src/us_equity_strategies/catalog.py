@@ -25,6 +25,7 @@ RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensi
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
 MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE = "mega_cap_leader_rotation_aggressive"
+MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 _DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = "dynamic_mega_leveraged_pullback"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
@@ -39,6 +40,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: frozenset({"ibkr", "schwab", "longbridge"}),
 }
 
@@ -50,6 +52,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"feature_snapshot"}),
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: frozenset({"feature_snapshot"}),
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: frozenset({"feature_snapshot"}),
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: frozenset({"feature_snapshot"}),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: frozenset(
         {"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}
     ),
@@ -183,6 +186,29 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
     },
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: {
+        "benchmark_symbol": "QQQ",
+        "broad_benchmark_symbol": "SPY",
+        "safe_haven": "BOXX",
+        "dynamic_universe_size": 50,
+        "blend_sleeves": (
+            {"name": "top2_cap50", "weight": 0.50, "holdings_count": 2, "single_name_cap": 0.50},
+            {"name": "top4_cap25", "weight": 0.50, "holdings_count": 4, "single_name_cap": 0.25},
+        ),
+        "holdings_count": 4,
+        "single_name_cap": 0.25,
+        "min_position_value_usd": 3000.0,
+        "hold_buffer": 2,
+        "hold_bonus": 0.10,
+        "risk_on_exposure": 1.0,
+        "soft_defense_exposure": 1.0,
+        "hard_defense_exposure": 1.0,
+        "soft_breadth_threshold": 0.0,
+        "hard_breadth_threshold": 0.0,
+        "min_adv20_usd": 20000000.0,
+        "runtime_execution_window_trading_days": 3,
+        "execution_cash_reserve_ratio": 0.0,
+    },
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: {
         **DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
     },
@@ -196,6 +222,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     QQQ_TECH_ENHANCEMENT_PROFILE: "qqq_tech_enhancement_entrypoint",
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "mega_cap_leader_rotation_dynamic_top20_entrypoint",
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: "mega_cap_leader_rotation_aggressive_entrypoint",
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "mega_cap_leader_rotation_top50_balanced_entrypoint",
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: "dynamic_mega_leveraged_pullback_entrypoint",
 }
 
@@ -207,6 +234,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     QQQ_TECH_ENHANCEMENT_PROFILE: "weight",
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: "weight",
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: "weight",
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "weight",
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: "weight",
 }
 
@@ -279,6 +307,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     ),
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: _build_strategy_definition(
         MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+    ),
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: _build_strategy_definition(
+        MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
     ),
@@ -366,6 +399,17 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_mega_cap_aggressive_stocks",
         benchmark="QQQ",
         role="aggressive_leader_rotation",
+        status="runtime_enabled",
+    ),
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: StrategyMetadata(
+        canonical_profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+        display_name="Mega Cap Leader Rotation Top50 Balanced",
+        description="Balanced monthly Top50 mega-cap leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
+        aliases=(),
+        cadence="monthly",
+        asset_scope="us_mega_cap_top50_balanced_stocks",
+        benchmark="QQQ",
+        role="balanced_leader_rotation",
         status="runtime_enabled",
     ),
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: StrategyMetadata(

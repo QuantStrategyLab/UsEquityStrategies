@@ -133,6 +133,33 @@ def test_build_target_weights_reduces_holdings_for_small_accounts() -> None:
     assert metadata["selected_count"] == 2
 
 
+def test_build_blended_target_weights_combines_top2_and_top4_sleeves() -> None:
+    from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import build_blended_target_weights
+
+    weights, _ranked, metadata = build_blended_target_weights(
+        _mega_snapshot(),
+        current_holdings=set(),
+        blend_sleeves=(
+            {"name": "top2_cap50", "weight": 0.50, "holdings_count": 2, "single_name_cap": 0.50},
+            {"name": "top4_cap25", "weight": 0.50, "holdings_count": 4, "single_name_cap": 0.25},
+        ),
+        dynamic_universe_size=50,
+        soft_defense_exposure=1.0,
+        hard_defense_exposure=1.0,
+    )
+
+    assert metadata["blend_mode"] == "fixed_weighted_sleeves"
+    assert metadata["selected_count"] == 4
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
+    assert "BOXX" not in weights
+    assert weights["NVDA"] > weights["MSFT"]
+    assert weights["META"] > weights["AAPL"]
+    assert abs(weights["NVDA"] - 0.375) < 1e-8
+    assert abs(weights["META"] - 0.375) < 1e-8
+    assert abs(weights["MSFT"] - 0.125) < 1e-8
+    assert abs(weights["AAPL"] - 0.125) < 1e-8
+
+
 def test_compute_signals_noops_outside_monthly_window() -> None:
     from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import compute_signals
 

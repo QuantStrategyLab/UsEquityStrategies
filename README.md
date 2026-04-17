@@ -39,6 +39,7 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
 | `mega_cap_leader_rotation_dynamic_top20` | Mega Cap Leader Rotation Dynamic Top20 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `concentrated_leader_rotation` | `runtime_enabled` |
 | `mega_cap_leader_rotation_aggressive` | Mega Cap Leader Rotation Aggressive | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `aggressive_leader_rotation` | `runtime_enabled` |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
 | `dynamic_mega_leveraged_pullback` | Dynamic Mega Leveraged Pullback | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `monthly snapshot + daily runtime` | `QQQ` | `offensive_leveraged_pullback` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
@@ -71,6 +72,7 @@ the suggested minimum.
 | `global_etf_rotation` | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account. |
 | `mega_cap_leader_rotation_dynamic_top20` | `10000 USD` | The strategy may collapse from 4 names to 1 name plus BOXX/cash. |
 | `mega_cap_leader_rotation_aggressive` | `10000 USD` | The top-3 concentrated stock basket can collapse to fewer names; integer shares can materially change risk. |
+| `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | The fixed 50% Top2 / 50% Top4 sleeve blend can drift when integer shares cannot represent the intended unequal weights. |
 | `dynamic_mega_leveraged_pullback` | `10000 USD` | The top3/max80 2x product backtest is not reproducible at 200-1000 USD. |
 | `tech_communication_pullback_enhancement` (`qqq_tech_enhancement` legacy alias) | `10000 USD` | Small accounts reduce position count and single-name concentration rises. |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | The default 24-stock basket is not suitable for small accounts. |
@@ -82,6 +84,7 @@ reports explicit about the gap between account size and backtest assumptions.
 
 - `mega_cap_leader_rotation_dynamic_top20`: runtime-enabled monthly profile for the historical dynamic top-20 mega-cap universe. It keeps the research defaults that held 4 names at a 25% single-name cap and uses QQQ 200-day trend to reduce stock exposure to 50% when QQQ is below trend.
 - `mega_cap_leader_rotation_aggressive`: runtime-enabled monthly profile for higher-return mega-cap leader rotation. It uses the same feature snapshot contract, defaults to top-3 at a 35% single-name cap, and does not de-risk on QQQ trend by default. Historical static expanded-pool research is higher-return but has lookback bias; production should consume a transparent monthly snapshot.
+- `mega_cap_leader_rotation_top50_balanced`: runtime-enabled monthly profile for the current Top50 balanced candidate. It consumes a transparent Top50 monthly snapshot and runs a fixed 50% Top2 cap50 sleeve plus 50% Top4 cap25 sleeve, with no broad QQQ trend de-risking by default.
 - `mega_cap_leader_rotation`: umbrella research/backtest name for the static and dynamic variants; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
 
 ### global_etf_rotation
@@ -307,6 +310,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `mega_cap_leader_rotation_dynamic_top20` | Mega Cap 动态 Top20 龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 从历史动态 mega-cap top20 池里选 4 只强势龙头，默认单票 25%，QQQ 跌破 200 日线时降到 50% 股票仓位 |
 | `mega_cap_leader_rotation_aggressive` | Mega Cap 激进龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 更激进的 mega-cap 龙头轮动，默认 top3、单票 35%，不因 QQQ 趋势默认降仓 |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
 | `dynamic_mega_leveraged_pullback` | Mega Cap 2x 回调策略 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 月频 snapshot + 日频运行 | 动态 mega-cap top15 池里选 top3，使用 QQQ 200SMA/ATR 门槛控制 2x 做多产品仓位，剩余资金停 BOXX |
 | `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
@@ -332,6 +336,7 @@ cron 配置由各个平台仓库负责：
 | `global_etf_rotation` | `3000 USD` | Top2 ETF 轮动遇到高价 ETF 时会明显偏离。 |
 | `mega_cap_leader_rotation_dynamic_top20` | `10000 USD` | 可能从 4 只股票降成 1 只股票加 BOXX / 现金。 |
 | `mega_cap_leader_rotation_aggressive` | `10000 USD` | top3 集中持股可能退化成更少股票，整数股会明显改变风险。 |
+| `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | 固定 50% Top2 / 50% Top4 袖珍组合需要不等权持仓，小账户整数股会产生明显偏离。 |
 | `dynamic_mega_leveraged_pullback` | `10000 USD` | top3 / max80 的 2x 产品回测，200-1000 USD 账户无法原样复现。 |
 | `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | 默认 24 只股票组合，不适合小账户。 |
@@ -342,6 +347,7 @@ cron 配置由各个平台仓库负责：
 
 - `mega_cap_leader_rotation_dynamic_top20`：已注册为 runtime-enabled 月频 profile，使用历史动态 mega-cap top20 池，默认选 4 只、单票 25%，QQQ 跌破 200 日线时股票仓位降到 50%。
 - `mega_cap_leader_rotation_aggressive`：已注册为 runtime-enabled 月频 profile，目标是更高收益的 mega-cap 龙头轮动。默认 top3、单票 35%，不因 QQQ 趋势默认降仓；静态 expanded 池历史回测更高但有后视偏差，实盘应消费透明的月度 snapshot。
+- `mega_cap_leader_rotation_top50_balanced`：已注册为 runtime-enabled 月频 profile，消费透明 Top50 月度 snapshot，运行固定 50% Top2 cap50 + 50% Top4 cap25 的组合，不默认使用宽基趋势降仓。
 - `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation

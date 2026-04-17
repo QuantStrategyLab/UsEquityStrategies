@@ -10,6 +10,7 @@ from us_equity_strategies.strategies.dynamic_mega_leveraged_pullback import (
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
 MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE = "mega_cap_leader_rotation_aggressive"
+MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = "dynamic_mega_leveraged_pullback"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 
@@ -237,6 +238,37 @@ mega_cap_leader_rotation_aggressive_manifest = _manifest(
     },
 )
 
+mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
+    profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+    display_name="Mega Cap Leader Rotation Top50 Balanced",
+    description="Balanced monthly Top50 mega-cap leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
+    aliases=(),
+    required_inputs=frozenset({"feature_snapshot"}),
+    default_config={
+        "benchmark_symbol": "QQQ",
+        "broad_benchmark_symbol": "SPY",
+        "safe_haven": "BOXX",
+        "dynamic_universe_size": 50,
+        "blend_sleeves": (
+            {"name": "top2_cap50", "weight": 0.50, "holdings_count": 2, "single_name_cap": 0.50},
+            {"name": "top4_cap25", "weight": 0.50, "holdings_count": 4, "single_name_cap": 0.25},
+        ),
+        "holdings_count": 4,
+        "single_name_cap": 0.25,
+        "min_position_value_usd": 3000.0,
+        "hold_buffer": 2,
+        "hold_bonus": 0.10,
+        "risk_on_exposure": 1.0,
+        "soft_defense_exposure": 1.0,
+        "hard_defense_exposure": 1.0,
+        "soft_breadth_threshold": 0.0,
+        "hard_breadth_threshold": 0.0,
+        "min_adv20_usd": 20000000.0,
+        "runtime_execution_window_trading_days": 3,
+        "execution_cash_reserve_ratio": 0.0,
+    },
+)
+
 dynamic_mega_leveraged_pullback_manifest = _manifest(
     profile=DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
     display_name="Dynamic Mega Leveraged Pullback",
@@ -254,6 +286,7 @@ MANIFESTS = {
     qqq_tech_enhancement_manifest.profile: qqq_tech_enhancement_manifest,
     mega_cap_leader_rotation_dynamic_top20_manifest.profile: mega_cap_leader_rotation_dynamic_top20_manifest,
     mega_cap_leader_rotation_aggressive_manifest.profile: mega_cap_leader_rotation_aggressive_manifest,
+    mega_cap_leader_rotation_top50_balanced_manifest.profile: mega_cap_leader_rotation_top50_balanced_manifest,
     dynamic_mega_leveraged_pullback_manifest.profile: dynamic_mega_leveraged_pullback_manifest,
 }
 
@@ -279,5 +312,6 @@ __all__ = [
     "russell_1000_multi_factor_defensive_manifest",
     "mega_cap_leader_rotation_dynamic_top20_manifest",
     "mega_cap_leader_rotation_aggressive_manifest",
+    "mega_cap_leader_rotation_top50_balanced_manifest",
     "dynamic_mega_leveraged_pullback_manifest",
 ]

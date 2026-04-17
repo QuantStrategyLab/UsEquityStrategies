@@ -30,6 +30,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "tech_communication_pullback_enhancement",
             "mega_cap_leader_rotation_dynamic_top20",
             "mega_cap_leader_rotation_aggressive",
+            "mega_cap_leader_rotation_top50_balanced",
             "dynamic_mega_leveraged_pullback",
         ):
             entrypoint = get_strategy_entrypoint(profile)
@@ -614,6 +615,13 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(
             aggressive_adapter.snapshot_contract_version,
             "mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
+        )
+        balanced_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_top50_balanced", platform_id="ibkr")
+        self.assertEqual(balanced_adapter.status_icon, "👑")
+        self.assertTrue(balanced_adapter.require_snapshot_manifest)
+        self.assertEqual(
+            balanced_adapter.snapshot_contract_version,
+            "mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
         )
 
         for platform_id in ("schwab", "longbridge"):
