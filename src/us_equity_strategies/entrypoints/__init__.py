@@ -11,6 +11,7 @@ from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     mega_cap_leader_rotation_aggressive_manifest,
     mega_cap_leader_rotation_dynamic_top20_manifest,
+    mega_cap_leader_rotation_top50_balanced_manifest,
     qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
     soxl_soxx_trend_income_manifest,
@@ -377,6 +378,13 @@ def evaluate_mega_cap_leader_rotation_aggressive(ctx: StrategyContext) -> Strate
     )
 
 
+def evaluate_mega_cap_leader_rotation_top50_balanced(ctx: StrategyContext) -> StrategyDecision:
+    return _evaluate_mega_cap_leader_rotation_snapshot_profile(
+        ctx,
+        manifest=mega_cap_leader_rotation_top50_balanced_manifest,
+    )
+
+
 mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ = (
     ((mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ or "").strip() +
      "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
@@ -459,6 +467,10 @@ mega_cap_leader_rotation_aggressive_entrypoint = CallableStrategyEntrypoint(
     manifest=mega_cap_leader_rotation_aggressive_manifest,
     _evaluate=evaluate_mega_cap_leader_rotation_aggressive,
 )
+mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
+    manifest=mega_cap_leader_rotation_top50_balanced_manifest,
+    _evaluate=evaluate_mega_cap_leader_rotation_top50_balanced,
+)
 dynamic_mega_leveraged_pullback_entrypoint = CallableStrategyEntrypoint(
     manifest=dynamic_mega_leveraged_pullback_manifest,
     _evaluate=evaluate_dynamic_mega_leveraged_pullback,
@@ -473,6 +485,7 @@ __all__ = [
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_dynamic_top20_entrypoint",
     "mega_cap_leader_rotation_aggressive_entrypoint",
+    "mega_cap_leader_rotation_top50_balanced_entrypoint",
     "dynamic_mega_leveraged_pullback_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
@@ -481,5 +494,6 @@ __all__ = [
     "evaluate_qqq_tech_enhancement",
     "evaluate_mega_cap_leader_rotation_dynamic_top20",
     "evaluate_mega_cap_leader_rotation_aggressive",
+    "evaluate_mega_cap_leader_rotation_top50_balanced",
     "evaluate_dynamic_mega_leveraged_pullback",
 ]

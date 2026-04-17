@@ -13,6 +13,7 @@ MIN_RECOMMENDED_EQUITY_USD: dict[str, float] = {
     "qqq_tech_enhancement": 10_000.0,
     "mega_cap_leader_rotation_dynamic_top20": 10_000.0,
     "mega_cap_leader_rotation_aggressive": 10_000.0,
+    "mega_cap_leader_rotation_top50_balanced": 10_000.0,
     "dynamic_mega_leveraged_pullback": 10_000.0,
 }
 

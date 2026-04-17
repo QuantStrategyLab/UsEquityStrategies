@@ -56,6 +56,7 @@ FEATURE_SIGNAL_KWARG_KEYS = (
     "broad_benchmark_symbol",
     "safe_haven",
     "dynamic_universe_size",
+    "blend_sleeves",
     "holdings_count",
     "single_name_cap",
     "min_position_value_usd",
@@ -71,6 +72,11 @@ FEATURE_SIGNAL_KWARG_KEYS = (
     "run_as_of",
     "runtime_execution_window_trading_days",
     "execution_cash_reserve_ratio",
+)
+
+DEFAULT_TOP50_BALANCED_BLEND_SLEEVES = (
+    {"name": "top2_cap50", "weight": 0.50, "holdings_count": 2, "single_name_cap": 0.50},
+    {"name": "top4_cap25", "weight": 0.50, "holdings_count": 4, "single_name_cap": 0.25},
 )
 
 
@@ -411,6 +417,124 @@ def build_target_weights(
     return weights, ranked, metadata
 
 
+def _normalize_blend_sleeves(blend_sleeves) -> tuple[dict[str, object], ...]:
+    if not blend_sleeves:
+        return ()
+    normalized: list[dict[str, object]] = []
+    for idx, sleeve in enumerate(blend_sleeves, start=1):
+        sleeve_map = dict(sleeve or {})
+        name = str(sleeve_map.get("name") or f"sleeve_{idx}").strip() or f"sleeve_{idx}"
+        weight = float(sleeve_map.get("weight", 0.0))
+        holdings_count = int(sleeve_map.get("holdings_count", 0))
+        single_name_cap = float(sleeve_map.get("single_name_cap", 0.0))
+        if weight <= 0:
+            raise ValueError("blend sleeve weight must be positive")
+        if holdings_count <= 0:
+            raise ValueError("blend sleeve holdings_count must be positive")
+        if single_name_cap <= 0:
+            raise ValueError("blend sleeve single_name_cap must be positive")
+        normalized.append(
+            {
+                "name": name,
+                "weight": weight,
+                "holdings_count": holdings_count,
+                "single_name_cap": single_name_cap,
+            }
+        )
+    total_weight = sum(float(sleeve["weight"]) for sleeve in normalized)
+    if total_weight <= 0:
+        raise ValueError("blend sleeve weights must sum to a positive value")
+    return tuple(
+        {
+            **sleeve,
+            "weight": float(sleeve["weight"]) / total_weight,
+        }
+        for sleeve in normalized
+    )
+
+
+def build_blended_target_weights(
+    feature_snapshot,
+    current_holdings: Iterable[str] | None = None,
+    *,
+    blend_sleeves=DEFAULT_TOP50_BALANCED_BLEND_SLEEVES,
+    portfolio_total_equity: float | None = None,
+    **kwargs,
+) -> tuple[dict[str, float], pd.DataFrame, dict[str, object]]:
+    sleeves = _normalize_blend_sleeves(blend_sleeves)
+    if not sleeves:
+        raise ValueError("blend_sleeves must contain at least one sleeve")
+
+    safe_haven = _normalize_symbol(kwargs.get("safe_haven", SAFE_HAVEN))
+    combined_weights: dict[str, float] = {}
+    ranked = pd.DataFrame()
+    sleeve_rows: list[dict[str, object]] = []
+    first_metadata: dict[str, object] | None = None
+    selected_symbols: list[str] = []
+
+    for sleeve in sleeves:
+        sleeve_weight = float(sleeve["weight"])
+        sleeve_kwargs = dict(kwargs)
+        sleeve_kwargs["holdings_count"] = int(sleeve["holdings_count"])
+        sleeve_kwargs["single_name_cap"] = float(sleeve["single_name_cap"])
+        if portfolio_total_equity is not None:
+            sleeve_kwargs["portfolio_total_equity"] = float(portfolio_total_equity) * sleeve_weight
+        sleeve_weights, sleeve_ranked, sleeve_metadata = build_target_weights(
+            feature_snapshot,
+            current_holdings,
+            **sleeve_kwargs,
+        )
+        if ranked.empty:
+            ranked = sleeve_ranked
+        if first_metadata is None:
+            first_metadata = dict(sleeve_metadata)
+        for symbol, value in sleeve_weights.items():
+            symbol_text = _normalize_symbol(symbol)
+            combined_weights[symbol_text] = combined_weights.get(symbol_text, 0.0) + sleeve_weight * float(value)
+        sleeve_selected = tuple(str(symbol) for symbol in sleeve_metadata.get("selected_symbols", ()))
+        selected_symbols.extend(symbol for symbol in sleeve_selected if symbol != safe_haven)
+        sleeve_rows.append(
+            {
+                "name": sleeve["name"],
+                "weight": sleeve_weight,
+                "holdings_count": int(sleeve["holdings_count"]),
+                "single_name_cap": float(sleeve["single_name_cap"]),
+                "selected_symbols": sleeve_selected,
+                "realized_stock_weight": float(sleeve_metadata.get("realized_stock_weight", 0.0)),
+                "safe_haven_weight": float(sleeve_metadata.get("safe_haven_weight", 0.0)),
+            }
+        )
+
+    total_weight = sum(combined_weights.values())
+    if total_weight > 0:
+        combined_weights = {symbol: value / total_weight for symbol, value in combined_weights.items()}
+    safe_haven_weight = float(combined_weights.get(safe_haven, 0.0))
+    realized_stock_weight = max(0.0, 1.0 - safe_haven_weight)
+    selected_unique = tuple(
+        symbol
+        for symbol in dict.fromkeys(selected_symbols)
+        if float(combined_weights.get(symbol, 0.0)) > 1e-12
+    )
+
+    metadata = dict(first_metadata or {})
+    metadata.update(
+        {
+            "target_stock_weight": realized_stock_weight,
+            "realized_stock_weight": realized_stock_weight,
+            "safe_haven_weight": safe_haven_weight,
+            "selected_symbols": selected_unique,
+            "selected_count": int(len(selected_unique)),
+            "blend_sleeves": tuple(sleeve_rows),
+            "blend_mode": "fixed_weighted_sleeves",
+            "portfolio_total_equity": portfolio_total_equity,
+            "requested_holdings_count": max(int(sleeve["holdings_count"]) for sleeve in sleeves),
+            "effective_holdings_count": int(len(selected_unique)),
+            "single_name_cap": max(float(sleeve["single_name_cap"]) for sleeve in sleeves),
+        }
+    )
+    return combined_weights, ranked, metadata
+
+
 def extract_managed_symbols(
     feature_snapshot,
     *,
@@ -515,6 +639,7 @@ def compute_signals(
     kwargs.pop("translator", None)
     kwargs.pop("signal_text_fn", None)
     kwargs.pop("execution_cash_reserve_ratio", None)
+    blend_sleeves = kwargs.pop("blend_sleeves", None)
     benchmark_symbol = kwargs.get("benchmark_symbol", BENCHMARK_SYMBOL)
     broad_benchmark_symbol = kwargs.get("broad_benchmark_symbol", BROAD_BENCHMARK_SYMBOL)
     safe_haven = kwargs.get("safe_haven", SAFE_HAVEN)
@@ -546,11 +671,21 @@ def compute_signals(
             },
         )
 
-    weights, ranked, metadata = build_target_weights(
-        feature_snapshot,
-        current_holdings,
-        **kwargs,
-    )
+    if blend_sleeves:
+        portfolio_total_equity = kwargs.pop("portfolio_total_equity", None)
+        weights, ranked, metadata = build_blended_target_weights(
+            feature_snapshot,
+            current_holdings,
+            blend_sleeves=blend_sleeves,
+            portfolio_total_equity=portfolio_total_equity,
+            **kwargs,
+        )
+    else:
+        weights, ranked, metadata = build_target_weights(
+            feature_snapshot,
+            current_holdings,
+            **kwargs,
+        )
     top_preview = ", ".join(
         f"{row.symbol}({row.score:.2f})"
         for row in ranked.head(5).itertuples(index=False)
