@@ -84,6 +84,8 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "dual_drive_cash_reserve_ratio": 0.02,
         "dual_drive_allow_pullback": True,
         "dual_drive_require_ma20_slope": True,
+        "dual_drive_pullback_rebound_window": 20,
+        "dual_drive_pullback_rebound_threshold": 0.03,
     },
     SOXL_SOXX_TREND_INCOME_PROFILE: {
         "managed_symbols": ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
