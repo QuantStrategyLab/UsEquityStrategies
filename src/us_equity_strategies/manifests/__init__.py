@@ -96,6 +96,8 @@ tqqq_growth_income_manifest = _manifest(
         "dual_drive_cash_reserve_ratio": 0.02,
         "dual_drive_allow_pullback": True,
         "dual_drive_require_ma20_slope": True,
+        "dual_drive_pullback_rebound_window": 20,
+        "dual_drive_pullback_rebound_threshold": 0.03,
     },
 )
 

@@ -161,6 +161,55 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(active_plan["target_values"]["BOXX"], 100000.0 * 0.08)
         self.assertAlmostEqual(active_plan["reserved"], 100000.0 * 0.02)
 
+    def test_tqqq_growth_income_pullback_requires_rebound_quality(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        def build_history(recent_start: float, recent_step: float):
+            recent = [recent_start + index * recent_step for index in range(21)]
+            return [{"close": 120.0, "high": 121.0, "low": 119.0} for _ in range(220)] + [
+                {"close": close, "high": close + 1.0, "low": close - 1.0}
+                for close in recent
+            ]
+
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=100000.0, quantity=1000)],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+        common_kwargs = dict(
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        weak_rebound_plan = build_tqqq_plan(
+            build_history(106.0, 0.15),
+            snapshot,
+            **common_kwargs,
+        )
+        self.assertEqual(weak_rebound_plan["target_values"]["TQQQ"], 0.0)
+        self.assertEqual(weak_rebound_plan["target_values"]["QQQ"], 0.0)
+        self.assertLess(weak_rebound_plan["pullback_rebound"], 0.03)
+
+        strong_rebound_plan = build_tqqq_plan(
+            build_history(100.0, 0.45),
+            snapshot,
+            **common_kwargs,
+        )
+        self.assertAlmostEqual(strong_rebound_plan["target_values"]["TQQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(strong_rebound_plan["target_values"]["QQQ"], 100000.0 * 0.45)
+        self.assertGreater(strong_rebound_plan["pullback_rebound"], 0.03)
+
     def test_soxl_soxx_trend_income_exposes_live_tiered_metadata(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (

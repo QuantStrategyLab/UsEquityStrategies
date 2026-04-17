@@ -204,7 +204,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Entry requires `QQQ > MA200` and positive `MA20` slope.
 - Once risk is active, the profile keeps `QQQ 45% / TQQQ 45% / BOXX 8% / cash 2%` while `QQQ` remains above `MA200`; a short-term negative `MA20` slope alone does not force an exit.
 - If `QQQ` falls below `MA200`, the profile exits `QQQ` and `TQQQ`, keeps 2% cash, and parks the rest in `BOXX` by default.
-- A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20` and `MA20` slope is positive.
+- A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20`, `MA20` slope is positive, and `QQQ` has rebounded more than 3% from its rolling 20-day low. The rebound quality gate is intended to avoid weak MA200 chop without changing the normal above-`MA200` trend rule.
 
 **Income-layer rules (`SPYI` / `QQQI`)**
 - The default configuration sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
@@ -221,6 +221,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`, `DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`
 - `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
+- `DUAL_DRIVE_PULLBACK_REBOUND_WINDOW = 20`
+- `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD = 0.03`
 - `INCOME_THRESHOLD_USD = 1000000000`
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
@@ -460,7 +462,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 入场需要 `QQQ > MA200` 且 `MA20` 斜率为正。
 - 一旦进入风险状态，只要 `QQQ` 仍在 `MA200` 上方，就维持 `QQQ 45% / TQQQ 45% / BOXX 8% / 现金 2%`；短期 `MA20` 斜率转负不会单独触发离场。
 - 如果 `QQQ` 跌破 `MA200`，默认退出 `QQQ` 和 `TQQQ`，保留 2% 现金，其余转入 `BOXX`。
-- 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20` 且 `MA20` 斜率为正时，可重新打开风险仓位。
+- 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20`、`MA20` 斜率为正，且 `QQQ` 较滚动 20 日低点反弹超过 3% 时，可重新打开风险仓位。这个反弹质量门槛只用于过滤较弱的 MA200 附近震荡，不改变 `MA200` 上方的主趋势规则。
 
 **收入层规则（`SPYI` / `QQQI`）**
 - 默认配置把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
@@ -477,6 +479,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`，`DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`
 - `DUAL_DRIVE_CASH_RESERVE_RATIO = 0.02`
+- `DUAL_DRIVE_PULLBACK_REBOUND_WINDOW = 20`
+- `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD = 0.03`
 - `INCOME_THRESHOLD_USD = 1000000000`
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
