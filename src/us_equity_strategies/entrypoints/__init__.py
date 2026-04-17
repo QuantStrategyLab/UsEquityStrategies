@@ -51,11 +51,12 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     market_history = require_market_data(ctx, "market_history")
+    translator = config.pop("translator", default_translator)
     weights, signal_desc, is_emergency, canary_str = legacy_global_etf_rotation.compute_signals(
         ctx.capabilities.get("broker_client"),
         get_current_holdings(ctx),
         get_historical_close=market_history,
-        translator=config.pop("translator", default_translator),
+        translator=translator,
         pacing_sec=float(config.pop("pacing_sec", 0.0)),
         **config,
     )
@@ -68,6 +69,7 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     diagnostics["signal_description"] = append_account_size_warning(
         str(diagnostics["signal_description"]),
         diagnostics,
+        translator=translator,
     )
     risk_flags = ("emergency",) if is_emergency else ()
     return StrategyDecision(
@@ -88,15 +90,20 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
     config.pop("execution_cash_reserve_ratio", None)
+    translator = config.pop("translator", default_translator)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "benchmark_history"),
         require_portfolio(ctx),
         signal_text_fn=config.pop("signal_text_fn", default_signal_text_fn),
-        translator=config.pop("translator", default_translator),
+        translator=translator,
         **config,
     )
     account_size_diagnostics = _account_size_diagnostics(tqqq_growth_income_manifest.profile, ctx)
-    signal_display = append_account_size_warning(str(plan["sig_display"]), account_size_diagnostics)
+    signal_display = append_account_size_warning(
+        str(plan["sig_display"]),
+        account_size_diagnostics,
+        translator=translator,
+    )
     diagnostics = {
         "signal_display": signal_display,
         "dashboard": plan["dashboard"],
@@ -168,17 +175,22 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
     portfolio = require_portfolio(ctx)
+    translator = config.pop("translator", default_translator)
     plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "derived_indicators"),
         _build_semiconductor_account_state_from_portfolio(
             portfolio,
             strategy_symbols=strategy_symbols,
         ),
-        translator=config.pop("translator", default_translator),
+        translator=translator,
         **config,
     )
     account_size_diagnostics = _account_size_diagnostics(soxl_soxx_trend_income_manifest.profile, ctx)
-    signal_message = append_account_size_warning(str(plan["signal_message"]), account_size_diagnostics)
+    signal_message = append_account_size_warning(
+        str(plan["signal_message"]),
+        account_size_diagnostics,
+        translator=translator,
+    )
     diagnostics = {
         "market_status": plan["market_status"],
         "signal_message": signal_message,
@@ -248,6 +260,7 @@ soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
 
 def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(russell_1000_multi_factor_defensive_manifest.default_config, ctx)
+    translator = config.get("translator", default_translator)
     weights, signal_desc, is_emergency, status_desc, metadata = legacy_russell.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
         get_current_holdings(ctx),
@@ -263,6 +276,7 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
     diagnostics["signal_description"] = append_account_size_warning(
         str(diagnostics["signal_description"]),
         diagnostics,
+        translator=translator,
     )
     risk_flags = ("hard_defense",) if is_emergency else ()
     return StrategyDecision(
@@ -281,6 +295,7 @@ legacy_russell.compute_signals.__doc__ = (
 
 def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
+    translator = config.get("translator", default_translator)
     config.pop("execution_cash_reserve_ratio", None)
     if ctx.portfolio is not None and "portfolio_total_equity" not in config:
         total_equity = getattr(ctx.portfolio, "total_equity", None)
@@ -302,6 +317,7 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     diagnostics["signal_description"] = append_account_size_warning(
         str(diagnostics["signal_description"]),
         diagnostics,
+        translator=translator,
     )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
@@ -328,6 +344,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     manifest,
 ) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
+    translator = config.get("translator", default_translator)
     config.pop("execution_cash_reserve_ratio", None)
     if ctx.as_of is not None and "run_as_of" not in config:
         config["run_as_of"] = ctx.as_of
@@ -351,6 +368,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     diagnostics["signal_description"] = append_account_size_warning(
         str(diagnostics["signal_description"]),
         diagnostics,
+        translator=translator,
     )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
@@ -394,6 +412,7 @@ mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ = (
 
 def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(dynamic_mega_leveraged_pullback_manifest.default_config, ctx)
+    translator = config.get("translator", default_translator)
     config.pop("execution_cash_reserve_ratio", None)
     config.pop("runtime_execution_window_trading_days", None)
     portfolio = require_portfolio(ctx)
@@ -419,6 +438,7 @@ def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDe
     diagnostics["signal_description"] = append_account_size_warning(
         str(diagnostics["signal_description"]),
         diagnostics,
+        translator=translator,
     )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:

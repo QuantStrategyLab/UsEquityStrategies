@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 
@@ -75,7 +75,33 @@ def build_account_size_diagnostics_from_context(
     return build_account_size_diagnostics(profile, _coerce_float(portfolio_total_equity))
 
 
-def append_account_size_warning(text: str, diagnostics: Mapping[str, object]) -> str:
+def _format_money(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def _translate_or_default(
+    translator: Callable[..., str] | None,
+    key: str,
+    default: str,
+    **kwargs: object,
+) -> str:
+    if translator is None:
+        return default.format(**kwargs)
+    try:
+        translated = translator(key, **kwargs)
+    except Exception:
+        return default.format(**kwargs)
+    if translated == key or translated.startswith(f"{key}("):
+        return default.format(**kwargs)
+    return translated
+
+
+def append_account_size_warning(
+    text: str,
+    diagnostics: Mapping[str, object],
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
     message = str(text or "").strip()
     if not diagnostics.get("small_account_warning"):
         return message
@@ -85,11 +111,21 @@ def append_account_size_warning(text: str, diagnostics: Mapping[str, object]) ->
     if portfolio_total_equity is None or min_recommended is None:
         return message
 
-    warning = (
-        "small_account_warning=true "
-        f"portfolio_equity=${portfolio_total_equity:,.0f} "
-        f"min_recommended_equity=${min_recommended:,.0f} "
-        f"reason={SMALL_ACCOUNT_WARNING_REASON}"
+    reason = _translate_or_default(
+        translator,
+        f"small_account_warning_reason_{SMALL_ACCOUNT_WARNING_REASON}",
+        "integer-share minimum position sizing may prevent backtest replication",
+    )
+    warning = _translate_or_default(
+        translator,
+        "small_account_warning_note",
+        (
+            "small account warning: portfolio equity {portfolio_equity} is below "
+            "the recommended {min_recommended_equity}; {reason}"
+        ),
+        portfolio_equity=_format_money(portfolio_total_equity),
+        min_recommended_equity=_format_money(min_recommended),
+        reason=reason,
     )
     if not message:
         return warning

@@ -34,7 +34,30 @@ def test_account_size_diagnostics_warn_below_recommended_equity() -> None:
     assert diagnostics["portfolio_total_equity"] == 1_000.0
     assert diagnostics["small_account_warning"] is True
     assert diagnostics["small_account_warning_reason"] == "integer_shares_min_position_value_may_prevent_backtest_replication"
-    assert "small_account_warning=true" in append_account_size_warning("signal", diagnostics)
+    assert "small account warning" in append_account_size_warning("signal", diagnostics)
+    assert "recommended $10,000" in append_account_size_warning("signal", diagnostics)
+
+
+def test_account_size_warning_uses_translator_when_available() -> None:
+    diagnostics = build_account_size_diagnostics(
+        "soxl_soxx_trend_income",
+        0.0,
+    )
+
+    def translate(key: str, **kwargs) -> str:
+        messages = {
+            "small_account_warning_note": (
+                "小账户提示：净值 {portfolio_equity} 低于建议 {min_recommended_equity}；{reason}"
+            ),
+            "small_account_warning_reason_integer_shares_min_position_value_may_prevent_backtest_replication": (
+                "整数股和最小仓位限制可能导致实盘无法完全复现回测"
+            ),
+        }
+        return messages[key].format(**kwargs)
+
+    assert append_account_size_warning("信号", diagnostics, translator=translate) == (
+        "信号 | 小账户提示：净值 $0 低于建议 $1,000；整数股和最小仓位限制可能导致实盘无法完全复现回测"
+    )
 
 
 def test_account_size_diagnostics_do_not_warn_at_recommended_equity() -> None:
@@ -69,4 +92,4 @@ def test_entrypoint_appends_small_account_warning_to_signal_description() -> Non
 
     assert decision.diagnostics["small_account_warning"] is True
     assert decision.diagnostics["min_recommended_equity_usd"] == 10_000.0
-    assert "small_account_warning=true" in decision.diagnostics["signal_description"]
+    assert "small account warning" in decision.diagnostics["signal_description"]
