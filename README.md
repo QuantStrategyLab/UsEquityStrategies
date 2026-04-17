@@ -15,7 +15,7 @@ This repository is the strategy layer: it owns pure signal, allocation, and targ
 
 The current integration path is:
 
-- live profiles expose manifest-backed unified entrypoints
+- runtime profiles expose manifest-backed unified entrypoints
 - downstream platforms load those entrypoints through `QuantPlatformKit`
 - strategy outputs stay inside the shared `StrategyDecision` contract
 - broker-specific execution order, UI rows, and notification layout stay in platform repositories
@@ -26,9 +26,9 @@ Legacy strategy functions may still exist as internal adapters, but downstream r
 
 - [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md): template for adding a new US equity profile in this repository.
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md): reviewer checklist before enabling a profile on broker runtimes.
-- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): current live-profile contract gaps versus the cross-platform target.
+- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): runtime-enabled profile contract gaps versus the cross-platform target.
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md): fixed canonical input contract for the two current value-mode profiles.
-- [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md): Chinese operator-facing status handbook for switchable profiles, current deployments, research candidates, and archived backtest evidence.
+- [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md): Chinese operator-facing status handbook for switchable profiles, input modes, research candidates, and archived backtest evidence.
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): mega-cap leader rotation research notes and dynamic top20 runtime profile notes.
 
 ### Strategy index
@@ -190,7 +190,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 ### tqqq_growth_income
 
 **Objective**
-- Run the current live configuration as a no-income `QQQ` / `TQQQ` dual-drive growth profile.
+- Run the default no-income `QQQ` / `TQQQ` dual-drive growth profile.
 - Keep the legacy income and BOXX symbols in the managed universe so existing holdings can be reduced cleanly.
 
 **Portfolio layers**
@@ -201,8 +201,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 **Signals and indicators**
 - Uses daily `QQQ` history as the signal source.
 - `dual_drive_unlevered_symbol` controls the tradable unlevered growth sleeve and defaults to `QQQ`.
-- The live configuration uses `MA200`, `MA20`, and positive `MA20` slope.
-- Retired ATR-staged sizing has been removed from the live TQQQ profile; `fixed_qqq_tqqq_pullback` is the only supported allocation mode.
+- The default configuration uses `MA200`, `MA20`, and positive `MA20` slope.
+- Retired ATR-staged sizing has been removed from the TQQQ profile; `fixed_qqq_tqqq_pullback` is the only supported allocation mode.
 
 **Default dual-drive rules (`QQQ` / `TQQQ`)**
 - Entry requires `QQQ > MA200` and positive `MA20` slope.
@@ -211,16 +211,16 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20`, `MA20` slope is positive, and `QQQ` has rebounded from its rolling 20-day low by more than the dynamic volatility-scaled gate. The default gate is `2.0x` the recent 20-day `QQQ` daily return volatility, which avoids a fixed 3% constant while still filtering weak MA200 chop without changing the normal above-`MA200` trend rule.
 
 **Income-layer rules (`SPYI` / `QQQI`)**
-- The live configuration sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
+- The default configuration sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
 - Lowering that threshold opts back into the legacy income sleeve.
 - `QQQI_INCOME_RATIO` still decides the split between `QQQI` and `SPYI` when the income layer is enabled.
 
 **Defense behavior (`BOXX` and cash)**
-- The fixed dual-drive live configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
+- The fixed dual-drive configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
 - `BOXX` remains a managed symbol so old BOXX holdings can be traded down if present.
 - Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
 
-**Current live profile settings**
+**Default runtime profile settings**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`, `DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`
@@ -245,7 +245,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Income layer: `QQQI`, `SPYI`
 
 **Trading-layer rules**
-- The current live mode uses a tiered `SOXX` trend gate to avoid relying on one all-or-nothing threshold.
+- The default runtime mode uses a tiered `SOXX` trend gate to avoid relying on one all-or-nothing threshold.
 - If `SOXX > MA140 * 1.08`, the core sleeve targets `SOXL 70% + SOXX 20%`.
 - If `SOXX > MA140 * 1.06`, or an existing SOXL sleeve has not broken `MA140 * 0.98`, the core sleeve targets `SOXL 65% + SOXX 20%`.
 - If the gate is off, the core sleeve holds defensive `SOXX 15%`.
@@ -253,7 +253,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 **Sizing behavior**
 - The tiered gate directly sets core-sleeve exposure: full, mid, or defensive.
-- There is no separate account-size deploy-ratio decay in the live SOXL/SOXX profile.
+- There is no separate account-size deploy-ratio decay in the SOXL/SOXX profile.
 - The downstream runtime also keeps a cash reserve and only trades when the rebalance gap is large enough.
 
 **Income-layer rules**
@@ -262,7 +262,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Existing income holdings are locked with `max(current_income_layer_value, desired_income_layer_value)`, so the layer only adds capital instead of force-selling down.
 - New income allocation is split by configurable `QQQI` / `SPYI` weights.
 
-**Current live LongBridge profile settings**
+**Default runtime profile settings**
 - `TREND_MA_WINDOW = 140`
 - `CASH_RESERVE_RATIO = 0.03`
 - `MIN_TRADE_RATIO = 0.01`, `MIN_TRADE_FLOOR = 100 USD`
@@ -287,7 +287,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 当前主线集成方式已经固定为：
 
-- live profile 暴露 manifest 驱动的统一 entrypoint
+- runtime profile 暴露 manifest 驱动的统一 entrypoint
 - 下游平台通过 `QuantPlatformKit` 加载这些 entrypoint
 - 策略输出保持在共享 `StrategyDecision` 契约内
 - 券商专属执行顺序、UI 展示行和通知布局继续留在平台仓库
@@ -298,9 +298,9 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 - [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md)：新增美股策略时使用的模板文档。
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
-- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：当前 live profile 距离跨平台目标契约的差异矩阵。
+- [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：runtime-enabled profile 距离跨平台目标契约的差异矩阵。
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
-- [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明当前可切换 profile、实际部署、研究候选和已归档回测证据。
+- [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明可切换 profile、输入类型、研究候选和已归档回测证据。
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的研究说明，以及 dynamic top20 运行 profile 说明。
 
 ### 策略索引
@@ -348,7 +348,7 @@ cron 配置由各个平台仓库负责：
 ### 研究候选策略
 
 - `mega_cap_leader_rotation_dynamic_top20`：已注册为 runtime-enabled 月频 profile，使用历史动态 mega-cap top20 池，默认选 4 只、单票 25%，QQQ 跌破 200 日线时股票仓位降到 50%。
-- `mega_cap_leader_rotation_aggressive`：已注册为 runtime-enabled 月频 profile，目标是更高收益的 mega-cap 龙头轮动。默认 top3、单票 35%，不因 QQQ 趋势默认降仓；静态 expanded 池历史回测更高但有后视偏差，实盘应消费透明的月度 snapshot。
+- `mega_cap_leader_rotation_aggressive`：已注册为 runtime-enabled 月频 profile，目标是更高收益的 mega-cap 龙头轮动。默认 top3、单票 35%，不因 QQQ 趋势默认降仓；静态 expanded 池历史回测更高但有后视偏差，正式运行应消费透明的月度 snapshot。
 - `mega_cap_leader_rotation_top50_balanced`：已注册为 runtime-enabled 月频 profile，消费透明 Top50 月度 snapshot，运行固定 50% Top2 cap50 + 50% Top4 cap25 的组合，不默认使用宽基趋势降仓。
 - `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
@@ -454,7 +454,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 ### tqqq_growth_income
 
 **策略目标**
-- 当前实盘配置采用不带收入层的 `QQQ` / `TQQQ` 双轮增长策略。
+- 默认配置采用不带收入层的 `QQQ` / `TQQQ` 双轮增长策略。
 - 继续把旧收入层和 BOXX 资产留在管理列表里，方便把已有持仓平滑降下来。
 
 **资产层级**
@@ -465,8 +465,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 **信号和指标**
 - 以 `QQQ` 的日线数据作为主信号源。
 - `dual_drive_unlevered_symbol` 控制实际交易的非杠杆增长袖子，默认是 `QQQ`。
-- 当前实盘配置使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
-- 旧 ATR 分段仓位已经从 live TQQQ profile 移除；当前只支持 `fixed_qqq_tqqq_pullback`。
+- 默认配置使用 `MA200`、`MA20` 和正向 `MA20` 斜率。
+- 旧 ATR 分段仓位已经从 TQQQ profile 移除；当前只支持 `fixed_qqq_tqqq_pullback`。
 
 **默认双轮规则（`QQQ` / `TQQQ`）**
 - 入场需要 `QQQ > MA200` 且 `MA20` 斜率为正。
@@ -475,16 +475,16 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20`、`MA20` 斜率为正，且 `QQQ` 较滚动 20 日低点的反弹幅度超过动态波动率门槛时，可重新打开风险仓位。默认门槛是最近 20 日 `QQQ` 日收益波动率的 `2.0x`，避免使用固定 3% 常数，同时继续过滤较弱的 MA200 附近震荡，不改变 `MA200` 上方的主趋势规则。
 
 **收入层规则（`SPYI` / `QQQI`）**
-- 实盘配置把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
+- 默认配置把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
 - 如果以后要重新启用收入层，可以把这个阈值调低。
 - `QQQI_INCOME_RATIO` 仍然决定收入层启用时 `QQQI` 和 `SPYI` 的拆分比例。
 
 **防守行为（`BOXX` 与现金）**
-- fixed dual-drive 实盘配置只保留一小部分现金，剩余闲置资金进入 BOXX。
+- fixed dual-drive 默认配置只保留一小部分现金，剩余闲置资金进入 BOXX。
 - `BOXX` 仍保留为管理资产，方便清理旧 BOXX 持仓。
 - 是否真的下单，由下游执行层再结合再平衡阈值判断。
 
-**当前 live profile 配置值**
+**默认运行 profile 配置值**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`，`DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`
@@ -509,7 +509,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 收入层：`QQQI`、`SPYI`
 
 **交易层规则**
-- 当前 live 配置使用 `SOXX` 趋势分层闸门，避免仓位完全依赖单一开关。
+- 默认运行配置使用 `SOXX` 趋势分层闸门，避免仓位完全依赖单一开关。
 - 如果 `SOXX > MA140 * 1.08`，核心层目标为 `SOXL 70% + SOXX 20%`。
 - 如果 `SOXX > MA140 * 1.06`，或已有 SOXL 仓位尚未跌破 `MA140 * 0.98`，核心层目标为 `SOXL 65% + SOXX 20%`。
 - 如果趋势闸门关闭，核心层防守目标为 `SOXX 15%`。
@@ -517,7 +517,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 
 **仓位规则**
 - 分层闸门直接决定核心层风险暴露：full、mid 或 defensive。
-- live SOXL/SOXX profile 不再保留单独的账户规模 deploy-ratio 衰减。
+- SOXL/SOXX profile 不再保留单独的账户规模 deploy-ratio 衰减。
 - 下游运行层另外还会保留现金储备，并且只有偏离目标足够大时才触发调仓。
 
 **收入层规则**
@@ -526,7 +526,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，所以默认只增配，不主动减配。
 - 新增收入资金按可配置的 `QQQI / SPYI` 比例拆分。
 
-**当前 LongBridge live profile 配置值**
+**默认运行 profile 配置值**
 - `TREND_MA_WINDOW = 140`
 - `CASH_RESERVE_RATIO = 0.03`
 - `MIN_TRADE_RATIO = 0.01`，`MIN_TRADE_FLOOR = 100 USD`

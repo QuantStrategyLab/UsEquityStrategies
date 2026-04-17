@@ -1,12 +1,12 @@
 # mega_cap_leader_rotation research brief
 
-Status: the static `mag7` / `expanded` variants remain research/backtest only. The historical dynamic top-20 variant is promoted as the selectable live profile `mega_cap_leader_rotation_dynamic_top20`.
+Status: the static `mag7` / `expanded` variants remain research/backtest only. The historical dynamic top-20 variant is promoted as the selectable runtime profile `mega_cap_leader_rotation_dynamic_top20`.
 
 ## Objective
 
 `mega_cap_leader_rotation` tests whether a concentrated monthly rotation among US mega-cap leaders can keep exposure to the strongest large-cap growth names while dropping weaker leaders.
 
-This is intentionally different from the existing live profiles:
+This is intentionally different from the existing runtime profiles:
 
 - `russell_1000_multi_factor_defensive`: broad Russell 1000 stock selection.
 - `tech_communication_pullback_enhancement`: tech/communication pullback entry with an explicit cash buffer.

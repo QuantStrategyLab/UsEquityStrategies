@@ -3,14 +3,14 @@
 This document started as the P2 contract-convergence bridge between:
 
 - the shared cross-platform target in `QuantPlatformKit/docs/us_equity_cross_platform_strategy_spec.md`
-- the current live `UsEquityStrategies` contract surface
+- the current runtime-enabled `UsEquityStrategies` contract surface
 
 It still does **not** change runtime behavior by itself.
 At this point it mainly records what was migrated, what is now fully portable across the current three-platform scope, and which follow-ups are still implementation cleanups rather than platform-coverage gaps.
 
 ## Scope of this matrix
 
-This matrix tracks the nine current live US equity profiles:
+This matrix tracks the nine current runtime-enabled US equity profiles:
 
 - `global_etf_rotation`
 - `tqqq_growth_income`
@@ -31,7 +31,7 @@ Out of scope for this document:
 
 ## Current platform status snapshot
 
-As of this document update, the platform status scripts show that all nine live US equity profiles are enabled on all three current broker runtimes:
+As of this document update, the platform status scripts show that all nine runtime-enabled US equity profiles are enabled on all three current broker runtimes:
 
 - `ibkr`
   - `global_etf_rotation`
@@ -64,7 +64,7 @@ As of this document update, the platform status scripts show that all nine live 
   - `mega_cap_leader_rotation_top50_balanced`
   - `dynamic_mega_leveraged_pullback`
 
-That means the original profile-by-profile platform gaps for the current live strategies are closed. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
+That means the original profile-by-profile platform gaps for the runtime-enabled strategies are closed. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
 
 ## Canonical end-state input vocabulary
 
@@ -76,7 +76,7 @@ New US equity profiles should only use these canonical `required_inputs`:
 - `derived_indicators`
 - `feature_snapshot`
 
-All nine current live profiles now use canonical `required_inputs` names at the strategy boundary. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
+All nine runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
 
 ## Legacy-to-canonical mapping used for migration planning
 
@@ -213,10 +213,10 @@ All nine current live profiles now use canonical `required_inputs` names at the 
 
 ### What is already in good shape
 
-- all nine live profiles already declare `target_mode`
-- all nine live profiles already expose metadata, manifest, and unified entrypoint
-- all nine live profiles now use canonical `required_inputs` names at the strategy boundary
-- all nine live profiles now have runtime-adapter coverage on `ibkr`, `schwab`, and `longbridge`
+- all nine runtime-enabled profiles already declare `target_mode`
+- all nine runtime-enabled profiles already expose metadata, manifest, and unified entrypoint
+- all nine runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary
+- all nine runtime-enabled profiles now have runtime-adapter coverage on `ibkr`, `schwab`, and `longbridge`
 - the feature-snapshot profiles already use the canonical artifact input name
 - the current nine-profile by three-platform matrix is now fully portable for the current scope
 
@@ -229,14 +229,14 @@ All nine current live profiles now use canonical `required_inputs` names at the 
 
 ## Recommended migration order after this document
 
-1. **Current status**: the nine live profiles now use canonical input names and have full three-platform adapter coverage for the current US equity scope
+1. **Current status**: the nine runtime-enabled profiles now use canonical input names and have full three-platform adapter coverage for the current US equity scope
 2. **P3/P4 follow-up**: keep explicit execution translation rules in place and keep normalizing runtime payload builders
 3. **Artifact follow-up**: keep feature-snapshot transport, manifest validation, and config naming consistent across runtimes
 4. **Future expansion**: treat any new US equity profile or future platform as required to reach the same full-matrix bar before claiming rollout parity
 
 ## Review rule for future PRs in this track
 
-Now that the current nine live profiles are migrated, each future PR in this track should state clearly:
+Now that the current nine runtime-enabled profiles are migrated, each future PR in this track should state clearly:
 
 - which profile contract changed
 - whether `required_inputs` moved closer to canonical names
