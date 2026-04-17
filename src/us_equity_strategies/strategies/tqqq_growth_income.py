@@ -5,6 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+PULLBACK_REBOUND_THRESHOLD_MODE_FIXED = "fixed"
+PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED = "volatility_scaled"
+PULLBACK_REBOUND_THRESHOLD_MODES = {
+    PULLBACK_REBOUND_THRESHOLD_MODE_FIXED,
+    PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED,
+}
+
 
 def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) -> float:
     if total_equity_usd < income_threshold_usd:
@@ -18,6 +25,31 @@ def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) ->
             )
         )
     return 0.60
+
+
+def _resolve_pullback_rebound_threshold(
+    close: pd.Series,
+    *,
+    window: int,
+    mode: str,
+    fixed_threshold: float,
+    volatility_multiplier: float,
+) -> tuple[float, float]:
+    threshold_mode = str(mode or PULLBACK_REBOUND_THRESHOLD_MODE_FIXED).strip().lower()
+    if threshold_mode not in PULLBACK_REBOUND_THRESHOLD_MODES:
+        modes = ", ".join(sorted(PULLBACK_REBOUND_THRESHOLD_MODES))
+        raise ValueError(f"Unsupported pullback rebound threshold mode: {threshold_mode!r}; expected one of {modes}")
+
+    fixed_threshold = max(0.0, float(fixed_threshold or 0.0))
+    if threshold_mode == PULLBACK_REBOUND_THRESHOLD_MODE_FIXED:
+        return fixed_threshold, np.nan
+
+    returns = pd.to_numeric(close, errors="coerce").pct_change(fill_method=None)
+    rolling_volatility = returns.rolling(int(window), min_periods=int(window)).std().iloc[-1]
+    if pd.isna(rolling_volatility):
+        return fixed_threshold, np.nan
+    multiplier = max(0.0, float(volatility_multiplier or 0.0))
+    return max(0.0, float(rolling_volatility) * multiplier), float(rolling_volatility)
 
 
 def build_rebalance_plan(
@@ -38,7 +70,9 @@ def build_rebalance_plan(
     dual_drive_allow_pullback=True,
     dual_drive_require_ma20_slope=True,
     dual_drive_pullback_rebound_window=20,
-    dual_drive_pullback_rebound_threshold=0.03,
+    dual_drive_pullback_rebound_threshold_mode=PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED,
+    dual_drive_pullback_rebound_threshold=0.0,
+    dual_drive_pullback_rebound_volatility_multiplier=2.0,
 ):
     df_qqq = pd.DataFrame(qqq_history)
     qqq_p = df_qqq["close"].iloc[-1]
@@ -80,7 +114,16 @@ def build_rebalance_plan(
 
     latest_ma20 = ma20.iloc[-1]
     pullback_rebound_window = max(1, int(dual_drive_pullback_rebound_window or 20))
-    pullback_rebound_threshold = max(0.0, float(dual_drive_pullback_rebound_threshold or 0.0))
+    pullback_rebound_threshold_mode = str(
+        dual_drive_pullback_rebound_threshold_mode or PULLBACK_REBOUND_THRESHOLD_MODE_FIXED
+    ).strip().lower()
+    pullback_rebound_threshold, pullback_rebound_volatility = _resolve_pullback_rebound_threshold(
+        df_qqq["close"],
+        window=pullback_rebound_window,
+        mode=pullback_rebound_threshold_mode,
+        fixed_threshold=float(dual_drive_pullback_rebound_threshold or 0.0),
+        volatility_multiplier=float(dual_drive_pullback_rebound_volatility_multiplier or 0.0),
+    )
     pullback_low = df_qqq["close"].rolling(pullback_rebound_window).min().iloc[-1]
     pullback_rebound = qqq_p / pullback_low - 1.0 if pd.notna(pullback_low) and pullback_low > 0.0 else np.nan
     pullback_rebound_ok = (
@@ -175,6 +218,9 @@ def build_rebalance_plan(
         "pullback_rebound": pullback_rebound,
         "pullback_rebound_window": pullback_rebound_window,
         "pullback_rebound_threshold": pullback_rebound_threshold,
+        "pullback_rebound_threshold_mode": pullback_rebound_threshold_mode,
+        "pullback_rebound_volatility": pullback_rebound_volatility,
+        "pullback_rebound_volatility_multiplier": float(dual_drive_pullback_rebound_volatility_multiplier or 0.0),
         "allocation_mode": allocation_mode,
         "separator": separator,
     }
