@@ -19,6 +19,7 @@ def test_min_recommended_equity_is_profile_specific() -> None:
     assert get_min_recommended_equity_usd("soxl_soxx_trend_income") == 1_000.0
     assert get_min_recommended_equity_usd("qqq_tech_enhancement") == 10_000.0
     assert get_min_recommended_equity_usd("mega_cap_leader_rotation_aggressive") == 10_000.0
+    assert get_min_recommended_equity_usd("mega_cap_leader_rotation_top50_balanced") == 10_000.0
     assert get_min_recommended_equity_usd("russell_1000_multi_factor_defensive") == 30_000.0
     assert get_min_recommended_equity_usd("unknown") is None
 
