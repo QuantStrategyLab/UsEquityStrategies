@@ -37,6 +37,8 @@ def build_rebalance_plan(
     dual_drive_cash_reserve_ratio=0.02,
     dual_drive_allow_pullback=True,
     dual_drive_require_ma20_slope=True,
+    dual_drive_pullback_rebound_window=20,
+    dual_drive_pullback_rebound_threshold=0.03,
 ):
     df_qqq = pd.DataFrame(qqq_history)
     qqq_p = df_qqq["close"].iloc[-1]
@@ -77,6 +79,14 @@ def build_rebalance_plan(
     reserved = strategy_equity * cash_reserve_ratio
 
     latest_ma20 = ma20.iloc[-1]
+    pullback_rebound_window = max(1, int(dual_drive_pullback_rebound_window or 20))
+    pullback_rebound_threshold = max(0.0, float(dual_drive_pullback_rebound_threshold or 0.0))
+    pullback_low = df_qqq["close"].rolling(pullback_rebound_window).min().iloc[-1]
+    pullback_rebound = qqq_p / pullback_low - 1.0 if pd.notna(pullback_low) and pullback_low > 0.0 else np.nan
+    pullback_rebound_ok = (
+        pullback_rebound_threshold <= 0.0
+        or (pd.notna(pullback_rebound) and pullback_rebound > pullback_rebound_threshold)
+    )
     above_ma200 = qqq_p > ma200
     positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
     slope_ok = positive_ma20_slope if bool(dual_drive_require_ma20_slope) else True
@@ -92,6 +102,7 @@ def build_rebalance_plan(
         and pd.notna(latest_ma20)
         and qqq_p > latest_ma20
         and positive_ma20_slope
+        and pullback_rebound_ok
     )
 
     target_unlevered_val = 0.0
@@ -161,6 +172,9 @@ def build_rebalance_plan(
         "qqq_p": qqq_p,
         "ma200": ma200,
         "exit_line": ma200,
+        "pullback_rebound": pullback_rebound,
+        "pullback_rebound_window": pullback_rebound_window,
+        "pullback_rebound_threshold": pullback_rebound_threshold,
         "allocation_mode": allocation_mode,
         "separator": separator,
     }
