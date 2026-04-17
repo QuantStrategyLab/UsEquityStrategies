@@ -15,7 +15,7 @@ This repository is the strategy layer: it owns pure signal, allocation, and targ
 
 The current integration path is:
 
-- live profiles expose manifest-backed unified entrypoints
+- runtime profiles expose manifest-backed unified entrypoints
 - downstream platforms load those entrypoints through `QuantPlatformKit`
 - strategy outputs stay inside the shared `StrategyDecision` contract
 - broker-specific execution order, UI rows, and notification layout stay in platform repositories
@@ -190,7 +190,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 ### tqqq_growth_income
 
 **Objective**
-- Run the default configuration as a no-income `QQQ` / `TQQQ` dual-drive growth profile.
+- Run the default no-income `QQQ` / `TQQQ` dual-drive growth profile.
 - Keep the legacy income and BOXX symbols in the managed universe so existing holdings can be reduced cleanly.
 
 **Portfolio layers**
@@ -216,7 +216,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `QQQI_INCOME_RATIO` still decides the split between `QQQI` and `SPYI` when the income layer is enabled.
 
 **Defense behavior (`BOXX` and cash)**
-- The fixed dual-drive default configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
+- The fixed dual-drive configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
 - `BOXX` remains a managed symbol so old BOXX holdings can be traded down if present.
 - Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
 
@@ -300,7 +300,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：runtime-enabled profile 距离跨平台目标契约的差异矩阵。
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
-- [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明当前可切换 profile、输入类型、研究候选和已归档回测证据。
+- [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明可切换 profile、输入类型、研究候选和已归档回测证据。
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的研究说明，以及 dynamic top20 运行 profile 说明。
 
 ### 策略索引
@@ -484,7 +484,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `BOXX` 仍保留为管理资产，方便清理旧 BOXX 持仓。
 - 是否真的下单，由下游执行层再结合再平衡阈值判断。
 
-**runtime-enabled profile 配置值**
+**默认运行 profile 配置值**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`，`DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
 - `DUAL_DRIVE_UNLEVERED_SYMBOL = QQQ`

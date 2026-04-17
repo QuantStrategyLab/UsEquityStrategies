@@ -7,7 +7,7 @@ current US equity value-mode profiles:
 - `soxl_soxx_trend_income`
 
 It started as the P2.2 planning document for contract convergence.
-Both current value-mode live profiles have since been migrated in code; the
+Both current value-mode runtime profiles have since been migrated in code; the
 remaining sections describe the current contract plus the still-open follow-up
 work around rollout and deeper payload normalization.
 
@@ -16,7 +16,7 @@ work around rollout and deeper payload normalization.
 The cross-platform target already says new US equity strategies should use
 canonical input names.
 
-The current two value-mode live profiles are now aligned on their
+The current two value-mode runtime profiles are now aligned on their
 strategy-facing canonical inputs:
 
 - `tqqq_growth_income` uses `benchmark_history` + `portfolio_snapshot`
