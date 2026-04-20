@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from quant_platform_kit.strategy_contracts import CallableStrategyEntrypoint, StrategyDecision, StrategyContext
 
 from us_equity_strategies.account_sizing import (
@@ -37,6 +39,7 @@ from ._common import (
     target_values_to_positions,
     weights_to_positions,
 )
+from ._portfolio_dashboard import build_portfolio_dashboard
 
 
 """Unified strategy entrypoints built as adapters over legacy implementations."""
@@ -44,6 +47,60 @@ from ._common import (
 
 def _account_size_diagnostics(profile: str, ctx: StrategyContext) -> dict[str, object]:
     return build_account_size_diagnostics_from_context(profile, ctx)
+
+
+def _symbols_from_sources(*sources) -> tuple[str, ...]:
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        if isinstance(source, Mapping):
+            values = source.keys()
+        elif isinstance(source, (str, bytes)):
+            values = (source,)
+        else:
+            values = source
+        for symbol in values or ():
+            normalized = str(symbol or "").strip().upper().removesuffix(".US")
+            if not normalized or normalized in seen:
+                continue
+            symbols.append(normalized)
+            seen.add(normalized)
+    return tuple(symbols)
+
+
+def _config_managed_symbols(config: Mapping[str, object]) -> tuple[str, ...]:
+    return _symbols_from_sources(config.get("managed_symbols") or ())
+
+
+def _build_dashboard_text(
+    ctx: StrategyContext,
+    *,
+    strategy_symbols=(),
+    translator,
+    signal_text=None,
+    benchmark_text=None,
+) -> str:
+    if ctx.portfolio is None:
+        return ""
+    return build_portfolio_dashboard(
+        ctx.portfolio,
+        strategy_symbols=strategy_symbols,
+        translator=translator,
+        signal_text=signal_text,
+        benchmark_text=benchmark_text,
+    )
+
+
+def _attach_dashboard_text(diagnostics: dict[str, object], dashboard_text: str) -> dict[str, object]:
+    text = str(dashboard_text or "").strip()
+    if not text:
+        return diagnostics
+    raw_annotations = diagnostics.get("execution_annotations")
+    annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+    annotations["dashboard_text"] = text
+    diagnostics["dashboard"] = text
+    diagnostics["execution_annotations"] = annotations
+    return diagnostics
 
 
 def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
@@ -71,6 +128,19 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
         diagnostics,
         translator=translator,
     )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                weights or {},
+                get_current_holdings(ctx),
+                config.get("safe_haven"),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
+    )
     risk_flags = ("emergency",) if is_emergency else ()
     return StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BIL"))),
@@ -87,6 +157,7 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 
 def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
+    managed_symbols = _config_managed_symbols(config)
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
     config.pop("execution_cash_reserve_ratio", None)
@@ -104,9 +175,17 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         account_size_diagnostics,
         translator=translator,
     )
+    benchmark_text = str(plan["dashboard"]).splitlines()[-1]
+    dashboard_text = _build_dashboard_text(
+        ctx,
+        strategy_symbols=managed_symbols,
+        translator=translator,
+        signal_text=signal_display,
+        benchmark_text=benchmark_text,
+    )
     diagnostics = {
         "signal_display": signal_display,
-        "dashboard": plan["dashboard"],
+        "dashboard": dashboard_text or plan["dashboard"],
         "threshold": plan["threshold"],
         "reserved": plan["reserved"],
         "qqq_price": plan["qqq_p"],
@@ -125,7 +204,7 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "trade_threshold_value": plan["threshold"],
             "reserved_cash": plan["reserved"],
             "signal_display": signal_display,
-            "dashboard_text": plan["dashboard"],
+            "dashboard_text": dashboard_text or plan["dashboard"],
             "benchmark_symbol": "QQQ",
             "benchmark_price": plan["qqq_p"],
             "long_trend_value": plan["ma200"],
@@ -191,9 +270,16 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         account_size_diagnostics,
         translator=translator,
     )
+    dashboard_text = _build_dashboard_text(
+        ctx,
+        strategy_symbols=strategy_symbols,
+        translator=translator,
+        signal_text=signal_message,
+    )
     diagnostics = {
         "market_status": plan["market_status"],
         "signal_message": signal_message,
+        "dashboard": dashboard_text,
         "deploy_ratio_text": plan["deploy_ratio_text"],
         "income_ratio_text": plan["income_ratio_text"],
         "income_locked_ratio_text": plan["income_locked_ratio_text"],
@@ -222,6 +308,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "trade_threshold_value": plan["threshold_value"],
             "signal_display": signal_message,
             "status_display": plan["market_status"],
+            "dashboard_text": dashboard_text,
             "deploy_ratio_text": plan["deploy_ratio_text"],
             "income_ratio_text": plan["income_ratio_text"],
             "income_locked_ratio_text": plan["income_locked_ratio_text"],
@@ -278,6 +365,20 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
         diagnostics,
         translator=translator,
     )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                metadata.get("managed_symbols"),
+                weights or {},
+                get_current_holdings(ctx),
+                config.get("safe_haven"),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
+    )
     risk_flags = ("hard_defense",) if is_emergency else ()
     return StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
@@ -318,6 +419,20 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
         str(diagnostics["signal_description"]),
         diagnostics,
         translator=translator,
+    )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                metadata.get("managed_symbols"),
+                weights or {},
+                get_current_holdings(ctx),
+                config.get("safe_haven"),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
     )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
@@ -369,6 +484,20 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         str(diagnostics["signal_description"]),
         diagnostics,
         translator=translator,
+    )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                metadata.get("managed_symbols"),
+                weights or {},
+                get_current_holdings(ctx),
+                config.get("safe_haven"),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
     )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
@@ -439,6 +568,20 @@ def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDe
         str(diagnostics["signal_description"]),
         diagnostics,
         translator=translator,
+    )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                metadata.get("managed_symbols"),
+                weights or {},
+                get_current_holdings(ctx),
+                config.get("safe_haven"),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
     )
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
