@@ -109,6 +109,7 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     config["canary_assets"] = list(config.get("canary_assets", ()))
     market_history = require_market_data(ctx, "market_history")
     translator = config.pop("translator", default_translator)
+    config.pop("signal_text_fn", None)
     weights, signal_desc, is_emergency, canary_str = legacy_global_etf_rotation.compute_signals(
         ctx.capabilities.get("broker_client"),
         get_current_holdings(ctx),
@@ -347,7 +348,11 @@ soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
 
 def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(russell_1000_multi_factor_defensive_manifest.default_config, ctx)
-    translator = config.get("translator", default_translator)
+    translator = config.pop("translator", default_translator)
+    config.pop("signal_text_fn", None)
+    config.pop("run_as_of", None)
+    config.pop("execution_cash_reserve_ratio", None)
+    config.pop("runtime_execution_window_trading_days", None)
     weights, signal_desc, is_emergency, status_desc, metadata = legacy_russell.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
         get_current_holdings(ctx),
