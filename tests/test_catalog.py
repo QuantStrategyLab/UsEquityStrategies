@@ -4,6 +4,7 @@ from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
+    FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
@@ -31,7 +32,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[GLOBAL_ETF_ROTATION_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(GLOBAL_ETF_ROTATION_PROFILE),
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
             catalog[GLOBAL_ETF_ROTATION_PROFILE].required_inputs,
@@ -42,7 +43,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[TQQQ_GROWTH_INCOME_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(TQQQ_GROWTH_INCOME_PROFILE),
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
             catalog[TQQQ_GROWTH_INCOME_PROFILE].required_inputs,
@@ -53,7 +54,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[SOXL_SOXX_TREND_INCOME_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(SOXL_SOXX_TREND_INCOME_PROFILE),
-            frozenset({"ibkr", "longbridge", "schwab"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
             catalog[SOXL_SOXX_TREND_INCOME_PROFILE].required_inputs,
@@ -64,28 +65,28 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
 
         self.assertIn(QQQ_TECH_ENHANCEMENT_PROFILE, catalog)
         self.assertEqual(catalog[QQQ_TECH_ENHANCEMENT_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(QQQ_TECH_ENHANCEMENT_PROFILE),
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
 
         self.assertIn(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE, catalog)
         self.assertEqual(catalog[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE),
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
 
         self.assertIn(MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE, catalog)
         self.assertEqual(catalog[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE),
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
@@ -185,11 +186,11 @@ class CatalogTest(unittest.TestCase):
         compatibility = get_strategy_platform_compatibility_map()
         self.assertEqual(
             compatibility[QQQ_TECH_ENHANCEMENT_PROFILE],
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
             compatibility[TQQQ_GROWTH_INCOME_PROFILE],
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
         self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
@@ -200,7 +201,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(metadata_map[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].status, "research_only")
         self.assertEqual(
             compatibility[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE],
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
             metadata_map[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].role,
@@ -209,7 +210,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(metadata_map[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].status, "research_only")
         self.assertEqual(
             compatibility[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE],
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(metadata_map[DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE].status, "research_only")
         self.assertEqual(
@@ -218,7 +219,7 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(
             compatibility[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE],
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
 
     def test_strategy_index_rows_are_human_readable(self):
@@ -229,7 +230,7 @@ class CatalogTest(unittest.TestCase):
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
         self.assertEqual(
             by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
-            frozenset({"ibkr", "schwab", "longbridge"}),
+            FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
             by_profile[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE]["display_name"],

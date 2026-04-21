@@ -162,10 +162,9 @@ def compute_signals(
     else:
         timestamp = pd.Timestamp(as_of_date)
         if timestamp.tzinfo is None:
-            timestamp = tz_ny.localize(timestamp.to_pydatetime())
+            now_ny = tz_ny.localize(timestamp.to_pydatetime())
         else:
-            timestamp = timestamp.tz_convert(tz_ny)
-        now_ny = timestamp.to_pydatetime()
+            now_ny = timestamp.tz_convert(tz_ny).to_pydatetime()
     is_rebal_day = _is_rebalance_day(now_ny, rebalance_months=rebalance_months)
 
     if not is_rebal_day:

@@ -14,6 +14,7 @@ from us_equity_strategies.runtime_adapters import (
     BASE_RUNTIME_ADAPTERS,
     IBKR_PLATFORM,
     LONGBRIDGE_PLATFORM,
+    PAPER_SIGNAL_PLATFORM,
     PLATFORM_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM,
     get_platform_runtime_adapter,
@@ -65,6 +66,7 @@ FULL_MATRIX_PLATFORMS = frozenset(
         IBKR_PLATFORM,
         SCHWAB_PLATFORM,
         LONGBRIDGE_PLATFORM,
+        PAPER_SIGNAL_PLATFORM,
     }
 )
 GOVERNED_SOURCE_ROOTS = (
@@ -99,6 +101,7 @@ BANNED_SOURCE_SNIPPETS = (
     "ibkr",
     "schwab",
     "longbridge",
+    "paper_signal",
     "ACCOUNT_GROUP",
     "ACCOUNT_REGION",
     "IBKR_",
@@ -128,7 +131,8 @@ class ContractGovernanceTests(unittest.TestCase):
                     self.assertLessEqual(definition.required_inputs, adapter.available_inputs)
                     if adapter.portfolio_input_name:
                         self.assertIn(adapter.portfolio_input_name, adapter.available_inputs)
-                    if definition.target_mode != PLATFORM_NATIVE_TARGET_MODES[platform_id]:
+                    native_target_mode = PLATFORM_NATIVE_TARGET_MODES.get(platform_id)
+                    if native_target_mode is not None and definition.target_mode != native_target_mode:
                         self.assertTrue(
                             adapter.portfolio_input_name,
                             msg="cross-target-mode translation must declare a portfolio input",
@@ -213,7 +217,7 @@ class ContractGovernanceTests(unittest.TestCase):
             with self.subTest(profile=profile):
                 self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, aliases)
 
-    def test_live_us_equity_profiles_now_cover_the_full_three_platform_matrix(self) -> None:
+    def test_live_us_equity_profiles_now_cover_the_full_four_platform_matrix(self) -> None:
         for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES:
             definition = STRATEGY_CATALOG.definitions[profile]
             with self.subTest(profile=profile):
