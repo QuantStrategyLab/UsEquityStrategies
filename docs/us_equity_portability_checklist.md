@@ -4,6 +4,11 @@ Use this checklist before enabling a US equity profile on any runtime.
 
 This document is intentionally shorter than the authoring template. It is a reviewer-facing list for portability sign-off.
 
+For a greenfield profile, the default expectation is one shared implementation
+that is structurally portable across `ibkr`, `schwab`, `longbridge`, and
+`paper_signal`. Any missing runtime in the matrix below should be treated as an
+explicitly documented gap, not the default plan.
+
 ## 1. Contract registration
 
 - [ ] canonical profile exists in `catalog.py`

@@ -17,7 +17,7 @@ A new profile is not ready until it has all of the following:
 2. `StrategyMetadata`, `StrategyDefinition`, manifest, and entrypoint
 3. exactly one declared `target_mode`
 4. canonical `required_inputs`
-5. `ibkr` / `schwab` / `longbridge` runtime adapters, or an explicit unsupported-platform note in the PR
+5. `ibkr` / `schwab` / `longbridge` / `paper_signal` runtime adapters, or an explicit unsupported-platform note in the PR
 6. contract tests
 7. adapter tests
 8. portability smoke coverage
@@ -51,6 +51,9 @@ docs/
 
 For a **greenfield** profile, `strategies/<profile>.py` should be pure strategy logic over normalized inputs.
 Keep legacy `signal_logic` / `allocation` compatibility shims only when an existing runtime still depends on them.
+Do not author a strategy first for one live runtime and treat `paper_signal` or
+the other runtimes as later cleanup work; four-runtime portability is the
+default bar.
 
 ## 1. Profile metadata and catalog registration
 
@@ -86,7 +89,9 @@ At minimum, add:
 ```python
 MY_NEW_PROFILE = "my_new_profile"
 
-STRATEGY_PLATFORM_COMPATIBILITY[MY_NEW_PROFILE] = frozenset({"ibkr", "schwab", "longbridge"})
+STRATEGY_PLATFORM_COMPATIBILITY[MY_NEW_PROFILE] = frozenset(
+    {"ibkr", "schwab", "longbridge", "paper_signal"}
+)
 STRATEGY_REQUIRED_INPUTS[MY_NEW_PROFILE] = frozenset({
     "market_history",
     "benchmark_history",
@@ -238,7 +243,7 @@ Practical mapping today:
 
 That runtime difference must stay in the platform translation layer, not in the strategy module.
 
-## 5. Runtime adapters: all three platforms by default
+## 5. Runtime adapters: all four runtimes by default
 
 Add runtime adapters in `src/us_equity_strategies/runtime_adapters.py`.
 
@@ -247,6 +252,7 @@ Default expectation for a new profile:
 - `ibkr` adapter present
 - `schwab` adapter present
 - `longbridge` adapter present
+- `paper_signal` adapter present
 
 If a platform is intentionally unsupported in the current PR:
 
@@ -291,6 +297,17 @@ PLATFORM_RUNTIME_ADAPTERS = {
         ),
     },
     "longbridge": {
+        MY_NEW_PROFILE: StrategyRuntimeAdapter(
+            status_icon="🧪",
+            available_inputs=frozenset({
+                "market_history",
+                "benchmark_history",
+                "portfolio_snapshot",
+            }),
+            portfolio_input_name="portfolio_snapshot",
+        ),
+    },
+    "paper_signal": {
         MY_NEW_PROFILE: StrategyRuntimeAdapter(
             status_icon="🧪",
             available_inputs=frozenset({
@@ -369,7 +386,7 @@ Today the shared contract has first-class support for `feature_snapshot`. If a n
 
 Do not do any of the following in strategy code or unified entrypoints:
 
-- branch on platform id (`ibkr`, `schwab`, `longbridge`)
+- branch on platform id (`ibkr`, `schwab`, `longbridge`, `paper_signal`)
 - read broker env vars directly
 - import platform runtime modules
 - return broker-specific order fields
@@ -401,7 +418,7 @@ Recommended home: `tests/test_catalog.py` and `tests/test_entrypoints.py`.
 
 Cover:
 
-- `get_platform_runtime_adapter(profile, platform_id=...)` works for `ibkr`, `schwab`, and `longbridge`
+- `get_platform_runtime_adapter(profile, platform_id=...)` works for `ibkr`, `schwab`, `longbridge`, and `paper_signal`
 - `available_inputs` match the normalized contract
 - `portfolio_input_name` is present when needed
 - feature snapshot metadata is enforced when applicable
@@ -435,6 +452,7 @@ Copy this checklist into the PR body for any new US equity profile.
 - [ ] `ibkr` runtime adapter added or unsupported reason documented
 - [ ] `schwab` runtime adapter added or unsupported reason documented
 - [ ] `longbridge` runtime adapter added or unsupported reason documented
+- [ ] `paper_signal` runtime adapter added or unsupported reason documented
 - [ ] feature snapshot / artifact contract documented when applicable
 - [ ] contract tests added
 - [ ] adapter tests added
