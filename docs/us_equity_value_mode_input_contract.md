@@ -45,6 +45,15 @@ Shared rules for both profiles:
 - strategy code must consume a canonical `portfolio_snapshot`
 - strategy code must not depend on legacy keys such as `snapshot`, `qqq_history`, `indicators`, or `account_state` in the end state
 - broker execution metadata must stay outside the strategy contract
+- strategy diagnostics should expose structured notification context; platform
+  repos may still render their own dashboard / Telegram text
+- daily value-mode profiles should also expose explicit execution-timing
+  metadata through diagnostics / execution annotations rather than relying on
+  scheduler prose alone:
+  - `signal_date`
+  - `effective_date`
+  - `execution_timing_contract`
+  - `signal_effective_after_trading_days`
 
 ## Shared contract rules for value-mode profiles
 
@@ -107,6 +116,52 @@ canonical strategy-facing input contract:
 
 If a platform still needs them, keep them in the platform mapper/runtime layer.
 Do not preserve them as permanent strategy inputs.
+
+### 4. Structured diagnostics for platform renderers
+
+Value-mode profiles may expose human-readable diagnostic strings for backward
+compatibility, but new runtime integrations should prefer structured fields.
+
+Minimum direction:
+
+- strategies may return `notification_context` inside their internal plan output
+- entrypoints should copy that payload into `StrategyDecision.diagnostics`
+- if `execution_annotations` is present, it should also include
+  `execution_annotations["notification_context"]`
+
+Recommended shape:
+
+```python
+notification_context = {
+    "signal": {...},
+    "status": {...},       # when the profile has a separate market-status concept
+    "benchmark": {...},    # numeric trend / trigger context
+    "portfolio": {...},    # total assets, buying power, holdings snapshot
+}
+```
+
+Rules:
+
+- strategy code should not require platform repos to parse dashboard strings
+- platform repos remain responsible for final wording, logging layout, and
+  Telegram compaction
+- broker execution hints still do not belong in this payload
+
+### 5. Execution timing for daily value-mode profiles
+
+The current daily value-mode profiles are evaluated on one trading day and are
+intended to become executable on the next trading day. That assumption should be
+explicit in the shared runtime contract.
+
+Current contract direction:
+
+- `tqqq_growth_income` -> `signal_effective_after_trading_days = 1`
+- `soxl_soxx_trend_income` -> `signal_effective_after_trading_days = 1`
+
+Platform runtimes should inject this policy into `ctx.runtime_config`, and
+entrypoints should copy the resulting timing metadata into diagnostics so audit
+logs, dry runs, and Telegram/report renderers can distinguish `signal_date`
+from `effective_date`.
 
 ## Profile contract: `tqqq_growth_income`
 

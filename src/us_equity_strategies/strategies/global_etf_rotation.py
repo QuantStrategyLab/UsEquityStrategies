@@ -108,6 +108,7 @@ def compute_signals(
     current_holdings,
     *,
     get_historical_close: Callable,
+    as_of_date=None,
     ranking_pool=RANKING_POOL,
     canary_assets=CANARY_ASSETS,
     safe_haven: str = SAFE_HAVEN,
@@ -156,7 +157,15 @@ def compute_signals(
         return {safe_haven: 1.0}, signal_desc, True, canary_str
 
     tz_ny = pytz.timezone("America/New_York")
-    now_ny = datetime.now(tz_ny)
+    if as_of_date is None:
+        now_ny = datetime.now(tz_ny)
+    else:
+        timestamp = pd.Timestamp(as_of_date)
+        if timestamp.tzinfo is None:
+            timestamp = tz_ny.localize(timestamp.to_pydatetime())
+        else:
+            timestamp = timestamp.tz_convert(tz_ny)
+        now_ny = timestamp.to_pydatetime()
     is_rebal_day = _is_rebalance_day(now_ny, rebalance_months=rebalance_months)
 
     if not is_rebal_day:

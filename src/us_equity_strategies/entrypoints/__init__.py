@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from quant_platform_kit.strategy_contracts import CallableStrategyEntrypoint, StrategyDecision, StrategyContext
+from quant_platform_kit.strategy_contracts import (
+    CallableStrategyEntrypoint,
+    StrategyContext,
+    StrategyDecision,
+    build_execution_timing_metadata,
+)
 
 from us_equity_strategies.account_sizing import (
     append_account_size_warning,
@@ -103,10 +108,80 @@ def _attach_dashboard_text(diagnostics: dict[str, object], dashboard_text: str) 
     return diagnostics
 
 
+def _attach_notification_context(
+    diagnostics: dict[str, object],
+    notification_context: Mapping[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(notification_context, Mapping) or not notification_context:
+        return diagnostics
+    raw_annotations = diagnostics.get("execution_annotations")
+    annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+    annotations["notification_context"] = dict(notification_context)
+    diagnostics["notification_context"] = dict(notification_context)
+    diagnostics["execution_annotations"] = annotations
+    return diagnostics
+
+
+def _attach_execution_timing(
+    diagnostics: dict[str, object],
+    ctx: StrategyContext,
+) -> dict[str, object]:
+    signal_delay = ctx.runtime_config.get("signal_effective_after_trading_days")
+    timing = build_execution_timing_metadata(
+        signal_date=ctx.as_of,
+        signal_effective_after_trading_days=(
+            int(signal_delay) if signal_delay is not None else None
+        ),
+    )
+    raw_annotations = diagnostics.get("execution_annotations")
+    annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+    annotations.update(timing)
+    diagnostics.update(timing)
+    diagnostics["execution_annotations"] = annotations
+    return diagnostics
+
+
+def _render_translation_context(
+    notification_context: Mapping[str, object] | None,
+    *,
+    translator,
+    fallback: str,
+) -> str:
+    if not isinstance(notification_context, Mapping):
+        return fallback
+    key = str(notification_context.get("code") or "").strip()
+    if not key:
+        return fallback
+    params = dict(notification_context.get("params") or {})
+    rendered = translator(key, **params)
+    return fallback if rendered == key else str(rendered)
+
+
+def _build_tqqq_benchmark_text(notification_context: Mapping[str, object] | None) -> str:
+    if not isinstance(notification_context, Mapping):
+        return ""
+    symbol = str(notification_context.get("symbol") or "").strip().upper() or "QQQ"
+    price = notification_context.get("price")
+    exit_line = notification_context.get("exit_line")
+    ma20_slope_text = str(notification_context.get("ma20_slope_text") or "").strip()
+    if ma20_slope_text:
+        slope_text = ma20_slope_text
+    else:
+        ma20_slope = notification_context.get("ma20_slope")
+        slope_text = "n/a" if ma20_slope is None else f"{float(ma20_slope):+.2f}"
+    if price is None or exit_line is None:
+        return ""
+    return (
+        f"{symbol}: {float(price):.2f} | MA200 Exit: {float(exit_line):.2f} | "
+        f"MA20Δ: {slope_text}"
+    )
+
+
 def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(global_etf_rotation_manifest.default_config, ctx)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
+    config.pop("signal_effective_after_trading_days", None)
     market_history = require_market_data(ctx, "market_history")
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
@@ -114,6 +189,7 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
         ctx.capabilities.get("broker_client"),
         get_current_holdings(ctx),
         get_historical_close=market_history,
+        as_of_date=ctx.as_of,
         translator=translator,
         pacing_sec=float(config.pop("pacing_sec", 0.0)),
         **config,
@@ -142,6 +218,7 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
             signal_text=diagnostics["signal_description"],
         ),
     )
+    _attach_execution_timing(diagnostics, ctx)
     risk_flags = ("emergency",) if is_emergency else ()
     return StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BIL"))),
@@ -162,21 +239,31 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
     config.pop("execution_cash_reserve_ratio", None)
+    config.pop("signal_effective_after_trading_days", None)
     translator = config.pop("translator", default_translator)
+    signal_text_fn = config.pop("signal_text_fn", default_signal_text_fn)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "benchmark_history"),
         require_portfolio(ctx),
-        signal_text_fn=config.pop("signal_text_fn", default_signal_text_fn),
+        signal_text_fn=signal_text_fn,
         translator=translator,
         **config,
     )
     account_size_diagnostics = _account_size_diagnostics(tqqq_growth_income_manifest.profile, ctx)
+    notification_context = dict(plan.get("notification_context") or {})
+    signal_context = notification_context.get("signal")
+    signal_state = str(signal_context.get("state") or "").strip() if isinstance(signal_context, Mapping) else ""
+    raw_signal_display = (
+        str(signal_text_fn(signal_state))
+        if signal_state
+        else str(plan["sig_display"])
+    )
     signal_display = append_account_size_warning(
-        str(plan["sig_display"]),
+        raw_signal_display,
         account_size_diagnostics,
         translator=translator,
     )
-    benchmark_text = str(plan["dashboard"]).splitlines()[-1]
+    benchmark_text = _build_tqqq_benchmark_text(notification_context.get("benchmark")) or str(plan["dashboard"]).splitlines()[-1]
     dashboard_text = _build_dashboard_text(
         ctx,
         strategy_symbols=managed_symbols,
@@ -212,6 +299,8 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "exit_line": plan["exit_line"],
         },
     }
+    _attach_notification_context(diagnostics, notification_context)
+    _attach_execution_timing(diagnostics, ctx)
     return StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
@@ -254,6 +343,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
+    config.pop("signal_effective_after_trading_days", None)
     portfolio = require_portfolio(ctx)
     translator = config.pop("translator", default_translator)
     plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
@@ -266,8 +356,19 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         **config,
     )
     account_size_diagnostics = _account_size_diagnostics(soxl_soxx_trend_income_manifest.profile, ctx)
+    notification_context = dict(plan.get("notification_context") or {})
+    rendered_market_status = _render_translation_context(
+        notification_context.get("status"),
+        translator=translator,
+        fallback=str(plan["market_status"]),
+    )
+    raw_signal_message = _render_translation_context(
+        notification_context.get("signal"),
+        translator=translator,
+        fallback=str(plan["signal_message"]),
+    )
     signal_message = append_account_size_warning(
-        str(plan["signal_message"]),
+        raw_signal_message,
         account_size_diagnostics,
         translator=translator,
     )
@@ -278,7 +379,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         signal_text=signal_message,
     )
     diagnostics = {
-        "market_status": plan["market_status"],
+        "market_status": rendered_market_status,
         "signal_message": signal_message,
         "dashboard": dashboard_text,
         "deploy_ratio_text": plan["deploy_ratio_text"],
@@ -308,7 +409,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "execution_annotations": {
             "trade_threshold_value": plan["threshold_value"],
             "signal_display": signal_message,
-            "status_display": plan["market_status"],
+            "status_display": rendered_market_status,
             "dashboard_text": dashboard_text,
             "deploy_ratio_text": plan["deploy_ratio_text"],
             "income_ratio_text": plan["income_ratio_text"],
@@ -333,6 +434,8 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "trend_ma20_slope": plan.get("trend_ma20_slope"),
         },
     }
+    _attach_notification_context(diagnostics, notification_context)
+    _attach_execution_timing(diagnostics, ctx)
     return StrategyDecision(
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,

@@ -7,6 +7,7 @@ import pandas as pd
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
+from us_equity_strategies.catalog import get_runtime_enabled_profiles
 from us_equity_strategies.runtime_adapters import describe_platform_runtime_requirements
 from us_equity_strategies.strategies.global_etf_rotation import compute_signals as legacy_global_compute_signals
 from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
@@ -22,17 +23,7 @@ from tests.test_mega_cap_leader_rotation_dynamic_top20 import _mega_snapshot
 
 class StrategyEntrypointTests(unittest.TestCase):
     def test_all_live_profiles_expose_unified_entrypoints(self) -> None:
-        for profile in (
-            "global_etf_rotation",
-            "tqqq_growth_income",
-            "soxl_soxx_trend_income",
-            "russell_1000_multi_factor_defensive",
-            "tech_communication_pullback_enhancement",
-            "mega_cap_leader_rotation_dynamic_top20",
-            "mega_cap_leader_rotation_aggressive",
-            "mega_cap_leader_rotation_top50_balanced",
-            "dynamic_mega_leveraged_pullback",
-        ):
+        for profile in get_runtime_enabled_profiles():
             entrypoint = get_strategy_entrypoint(profile)
             self.assertEqual(entrypoint.manifest.profile, profile)
 
@@ -61,6 +52,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 runtime_config={
                     "translator": lambda key, **kwargs: f"{key}:{kwargs}",
                     "canary_bad_threshold": 0,
+                    "signal_effective_after_trading_days": 1,
                 },
             )
         )
@@ -70,11 +62,19 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, legacy_weights)
         self.assertEqual(decision.diagnostics["signal_description"], legacy_signal)
         self.assertEqual(decision.diagnostics["canary_status"], legacy_canary)
+        self.assertEqual(decision.diagnostics["signal_date"], "2026-04-06")
+        self.assertEqual(decision.diagnostics["effective_date"], "2026-04-07")
+        self.assertEqual(decision.diagnostics["execution_timing_contract"], "next_trading_day")
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["effective_date"],
+            "2026-04-07",
+        )
 
     def test_global_etf_runtime_adapter_uses_canonical_market_history(self) -> None:
         adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id="ibkr")
         self.assertEqual(adapter.available_inputs, frozenset({"market_history"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
+        self.assertEqual(adapter.runtime_policy.signal_effective_after_trading_days, 1)
 
     def test_weight_mode_global_etf_runtime_adapters_use_portfolio_snapshot_on_value_native_platforms(self) -> None:
         for platform_id in ("schwab", "longbridge"):
@@ -127,7 +127,11 @@ class StrategyEntrypointTests(unittest.TestCase):
                     "portfolio_snapshot": snapshot,
                 },
                 portfolio=snapshot,
-                runtime_config={"signal_text_fn": str, "translator": lambda key, **kwargs: key},
+                runtime_config={
+                    "signal_text_fn": str,
+                    "translator": lambda key, **kwargs: key,
+                    "signal_effective_after_trading_days": 1,
+                },
             )
         )
 
@@ -139,6 +143,18 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("sell_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["threshold"], legacy_plan["threshold"])
+        self.assertEqual(decision.diagnostics["notification_context"]["benchmark"]["symbol"], "QQQ")
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["notification_context"]["signal"]["state"],
+            legacy_plan["notification_context"]["signal"]["state"],
+        )
+        self.assertEqual(decision.diagnostics["signal_date"], "2026-04-06")
+        self.assertEqual(decision.diagnostics["effective_date"], "2026-04-07")
+        self.assertEqual(decision.diagnostics["execution_timing_contract"], "next_trading_day")
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["signal_effective_after_trading_days"],
+            1,
+        )
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
             ("TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"),
@@ -205,6 +221,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 runtime_config={
                     "signal_text_fn": str,
                     "translator": lambda key, **kwargs: key,
+                    "signal_effective_after_trading_days": 1,
                 },
             )
         )
@@ -312,6 +329,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(tqqq["input_mode"], "benchmark_history+portfolio_snapshot")
         self.assertFalse(tqqq["requires_snapshot_artifacts"])
         self.assertFalse(tqqq["requires_strategy_config_path"])
+        self.assertEqual(tqqq["signal_effective_after_trading_days"], 1)
 
     def test_soxl_soxx_trend_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
@@ -365,6 +383,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 runtime_config={
                     "signal_text_fn": str,
                     "translator": lambda key, **kwargs: key,
+                    "signal_effective_after_trading_days": 1,
                 },
             )
         )
@@ -376,6 +395,21 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("limit_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["active_risk_asset"], legacy_plan["active_risk_asset"])
+        self.assertEqual(
+            decision.diagnostics["notification_context"]["status"]["code"],
+            legacy_plan["notification_context"]["status"]["code"],
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["notification_context"]["signal"]["code"],
+            legacy_plan["notification_context"]["signal"]["code"],
+        )
+        self.assertEqual(decision.diagnostics["signal_date"], "2026-04-06")
+        self.assertEqual(decision.diagnostics["effective_date"], "2026-04-07")
+        self.assertEqual(decision.diagnostics["execution_timing_contract"], "next_trading_day")
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["signal_effective_after_trading_days"],
+            1,
+        )
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
             ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),

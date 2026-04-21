@@ -176,6 +176,35 @@ def build_rebalance_plan(
         f"MA20Δ: {ma20_slope_text}"
     )
 
+    benchmark_context = {
+        "symbol": "QQQ",
+        "price": float(qqq_p),
+        "long_trend_value": float(ma200),
+        "exit_line": float(ma200),
+        "ma20_slope": None if pd.isna(ma20_slope) else float(ma20_slope),
+        "ma20_slope_text": ma20_slope_text,
+    }
+    signal_context = {
+        "state": icon,
+    }
+    portfolio_context = {
+        "total_equity": float(total_equity),
+        "buying_power": float(real_buying_power),
+        "holdings_order": tuple(strategy_symbols),
+        "holdings": {
+            symbol: {
+                "market_value": float(market_values[symbol]),
+                "quantity": int(quantities[symbol]),
+            }
+            for symbol in strategy_symbols
+        },
+    }
+    notification_context = {
+        "signal": signal_context,
+        "benchmark": benchmark_context,
+        "portfolio": portfolio_context,
+    }
+
     sig_display = signal_text_fn(icon)
     separator = translator("separator")
     dashboard = (
@@ -212,6 +241,7 @@ def build_rebalance_plan(
         },
         "sig_display": sig_display,
         "dashboard": dashboard,
+        "notification_context": notification_context,
         "qqq_p": qqq_p,
         "ma200": ma200,
         "exit_line": ma200,
