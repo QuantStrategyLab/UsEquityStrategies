@@ -44,9 +44,18 @@ PLATFORM_NATIVE_TARGET_MODES: dict[str, str] = {
 
 
 BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
-    "global_etf_rotation": StrategyRuntimeAdapter(status_icon="🐤"),
-    "tqqq_growth_income": StrategyRuntimeAdapter(status_icon="🐤"),
-    "soxl_soxx_trend_income": StrategyRuntimeAdapter(status_icon="🐤"),
+    "global_etf_rotation": StrategyRuntimeAdapter(
+        status_icon="🐤",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
+    ),
+    "tqqq_growth_income": StrategyRuntimeAdapter(
+        status_icon="🐤",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
+    ),
+    "soxl_soxx_trend_income": StrategyRuntimeAdapter(
+        status_icon="🐤",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
+    ),
     "russell_1000_multi_factor_defensive": StrategyRuntimeAdapter(
         status_icon=legacy_russell.STATUS_ICON,
         required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
@@ -238,6 +247,9 @@ def describe_platform_runtime_requirements(profile: str | None, *, platform_id: 
         "reconciliation_output_policy": adapter.runtime_policy.reconciliation_output_policy,
         "runtime_execution_window_trading_days": (
             adapter.runtime_policy.runtime_execution_window_trading_days
+        ),
+        "signal_effective_after_trading_days": (
+            adapter.runtime_policy.signal_effective_after_trading_days
         ),
         "profile_group": "snapshot_backed" if requires_snapshot_artifacts else "direct_runtime_inputs",
     }

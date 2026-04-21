@@ -3,6 +3,7 @@ import unittest
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
+    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
     GLOBAL_ETF_ROTATION_PROFILE,
     MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
     MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
@@ -13,6 +14,7 @@ from us_equity_strategies.catalog import (
     SOXL_SOXX_TREND_INCOME_PROFILE,
     get_compatible_platforms,
     get_profile_aliases,
+    get_runtime_enabled_profiles,
     get_strategy_index_rows,
     get_strategy_definition,
     get_strategy_metadata,
@@ -195,6 +197,7 @@ class CatalogTest(unittest.TestCase):
             metadata_map[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].role,
             "concentrated_leader_rotation",
         )
+        self.assertEqual(metadata_map[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].status, "research_only")
         self.assertEqual(
             compatibility[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE],
             frozenset({"ibkr", "schwab", "longbridge"}),
@@ -203,10 +206,12 @@ class CatalogTest(unittest.TestCase):
             metadata_map[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].role,
             "aggressive_leader_rotation",
         )
+        self.assertEqual(metadata_map[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].status, "research_only")
         self.assertEqual(
             compatibility[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE],
             frozenset({"ibkr", "schwab", "longbridge"}),
         )
+        self.assertEqual(metadata_map[DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE].status, "research_only")
         self.assertEqual(
             metadata_map[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE].role,
             "balanced_leader_rotation",
@@ -234,6 +239,25 @@ class CatalogTest(unittest.TestCase):
             by_profile[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE]["display_name"],
             "Mega Cap Leader Rotation Aggressive",
         )
+
+    def test_research_only_archive_profiles_are_not_runtime_enabled(self):
+        runtime_enabled = get_runtime_enabled_profiles()
+        self.assertEqual(
+            runtime_enabled,
+            frozenset(
+                {
+                    GLOBAL_ETF_ROTATION_PROFILE,
+                    TQQQ_GROWTH_INCOME_PROFILE,
+                    SOXL_SOXX_TREND_INCOME_PROFILE,
+                    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
+                    QQQ_TECH_ENHANCEMENT_PROFILE,
+                    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+                }
+            ),
+        )
+        self.assertNotIn(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE, runtime_enabled)
+        self.assertNotIn(MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE, runtime_enabled)
+        self.assertNotIn(DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE, runtime_enabled)
 
 
 class LegacyProfileCompatibilityTest(unittest.TestCase):

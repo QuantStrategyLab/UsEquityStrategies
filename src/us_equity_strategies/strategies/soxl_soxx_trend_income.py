@@ -158,49 +158,92 @@ def build_rebalance_plan(
         soxx_target = core_equity * target_active_soxx_ratio
         active_risk_asset = "SOXX+SOXL"
         deploy_ratio_text = f"{active_risk_ratio * 100:.1f}%"
-        market_status = _translate_with_fallback(
-            translator,
-            "market_status_blend_gate_risk_on",
-            f"🚀 RISK-ON ({active_risk_asset})",
-            asset=active_risk_asset,
-        )
-        signal_message = _translate_with_fallback(
-            translator,
-            "signal_blend_gate_risk_on",
-            (
+        status_context = {
+            "code": "market_status_blend_gate_risk_on",
+            "fallback": f"🚀 RISK-ON ({active_risk_asset})",
+            "params": {"asset": active_risk_asset},
+        }
+        signal_context = {
+            "code": "signal_blend_gate_risk_on",
+            "fallback": (
                 f"{trend_symbol} above {trend_ma_window}d gated entry, hold "
                 f"SOXL {selected_soxl_ratio * 100:.1f}% + SOXX {target_active_soxx_ratio * 100:.1f}%"
             ),
-            trend_symbol=trend_symbol,
-            window=trend_ma_window,
-            soxl_ratio=f"{selected_soxl_ratio * 100:.1f}%",
-            soxx_ratio=f"{target_active_soxx_ratio * 100:.1f}%",
-        )
+            "params": {
+                "trend_symbol": trend_symbol,
+                "window": trend_ma_window,
+                "soxl_ratio": f"{selected_soxl_ratio * 100:.1f}%",
+                "soxx_ratio": f"{target_active_soxx_ratio * 100:.1f}%",
+            },
+        }
     else:
         soxl_target = 0.0
         soxx_target = core_equity * target_defensive_soxx_ratio
         active_risk_asset = "SOXX"
         deploy_ratio_text = f"{target_defensive_soxx_ratio * 100:.1f}%"
-        market_status = _translate_with_fallback(
-            translator,
-            "market_status_blend_gate_defensive",
-            f"🛡️ DE-LEVER ({active_risk_asset})",
-            asset=active_risk_asset,
-        )
-        signal_message = _translate_with_fallback(
-            translator,
-            "signal_blend_gate_defensive",
-            f"{trend_symbol} below gated entry, hold defensive SOXX {target_defensive_soxx_ratio * 100:.1f}%",
-            trend_symbol=trend_symbol,
-            window=trend_ma_window,
-            soxx_ratio=f"{target_defensive_soxx_ratio * 100:.1f}%",
-        )
+        status_context = {
+            "code": "market_status_blend_gate_defensive",
+            "fallback": f"🛡️ DE-LEVER ({active_risk_asset})",
+            "params": {"asset": active_risk_asset},
+        }
+        signal_context = {
+            "code": "signal_blend_gate_defensive",
+            "fallback": (
+                f"{trend_symbol} below gated entry, hold defensive SOXX {target_defensive_soxx_ratio * 100:.1f}%"
+            ),
+            "params": {
+                "trend_symbol": trend_symbol,
+                "window": trend_ma_window,
+                "soxx_ratio": f"{target_defensive_soxx_ratio * 100:.1f}%",
+            },
+        }
+    market_status = _translate_with_fallback(
+        translator,
+        status_context["code"],
+        status_context["fallback"],
+        **status_context["params"],
+    )
+    signal_message = _translate_with_fallback(
+        translator,
+        signal_context["code"],
+        signal_context["fallback"],
+        **signal_context["params"],
+    )
     targets = {
         "SOXL": soxl_target,
         "SOXX": soxx_target,
         "QQQI": market_values["QQQI"] + (income_layer_add_value * income_layer_qqqi_weight),
         "SPYI": market_values["SPYI"] + (income_layer_add_value * income_layer_spyi_weight),
         "BOXX": max(0.0, core_equity - soxl_target - soxx_target),
+    }
+    benchmark_context = {
+        "symbol": trend_symbol,
+        "price": trend_price,
+        "long_trend_value": trend_ma,
+        "entry_line": trend_entry_line,
+        "mid_line": trend_mid_line,
+        "exit_line": trend_exit_line,
+        "ma20": trend_ma20,
+        "ma20_slope": trend_ma20_slope,
+    }
+    portfolio_context = {
+        "total_equity": float(total_strategy_equity),
+        "available_cash": float(available_cash),
+        "investable_cash": float(max(0, available_cash - (total_strategy_equity * cash_reserve_ratio))),
+        "holdings_order": tuple(strategy_assets),
+        "holdings": {
+            symbol: {
+                "market_value": float(market_values[symbol]),
+                "quantity": int(quantities[symbol]),
+            }
+            for symbol in strategy_assets
+        },
+    }
+    notification_context = {
+        "status": status_context,
+        "signal": signal_context,
+        "benchmark": benchmark_context,
+        "portfolio": portfolio_context,
     }
 
     return {
@@ -217,6 +260,7 @@ def build_rebalance_plan(
         "targets": targets,
         "market_status": market_status,
         "signal_message": signal_message,
+        "notification_context": notification_context,
         "deploy_ratio_text": deploy_ratio_text,
         "income_ratio_text": income_ratio_text,
         "income_locked_ratio_text": income_locked_ratio_text,

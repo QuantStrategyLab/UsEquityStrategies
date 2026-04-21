@@ -30,6 +30,8 @@ This document is intentionally shorter than the authoring template. It is a revi
 - [ ] value profiles return only `target_value`
 - [ ] `StrategyDecision` contains no broker-specific order fields
 - [ ] `StrategyDecision.diagnostics` contains strategy diagnostics only
+- [ ] structured notification data is available without parsing dashboard text
+- [ ] if `execution_annotations` exists, it carries `notification_context`
 
 ## 4. Runtime-adapter matrix
 

@@ -1,16 +1,17 @@
 # mega_cap_leader_rotation research brief
 
-Status: the static `mag7` / `expanded` variants remain research/backtest only. The historical dynamic top-20 variant is promoted as the selectable runtime profile `mega_cap_leader_rotation_dynamic_top20`.
+Status: the static `mag7` / `expanded` variants remain research/backtest only. The historical dynamic top-20 variant is now archived as `research_only`; `mega_cap_leader_rotation_top50_balanced` is the current runtime-enabled Top50 candidate.
 
 ## Objective
 
 `mega_cap_leader_rotation` tests whether a concentrated monthly rotation among US mega-cap leaders can keep exposure to the strongest large-cap growth names while dropping weaker leaders.
 
-This is intentionally different from the existing runtime profiles:
+This is intentionally different from the active runtime profiles:
 
 - `russell_1000_multi_factor_defensive`: broad Russell 1000 stock selection.
 - `tech_communication_pullback_enhancement`: tech/communication pullback entry with an explicit cash buffer.
-- `mega_cap_leader_rotation_dynamic_top20`: a narrow leader-only runtime profile, focused on relative strength among the historical top-20 mega-cap pool.
+- `mega_cap_leader_rotation_top50_balanced`: the current runtime-enabled Top50 leader-rotation candidate.
+- `mega_cap_leader_rotation_dynamic_top20`: an archived research-only narrow leader profile, focused on relative strength among the historical top-20 mega-cap pool.
 
 ## Research and runtime scope
 
@@ -43,18 +44,18 @@ The research script ranks eligible names using only price-derived features:
 
 ## Initial portfolio rules
 
-- Research default started at top 3; the promoted dynamic top20 runtime default selects 4 names.
+- Research default started at top 3; the archived dynamic top20 profile selects 4 names.
 - Keep an existing holding if it remains inside `top_n + hold_buffer`.
-- Static research default single-name cap: 35%; promoted dynamic top20 runtime default single-name cap: 25%.
+- Static research default single-name cap: 35%; archived dynamic top20 default single-name cap: 25%.
 - Optional account-size guard: set `--portfolio-total-equity` plus
   `--min-position-value-usd` to lower the effective top-N when a small account
   cannot support the requested number of minimum-sized stock positions.
-- Market defense uses `QQQ` 200-day trend. The promoted dynamic top20 default uses a simple QQQ 200-day filter: full stock exposure when QQQ is above trend, 50% stock exposure when QQQ is below trend.
+- Market defense uses `QQQ` 200-day trend. The archived dynamic top20 default uses a simple QQQ 200-day filter: full stock exposure when QQQ is above trend, 50% stock exposure when QQQ is below trend.
 - Unused allocation goes to `BOXX` in the research output.
 
 ## Current implementation location
 
-The live strategy module is `src/us_equity_strategies/strategies/mega_cap_leader_rotation_dynamic_top20.py`. The research backtest lives in `../UsEquitySnapshotPipelines`:
+The archived strategy module is `src/us_equity_strategies/strategies/mega_cap_leader_rotation_dynamic_top20.py`. The research backtest lives in `../UsEquitySnapshotPipelines`:
 
 ```bash
 cd ../UsEquitySnapshotPipelines
@@ -117,9 +118,9 @@ The robustness command writes:
 - `robustness_summary.csv`
 - `robustness_summary_by_run.csv`
 
-## Runtime profile
+## Archived profile
 
-`mega_cap_leader_rotation_dynamic_top20` is the promoted selectable profile. Defaults:
+`mega_cap_leader_rotation_dynamic_top20` keeps its manifest, entrypoint, and adapter for research replay, but its catalog metadata status is `research_only`. It is excluded from platform rollout allowlists. Archived defaults:
 
 - feature snapshot input: `mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1`;
 - dynamic universe size: 20;
@@ -128,6 +129,6 @@ The robustness command writes:
 - safe haven: `BOXX`;
 - benchmark trend filter: `QQQ` 200-day SMA;
 - stock exposure: 100% when QQQ is above trend, 50% when QQQ is below trend;
-- execution window: first 3 NYSE trading days after the monthly snapshot date.
+- historical execution window: first 3 NYSE trading days after the monthly snapshot date.
 
-Remaining risk: this is still a simple price-only model. It is meant as a small parallel paper/live sleeve, not a replacement for broader allocation strategies.
+Remaining risk: this is still a simple price-only model. It is kept as archived evidence and should not replace the active Top50 balanced candidate without a fresh promotion decision.
