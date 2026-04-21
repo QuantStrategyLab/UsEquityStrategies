@@ -22,6 +22,29 @@ The current integration path is:
 
 Legacy strategy functions may still exist as internal adapters, but downstream runtimes should treat `entrypoints/` and manifests as the supported integration surface.
 
+### Four-runtime authoring standard
+
+Greenfield `us_equity` profiles should be authored once against the shared
+contract and be structurally portable across all four downstream runtimes from
+the first PR:
+
+- `InteractiveBrokersPlatform`
+- `CharlesSchwabPlatform`
+- `LongBridgePlatform`
+- `PaperSignalPlatform`
+
+This means:
+
+- keep strategy math, required inputs, and target semantics shared here
+- add runtime adapters upstream instead of creating platform-local strategy
+  forks
+- treat rollout enablement as a downstream platform decision, not a reason to
+  omit shared portability by default
+
+If one runtime is intentionally unsupported in a PR, call it out explicitly and
+keep the portability gap visible in review notes. Do not plan to “backfill
+paper/compatibility later” as the default workflow.
+
 ### Authoring and portability guides
 
 - [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md): template for adding a new US equity profile in this repository.
