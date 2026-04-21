@@ -454,6 +454,7 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
     config.pop("run_as_of", None)
+    config.pop("signal_effective_after_trading_days", None)
     config.pop("execution_cash_reserve_ratio", None)
     config.pop("runtime_execution_window_trading_days", None)
     weights, signal_desc, is_emergency, status_desc, metadata = legacy_russell.compute_signals(
@@ -505,6 +506,7 @@ legacy_russell.compute_signals.__doc__ = (
 def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
     translator = config.get("translator", default_translator)
+    config.pop("signal_effective_after_trading_days", None)
     config.pop("execution_cash_reserve_ratio", None)
     if ctx.portfolio is not None and "portfolio_total_equity" not in config:
         total_equity = getattr(ctx.portfolio, "total_equity", None)
@@ -568,6 +570,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
 ) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
     translator = config.get("translator", default_translator)
+    config.pop("signal_effective_after_trading_days", None)
     config.pop("execution_cash_reserve_ratio", None)
     if ctx.as_of is not None and "run_as_of" not in config:
         config["run_as_of"] = ctx.as_of
@@ -650,6 +653,7 @@ mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ = (
 def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(dynamic_mega_leveraged_pullback_manifest.default_config, ctx)
     translator = config.get("translator", default_translator)
+    config.pop("signal_effective_after_trading_days", None)
     config.pop("execution_cash_reserve_ratio", None)
     config.pop("runtime_execution_window_trading_days", None)
     portfolio = require_portfolio(ctx)

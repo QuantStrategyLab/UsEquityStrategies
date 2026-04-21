@@ -75,6 +75,30 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(adapter.available_inputs, frozenset({"market_history"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
         self.assertEqual(adapter.runtime_policy.signal_effective_after_trading_days, 1)
+        paper_signal_adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id="paper_signal")
+        self.assertEqual(paper_signal_adapter.available_inputs, frozenset({"market_history"}))
+        self.assertEqual(paper_signal_adapter.available_capabilities, frozenset())
+        self.assertEqual(paper_signal_adapter.runtime_policy.signal_effective_after_trading_days, 1)
+
+    def test_global_etf_rotation_entrypoint_accepts_timestamp_as_of(self) -> None:
+        entrypoint = get_strategy_entrypoint("global_etf_rotation")
+        index = pd.date_range("2025-01-01", periods=320, freq="B")
+        price_series = pd.Series([100.0 + (i * 0.1) for i in range(len(index))], index=index)
+
+        decision = entrypoint.evaluate(
+            StrategyContext(
+                as_of=pd.Timestamp("2026-03-31"),
+                market_data={"market_history": lambda _ib, _ticker: price_series},
+                state={"current_holdings": ()},
+                runtime_config={
+                    "translator": lambda key, **kwargs: key,
+                    "pacing_sec": 0.0,
+                    "signal_effective_after_trading_days": 1,
+                },
+            )
+        )
+
+        self.assertEqual(decision.diagnostics["signal_date"], "2026-03-31")
 
     def test_weight_mode_global_etf_runtime_adapters_use_portfolio_snapshot_on_value_native_platforms(self) -> None:
         for platform_id in ("schwab", "longbridge"):
@@ -178,13 +202,30 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("QQQ", config["managed_symbols"])
 
     def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
-        for platform_id in ("ibkr", "schwab", "longbridge"):
+        for platform_id in ("ibkr", "schwab", "longbridge", "paper_signal"):
             adapter = get_platform_runtime_adapter("tqqq_growth_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
                 frozenset({"benchmark_history", "portfolio_snapshot"}),
             )
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
+
+    def test_russell_snapshot_entrypoint_ignores_signal_timing_runtime_hint(self) -> None:
+        entrypoint = get_strategy_entrypoint("russell_1000_multi_factor_defensive")
+
+        decision = entrypoint.evaluate(
+            StrategyContext(
+                as_of="2026-04-06",
+                market_data={"feature_snapshot": _normal_snapshot()},
+                state={"current_holdings": ()},
+                runtime_config={
+                    "signal_effective_after_trading_days": 1,
+                },
+            )
+        )
+
+        self.assertTrue(decision.positions)
+        self.assertIn("signal_description", decision.diagnostics)
 
     def test_tqqq_growth_income_entrypoint_uses_live_dual_drive_config(self) -> None:
         entrypoint = get_strategy_entrypoint("tqqq_growth_income")
@@ -455,7 +496,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
 
     def test_value_mode_semiconductor_runtime_adapters_use_canonical_inputs(self) -> None:
-        for platform_id in ("schwab", "longbridge"):
+        for platform_id in ("schwab", "longbridge", "paper_signal"):
             adapter = get_platform_runtime_adapter("soxl_soxx_trend_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
@@ -574,6 +615,16 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
             self.assertEqual(russell_value_native_adapter.portfolio_input_name, "portfolio_snapshot")
             self.assertEqual(russell_value_native_adapter.status_icon, "📏")
+        paper_russell_adapter = get_platform_runtime_adapter(
+            "russell_1000_multi_factor_defensive",
+            platform_id="paper_signal",
+        )
+        self.assertEqual(
+            paper_russell_adapter.available_inputs,
+            frozenset({"feature_snapshot"}),
+        )
+        self.assertIsNone(paper_russell_adapter.portfolio_input_name)
+        self.assertEqual(paper_russell_adapter.status_icon, "📏")
 
         tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="ibkr")
         self.assertEqual(tech_adapter.status_icon, "🧲")
@@ -615,6 +666,12 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(schwab_tech_adapter.portfolio_input_name, "portfolio_snapshot")
+        paper_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="paper_signal")
+        self.assertEqual(
+            paper_tech_adapter.available_inputs,
+            frozenset({"feature_snapshot"}),
+        )
+        self.assertIsNone(paper_tech_adapter.portfolio_input_name)
 
         mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
         self.assertEqual(mega_adapter.status_icon, "👑")
@@ -642,6 +699,12 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_mega_adapter.portfolio_input_name, "portfolio_snapshot")
+        paper_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="paper_signal")
+        self.assertEqual(
+            paper_mega_adapter.available_inputs,
+            frozenset({"feature_snapshot"}),
+        )
+        self.assertIsNone(paper_mega_adapter.portfolio_input_name)
 
         aggressive_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_aggressive", platform_id="ibkr")
         self.assertEqual(aggressive_adapter.status_icon, "👑")
@@ -658,7 +721,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
         )
 
-        for platform_id in ("schwab", "longbridge"):
+        for platform_id in ("schwab", "longbridge", "paper_signal"):
             dynamic_leveraged_adapter = get_platform_runtime_adapter(
                 "dynamic_mega_leveraged_pullback",
                 platform_id=platform_id,

@@ -31,9 +31,10 @@ from us_equity_strategies.strategies import (
 IBKR_PLATFORM = "ibkr"
 SCHWAB_PLATFORM = "schwab"
 LONGBRIDGE_PLATFORM = "longbridge"
+PAPER_SIGNAL_PLATFORM = "paper_signal"
 
 SUPPORTED_RUNTIME_PLATFORMS = frozenset(
-    {IBKR_PLATFORM, SCHWAB_PLATFORM, LONGBRIDGE_PLATFORM}
+    {IBKR_PLATFORM, SCHWAB_PLATFORM, LONGBRIDGE_PLATFORM, PAPER_SIGNAL_PLATFORM}
 )
 
 PLATFORM_NATIVE_TARGET_MODES: dict[str, str] = {
@@ -163,8 +164,8 @@ def _build_runtime_adapter_for_platform(
     available_inputs = set(base_adapter.available_inputs or definition.required_inputs)
     available_inputs.update(definition.required_inputs)
 
-    native_target_mode = PLATFORM_NATIVE_TARGET_MODES[normalized_platform]
-    if definition.target_mode != native_target_mode:
+    native_target_mode = PLATFORM_NATIVE_TARGET_MODES.get(normalized_platform)
+    if native_target_mode is not None and definition.target_mode != native_target_mode:
         available_inputs.add("portfolio_snapshot")
 
     portfolio_input_name = base_adapter.portfolio_input_name
@@ -274,6 +275,7 @@ __all__ = [
     "IBKR_PLATFORM",
     "SCHWAB_PLATFORM",
     "LONGBRIDGE_PLATFORM",
+    "PAPER_SIGNAL_PLATFORM",
     "IBKR_RUNTIME_ADAPTERS",
     "PLATFORM_RUNTIME_ADAPTERS",
     "PLATFORM_NATIVE_TARGET_MODES",

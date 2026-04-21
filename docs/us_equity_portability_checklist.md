@@ -42,6 +42,7 @@ Complete this table in the PR or working notes.
 | `ibkr` | [ ] | [ ] | [ ] | [ ] | |
 | `schwab` | [ ] | [ ] | [ ] | [ ] | |
 | `longbridge` | [ ] | [ ] | [ ] | [ ] | |
+| `paper_signal` | [ ] | [ ] | [ ] | [ ] | |
 
 Translation path means the platform runtime knows how to consume the profile's declared `target_mode` without adding platform branches inside strategy code.
 
@@ -107,8 +108,8 @@ Paste a short note like this into the PR before merge:
 Profile: my_new_profile
 Target mode: weight
 Canonical inputs: market_history, benchmark_history, portfolio_snapshot
-Adapters: ibkr=yes, schwab=yes, longbridge=no (reason documented)
+Adapters: ibkr=yes, schwab=yes, longbridge=yes, paper_signal=yes
 Artifact contract: none
 Tests: contract=yes, adapter=yes, portability smoke=yes
-Eligible/enabled note: eligible on ibkr+schwab, enabled on none in this PR
+Eligible/enabled note: eligible on ibkr+schwab+longbridge+paper_signal, enabled on none in this PR
 ```
