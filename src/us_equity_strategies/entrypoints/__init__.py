@@ -157,6 +157,31 @@ def _render_translation_context(
     return fallback if rendered == key else str(rendered)
 
 
+def _render_notification_displays(
+    signal_desc: object,
+    status_desc: object,
+    metadata: Mapping[str, object] | None,
+    *,
+    translator,
+) -> tuple[str, str, Mapping[str, object] | None]:
+    notification_context = None
+    if isinstance(metadata, Mapping):
+        raw_notification_context = metadata.get("notification_context")
+        if isinstance(raw_notification_context, Mapping):
+            notification_context = raw_notification_context
+    rendered_signal = _render_translation_context(
+        notification_context.get("signal") if isinstance(notification_context, Mapping) else None,
+        translator=translator,
+        fallback=str(signal_desc or ""),
+    )
+    rendered_status = _render_translation_context(
+        notification_context.get("status") if isinstance(notification_context, Mapping) else None,
+        translator=translator,
+        fallback=str(status_desc or ""),
+    )
+    return rendered_signal, rendered_status, notification_context
+
+
 def _build_tqqq_benchmark_text(notification_context: Mapping[str, object] | None) -> str:
     if not isinstance(notification_context, Mapping):
         return ""
@@ -462,10 +487,16 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
         get_current_holdings(ctx),
         **config,
     )
+    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
+        signal_desc,
+        status_desc,
+        metadata,
+        translator=translator,
+    )
     diagnostics = {
         **metadata,
-        "signal_description": signal_desc,
-        "status_description": status_desc,
+        "signal_description": rendered_signal_desc,
+        "status_description": rendered_status_desc,
         "signal_source": legacy_russell.SIGNAL_SOURCE,
     }
     diagnostics.update(_account_size_diagnostics(russell_1000_multi_factor_defensive_manifest.profile, ctx))
@@ -488,6 +519,7 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
             signal_text=diagnostics["signal_description"],
         ),
     )
+    _attach_notification_context(diagnostics, notification_context)
     risk_flags = ("hard_defense",) if is_emergency else ()
     return StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
@@ -517,10 +549,16 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
         get_current_holdings(ctx),
         **config,
     )
+    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
+        signal_desc,
+        status_desc,
+        metadata,
+        translator=translator,
+    )
     diagnostics = {
         **metadata,
-        "signal_description": signal_desc,
-        "status_description": status_desc,
+        "signal_description": rendered_signal_desc,
+        "status_description": rendered_status_desc,
         "signal_source": qqq_tech_enhancement_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
@@ -544,6 +582,7 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
             signal_text=diagnostics["signal_description"],
         ),
     )
+    _attach_notification_context(diagnostics, notification_context)
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)
@@ -583,10 +622,16 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         get_current_holdings(ctx),
         **config,
     )
+    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
+        signal_desc,
+        status_desc,
+        metadata,
+        translator=translator,
+    )
     diagnostics = {
         **metadata,
-        "signal_description": signal_desc,
-        "status_description": status_desc,
+        "signal_description": rendered_signal_desc,
+        "status_description": rendered_status_desc,
         "signal_source": mega_cap_leader_rotation_dynamic_top20_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
@@ -610,6 +655,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
             signal_text=diagnostics["signal_description"],
         ),
     )
+    _attach_notification_context(diagnostics, notification_context)
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)
@@ -668,10 +714,16 @@ def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDe
         ib=ctx.capabilities.get("broker_client"),
         **config,
     )
+    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
+        signal_desc,
+        status_desc,
+        metadata,
+        translator=translator,
+    )
     diagnostics = {
         **metadata,
-        "signal_description": signal_desc,
-        "status_description": status_desc,
+        "signal_description": rendered_signal_desc,
+        "status_description": rendered_status_desc,
         "signal_source": dynamic_mega_leveraged_pullback_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
@@ -695,6 +747,7 @@ def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDe
             signal_text=diagnostics["signal_description"],
         ),
     )
+    _attach_notification_context(diagnostics, notification_context)
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)

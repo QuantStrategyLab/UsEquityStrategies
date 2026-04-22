@@ -172,3 +172,5 @@ def test_compute_signals_noops_outside_monthly_window() -> None:
     assert weights is None
     assert "no-op" in status_desc
     assert "outside_monthly_execution_window" in metadata["no_op_reason"]
+    assert metadata["notification_context"]["signal"]["code"] == "signal_monthly_snapshot_waiting"
+    assert metadata["notification_context"]["status"]["code"] == "status_monthly_snapshot_waiting_window"

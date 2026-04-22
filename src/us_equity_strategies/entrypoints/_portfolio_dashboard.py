@@ -79,6 +79,17 @@ def _format_cash_by_currency(cash_by_currency: Mapping[str, float]) -> str:
     return ", ".join(parts)
 
 
+def _format_symbol_preview(symbols: Iterable[object], *, limit: int = 5) -> str:
+    normalized = _normalize_symbols(symbols)
+    if not normalized:
+        return ""
+    shown = list(normalized[:limit])
+    remaining = len(normalized) - len(shown)
+    if remaining > 0:
+        shown.append(f"+{remaining}")
+    return ", ".join(shown)
+
+
 def _snapshot_buying_power(snapshot: Any) -> float:
     metadata = _metadata_mapping(snapshot)
     for key in ("cash_available_for_trading",):
@@ -120,6 +131,8 @@ def _labels(translator: Translator | None) -> dict[str, str]:
             "cash_by_currency": "各币种现金",
             "holdings": "💼 策略持仓",
             "empty": "空仓",
+            "tracked_universe": "跟踪股票池",
+            "tracked_count_suffix": "只",
             "shares": "股",
             "signal": "信号",
         }
@@ -130,6 +143,8 @@ def _labels(translator: Translator | None) -> dict[str, str]:
         "cash_by_currency": "Cash by currency",
         "holdings": "💼 Strategy holdings",
         "empty": "No positions",
+        "tracked_universe": "Tracked universe",
+        "tracked_count_suffix": " symbols",
         "shares": "shares",
         "signal": "Signal",
     }
@@ -169,15 +184,26 @@ def build_portfolio_dashboard(
     if formatted_cash and (len(nonzero_currencies) > 1 or "USD" not in nonzero_currencies):
         lines.append(f"  - {labels['cash_by_currency']}: {formatted_cash}")
 
+    displayed_symbols = tuple(
+        symbol
+        for symbol in symbols
+        if float(market_values.get(symbol, 0.0) or 0.0) != 0.0 or float(quantities.get(symbol, 0) or 0.0) != 0.0
+    )
     lines.append(labels["holdings"])
-    if symbols:
-        for symbol in symbols:
+    if displayed_symbols:
+        for symbol in displayed_symbols:
             lines.append(
                 f"  - {symbol}: {_format_money(market_values.get(symbol, 0.0))} / "
                 f"{_format_quantity(quantities.get(symbol, 0))}{labels['shares']}"
             )
     else:
         lines.append(f"  - {labels['empty']}")
+    if symbols and len(displayed_symbols) < len(symbols):
+        omitted_symbols = tuple(symbol for symbol in symbols if symbol not in displayed_symbols) or symbols
+        lines.append(
+            f"  - {labels['tracked_universe']}: {len(symbols)}{labels['tracked_count_suffix']} "
+            f"({_format_symbol_preview(omitted_symbols)})"
+        )
 
     signal = str(signal_text or "").strip()
     if signal:
