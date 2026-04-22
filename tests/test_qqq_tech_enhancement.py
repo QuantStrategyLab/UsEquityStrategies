@@ -143,6 +143,8 @@ class QQQTechEnhancementStrategyTest(unittest.TestCase):
         self.assertIsNone(weights)
         self.assertIn("outside_monthly_execution_window", metadata["no_op_reason"])
         self.assertIn("no-op", status_desc)
+        self.assertEqual(metadata["notification_context"]["signal"]["code"], "signal_monthly_snapshot_waiting")
+        self.assertEqual(metadata["notification_context"]["status"]["code"], "status_monthly_snapshot_waiting_window")
 
     def test_compute_signals_ignores_runtime_translator(self):
         from us_equity_strategies.strategies.qqq_tech_enhancement import compute_signals
