@@ -196,6 +196,7 @@ def build_rebalance_plan(
     }
     portfolio_context = {
         "total_equity": float(total_equity),
+        "raw_buying_power": float(real_buying_power),
         "buying_power": float(real_buying_power),
         "reserved_cash": float(reserved),
         "investable_cash": float(investable_buying_power),

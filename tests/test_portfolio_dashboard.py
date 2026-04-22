@@ -52,6 +52,8 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("📌 策略账户概览", dashboard)
         self.assertIn("总资产（策略标的+现金）: $0.00", dashboard)
         self.assertIn("购买力: $0.00", dashboard)
+        self.assertIn("预留现金: $0.00", dashboard)
+        self.assertIn("可投资现金: $0.00", dashboard)
         self.assertIn("各币种现金: SGD 350.00", dashboard)
         self.assertIn("💼 策略持仓", dashboard)
         self.assertIn("SOXL: $0.00 / 0股", dashboard)
@@ -186,6 +188,38 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("AAPL: $1,800.00 / 10股", dashboard)
         self.assertIn("跟踪股票池: 14只", dashboard)
         self.assertNotIn("S00: $0.00 / 0股", dashboard)
+
+    def test_dashboard_uses_portfolio_context_cash_fields_without_overwriting_raw_buying_power(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
+            total_equity=50000.0,
+            buying_power=20000.0,
+            cash_balance=20000.0,
+            positions=(Position(symbol="TQQQ", quantity=10, market_value=8000.0),),
+            metadata={"cash_available_for_trading": 5000.0},
+        )
+
+        dashboard = build_portfolio_dashboard(
+            snapshot,
+            strategy_symbols=("TQQQ", "BOXX"),
+            translator=_zh_translator,
+            portfolio_context={
+                "total_equity": 50000.0,
+                "raw_buying_power": 20000.0,
+                "reserved_cash": 15000.0,
+                "investable_cash": 5000.0,
+                "holdings_order": ("TQQQ", "BOXX"),
+                "holdings": {
+                    "TQQQ": {"market_value": 8000.0, "quantity": 10},
+                    "BOXX": {"market_value": 12000.0, "quantity": 120},
+                },
+            },
+        )
+
+        self.assertIn("购买力: $20,000.00", dashboard)
+        self.assertIn("预留现金: $15,000.00", dashboard)
+        self.assertIn("可投资现金: $5,000.00", dashboard)
+        self.assertIn("BOXX: $12,000.00 / 120股", dashboard)
 
 
 if __name__ == "__main__":

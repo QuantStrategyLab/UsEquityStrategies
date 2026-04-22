@@ -216,6 +216,8 @@ def build_rebalance_plan(
         "SPYI": market_values["SPYI"] + (income_layer_add_value * income_layer_spyi_weight),
         "BOXX": max(0.0, core_equity - soxl_target - soxx_target),
     }
+    reserved_cash = max(0.0, total_strategy_equity * cash_reserve_ratio)
+    investable_cash = max(0.0, available_cash - reserved_cash)
     benchmark_context = {
         "symbol": trend_symbol,
         "price": trend_price,
@@ -228,8 +230,10 @@ def build_rebalance_plan(
     }
     portfolio_context = {
         "total_equity": float(total_strategy_equity),
+        "raw_buying_power": float(available_cash),
         "available_cash": float(available_cash),
-        "investable_cash": float(max(0, available_cash - (total_strategy_equity * cash_reserve_ratio))),
+        "reserved_cash": float(reserved_cash),
+        "investable_cash": float(investable_cash),
         "holdings_order": tuple(strategy_assets),
         "holdings": {
             symbol: {
@@ -265,7 +269,8 @@ def build_rebalance_plan(
         "income_ratio_text": income_ratio_text,
         "income_locked_ratio_text": income_locked_ratio_text,
         "active_risk_asset": active_risk_asset,
-        "investable_cash": max(0, available_cash - (total_strategy_equity * cash_reserve_ratio)),
+        "reserved_cash": reserved_cash,
+        "investable_cash": investable_cash,
         "threshold_value": total_strategy_equity * rebalance_threshold_ratio,
         "allocation_mode": allocation_mode,
         "trend_entry_buffer": entry_buffer,
