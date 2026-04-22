@@ -76,6 +76,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             plan["notification_context"]["portfolio"]["holdings_order"],
             ("TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"),
         )
+        self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 20000.0)
+        self.assertEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 15000.0)
+        self.assertEqual(plan["notification_context"]["portfolio"]["investable_cash"], 5000.0)
 
     def test_tqqq_growth_income_can_trade_qqqm_while_using_qqq_signal(self):
         _skip_if_missing_numeric_stack()
@@ -309,6 +312,11 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             plan["notification_context"]["signal"]["code"],
             "signal_blend_gate_risk_on",
         )
+        self.assertAlmostEqual(plan["reserved_cash"], 3000.0)
+        self.assertAlmostEqual(plan["investable_cash"], 2000.0)
+        self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 5000.0)
+        self.assertAlmostEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 3000.0)
+        self.assertAlmostEqual(plan["notification_context"]["portfolio"]["investable_cash"], 2000.0)
 
     def test_soxl_soxx_trend_income_tiered_blend_uses_mid_and_defensive_bands(self):
         _skip_if_missing_numeric_stack()

@@ -180,6 +180,30 @@ class StrategyEntrypointTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
+            decision.diagnostics["execution_annotations"]["raw_buying_power"],
+            legacy_plan["real_buying_power"],
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["reserved_cash"],
+            legacy_plan["reserved"],
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["investable_cash"],
+            legacy_plan["investable_buying_power"],
+        )
+        self.assertIn(
+            f"Buying power: ${legacy_plan['real_buying_power']:,.2f}",
+            decision.diagnostics["dashboard"],
+        )
+        self.assertIn(
+            f"Reserved cash: ${legacy_plan['reserved']:,.2f}",
+            decision.diagnostics["dashboard"],
+        )
+        self.assertIn(
+            f"Investable cash: ${legacy_plan['investable_buying_power']:,.2f}",
+            decision.diagnostics["dashboard"],
+        )
+        self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
             ("TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"),
         )
@@ -450,6 +474,30 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(
             decision.diagnostics["execution_annotations"]["signal_effective_after_trading_days"],
             1,
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["raw_buying_power"],
+            legacy_plan["available_cash"],
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["reserved_cash"],
+            legacy_plan["reserved_cash"],
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["investable_cash"],
+            legacy_plan["investable_cash"],
+        )
+        self.assertIn(
+            f"Buying power: ${legacy_plan['available_cash']:,.2f}",
+            decision.diagnostics["dashboard"],
+        )
+        self.assertIn(
+            f"Reserved cash: ${legacy_plan['reserved_cash']:,.2f}",
+            decision.diagnostics["dashboard"],
+        )
+        self.assertIn(
+            f"Investable cash: ${legacy_plan['investable_cash']:,.2f}",
+            decision.diagnostics["dashboard"],
         )
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],

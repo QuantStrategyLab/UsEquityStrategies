@@ -84,6 +84,7 @@ def _build_dashboard_text(
     translator,
     signal_text=None,
     benchmark_text=None,
+    portfolio_context=None,
 ) -> str:
     if ctx.portfolio is None:
         return ""
@@ -93,6 +94,7 @@ def _build_dashboard_text(
         translator=translator,
         signal_text=signal_text,
         benchmark_text=benchmark_text,
+        portfolio_context=portfolio_context,
     )
 
 
@@ -295,6 +297,7 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         translator=translator,
         signal_text=signal_display,
         benchmark_text=benchmark_text,
+        portfolio_context=notification_context.get("portfolio"),
     )
     diagnostics = {
         "signal_display": signal_display,
@@ -315,7 +318,9 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         **account_size_diagnostics,
         "execution_annotations": {
             "trade_threshold_value": plan["threshold"],
+            "raw_buying_power": plan["real_buying_power"],
             "reserved_cash": plan["reserved"],
+            "investable_cash": plan["investable_buying_power"],
             "signal_display": signal_display,
             "dashboard_text": dashboard_text or plan["dashboard"],
             "benchmark_symbol": "QQQ",
@@ -402,6 +407,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         strategy_symbols=strategy_symbols,
         translator=translator,
         signal_text=signal_message,
+        portfolio_context=notification_context.get("portfolio"),
     )
     diagnostics = {
         "market_status": rendered_market_status,
@@ -436,6 +442,8 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "signal_display": signal_message,
             "status_display": rendered_market_status,
             "dashboard_text": dashboard_text,
+            "raw_buying_power": plan["available_cash"],
+            "reserved_cash": plan["reserved_cash"],
             "deploy_ratio_text": plan["deploy_ratio_text"],
             "income_ratio_text": plan["income_ratio_text"],
             "income_locked_ratio_text": plan["income_locked_ratio_text"],
