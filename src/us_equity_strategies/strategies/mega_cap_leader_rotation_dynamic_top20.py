@@ -655,6 +655,17 @@ def compute_signals(
         runtime_execution_window_trading_days=runtime_execution_window_trading_days,
     )
     if not execution_window["should_execute"]:
+        snapshot_as_of_text = (
+            pd.Timestamp(execution_window["snapshot_as_of"]).date().isoformat()
+            if execution_window["snapshot_as_of"] is not None
+            else "<none>"
+        )
+        allowed_dates = ", ".join(str(day) for day in execution_window["execution_window"]) or "<none>"
+        status_code = (
+            "status_no_execution_window_after_snapshot"
+            if str(execution_window["no_op_reason"] or "").startswith("no_execution_window_after_snapshot")
+            else "status_monthly_snapshot_waiting_window"
+        )
         status_desc = f"no-op | reason={execution_window['no_op_reason']} | snapshot_as_of={execution_window['snapshot_as_of']}"
         return (
             None,
@@ -668,6 +679,19 @@ def compute_signals(
                 "execution_window": execution_window["execution_window"],
                 "no_op_reason": execution_window["no_op_reason"],
                 "execution_calendar_source": execution_window.get("calendar_source"),
+                "notification_context": {
+                    "signal": {
+                        "code": "signal_monthly_snapshot_waiting",
+                        "params": {},
+                    },
+                    "status": {
+                        "code": status_code,
+                        "params": {
+                            "snapshot_as_of": snapshot_as_of_text,
+                            "allowed_dates": allowed_dates,
+                        },
+                    },
+                },
             },
         )
 
