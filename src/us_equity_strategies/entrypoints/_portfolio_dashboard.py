@@ -5,6 +5,7 @@ from typing import Any
 
 
 Translator = Callable[..., str]
+_COMPACT_UNIVERSE_THRESHOLD = 12
 
 
 def _normalize_symbol(symbol: object) -> str:
@@ -184,11 +185,16 @@ def build_portfolio_dashboard(
     if formatted_cash and (len(nonzero_currencies) > 1 or "USD" not in nonzero_currencies):
         lines.append(f"  - {labels['cash_by_currency']}: {formatted_cash}")
 
-    displayed_symbols = tuple(
-        symbol
-        for symbol in symbols
-        if float(market_values.get(symbol, 0.0) or 0.0) != 0.0 or float(quantities.get(symbol, 0) or 0.0) != 0.0
-    )
+    compact_universe = len(symbols) > _COMPACT_UNIVERSE_THRESHOLD
+    if compact_universe:
+        displayed_symbols = tuple(
+            symbol
+            for symbol in symbols
+            if float(market_values.get(symbol, 0.0) or 0.0) != 0.0
+            or float(quantities.get(symbol, 0) or 0.0) != 0.0
+        )
+    else:
+        displayed_symbols = symbols
     lines.append(labels["holdings"])
     if displayed_symbols:
         for symbol in displayed_symbols:
@@ -198,7 +204,7 @@ def build_portfolio_dashboard(
             )
     else:
         lines.append(f"  - {labels['empty']}")
-    if symbols and len(displayed_symbols) < len(symbols):
+    if compact_universe and symbols and len(displayed_symbols) < len(symbols):
         omitted_symbols = tuple(symbol for symbol in symbols if symbol not in displayed_symbols) or symbols
         lines.append(
             f"  - {labels['tracked_universe']}: {len(symbols)}{labels['tracked_count_suffix']} "

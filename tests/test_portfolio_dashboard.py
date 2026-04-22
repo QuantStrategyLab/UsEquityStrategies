@@ -7,6 +7,7 @@ import pandas as pd
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_strategy_entrypoint
+from us_equity_strategies.entrypoints._portfolio_dashboard import build_portfolio_dashboard
 
 from tests.test_qqq_tech_enhancement import _feature_snapshot
 
@@ -52,8 +53,13 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("总资产（策略标的+现金）: $0.00", dashboard)
         self.assertIn("购买力: $0.00", dashboard)
         self.assertIn("各币种现金: SGD 350.00", dashboard)
-        self.assertIn("💼 策略持仓\n  - 空仓", dashboard)
-        self.assertIn("跟踪股票池: 5只 (SOXL, SOXX, BOXX, QQQI, SPYI)", dashboard)
+        self.assertIn("💼 策略持仓", dashboard)
+        self.assertIn("SOXL: $0.00 / 0股", dashboard)
+        self.assertIn("SOXX: $0.00 / 0股", dashboard)
+        self.assertIn("BOXX: $0.00 / 0股", dashboard)
+        self.assertIn("QQQI: $0.00 / 0股", dashboard)
+        self.assertIn("SPYI: $0.00 / 0股", dashboard)
+        self.assertNotIn("跟踪股票池", dashboard)
 
     def test_snapshot_entrypoint_attaches_strategy_portfolio_dashboard(self) -> None:
         entrypoint = get_strategy_entrypoint("qqq_tech_enhancement")
@@ -160,6 +166,26 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("当前不在月度执行窗口", decision.diagnostics["status_description"])
         self.assertIn("🎯 信号: 月度快照节奏 | 等待进入执行窗口", dashboard)
         self.assertNotIn("monthly snapshot cadence", dashboard)
+
+    def test_large_universe_dashboard_still_compacts_zero_weight_symbols(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
+            total_equity=50000.0,
+            buying_power=10000.0,
+            cash_balance=10000.0,
+            positions=(Position(symbol="AAPL", quantity=10, market_value=1800.0),),
+            metadata={"strategy_symbols": tuple(f"S{i:02d}" for i in range(13))},
+        )
+
+        dashboard = build_portfolio_dashboard(
+            snapshot,
+            strategy_symbols=("AAPL",) + tuple(f"S{i:02d}" for i in range(13)),
+            translator=_zh_translator,
+        )
+
+        self.assertIn("AAPL: $1,800.00 / 10股", dashboard)
+        self.assertIn("跟踪股票池: 14只", dashboard)
+        self.assertNotIn("S00: $0.00 / 0股", dashboard)
 
 
 if __name__ == "__main__":

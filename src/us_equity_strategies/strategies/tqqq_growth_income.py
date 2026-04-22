@@ -27,6 +27,11 @@ def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) ->
     return 0.60
 
 
+def _translate_with_fallback(translator, key: str, fallback: str, **kwargs) -> str:
+    rendered = translator(key, **kwargs)
+    return fallback if rendered == key else rendered
+
+
 def _resolve_pullback_rebound_threshold(
     close: pd.Series,
     *,
@@ -176,6 +181,8 @@ def build_rebalance_plan(
         f"MA20Δ: {ma20_slope_text}"
     )
 
+    investable_buying_power = max(0.0, real_buying_power - reserved)
+
     benchmark_context = {
         "symbol": "QQQ",
         "price": float(qqq_p),
@@ -190,6 +197,8 @@ def build_rebalance_plan(
     portfolio_context = {
         "total_equity": float(total_equity),
         "buying_power": float(real_buying_power),
+        "reserved_cash": float(reserved),
+        "investable_cash": float(investable_buying_power),
         "holdings_order": tuple(strategy_symbols),
         "holdings": {
             symbol: {
@@ -207,12 +216,17 @@ def build_rebalance_plan(
 
     sig_display = signal_text_fn(icon)
     separator = translator("separator")
+    reserved_cash_label = _translate_with_fallback(translator, "reserved_cash", "Reserved Cash")
+    investable_cash_label = _translate_with_fallback(translator, "investable_cash", "Investable Cash")
     dashboard = (
         f"{translator('dashboard_label')} | {translator('equity')}: ${total_equity:,.2f}\n"
         f"TQQQ: ${market_values['TQQQ']:,.2f} | {unlevered_symbol}: ${market_values[unlevered_symbol]:,.2f} | "
         f"BOXX: ${market_values['BOXX']:,.2f}\n"
         f"SPYI: ${market_values['SPYI']:,.2f} | QQQI: ${market_values['QQQI']:,.2f}\n"
-        f"{translator('buying_power')}: ${real_buying_power:,.2f} | {translator('signal_label')}: {sig_display}\n"
+        f"{translator('buying_power')}: ${real_buying_power:,.2f} | "
+        f"{reserved_cash_label}: ${reserved:,.2f} | "
+        f"{investable_cash_label}: ${investable_buying_power:,.2f}\n"
+        f"{translator('signal_label')}: {sig_display}\n"
         f"{benchmark_line}"
     )
     sell_order_symbols = ("TQQQ", unlevered_symbol, "SPYI", "QQQI", "BOXX")
@@ -230,6 +244,7 @@ def build_rebalance_plan(
         "quantities": quantities,
         "total_equity": total_equity,
         "real_buying_power": real_buying_power,
+        "investable_buying_power": investable_buying_power,
         "reserved": reserved,
         "threshold": threshold,
         "target_values": {
