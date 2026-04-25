@@ -397,6 +397,84 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(held_mid_plan["blend_tier"], "mid")
         self.assertAlmostEqual(held_mid_plan["targets"]["SOXL"], 65000.0)
 
+    def test_soxl_soxx_trend_income_overlay_cap_can_downgrade_live_tier(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 100000.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 100000.0,
+        }
+        common_kwargs = dict(
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+            blend_gate_rsi_cap_enabled=True,
+            blend_gate_rsi_threshold=70.0,
+            blend_gate_bollinger_cap_enabled=True,
+            blend_gate_overlay_stack_triggers=True,
+        )
+
+        mid_plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0, "rsi14": 75.0, "bb_upper": 120.0},
+            },
+            account_state,
+            **common_kwargs,
+        )
+        self.assertEqual(mid_plan["base_blend_tier"], "full")
+        self.assertEqual(mid_plan["blend_tier"], "mid")
+        self.assertEqual(mid_plan["overlay_trigger_count"], 1)
+        self.assertEqual(mid_plan["overlay_trigger_codes"], ("blend_gate_reason_rsi_cap",))
+        self.assertAlmostEqual(mid_plan["targets"]["SOXL"], 65000.0)
+        self.assertAlmostEqual(mid_plan["targets"]["SOXX"], 20000.0)
+        self.assertEqual(
+            mid_plan["notification_context"]["status"]["code"],
+            "market_status_blend_gate_overlay_capped",
+        )
+
+        defensive_plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0, "rsi14": 75.0, "bb_upper": 108.0},
+            },
+            account_state,
+            **common_kwargs,
+        )
+        self.assertEqual(defensive_plan["base_blend_tier"], "full")
+        self.assertEqual(defensive_plan["blend_tier"], "defensive")
+        self.assertEqual(defensive_plan["overlay_trigger_count"], 2)
+        self.assertEqual(
+            defensive_plan["overlay_trigger_codes"],
+            ("blend_gate_reason_rsi_cap", "blend_gate_reason_bollinger_cap"),
+        )
+        self.assertAlmostEqual(defensive_plan["targets"]["SOXL"], 0.0)
+        self.assertAlmostEqual(defensive_plan["targets"]["SOXX"], 15000.0)
+        self.assertAlmostEqual(defensive_plan["targets"]["BOXX"], 85000.0)
+
     def test_live_strategies_reject_retired_allocation_modes(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (
