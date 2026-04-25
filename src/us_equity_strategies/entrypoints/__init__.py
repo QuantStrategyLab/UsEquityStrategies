@@ -420,6 +420,9 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "trend_mid_buffer": plan.get("trend_mid_buffer"),
         "trend_exit_buffer": plan.get("trend_exit_buffer"),
         "blend_tier": plan.get("blend_tier"),
+        "base_blend_tier": plan.get("base_blend_tier"),
+        "overlay_trigger_count": plan.get("overlay_trigger_count"),
+        "overlay_trigger_reasons": plan.get("overlay_trigger_reasons"),
         "soxl_entry_line": plan.get("soxl_entry_line"),
         "soxl_exit_line": plan.get("soxl_exit_line"),
         "trend_entry_line": plan.get("trend_entry_line"),
@@ -430,6 +433,8 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "trend_ma": plan.get("trend_ma"),
         "trend_ma20": plan.get("trend_ma20"),
         "trend_ma20_slope": plan.get("trend_ma20_slope"),
+        "trend_rsi14": plan.get("trend_rsi14"),
+        "trend_bb_upper": plan.get("trend_bb_upper"),
         **account_size_diagnostics,
         "execution_annotations": {
             "trade_threshold_value": plan["threshold_value"],
@@ -447,6 +452,9 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "trend_mid_buffer": plan.get("trend_mid_buffer"),
             "trend_exit_buffer": plan.get("trend_exit_buffer"),
             "blend_tier": plan.get("blend_tier"),
+            "base_blend_tier": plan.get("base_blend_tier"),
+            "overlay_trigger_count": plan.get("overlay_trigger_count"),
+            "overlay_trigger_reasons": plan.get("overlay_trigger_reasons"),
             "soxl_entry_line": plan.get("soxl_entry_line"),
             "soxl_exit_line": plan.get("soxl_exit_line"),
             "trend_entry_line": plan.get("trend_entry_line"),
@@ -457,6 +465,8 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "trend_ma": plan.get("trend_ma"),
             "trend_ma20": plan.get("trend_ma20"),
             "trend_ma20_slope": plan.get("trend_ma20_slope"),
+            "trend_rsi14": plan.get("trend_rsi14"),
+            "trend_bb_upper": plan.get("trend_bb_upper"),
         },
     }
     _attach_notification_context(diagnostics, notification_context)
