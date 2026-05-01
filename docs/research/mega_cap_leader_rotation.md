@@ -1,35 +1,40 @@
 # mega_cap_leader_rotation research brief
 
-Status: the static `mag7` / `expanded` variants remain research/backtest only. The historical dynamic top-20 variant is now archived as `research_only`; `mega_cap_leader_rotation_top50_balanced` is the current runtime-enabled Top50 candidate.
+Status: the static `mag7` / `expanded` variants remain research/backtest only.
+`mega_cap_leader_rotation_top50_balanced` is the retained runtime-enabled
+Top50 candidate. Narrow Top20 and aggressive Top50 profile exposure was removed
+after comparison against the balanced Top50 route.
 
 ## Objective
 
-`mega_cap_leader_rotation` tests whether a concentrated monthly rotation among US mega-cap leaders can keep exposure to the strongest large-cap growth names while dropping weaker leaders.
+`mega_cap_leader_rotation` tests whether a concentrated monthly rotation among
+US mega-cap leaders can keep exposure to the strongest large-cap growth names
+while dropping weaker leaders.
 
-This is intentionally different from the active runtime profiles:
+This is intentionally different from the other runtime profiles:
 
 - `russell_1000_multi_factor_defensive`: broad Russell 1000 stock selection.
-- `tech_communication_pullback_enhancement`: tech/communication pullback entry with an explicit cash buffer.
-- `mega_cap_leader_rotation_top50_balanced`: the current runtime-enabled Top50 leader-rotation candidate.
-- `mega_cap_leader_rotation_dynamic_top20`: an archived research-only narrow leader profile, focused on relative strength among the historical top-20 mega-cap pool.
+- `tech_communication_pullback_enhancement`: tech/communication pullback entry
+  with an explicit cash buffer.
+- `mega_cap_leader_rotation_top50_balanced`: the current runtime-enabled Top50
+  leader-rotation candidate.
 
-## Research and runtime scope
+## Research And Runtime Scope
 
 - Cadence: monthly.
-- Input style: price-only research backtest.
+- Input style: price-only research backtest, promoted through feature snapshots
+  when used at runtime.
 - Default benchmark: `QQQ`; broad reference benchmark: `SPY`.
 - Default safe haven: `BOXX` as a cash-like placeholder in research.
-- First pools:
+- Research pools:
   - `mag7`: `AAPL`, `MSFT`, `NVDA`, `AMZN`, `GOOGL`, `META`, `TSLA`.
   - `expanded`: MAG7 plus `AVGO`, `NFLX`, `AMD`, `COST`, `JPM`, `BRK.B`, `LLY`.
-  - `dynamic_top20`: rebuilds the mega-cap candidate pool each month from the
-    top iShares Russell 1000 ETF holdings weights, reducing the "today's
-    winners" look-ahead bias in pre-MAG7 periods. Known duplicate share classes
-    such as `GOOG` / `GOOGL` are collapsed to one issuer before ranking.
+  - dynamic mega-cap pool: rebuilt from historical iShares Russell 1000 ETF
+    holdings snapshots to reduce "today's winners" look-ahead bias.
 
-## Initial signal design
+## Signal Design
 
-The research script ranks eligible names using only price-derived features:
+The research script ranks eligible names using price-derived features:
 
 - 3-month momentum.
 - 6-month momentum.
@@ -42,35 +47,32 @@ The research script ranks eligible names using only price-derived features:
 - 126-day drawdown penalty.
 - Small hold bonus to reduce monthly churn.
 
-## Initial portfolio rules
+## Retained Runtime Shape
 
-- Research default started at top 3; the archived dynamic top20 profile selects 4 names.
-- Keep an existing holding if it remains inside `top_n + hold_buffer`.
-- Static research default single-name cap: 35%; archived dynamic top20 default single-name cap: 25%.
-- Optional account-size guard: set `--portfolio-total-equity` plus
-  `--min-position-value-usd` to lower the effective top-N when a small account
-  cannot support the requested number of minimum-sized stock positions.
-- Market defense uses `QQQ` 200-day trend. The archived dynamic top20 default uses a simple QQQ 200-day filter: full stock exposure when QQQ is above trend, 50% stock exposure when QQQ is below trend.
-- Unused allocation goes to `BOXX` in the research output.
+`mega_cap_leader_rotation_top50_balanced` keeps the Top50 candidate universe and
+uses a fixed sleeve blend:
 
-## Current implementation location
+- 50% sleeve: top 2 names, 50% single-name cap.
+- 50% sleeve: top 4 names, 25% single-name cap.
+- safe haven: `BOXX`.
+- feature snapshot input:
+  `mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1`.
+- historical execution window: first 3 NYSE trading days after the monthly
+  snapshot date.
 
-The archived strategy module is `src/us_equity_strategies/strategies/mega_cap_leader_rotation_dynamic_top20.py`. The research backtest lives in `../UsEquitySnapshotPipelines`:
+This retained route had the better promoted comparison result:
 
-```bash
-cd ../UsEquitySnapshotPipelines
-PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src \
-python scripts/backtest_mega_cap_leader_rotation.py \
-  --download \
-  --pool expanded \
-  --price-start 2015-01-01 \
-  --start 2016-01-01 \
-  --turnover-cost-bps 5 \
-  --output-dir data/output/mega_cap_leader_rotation_backtest
-```
+- Top50 balanced `blend_top2_50_top4_50`: CAGR 36.41%, max drawdown -30.56%.
+- Dynamic Top20: CAGR 21.51%, max drawdown -23.14%.
+- Top50 aggressive `top3_cap35_no_defense`: CAGR 32.42%, max drawdown -28.64%.
 
-Historical dynamic-universe check. The documented start uses the earliest
-monthly iShares JSON snapshot range that resolved reliably in research:
+The narrower Top20 and aggressive Top50 profile names are no longer valid
+runtime or replay profile surfaces. The shared implementation helper lives at
+`src/us_equity_strategies/strategies/mega_cap_leader_rotation.py`.
+
+## Research Commands
+
+Historical dynamic-universe check:
 
 ```bash
 cd ../UsEquitySnapshotPipelines
@@ -88,6 +90,9 @@ python scripts/backtest_mega_cap_leader_rotation.py \
   --output-dir data/output/mega_cap_leader_rotation_dynamic_universe_top20_backtest
 ```
 
+Current Top50 concentration validation evidence lives in
+`../UsEquitySnapshotPipelines/data/output/mega_cap_leader_rotation_dynamic_top50_concentration_variants/`.
+
 Expected research outputs:
 
 - `summary.csv`
@@ -99,36 +104,9 @@ Expected research outputs:
 - `exposure_history.csv`
 - `reference_returns.csv`
 
-For the default robustness matrix across `mag7` / `expanded`, top 3 / 4 / 5,
-single-name caps 25% / 30% / 35%, and defense on / off:
+## Remaining Risk
 
-```bash
-cd ../UsEquitySnapshotPipelines
-PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src \
-python scripts/backtest_mega_cap_leader_rotation_robustness.py \
-  --download \
-  --price-start 2015-01-01 \
-  --start 2016-01-01 \
-  --turnover-cost-bps 5 \
-  --output-dir data/output/mega_cap_leader_rotation_robustness
-```
-
-The robustness command writes:
-
-- `robustness_summary.csv`
-- `robustness_summary_by_run.csv`
-
-## Archived profile
-
-`mega_cap_leader_rotation_dynamic_top20` keeps its manifest, entrypoint, and adapter for research replay, but its catalog metadata status is `research_only`. It is excluded from platform rollout allowlists. Archived defaults:
-
-- feature snapshot input: `mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1`;
-- dynamic universe size: 20;
-- selected holdings: 4;
-- single-name cap: 25%;
-- safe haven: `BOXX`;
-- benchmark trend filter: `QQQ` 200-day SMA;
-- stock exposure: 100% when QQQ is above trend, 50% when QQQ is below trend;
-- historical execution window: first 3 NYSE trading days after the monthly snapshot date.
-
-Remaining risk: this is still a simple price-only model. It is kept as archived evidence and should not replace the active Top50 balanced candidate without a fresh promotion decision.
+This is still a simple price-only model. The retained Top50 balanced route
+should remain in paper/shadow observation until snapshot freshness, integer
+share drift, turnover, notifications, and account-size behavior are reviewed
+against live-like data.

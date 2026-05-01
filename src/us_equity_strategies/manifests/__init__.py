@@ -2,16 +2,8 @@ from __future__ import annotations
 
 from quant_platform_kit.strategy_contracts import StrategyManifest
 
-from us_equity_strategies.strategies.dynamic_mega_leveraged_pullback import (
-    DEFAULT_CONFIG as DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
-)
-
-
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
-MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE = "mega_cap_leader_rotation_dynamic_top20"
-MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE = "mega_cap_leader_rotation_aggressive"
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
-DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE = "dynamic_mega_leveraged_pullback"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 
 
@@ -188,60 +180,6 @@ qqq_tech_enhancement_manifest = _manifest(
     },
 )
 
-mega_cap_leader_rotation_dynamic_top20_manifest = _manifest(
-    profile=MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
-    display_name="Mega Cap Leader Rotation Dynamic Top20",
-    description="Monthly dynamic top-20 mega-cap leader rotation with QQQ trend defense and BOXX parking.",
-    aliases=(),
-    required_inputs=frozenset({"feature_snapshot"}),
-    default_config={
-        "benchmark_symbol": "QQQ",
-        "broad_benchmark_symbol": "SPY",
-        "safe_haven": "BOXX",
-        "dynamic_universe_size": 20,
-        "holdings_count": 4,
-        "single_name_cap": 0.25,
-        "min_position_value_usd": 3000.0,
-        "hold_buffer": 2,
-        "hold_bonus": 0.10,
-        "risk_on_exposure": 1.0,
-        "soft_defense_exposure": 0.50,
-        "hard_defense_exposure": 0.50,
-        "soft_breadth_threshold": 0.0,
-        "hard_breadth_threshold": 0.0,
-        "min_adv20_usd": 20000000.0,
-        "runtime_execution_window_trading_days": 3,
-        "execution_cash_reserve_ratio": 0.0,
-    },
-)
-
-mega_cap_leader_rotation_aggressive_manifest = _manifest(
-    profile=MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
-    display_name="Mega Cap Leader Rotation Aggressive",
-    description="Aggressive mega-cap leader rotation using a larger/curated snapshot, top-3 concentration, and no trend de-risking by default.",
-    aliases=(),
-    required_inputs=frozenset({"feature_snapshot"}),
-    default_config={
-        "benchmark_symbol": "QQQ",
-        "broad_benchmark_symbol": "SPY",
-        "safe_haven": "BOXX",
-        "dynamic_universe_size": 50,
-        "holdings_count": 3,
-        "single_name_cap": 0.35,
-        "min_position_value_usd": 3000.0,
-        "hold_buffer": 2,
-        "hold_bonus": 0.10,
-        "risk_on_exposure": 1.0,
-        "soft_defense_exposure": 1.0,
-        "hard_defense_exposure": 1.0,
-        "soft_breadth_threshold": 0.0,
-        "hard_breadth_threshold": 0.0,
-        "min_adv20_usd": 20000000.0,
-        "runtime_execution_window_trading_days": 3,
-        "execution_cash_reserve_ratio": 0.0,
-    },
-)
-
 mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
     profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     display_name="Mega Cap Leader Rotation Top50 Balanced",
@@ -273,25 +211,13 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
     },
 )
 
-dynamic_mega_leveraged_pullback_manifest = _manifest(
-    profile=DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
-    display_name="Dynamic Mega Leveraged Pullback",
-    description="Monthly dynamic mega-cap candidate snapshot with daily QQQ ATR/SMA gate and top-3 2x long pullback execution.",
-    aliases=(),
-    required_inputs=frozenset({"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}),
-    default_config=dict(DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG),
-)
-
 MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
     soxl_soxx_trend_income_manifest.profile: soxl_soxx_trend_income_manifest,
     russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
     qqq_tech_enhancement_manifest.profile: qqq_tech_enhancement_manifest,
-    mega_cap_leader_rotation_dynamic_top20_manifest.profile: mega_cap_leader_rotation_dynamic_top20_manifest,
-    mega_cap_leader_rotation_aggressive_manifest.profile: mega_cap_leader_rotation_aggressive_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest.profile: mega_cap_leader_rotation_top50_balanced_manifest,
-    dynamic_mega_leveraged_pullback_manifest.profile: dynamic_mega_leveraged_pullback_manifest,
 }
 
 MANIFEST_ALIASES = {
@@ -314,8 +240,5 @@ __all__ = [
     "soxl_soxx_trend_income_manifest",
     "qqq_tech_enhancement_manifest",
     "russell_1000_multi_factor_defensive_manifest",
-    "mega_cap_leader_rotation_dynamic_top20_manifest",
-    "mega_cap_leader_rotation_aggressive_manifest",
     "mega_cap_leader_rotation_top50_balanced_manifest",
-    "dynamic_mega_leveraged_pullback_manifest",
 ]

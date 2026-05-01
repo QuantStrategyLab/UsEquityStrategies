@@ -14,11 +14,11 @@ from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_p
 from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan as soxl_soxx_trend_build_rebalance_plan
 from us_equity_strategies.strategies.russell_1000_multi_factor_defensive import extract_managed_symbols as legacy_russell_managed_symbols
 from us_equity_strategies.strategies.qqq_tech_enhancement import extract_managed_symbols as qqq_tech_managed_symbols
-from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import extract_managed_symbols as mega_cap_managed_symbols
+from us_equity_strategies.strategies.mega_cap_leader_rotation import extract_managed_symbols as mega_cap_managed_symbols
 
 from tests.test_russell_1000_multi_factor_defensive import _normal_snapshot
 from tests.test_qqq_tech_enhancement import _feature_snapshot
-from tests.test_mega_cap_leader_rotation_dynamic_top20 import _mega_snapshot
+from tests.test_mega_cap_leader_rotation import _mega_snapshot
 
 
 class StrategyEntrypointTests(unittest.TestCase):
@@ -360,7 +360,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(longbridge_tech["runtime_execution_window_trading_days"], 1)
 
-        mega = describe_platform_runtime_requirements("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
+        mega = describe_platform_runtime_requirements("mega_cap_leader_rotation_top50_balanced", platform_id="ibkr")
         self.assertEqual(mega["profile_group"], "snapshot_backed")
         self.assertEqual(mega["input_mode"], "feature_snapshot")
         self.assertTrue(mega["requires_snapshot_artifacts"])
@@ -369,25 +369,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(mega["config_source_policy"], "none")
         self.assertEqual(
             mega["snapshot_contract_version"],
-            "mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1",
+            "mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
         )
-
-        mega_aggressive = describe_platform_runtime_requirements("mega_cap_leader_rotation_aggressive", platform_id="ibkr")
-        self.assertEqual(mega_aggressive["profile_group"], "snapshot_backed")
-        self.assertEqual(mega_aggressive["input_mode"], "feature_snapshot")
-        self.assertTrue(mega_aggressive["requires_snapshot_artifacts"])
-        self.assertTrue(mega_aggressive["requires_snapshot_manifest_path"])
-        self.assertFalse(mega_aggressive["requires_strategy_config_path"])
-
-        leveraged = describe_platform_runtime_requirements("dynamic_mega_leveraged_pullback", platform_id="ibkr")
-        self.assertEqual(leveraged["profile_group"], "snapshot_backed")
-        self.assertEqual(
-            leveraged["input_mode"],
-            "feature_snapshot+market_history+benchmark_history+portfolio_snapshot",
-        )
-        self.assertTrue(leveraged["requires_snapshot_artifacts"])
-        self.assertTrue(leveraged["requires_snapshot_manifest_path"])
-        self.assertFalse(leveraged["requires_strategy_config_path"])
 
         tqqq = describe_platform_runtime_requirements("tqqq_growth_income", platform_id="ibkr")
         self.assertEqual(tqqq["profile_group"], "direct_runtime_inputs")
@@ -590,7 +573,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(tech_decision.diagnostics["signal_source"], "feature_snapshot")
         self.assertEqual(tech_decision.diagnostics["effective_holdings_count"], 2)
 
-        mega = get_strategy_entrypoint("mega_cap_leader_rotation_dynamic_top20")
+        mega = get_strategy_entrypoint("mega_cap_leader_rotation_top50_balanced")
         mega_decision = mega.evaluate(
             StrategyContext(
                 as_of="2026-04-01",
@@ -606,26 +589,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(mega_decision.diagnostics["signal_source"], "feature_snapshot")
         self.assertEqual(mega_decision.diagnostics["selected_count"], 4)
+        self.assertIn("blend_sleeves", mega_decision.diagnostics)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
-
-        aggressive = get_strategy_entrypoint("mega_cap_leader_rotation_aggressive")
-        aggressive_decision = aggressive.evaluate(
-            StrategyContext(
-                as_of="2026-04-01",
-                market_data={"feature_snapshot": _mega_snapshot(qqq_sma200_gap=-0.02)},
-                portfolio=PortfolioSnapshot(
-                    as_of="2026-04-01",
-                    total_equity=100_000.0,
-                    buying_power=100_000.0,
-                    cash_balance=100_000.0,
-                    positions=(),
-                ),
-            )
-        )
-        self.assertEqual(aggressive_decision.diagnostics["signal_source"], "feature_snapshot")
-        self.assertEqual(aggressive_decision.diagnostics["selected_count"], 3)
-        self.assertEqual(aggressive_decision.diagnostics["target_stock_weight"], 1.0)
-        self.assertNotIn("BOXX", {position.symbol for position in aggressive_decision.positions})
 
     def test_ibkr_runtime_adapters_expose_unified_snapshot_runtime_metadata(self) -> None:
         global_adapter = get_platform_runtime_adapter("global_macro_etf_rotation", platform_id="ibkr")
@@ -721,13 +686,13 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertIsNone(paper_tech_adapter.portfolio_input_name)
 
-        mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="ibkr")
+        mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_top50_balanced", platform_id="ibkr")
         self.assertEqual(mega_adapter.status_icon, "👑")
         self.assertEqual(mega_adapter.snapshot_date_columns, ("as_of", "snapshot_date"))
         self.assertTrue(mega_adapter.require_snapshot_manifest)
         self.assertEqual(
             mega_adapter.snapshot_contract_version,
-            "mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1",
+            "mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
         )
         self.assertEqual(
             mega_adapter.managed_symbols_extractor(
@@ -741,45 +706,18 @@ class StrategyEntrypointTests(unittest.TestCase):
                 safe_haven="BOXX",
             ),
         )
-        longbridge_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="longbridge")
+        longbridge_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_top50_balanced", platform_id="longbridge")
         self.assertEqual(
             longbridge_mega_adapter.available_inputs,
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_mega_adapter.portfolio_input_name, "portfolio_snapshot")
-        paper_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_dynamic_top20", platform_id="paper_signal")
+        paper_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_top50_balanced", platform_id="paper_signal")
         self.assertEqual(
             paper_mega_adapter.available_inputs,
             frozenset({"feature_snapshot"}),
         )
         self.assertIsNone(paper_mega_adapter.portfolio_input_name)
-
-        aggressive_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_aggressive", platform_id="ibkr")
-        self.assertEqual(aggressive_adapter.status_icon, "👑")
-        self.assertTrue(aggressive_adapter.require_snapshot_manifest)
-        self.assertEqual(
-            aggressive_adapter.snapshot_contract_version,
-            "mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
-        )
-        balanced_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_top50_balanced", platform_id="ibkr")
-        self.assertEqual(balanced_adapter.status_icon, "👑")
-        self.assertTrue(balanced_adapter.require_snapshot_manifest)
-        self.assertEqual(
-            balanced_adapter.snapshot_contract_version,
-            "mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
-        )
-
-        for platform_id in ("schwab", "longbridge", "paper_signal"):
-            dynamic_leveraged_adapter = get_platform_runtime_adapter(
-                "dynamic_mega_leveraged_pullback",
-                platform_id=platform_id,
-            )
-            self.assertEqual(dynamic_leveraged_adapter.status_icon, "2x")
-            self.assertEqual(
-                dynamic_leveraged_adapter.available_inputs,
-                frozenset({"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}),
-            )
-            self.assertEqual(dynamic_leveraged_adapter.portfolio_input_name, "portfolio_snapshot")
 
         semiconductor_ibkr_adapter = get_platform_runtime_adapter(
             "soxl_soxx_trend_income",

@@ -11,10 +11,7 @@ MIN_RECOMMENDED_EQUITY_USD: dict[str, float] = {
     "russell_1000_multi_factor_defensive": 30_000.0,
     "tech_communication_pullback_enhancement": 10_000.0,
     "qqq_tech_enhancement": 10_000.0,
-    "mega_cap_leader_rotation_dynamic_top20": 10_000.0,
-    "mega_cap_leader_rotation_aggressive": 10_000.0,
     "mega_cap_leader_rotation_top50_balanced": 10_000.0,
-    "dynamic_mega_leveraged_pullback": 10_000.0,
 }
 
 SMALL_ACCOUNT_WARNING_REASON = "integer_shares_min_position_value_may_prevent_backtest_replication"

@@ -9,7 +9,7 @@ import pandas as pd
 
 SIGNAL_SOURCE = "feature_snapshot"
 STATUS_ICON = "👑"
-PROFILE_NAME = "mega_cap_leader_rotation_dynamic_top20"
+PROFILE_NAME = "mega_cap_leader_rotation_top50_balanced"
 BENCHMARK_SYMBOL = "QQQ"
 BROAD_BENCHMARK_SYMBOL = "SPY"
 SAFE_HAVEN = "BOXX"
@@ -30,7 +30,7 @@ DEFAULT_EXECUTION_CASH_RESERVE_RATIO = 0.0
 SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
 MAX_SNAPSHOT_MONTH_LAG = 1
 REQUIRE_SNAPSHOT_MANIFEST = True
-SNAPSHOT_CONTRACT_VERSION = "mega_cap_leader_rotation_dynamic_top20.feature_snapshot.v1"
+SNAPSHOT_CONTRACT_VERSION = "mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1"
 
 REQUIRED_FEATURE_COLUMNS = frozenset(
     {

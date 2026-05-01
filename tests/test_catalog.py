@@ -3,11 +3,8 @@ import unittest
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
-    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
-    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
-    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
@@ -75,20 +72,6 @@ class CatalogTest(unittest.TestCase):
             FULL_SHARED_PLATFORM_MATRIX,
         )
 
-        self.assertIn(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE, catalog)
-        self.assertEqual(catalog[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].domain, "us_equity")
-        self.assertEqual(
-            get_compatible_platforms(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE),
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
-
-        self.assertIn(MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE, catalog)
-        self.assertEqual(catalog[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].domain, "us_equity")
-        self.assertEqual(
-            get_compatible_platforms(MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE),
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
-
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
         compatibility = get_strategy_platform_compatibility_map()
@@ -136,27 +119,12 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.qqq_tech_enhancement",
         )
 
-        mega_definition = get_strategy_definition("mega_cap_leader_rotation_dynamic_top20")
-        self.assertEqual(mega_definition.profile, MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE)
-        mega_module = get_strategy_component_map(mega_definition)["signal_logic"]
-        self.assertEqual(
-            mega_module.module_path,
-            "us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
-        )
-
-        aggressive_definition = get_strategy_definition("mega_cap_leader_rotation_aggressive")
-        self.assertEqual(aggressive_definition.profile, MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE)
-        aggressive_module = get_strategy_component_map(aggressive_definition)["signal_logic"]
-        self.assertEqual(
-            aggressive_module.module_path,
-            "us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
-        )
         balanced_definition = get_strategy_definition("mega_cap_leader_rotation_top50_balanced")
         self.assertEqual(balanced_definition.profile, MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE)
         balanced_module = get_strategy_component_map(balanced_definition)["signal_logic"]
         self.assertEqual(
             balanced_module.module_path,
-            "us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20",
+            "us_equity_strategies.strategies.mega_cap_leader_rotation",
         )
 
     def test_aliases_resolve_to_canonical_profiles(self):
@@ -195,25 +163,6 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
         self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
         self.assertEqual(
-            metadata_map[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].role,
-            "concentrated_leader_rotation",
-        )
-        self.assertEqual(metadata_map[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE].status, "research_only")
-        self.assertEqual(
-            compatibility[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE],
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
-        self.assertEqual(
-            metadata_map[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].role,
-            "aggressive_leader_rotation",
-        )
-        self.assertEqual(metadata_map[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE].status, "research_only")
-        self.assertEqual(
-            compatibility[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE],
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
-        self.assertEqual(metadata_map[DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE].status, "research_only")
-        self.assertEqual(
             metadata_map[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE].role,
             "balanced_leader_rotation",
         )
@@ -232,16 +181,20 @@ class CatalogTest(unittest.TestCase):
             by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
             FULL_SHARED_PLATFORM_MATRIX,
         )
-        self.assertEqual(
-            by_profile[MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE]["display_name"],
-            "Mega Cap Leader Rotation Dynamic Top20",
-        )
-        self.assertEqual(
-            by_profile[MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE]["display_name"],
-            "Mega Cap Leader Rotation Aggressive",
-        )
 
-    def test_research_only_archive_profiles_are_not_runtime_enabled(self):
+    def test_removed_research_profiles_are_not_cataloged(self):
+        catalog = get_strategy_definitions()
+        for profile in (
+            "mega_cap_leader_rotation_dynamic_top20",
+            "mega_cap_leader_rotation_aggressive",
+            "dynamic_mega_leveraged_pullback",
+        ):
+            with self.subTest(profile=profile):
+                self.assertNotIn(profile, catalog)
+                with self.assertRaises(ValueError):
+                    get_strategy_definition(profile)
+
+    def test_runtime_enabled_profiles_are_the_live_catalog(self):
         runtime_enabled = get_runtime_enabled_profiles()
         self.assertEqual(
             runtime_enabled,
@@ -256,9 +209,6 @@ class CatalogTest(unittest.TestCase):
                 }
             ),
         )
-        self.assertNotIn(MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE, runtime_enabled)
-        self.assertNotIn(MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE, runtime_enabled)
-        self.assertNotIn(DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE, runtime_enabled)
 
 
 class LegacyProfileCompatibilityTest(unittest.TestCase):

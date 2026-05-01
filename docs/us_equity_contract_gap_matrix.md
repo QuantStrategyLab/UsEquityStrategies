@@ -1,16 +1,17 @@
 # US equity contract gap matrix
 
-This document started as the P2 contract-convergence bridge between:
+_Updated: 2026-05-01_
 
-- the shared cross-platform target in `QuantPlatformKit/docs/us_equity_cross_platform_strategy_spec.md`
-- the current `UsEquityStrategies` contract surface, including archived research-only profiles that still keep adapters for replay
+This document tracks the current shared US equity strategy contract across
+`UsEquityStrategies`, `QuantPlatformKit`, and the platform runtimes.
 
-It still does **not** change runtime behavior by itself.
-At this point it mainly records what was migrated, what is now fully portable across the current three-platform scope, and which follow-ups are still implementation cleanups rather than platform-coverage gaps.
+It records runtime portability only. Research candidates that compare worse
+than a runtime-enabled peer are not kept as deployable or replayable profile
+entries in this matrix.
 
-## Scope of this matrix
+## Current Runtime Scope
 
-This matrix tracks the six current runtime-enabled US equity profiles:
+The current runtime-enabled US equity profiles are:
 
 - `global_etf_rotation`
 - `tqqq_growth_income`
@@ -19,50 +20,38 @@ This matrix tracks the six current runtime-enabled US equity profiles:
 - `tech_communication_pullback_enhancement`
 - `mega_cap_leader_rotation_top50_balanced`
 
-It also records three `research_only` archived profiles that still have definitions, manifests, entrypoints, and adapters for research replay:
-
-- `mega_cap_leader_rotation_aggressive`
-- `mega_cap_leader_rotation_dynamic_top20`
-- `dynamic_mega_leveraged_pullback`
-
-Out of scope for this document:
-
-- strategy formula changes
-- broker execution translation changes
-- platform input-builder implementation
-- future rollout choices after the current full-matrix migration
-
-## Current platform status snapshot
-
-As of this document update, the platform status scripts show that all six runtime-enabled US equity profiles are enabled on all three current broker runtimes:
+These profiles are designed against the shared contract and are portable across
+the current US equity platform IDs:
 
 - `ibkr`
-  - `global_etf_rotation`
-  - `tqqq_growth_income`
-  - `soxl_soxx_trend_income`
-  - `russell_1000_multi_factor_defensive`
-  - `tech_communication_pullback_enhancement`
-  - `mega_cap_leader_rotation_top50_balanced`
 - `schwab`
-  - `global_etf_rotation`
-  - `tqqq_growth_income`
-  - `soxl_soxx_trend_income`
-  - `russell_1000_multi_factor_defensive`
-  - `tech_communication_pullback_enhancement`
-  - `mega_cap_leader_rotation_top50_balanced`
 - `longbridge`
-  - `global_etf_rotation`
-  - `tqqq_growth_income`
-  - `soxl_soxx_trend_income`
-  - `russell_1000_multi_factor_defensive`
-  - `tech_communication_pullback_enhancement`
-  - `mega_cap_leader_rotation_top50_balanced`
+- `paper_signal`
 
-The archived research-only profiles remain structurally compatible, but are no longer enabled by rollout allowlists. The remaining work is about payload normalization, artifact discipline, and future platforms or strategies.
+`paper_signal` is brokerless and publishes signal notifications only. The
+strategy contract is still shared; broker execution remains platform-specific.
 
-## Canonical end-state input vocabulary
+## Removed Research Profile Exposure
 
-New US equity profiles should only use these canonical `required_inputs`:
+The following research/profile exposures were removed from catalog, manifest,
+entrypoint, runtime adapter, publish-window, and platform rollout surfaces after
+comparison with runtime-enabled peers:
+
+- `mega_cap_leader_rotation_dynamic_top20`
+- `mega_cap_leader_rotation_aggressive`
+- `dynamic_mega_leveraged_pullback`
+
+The first two were superseded by `mega_cap_leader_rotation_top50_balanced`.
+The 2x dynamic mega-cap/MAGS route added more product and input complexity
+without a better promoted profile result.
+
+Historical output files can still be inspected in research directories, but
+these names are no longer valid `STRATEGY_PROFILE` values and should not appear
+as platform-enabled or replay-adapter rows.
+
+## Canonical Input Vocabulary
+
+New US equity profiles should use only these canonical `required_inputs`:
 
 - `market_history`
 - `benchmark_history`
@@ -70,180 +59,25 @@ New US equity profiles should only use these canonical `required_inputs`:
 - `derived_indicators`
 - `feature_snapshot`
 
-All six runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary. The archived profiles also keep canonical input declarations for replay. P4 still needs to converge platform input builders and payload shapes onto the same vocabulary.
+## Profile Matrix
 
-## Legacy-to-canonical mapping used for migration planning
+| Profile | `target_mode` | `required_inputs` | Adapter coverage | Runtime status | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `global_etf_rotation` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Quarterly top-2 ETF rotation with daily canary defense. |
+| `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
+| `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
+| `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Artifact-backed Russell 1000 defensive selection. |
+| `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Artifact-backed tech/communication pullback selection with bundled config support. |
+| `mega_cap_leader_rotation_top50_balanced` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Retained Top50 balanced leader-rotation path. |
 
-| Current legacy input | Intended canonical input | Notes |
-| --- | --- | --- |
-| `historical_close_loader` | `market_history` | `global_etf_rotation` should stop depending on a broker-style history loader name. |
-| `qqq_history` | `benchmark_history` | `tqqq_growth_income` only needs benchmark history, not a Schwab/LongBridge-specific label. |
-| `snapshot` | `portfolio_snapshot` | `ctx.portfolio` injection should come from the canonical portfolio input. |
-| `indicators` | `derived_indicators` | Regime and indicator bundles belong to the normalized platform input layer. |
-| `account_state` | `portfolio_snapshot` | Account cash / positions / equity should converge into one normalized portfolio snapshot contract. |
-| `feature_snapshot` | `feature_snapshot` | Already canonical; keep it. |
+## Current Conclusions
 
-## Profile-by-profile gap matrix
-
-| Profile | Current `target_mode` | Current `required_inputs` | Current adapter coverage | Current enabled platforms | Intended canonical inputs | Current portability status | Follow-up after migration |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `market_history` | full three-platform coverage is in place; the strategy-facing contract is canonical everywhere | keep converging `market_history` beyond the current loader-shaped bridge and lock payload shape in CI |
-| `tqqq_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `benchmark_history` + `portfolio_snapshot` | full three-platform coverage is in place and the value-mode contract is canonical | keep benchmark and portfolio builders aligned across runtimes, and keep the explicit `signal_date -> effective_date` contract at `next_trading_day` |
-| `soxl_soxx_trend_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `derived_indicators` + `portfolio_snapshot` | full three-platform coverage is in place and the contract is already canonical | keep indicator and portfolio builders canonical, and keep the explicit `signal_date -> effective_date` contract at `next_trading_day` |
-| `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; canonical artifact input is shared across all runtimes | keep artifact transport, manifest validation, and rollout discipline consistent |
-| `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place and canonical config or snapshot names are now used on the mainline path | keep artifact rollout and config naming discipline tight, especially for future research outputs |
-| `mega_cap_leader_rotation_aggressive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | none; `research_only` archive | `feature_snapshot` | archived after Top50 balanced became the preferred runtime candidate; adapter coverage remains for replay | keep concentrated-basket risk notes, universe provenance, and snapshot manifest validation explicit |
-| `mega_cap_leader_rotation_dynamic_top20` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | none; `research_only` archive | `feature_snapshot` | archived after Top50 balanced became the preferred runtime candidate; adapter coverage remains for replay | keep universe-ranking provenance and snapshot manifest validation explicit |
-| `mega_cap_leader_rotation_top50_balanced` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge` | `ibkr`, `schwab`, `longbridge` | `feature_snapshot` | full three-platform coverage is in place; balanced Top50 artifacts use a separate feature-snapshot contract | keep sleeve-blend assumptions, concentration notes, universe provenance, and snapshot manifest validation explicit |
-| `dynamic_mega_leveraged_pullback` | `weight` | `feature_snapshot` + `market_history` + `benchmark_history` + `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge` | none; `research_only` archive | `feature_snapshot` + `market_history` + `benchmark_history` + `portfolio_snapshot` | archived because the 2x product path is more complex and MAGS/TACO is not promoted; adapter coverage remains for replay | keep product-map provenance, snapshot manifest validation, and hybrid input builders aligned |
-
-## Current adapter details that matter for migration
-
-### `global_etf_rotation`
-
-- current adapter inputs:
-  - `ibkr`: `market_history`
-  - `schwab`: `market_history`, `portfolio_snapshot`
-  - `longbridge`: `market_history`, `portfolio_snapshot`
-- contract observation:
-  - no strategy-side portfolio injection requirement today
-  - the strategy-facing input name is now canonical
-  - the runtime contract now also carries explicit `signal_date`,
-    `effective_date`, and `execution_timing_contract` metadata with
-    `signal_effective_after_trading_days = 1`
-  - the current runtimes still place a callable history loader under `market_history`, so payload normalization remains an input-builder cleanup rather than a portability gap
-
-### `tqqq_growth_income`
-
-- current adapter inputs:
-  - `ibkr`: `benchmark_history`, `portfolio_snapshot`
-  - `schwab`: `benchmark_history`, `portfolio_snapshot`
-  - `longbridge`: `benchmark_history`, `portfolio_snapshot`
-- current portfolio injection:
-  - `ibkr`: `portfolio_input_name="portfolio_snapshot"`
-  - `schwab`: `portfolio_input_name="portfolio_snapshot"`
-  - `longbridge`: `portfolio_input_name="portfolio_snapshot"`
-- contract observation:
-  - this profile now matches the canonical value-mode contract on strategy-facing inputs across all three current runtimes
-  - the runtime contract now explicitly marks daily evaluation as
-    `next_trading_day`
-  - the remaining work is only runtime-input cleanup, not platform coverage
-
-### `soxl_soxx_trend_income`
-
-- current adapter inputs:
-  - `ibkr`: `derived_indicators`, `portfolio_snapshot`
-  - `schwab`: `derived_indicators`, `portfolio_snapshot`
-  - `longbridge`: `derived_indicators`, `portfolio_snapshot`
-- current portfolio injection:
-  - `ibkr`: `portfolio_input_name="portfolio_snapshot"`
-  - `schwab`: `portfolio_input_name="portfolio_snapshot"`
-  - `longbridge`: `portfolio_input_name="portfolio_snapshot"`
-- contract observation:
-  - this profile now matches the canonical value-mode contract on strategy-facing inputs
-  - the runtime contract now explicitly marks daily evaluation as
-    `next_trading_day`
-  - adapter coverage is already aligned across the current three-platform runtime scope
-
-### `russell_1000_multi_factor_defensive`
-
-- current adapter inputs:
-  - `ibkr`: `feature_snapshot`
-  - `schwab`: `feature_snapshot`, `portfolio_snapshot`
-  - `longbridge`: `feature_snapshot`, `portfolio_snapshot`
-- contract observation:
-  - the strategy already sits on the canonical artifact input
-  - the current three-platform portability gap is closed; remaining work is artifact transport discipline and payload cleanup
-
-### `tech_communication_pullback_enhancement`
-
-- current adapter inputs:
-  - `ibkr`: `feature_snapshot`
-  - `schwab`: `feature_snapshot`, `portfolio_snapshot`
-  - `longbridge`: `feature_snapshot`, `portfolio_snapshot`
-- contract observation:
-  - same contract shape as `russell_1000_multi_factor_defensive`
-  - the current three-platform portability gap is closed
-  - the remaining work is artifact-delivery discipline and keeping canonical config or snapshot names stable
-
-### `mega_cap_leader_rotation_aggressive`
-
-- current adapter inputs:
-  - `ibkr`: `feature_snapshot`
-  - `schwab`: `feature_snapshot`, `portfolio_snapshot`
-  - `longbridge`: `feature_snapshot`, `portfolio_snapshot`
-- contract observation:
-  - same artifact-backed contract family as the dynamic mega-cap profiles
-  - the current three-platform portability gap is closed
-  - because the basket is concentrated, runtime notes and account-sizing guidance should stay explicit
-
-### `mega_cap_leader_rotation_dynamic_top20`
-
-- current adapter inputs:
-  - `ibkr`: `feature_snapshot`
-  - `schwab`: `feature_snapshot`, `portfolio_snapshot`
-  - `longbridge`: `feature_snapshot`, `portfolio_snapshot`
-- contract observation:
-  - the strategy already sits on the canonical artifact input
-  - the current three-platform portability gap is closed
-  - universe-ranking provenance and manifest validation remain the important artifact controls
-
-### `mega_cap_leader_rotation_top50_balanced`
-
-- current adapter inputs:
-  - `ibkr`: `feature_snapshot`
-  - `schwab`: `feature_snapshot`, `portfolio_snapshot`
-  - `longbridge`: `feature_snapshot`, `portfolio_snapshot`
-- contract observation:
-  - this profile uses the same artifact-backed contract family as the other mega-cap leader profiles
-  - the current three-platform portability gap is closed
-  - sleeve-blend assumptions, concentration notes, universe-ranking provenance, and manifest validation remain the important artifact controls
-
-### `dynamic_mega_leveraged_pullback`
-
-- current adapter inputs:
-  - `ibkr`: `feature_snapshot`, `market_history`, `benchmark_history`, `portfolio_snapshot`
-  - `schwab`: `feature_snapshot`, `market_history`, `benchmark_history`, `portfolio_snapshot`
-  - `longbridge`: `feature_snapshot`, `market_history`, `benchmark_history`, `portfolio_snapshot`
-- contract observation:
-  - this profile combines artifact-backed monthly product selection with daily runtime inputs
-  - the current three-platform portability gap is closed
-  - product-map provenance, manifest validation, and hybrid input builders should remain aligned
-
-## Cross-profile conclusions
-
-### What is already in good shape
-
-- all six runtime-enabled profiles already declare `target_mode`
-- all six runtime-enabled profiles already expose metadata, manifest, and unified entrypoint
-- all six runtime-enabled profiles now use canonical `required_inputs` names at the strategy boundary
-- all six runtime-enabled profiles now have runtime-adapter coverage on `ibkr`, `schwab`, and `longbridge`
-- archived research-only profiles keep metadata, manifests, unified entrypoints, and adapters for replay, but are excluded from rollout allowlists
-- the feature-snapshot profiles already use the canonical artifact input name
-- the current six-profile runtime matrix is fully portable for the current scope
-
-### What is still worth cleaning up after the migration
-
-1. `global_etf_rotation` still uses a loader-shaped `market_history` bridge instead of a normalized payload
-2. daily profiles now expose an execution-timing contract, but downstream scheduling and fill assumptions still need to stay aligned with that `next_trading_day` metadata
-3. feature-snapshot delivery still needs disciplined rollout and validation outside pure strategy code
-4. value-mode and weight-mode payload builders should keep converging toward one normalized input layer
-4. future profiles or future platforms should keep this full-matrix standard instead of reintroducing partial coverage
-
-## Recommended migration order after this document
-
-1. **Current status**: the six runtime-enabled profiles now use canonical input names and have full three-platform adapter coverage for the current US equity scope
-2. **P3/P4 follow-up**: keep explicit execution translation rules in place and keep normalizing runtime payload builders
-3. **Artifact follow-up**: keep feature-snapshot transport, manifest validation, and config naming consistent across runtimes
-4. **Future expansion**: treat any new US equity profile or future platform as required to reach the same full-matrix bar before claiming rollout parity
-
-## Review rule for future PRs in this track
-
-Now that the current runtime-enabled profiles are migrated, each future PR in this track should state clearly:
-
-- which profile contract changed
-- whether `required_inputs` moved closer to canonical names
-- whether runtime adapter coverage changed
-- whether the change affected only `eligible` or also `enabled`
-- whether the change keeps or weakens the current full three-platform matrix
-- which later follow-up (`P3` / `P4` / artifact rollout / future platform work) still owns the remaining cleanup
+- The runtime-enabled US equity set is intentionally small and shared.
+- Platform registries should derive rollout candidates from
+  `get_runtime_enabled_profiles()` rather than carrying local research-only
+  overrides.
+- A new US equity profile must ship catalog metadata, a manifest, an entrypoint,
+  a runtime adapter, and platform input support before it is considered
+  runtime-enabled.
+- Research outputs can remain as evidence, but weaker duplicate profile names
+  should not remain as deployable strategy surfaces.
