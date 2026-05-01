@@ -6,10 +6,8 @@ from pathlib import Path
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     STRATEGY_CATALOG,
-    STRATEGY_DEFAULT_CONFIG,
     get_runtime_enabled_profiles,
 )
-from us_equity_strategies.manifests import dynamic_mega_leveraged_pullback_manifest
 from us_equity_strategies.runtime_adapters import (
     BASE_RUNTIME_ADAPTERS,
     IBKR_PLATFORM,
@@ -18,10 +16,6 @@ from us_equity_strategies.runtime_adapters import (
     PLATFORM_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM,
     get_platform_runtime_adapter,
-)
-from us_equity_strategies.strategies.dynamic_mega_leveraged_pullback import (
-    DEFAULT_CONFIG as DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
-    PROFILE_NAME as DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
 )
 
 
@@ -185,16 +179,6 @@ class ContractGovernanceTests(unittest.TestCase):
                             adapter.artifact_contract.config_source_policy,
                             "bundled_or_env",
                         )
-
-    def test_dynamic_mega_leveraged_pullback_default_config_has_single_source(self) -> None:
-        self.assertEqual(
-            STRATEGY_DEFAULT_CONFIG[DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE],
-            DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
-        )
-        self.assertEqual(
-            dynamic_mega_leveraged_pullback_manifest.default_config,
-            DYNAMIC_MEGA_LEVERAGED_PULLBACK_DEFAULT_CONFIG,
-        )
 
     def test_strategy_and_entrypoint_sources_do_not_branch_on_platform_or_env(self) -> None:
         for root in GOVERNED_SOURCE_ROOTS:

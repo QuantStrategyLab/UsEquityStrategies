@@ -14,10 +14,7 @@ from us_equity_strategies.account_sizing import (
     build_account_size_diagnostics_from_context,
 )
 from us_equity_strategies.manifests import (
-    dynamic_mega_leveraged_pullback_manifest,
     global_etf_rotation_manifest,
-    mega_cap_leader_rotation_aggressive_manifest,
-    mega_cap_leader_rotation_dynamic_top20_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
     qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
@@ -25,9 +22,8 @@ from us_equity_strategies.manifests import (
     tqqq_growth_income_manifest,
 )
 from us_equity_strategies.strategies import (
-    dynamic_mega_leveraged_pullback as dynamic_mega_leveraged_pullback_strategy,
     global_etf_rotation as legacy_global_etf_rotation,
-    mega_cap_leader_rotation_dynamic_top20 as mega_cap_leader_rotation_dynamic_top20_strategy,
+    mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     tqqq_growth_income as tqqq_growth_income_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
@@ -635,7 +631,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         total_equity = getattr(ctx.portfolio, "total_equity", None)
         if total_equity is not None:
             config["portfolio_total_equity"] = float(total_equity)
-    weights, signal_desc, is_emergency, status_desc, metadata = mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals(
+    weights, signal_desc, is_emergency, status_desc, metadata = mega_cap_leader_rotation_strategy.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
         get_current_holdings(ctx),
         **config,
@@ -650,7 +646,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         **metadata,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
-        "signal_source": mega_cap_leader_rotation_dynamic_top20_strategy.SIGNAL_SOURCE,
+        "signal_source": mega_cap_leader_rotation_strategy.SIGNAL_SOURCE,
         "actionable": weights is not None,
     }
     diagnostics.update(_account_size_diagnostics(manifest.profile, ctx))
@@ -686,20 +682,6 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     )
 
 
-def evaluate_mega_cap_leader_rotation_dynamic_top20(ctx: StrategyContext) -> StrategyDecision:
-    return _evaluate_mega_cap_leader_rotation_snapshot_profile(
-        ctx,
-        manifest=mega_cap_leader_rotation_dynamic_top20_manifest,
-    )
-
-
-def evaluate_mega_cap_leader_rotation_aggressive(ctx: StrategyContext) -> StrategyDecision:
-    return _evaluate_mega_cap_leader_rotation_snapshot_profile(
-        ctx,
-        manifest=mega_cap_leader_rotation_aggressive_manifest,
-    )
-
-
 def evaluate_mega_cap_leader_rotation_top50_balanced(ctx: StrategyContext) -> StrategyDecision:
     return _evaluate_mega_cap_leader_rotation_snapshot_profile(
         ctx,
@@ -707,83 +689,11 @@ def evaluate_mega_cap_leader_rotation_top50_balanced(ctx: StrategyContext) -> St
     )
 
 
-mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ = (
-    ((mega_cap_leader_rotation_dynamic_top20_strategy.compute_signals.__doc__ or "").strip() +
+mega_cap_leader_rotation_strategy.compute_signals.__doc__ = (
+    ((mega_cap_leader_rotation_strategy.compute_signals.__doc__ or "").strip() +
      "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
     .strip()
 )
-
-
-def evaluate_dynamic_mega_leveraged_pullback(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(dynamic_mega_leveraged_pullback_manifest.default_config, ctx)
-    translator = config.get("translator", default_translator)
-    config.pop("signal_effective_after_trading_days", None)
-    config.pop("execution_cash_reserve_ratio", None)
-    config.pop("runtime_execution_window_trading_days", None)
-    portfolio = require_portfolio(ctx)
-    if "portfolio_total_equity" not in config:
-        config["portfolio_total_equity"] = float(portfolio.total_equity)
-    weights, signal_desc, is_emergency, status_desc, metadata = dynamic_mega_leveraged_pullback_strategy.compute_signals(
-        require_market_data(ctx, "feature_snapshot"),
-        get_current_holdings(ctx),
-        market_history=require_market_data(ctx, "market_history"),
-        benchmark_history=require_market_data(ctx, "benchmark_history"),
-        portfolio=portfolio,
-        ib=ctx.capabilities.get("broker_client"),
-        **config,
-    )
-    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
-        signal_desc,
-        status_desc,
-        metadata,
-        translator=translator,
-    )
-    diagnostics = {
-        **metadata,
-        "signal_description": rendered_signal_desc,
-        "status_description": rendered_status_desc,
-        "signal_source": dynamic_mega_leveraged_pullback_strategy.SIGNAL_SOURCE,
-        "actionable": weights is not None,
-    }
-    diagnostics.update(_account_size_diagnostics(dynamic_mega_leveraged_pullback_manifest.profile, ctx))
-    diagnostics["signal_description"] = append_account_size_warning(
-        str(diagnostics["signal_description"]),
-        diagnostics,
-        translator=translator,
-    )
-    _attach_dashboard_text(
-        diagnostics,
-        _build_dashboard_text(
-            ctx,
-            strategy_symbols=_symbols_from_sources(
-                metadata.get("managed_symbols"),
-                weights or {},
-                get_current_holdings(ctx),
-                config.get("safe_haven"),
-            ),
-            translator=translator,
-            signal_text=diagnostics["signal_description"],
-        ),
-    )
-    _attach_notification_context(diagnostics, notification_context)
-    risk_flags: tuple[str, ...] = ()
-    if is_emergency:
-        risk_flags += ("hard_defense",)
-    if weights is None:
-        risk_flags += ("no_execute",)
-    return StrategyDecision(
-        positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
-        risk_flags=risk_flags,
-        diagnostics=diagnostics,
-    )
-
-
-dynamic_mega_leveraged_pullback_strategy.compute_signals.__doc__ = (
-    ((dynamic_mega_leveraged_pullback_strategy.compute_signals.__doc__ or "").strip() +
-     "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
-    .strip()
-)
-
 
 global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=global_etf_rotation_manifest,
@@ -805,21 +715,9 @@ qqq_tech_enhancement_entrypoint = CallableStrategyEntrypoint(
     manifest=qqq_tech_enhancement_manifest,
     _evaluate=evaluate_qqq_tech_enhancement,
 )
-mega_cap_leader_rotation_dynamic_top20_entrypoint = CallableStrategyEntrypoint(
-    manifest=mega_cap_leader_rotation_dynamic_top20_manifest,
-    _evaluate=evaluate_mega_cap_leader_rotation_dynamic_top20,
-)
-mega_cap_leader_rotation_aggressive_entrypoint = CallableStrategyEntrypoint(
-    manifest=mega_cap_leader_rotation_aggressive_manifest,
-    _evaluate=evaluate_mega_cap_leader_rotation_aggressive,
-)
 mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
     manifest=mega_cap_leader_rotation_top50_balanced_manifest,
     _evaluate=evaluate_mega_cap_leader_rotation_top50_balanced,
-)
-dynamic_mega_leveraged_pullback_entrypoint = CallableStrategyEntrypoint(
-    manifest=dynamic_mega_leveraged_pullback_manifest,
-    _evaluate=evaluate_dynamic_mega_leveraged_pullback,
 )
 
 
@@ -829,17 +727,11 @@ __all__ = [
     "soxl_soxx_trend_income_entrypoint",
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
-    "mega_cap_leader_rotation_dynamic_top20_entrypoint",
-    "mega_cap_leader_rotation_aggressive_entrypoint",
     "mega_cap_leader_rotation_top50_balanced_entrypoint",
-    "dynamic_mega_leveraged_pullback_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
     "evaluate_qqq_tech_enhancement",
-    "evaluate_mega_cap_leader_rotation_dynamic_top20",
-    "evaluate_mega_cap_leader_rotation_aggressive",
     "evaluate_mega_cap_leader_rotation_top50_balanced",
-    "evaluate_dynamic_mega_leveraged_pullback",
 ]

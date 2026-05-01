@@ -94,7 +94,7 @@ def _mega_snapshot(qqq_sma200_gap: float = 0.08) -> pd.DataFrame:
 
 
 def test_build_target_weights_selects_four_leaders() -> None:
-    from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import build_target_weights
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import build_target_weights
 
     weights, ranked, metadata = build_target_weights(_mega_snapshot(), current_holdings={"AAPL"})
 
@@ -108,7 +108,7 @@ def test_build_target_weights_selects_four_leaders() -> None:
 
 
 def test_build_target_weights_uses_half_exposure_when_qqq_is_below_sma() -> None:
-    from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import build_target_weights
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import build_target_weights
 
     weights, _ranked, metadata = build_target_weights(_mega_snapshot(qqq_sma200_gap=-0.02), current_holdings=set())
 
@@ -118,7 +118,7 @@ def test_build_target_weights_uses_half_exposure_when_qqq_is_below_sma() -> None
 
 
 def test_build_target_weights_reduces_holdings_for_small_accounts() -> None:
-    from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import build_target_weights
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import build_target_weights
 
     _weights, _ranked, metadata = build_target_weights(
         _mega_snapshot(),
@@ -134,7 +134,7 @@ def test_build_target_weights_reduces_holdings_for_small_accounts() -> None:
 
 
 def test_build_blended_target_weights_combines_top2_and_top4_sleeves() -> None:
-    from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import build_blended_target_weights
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import build_blended_target_weights
 
     weights, _ranked, metadata = build_blended_target_weights(
         _mega_snapshot(),
@@ -161,7 +161,7 @@ def test_build_blended_target_weights_combines_top2_and_top4_sleeves() -> None:
 
 
 def test_compute_signals_noops_outside_monthly_window() -> None:
-    from us_equity_strategies.strategies.mega_cap_leader_rotation_dynamic_top20 import compute_signals
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import compute_signals
 
     weights, _signal, _is_emergency, status_desc, metadata = compute_signals(
         _mega_snapshot(),

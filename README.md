@@ -52,8 +52,7 @@ paper/compatibility later” as the default workflow.
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): runtime-enabled profile contract gaps versus the cross-platform target.
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md): fixed canonical input contract for the two current value-mode profiles.
 - [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md): Chinese operator-facing status handbook for switchable profiles, input modes, research candidates, and archived backtest evidence.
-- [`docs/research/archived_profiles.zh-CN.md`](./docs/research/archived_profiles.zh-CN.md): research-only profile archive and promotion guardrails.
-- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): mega-cap leader rotation research notes and archived dynamic top20 profile notes.
+- [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): mega-cap leader rotation research notes and Top50 balanced profile notes.
 
 ### Strategy index
 
@@ -65,11 +64,8 @@ paper/compatibility later” as the default workflow.
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
-| `mega_cap_leader_rotation_dynamic_top20` | Mega Cap Leader Rotation Dynamic Top20 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `concentrated_leader_rotation` | `research_only` |
-| `mega_cap_leader_rotation_aggressive` | Mega Cap Leader Rotation Aggressive | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `aggressive_leader_rotation` | `research_only` |
-| `dynamic_mega_leveraged_pullback` | Dynamic Mega Leveraged Pullback | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly snapshot + daily runtime` | `QQQ` | `offensive_leveraged_pullback` | `research_only` |
 
-`runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. `research_only` profiles keep their definitions, manifests, entrypoints, and adapters for archived research/replay, but they are excluded from platform rollout allowlists. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that runtime stack, including brokerless paper/notify runtimes. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own rollout enablement and runtime-specific wiring.
+`runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that runtime stack, including brokerless paper/notify runtimes. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own runtime-specific wiring.
 
 Cadence here is the strategy-level intent. Platform repositories own the actual
 Cloud Scheduler / GitHub Actions cron settings:
@@ -105,10 +101,7 @@ the suggested minimum.
 | `tqqq_growth_income` | `500 USD` | Most suitable for small accounts; TQQQ can usually trade, but BOXX/cash targets may drift. |
 | `soxl_soxx_trend_income` | `1000 USD` | Can run with drift; SOXX/BOXX legs may be skipped when target value cannot buy 1 share. |
 | `global_etf_rotation` | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account. |
-| `mega_cap_leader_rotation_dynamic_top20` | `10000 USD` | The strategy may collapse from 4 names to 1 name plus BOXX/cash. |
-| `mega_cap_leader_rotation_aggressive` | `10000 USD` | The top-3 concentrated stock basket can collapse to fewer names; integer shares can materially change risk. |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | The fixed 50% Top2 / 50% Top4 sleeve blend can drift when integer shares cannot represent the intended unequal weights. |
-| `dynamic_mega_leveraged_pullback` | `10000 USD` | The top3/max80 2x product backtest is not reproducible at 200-1000 USD. |
 | `tech_communication_pullback_enhancement` (`qqq_tech_enhancement` legacy alias) | `10000 USD` | Small accounts reduce position count and single-name concentration rises. |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | The default 24-stock basket is not suitable for small accounts. |
 
@@ -118,9 +111,6 @@ reports explicit about the gap between account size and backtest assumptions.
 ### Research candidates and archive
 
 - `mega_cap_leader_rotation_top50_balanced`: runtime-enabled monthly profile for the current Top50 balanced candidate. It consumes a transparent Top50 monthly snapshot and runs a fixed 50% Top2 cap50 sleeve plus 50% Top4 cap25 sleeve, with no broad QQQ trend de-risking by default.
-- `mega_cap_leader_rotation_dynamic_top20`: archived research-only profile for the historical dynamic top-20 mega-cap universe. Top50 balanced is the preferred runtime candidate.
-- `mega_cap_leader_rotation_aggressive`: archived research-only higher-concentration Top50 profile. Keep it as evidence for the top3/cap35 branch instead of a platform-switchable line.
-- `dynamic_mega_leveraged_pullback`: archived research-only 2x product pullback profile. Keep the implementation and backtests for replay; do not route MAGS/TACO work into platform runtimes.
 - `mega_cap_leader_rotation`: umbrella research/backtest name for the static and dynamic variants; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
 
 ### global_etf_rotation
@@ -348,9 +338,6 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
 | `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
-| `mega_cap_leader_rotation_dynamic_top20` | Mega Cap 动态 Top20 龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | `research_only` 存档；Top50 balanced 是优先运行候选 |
-| `mega_cap_leader_rotation_aggressive` | Mega Cap 激进龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | `research_only` 存档；保留 top3/cap35 分支证据 |
-| `dynamic_mega_leveraged_pullback` | Mega Cap 2x 回调策略 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 snapshot + 日频运行 | `research_only` 存档；保留 2x 产品回调研究，不进入平台 rollout |
 
 `runtime_enabled` 策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口被各个平台仓库引用；`research_only` profile 保留定义、manifest、entrypoint 和 adapter 作为研究/回放存档，但不会进入平台 rollout allowlist。运行时和部署配置统一使用 canonical profile key。这里的“兼容平台”既包括三个 live broker runtime，也包括 brokerless 的 `PaperSignalPlatform`。
 这里的策略频率表达的是策略层意图；实际 Cloud Scheduler / GitHub Actions
@@ -371,10 +358,7 @@ cron 配置由各个平台仓库负责：
 | `tqqq_growth_income` | `500 USD` | 最适合小账户；通常能买到 TQQQ，但 BOXX / 现金层会有偏差。 |
 | `soxl_soxx_trend_income` | `1000 USD` | 可以运行但会偏离；SOXX / BOXX 目标金额不够买 1 股时会跳过。 |
 | `global_etf_rotation` | `3000 USD` | Top2 ETF 轮动遇到高价 ETF 时会明显偏离。 |
-| `mega_cap_leader_rotation_dynamic_top20` | `10000 USD` | 可能从 4 只股票降成 1 只股票加 BOXX / 现金。 |
-| `mega_cap_leader_rotation_aggressive` | `10000 USD` | top3 集中持股可能退化成更少股票，整数股会明显改变风险。 |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | 固定 50% Top2 / 50% Top4 袖珍组合需要不等权持仓，小账户整数股会产生明显偏离。 |
-| `dynamic_mega_leveraged_pullback` | `10000 USD` | top3 / max80 的 2x 产品回测，200-1000 USD 账户无法原样复现。 |
 | `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | 默认 24 只股票组合，不适合小账户。 |
 
@@ -383,9 +367,6 @@ cron 配置由各个平台仓库负责：
 ### 研究候选与存档
 
 - `mega_cap_leader_rotation_top50_balanced`：已注册为 runtime-enabled 月频 profile，消费透明 Top50 月度 snapshot，运行固定 50% Top2 cap50 + 50% Top4 cap25 的组合，不默认使用宽基趋势降仓。
-- `mega_cap_leader_rotation_dynamic_top20`：已降级为 `research_only` 存档；保留历史动态 top20 分支证据，运行候选优先看 Top50 balanced。
-- `mega_cap_leader_rotation_aggressive`：已降级为 `research_only` 存档；保留 Top50 top3/cap35 高集中分支证据，不再作为平台可切换线路。
-- `dynamic_mega_leveraged_pullback`：已降级为 `research_only` 存档；保留 2x 产品回调研究和 replay 能力，不把 MAGS/TACO 路线接入运行时。
 - `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation

@@ -11,9 +11,6 @@ from quant_platform_kit.strategy_contracts import (
 )
 
 from us_equity_strategies.catalog import (
-    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE,
-    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE,
-    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     get_strategy_definition,
@@ -21,8 +18,7 @@ from us_equity_strategies.catalog import (
     resolve_canonical_profile,
 )
 from us_equity_strategies.strategies import (
-    dynamic_mega_leveraged_pullback as dynamic_mega_leveraged_pullback_strategy,
-    mega_cap_leader_rotation_dynamic_top20 as mega_cap_leader_rotation_dynamic_top20_strategy,
+    mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     qqq_tech_enhancement as qqq_tech_enhancement_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
 )
@@ -81,60 +77,18 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         ),
         runtime_policy=StrategyRuntimePolicy(reconciliation_output_policy="optional"),
     ),
-    MEGA_CAP_LEADER_ROTATION_DYNAMIC_TOP20_PROFILE: StrategyRuntimeAdapter(
-        status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
-        required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
-        snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
-        max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
-        require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-        snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
-        managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
-        artifact_contract=StrategyArtifactContract(
-            requires_snapshot_artifacts=True,
-            requires_snapshot_manifest_path=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-            snapshot_contract_version=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_CONTRACT_VERSION,
-        ),
-    ),
-    MEGA_CAP_LEADER_ROTATION_AGGRESSIVE_PROFILE: StrategyRuntimeAdapter(
-        status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
-        required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
-        snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
-        max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
-        require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-        snapshot_contract_version="mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
-        managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
-        artifact_contract=StrategyArtifactContract(
-            requires_snapshot_artifacts=True,
-            requires_snapshot_manifest_path=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-            snapshot_contract_version="mega_cap_leader_rotation_aggressive.feature_snapshot.v1",
-        ),
-    ),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: StrategyRuntimeAdapter(
-        status_icon=mega_cap_leader_rotation_dynamic_top20_strategy.STATUS_ICON,
-        required_feature_columns=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRED_FEATURE_COLUMNS,
-        snapshot_date_columns=mega_cap_leader_rotation_dynamic_top20_strategy.SNAPSHOT_DATE_COLUMNS,
-        max_snapshot_month_lag=mega_cap_leader_rotation_dynamic_top20_strategy.MAX_SNAPSHOT_MONTH_LAG,
-        require_snapshot_manifest=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+        status_icon=mega_cap_leader_rotation_strategy.STATUS_ICON,
+        required_feature_columns=mega_cap_leader_rotation_strategy.REQUIRED_FEATURE_COLUMNS,
+        snapshot_date_columns=mega_cap_leader_rotation_strategy.SNAPSHOT_DATE_COLUMNS,
+        max_snapshot_month_lag=mega_cap_leader_rotation_strategy.MAX_SNAPSHOT_MONTH_LAG,
+        require_snapshot_manifest=mega_cap_leader_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
         snapshot_contract_version="mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
-        managed_symbols_extractor=mega_cap_leader_rotation_dynamic_top20_strategy.extract_managed_symbols,
+        managed_symbols_extractor=mega_cap_leader_rotation_strategy.extract_managed_symbols,
         artifact_contract=StrategyArtifactContract(
             requires_snapshot_artifacts=True,
-            requires_snapshot_manifest_path=mega_cap_leader_rotation_dynamic_top20_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            requires_snapshot_manifest_path=mega_cap_leader_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
             snapshot_contract_version="mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
-        ),
-    ),
-    DYNAMIC_MEGA_LEVERAGED_PULLBACK_PROFILE: StrategyRuntimeAdapter(
-        status_icon=dynamic_mega_leveraged_pullback_strategy.STATUS_ICON,
-        required_feature_columns=dynamic_mega_leveraged_pullback_strategy.REQUIRED_FEATURE_COLUMNS,
-        snapshot_date_columns=dynamic_mega_leveraged_pullback_strategy.SNAPSHOT_DATE_COLUMNS,
-        max_snapshot_month_lag=dynamic_mega_leveraged_pullback_strategy.MAX_SNAPSHOT_MONTH_LAG,
-        require_snapshot_manifest=dynamic_mega_leveraged_pullback_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-        snapshot_contract_version=dynamic_mega_leveraged_pullback_strategy.SNAPSHOT_CONTRACT_VERSION,
-        managed_symbols_extractor=dynamic_mega_leveraged_pullback_strategy.extract_managed_symbols,
-        artifact_contract=StrategyArtifactContract(
-            requires_snapshot_artifacts=True,
-            requires_snapshot_manifest_path=dynamic_mega_leveraged_pullback_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-            snapshot_contract_version=dynamic_mega_leveraged_pullback_strategy.SNAPSHOT_CONTRACT_VERSION,
         ),
     ),
 }
