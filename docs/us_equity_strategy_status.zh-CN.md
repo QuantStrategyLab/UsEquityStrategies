@@ -1,10 +1,12 @@
 # 美股策略状态与研究手册
 
-_更新日期：2026-05-01_
+_更新日期：2026-05-04_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
 
 策略实现以 `UsEquityStrategies` 为准；feature snapshot、研究回测和插件 artifact 由 `UsEquitySnapshotPipelines` 负责；券商连接、下单、通知和日志由各平台仓库负责。
+
+完整归档索引见 [us_equity_runtime_archive.zh-CN.md](./us_equity_runtime_archive.zh-CN.md)。
 
 ## 当前可配置 profiles
 
@@ -38,6 +40,7 @@ _更新日期：2026-05-01_
 | 策略 / 研究版本 | 样本 | CAGR | 最大回撤 | 关键结论 | 数据出处 |
 | --- | --- | ---: | ---: | --- | --- |
 | `tqqq_growth_income` 的可执行近似版 `video_like_pullback_next_close`，5 bps 单边成本 | 2017-01-03 至 2026-04-10 | 33.96% | -31.48% | 明显优于 QQQ CAGR，回撤接近 QQQ；远低于 TQQQ 买入持有的 -81.66% 回撤。当前默认策略在此基础上加入动态波动率回调门槛，因此这是近似证据。 | `InteractiveBrokersPlatform/research/results/video_qqq_tqqq_dual_drive_comparison.csv` |
+| `soxl_soxx_trend_income` 日频回放，100k 初始权益，5 bps 成本 | 2024-01-31 至 2026-05-04 | 98.03% | -39.29% | SOXX 140 日闸门下的半导体趋势收益路径已经有可复查 summary；收入层在权益跨过 150k 后开始逐步参与。 | `UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv` |
 | QQQ 买入持有基准 | 2017-01-03 至 2026-04-10 | 20.18% | -35.12% | TQQQ 双轮策略的主要比较基准。 | 同上 |
 | TQQQ 买入持有参考 | 2017-01-03 至 2026-04-10 | 37.77% | -81.66% | 收益高但回撤过深，只作风险参照。 | 同上 |
 | Top50 `blend_top2_50_top4_50`，21 日 universe lag | 2017-10-02 至 2026-04-16 | 36.41% | -30.56% | 当前最强无杠杆候选之一；回撤可接受但 Top2 袖子带来集中风险，需要 paper 观察。 | `UsEquitySnapshotPipelines/data/output/mega_cap_leader_rotation_dynamic_top50_concentration_variants/concentration_variant_summary.csv` |
@@ -46,8 +49,7 @@ _更新日期：2026-05-01_
 
 暂时没有写进正式表的内容：
 
-- `soxl_soxx_trend_income`：当前策略逻辑和测试覆盖完整，但还缺一份可直接复查的长期 backtest summary。
-- `global_etf_rotation`、`russell_1000_multi_factor_defensive`、`tech_communication_pullback_enhancement`：当前有策略逻辑、snapshot/publish 流水线或命令，但缺少统一归档的 promoted backtest 表。
+- `global_etf_rotation`：已完成阈值 4 版本复核，归档索引已更新为可保留版本；该版 CAGR 13.25%，最大回撤 -23.29%，优于 SPY 的回撤。
 
 ## 研究中但未进入实盘的方向
 
