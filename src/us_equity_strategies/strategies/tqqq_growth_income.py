@@ -97,11 +97,11 @@ def build_rebalance_plan(
 
     strategy_symbols = ["TQQQ", unlevered_symbol, "BOXX", "SPYI", "QQQI"]
     market_values = {symbol: 0.0 for symbol in strategy_symbols}
-    quantities = {symbol: 0 for symbol in strategy_symbols}
+    quantities = {symbol: 0.0 for symbol in strategy_symbols}
     for position in snapshot.positions:
         if position.symbol in market_values:
             market_values[position.symbol] = float(position.market_value)
-            quantities[position.symbol] = int(position.quantity)
+            quantities[position.symbol] = float(position.quantity)
 
     total_equity = snapshot.total_equity
     real_buying_power = float(snapshot.buying_power or 0.0)
@@ -204,7 +204,7 @@ def build_rebalance_plan(
         "holdings": {
             symbol: {
                 "market_value": float(market_values[symbol]),
-                "quantity": int(quantities[symbol]),
+                "quantity": float(quantities[symbol]),
             }
             for symbol in strategy_symbols
         },
