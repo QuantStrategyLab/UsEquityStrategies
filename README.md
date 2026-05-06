@@ -89,17 +89,19 @@ Cloud Scheduler / GitHub Actions cron settings:
 
 ### Account-size suitability
 
-Current platform runtimes place **integer-share** orders. They do not assume
-fractional-share execution. Small accounts can therefore diverge materially from
-the weight-based research backtests, especially for multi-stock strategies and
-high-priced ETFs. Live entrypoints do not hard-block small accounts, but they
-emit `small_account_warning=true` in diagnostics when account equity is below
-the suggested minimum.
+Platform runtimes must adapt order sizing to broker capability. Schwab remains
+integer-share only; LongBridge supports fractional-share execution. IBKR remains
+whole-share by default because TWS API fractional order support must be verified
+per account/API path before enabling the runtime quantity step. Small accounts
+can still diverge from weight-based research backtests on integer-share platforms
+or symbols that do not support fractional execution. Live entrypoints do not
+hard-block small accounts, but they emit `small_account_warning=true` in
+diagnostics when account equity is below the suggested minimum.
 
 | Canonical profile | Suggested minimum equity | Small-account behavior |
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | Most suitable for small accounts; TQQQ can usually trade, but BOXX/cash targets may drift. |
-| `soxl_soxx_trend_income` | `1000 USD` | Can run with drift; SOXX/BOXX legs may be skipped when target value cannot buy 1 share. |
+| `soxl_soxx_trend_income` | `1000 USD` | Can run with drift on integer-share platforms; fractional-share runtimes can express the small SOXX/BOXX legs more closely. |
 | `global_etf_rotation` | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account. |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | The fixed 50% Top2 / 50% Top4 sleeve blend can drift when integer shares cannot represent the intended unequal weights. |
 | `tech_communication_pullback_enhancement` (`qqq_tech_enhancement` legacy alias) | `10000 USD` | Small accounts reduce position count and single-name concentration rises. |
@@ -351,12 +353,12 @@ cron 配置由各个平台仓库负责：
 
 ### 小资金适用性
 
-当前平台运行时按**整数股**下单，不假设碎股执行。因此小账户会明显偏离按权重回测得到的收益和回撤，尤其是多股票组合和高价 ETF。live entrypoint 不会硬性禁止小账户运行，但当账户净值低于建议资金时，会在 diagnostics 里输出 `small_account_warning=true`。
+平台运行时必须按券商能力适配下单数量。Schwab 仍按整数股执行；LongBridge 支持碎股执行。IBKR 默认仍按整数股执行，因为 TWS API 是否能接受碎股单需要按账户/API 路径实测确认后才能打开运行时数量步进。小账户在整数股平台或不支持碎股的标的上仍会明显偏离按权重回测得到的收益和回撤。live entrypoint 不会硬性禁止小账户运行，但当账户净值低于建议资金时，会在 diagnostics 里输出 `small_account_warning=true`。
 
 | Canonical profile | 建议最低资金 | 小资金表现 |
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | 最适合小账户；通常能买到 TQQQ，但 BOXX / 现金层会有偏差。 |
-| `soxl_soxx_trend_income` | `1000 USD` | 可以运行但会偏离；SOXX / BOXX 目标金额不够买 1 股时会跳过。 |
+| `soxl_soxx_trend_income` | `1000 USD` | 整数股平台会有偏离；支持碎股的运行时可以更接近小额 SOXX / BOXX 目标仓位。 |
 | `global_etf_rotation` | `3000 USD` | Top2 ETF 轮动遇到高价 ETF 时会明显偏离。 |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | 固定 50% Top2 / 50% Top4 袖珍组合需要不等权持仓，小账户整数股会产生明显偏离。 |
 | `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |

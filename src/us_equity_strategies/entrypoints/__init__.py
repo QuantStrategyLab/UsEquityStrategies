@@ -342,15 +342,21 @@ tqqq_growth_income_strategy.build_rebalance_plan.__doc__ = (
 
 def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_symbols: tuple[str, ...]) -> dict[str, object]:
     market_values = {symbol: 0.0 for symbol in strategy_symbols}
-    quantities = {symbol: 0 for symbol in strategy_symbols}
-    sellable_quantities = {symbol: 0 for symbol in strategy_symbols}
+    quantities = {symbol: 0.0 for symbol in strategy_symbols}
+    sellable_quantities = {symbol: 0.0 for symbol in strategy_symbols}
+    metadata = getattr(portfolio, "metadata", {}) or {}
+    raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else {}
     for position in getattr(portfolio, "positions", ()):
         if position.symbol not in market_values:
             continue
         market_values[position.symbol] = float(position.market_value)
-        quantity = int(position.quantity)
+        quantity = float(position.quantity)
         quantities[position.symbol] = quantity
-        sellable_quantities[position.symbol] = quantity
+        sellable_quantities[position.symbol] = float(
+            raw_sellable_quantities.get(position.symbol, quantity)
+            if isinstance(raw_sellable_quantities, Mapping)
+            else quantity
+        )
     available_cash = float(
         getattr(portfolio, "buying_power", None)
         or getattr(portfolio, "cash_balance", None)

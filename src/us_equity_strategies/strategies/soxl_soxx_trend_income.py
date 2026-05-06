@@ -347,7 +347,7 @@ def build_rebalance_plan(
         "holdings": {
             symbol: {
                 "market_value": float(market_values[symbol]),
-                "quantity": int(quantities[symbol]),
+                "quantity": float(quantities[symbol]),
             }
             for symbol in strategy_assets
         },
