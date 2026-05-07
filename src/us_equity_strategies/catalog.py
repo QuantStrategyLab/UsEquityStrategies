@@ -17,6 +17,7 @@ from quant_platform_kit.common.strategies import (
 )
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
+GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
@@ -29,6 +30,7 @@ FULL_SHARED_PLATFORM_MATRIX = frozenset({"ibkr", "schwab", "longbridge", "paper_
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     TQQQ_GROWTH_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     SOXL_SOXX_TREND_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
@@ -38,6 +40,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"market_history"}),
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: frozenset({"market_history"}),
     TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
@@ -58,6 +61,33 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "canary_bad_threshold": 4,
         "rebalance_months": (3, 6, 9, 12),
         "sma_period": 200,
+        "confidence_weighting_enabled": False,
+        "confidence_metric": "z_gap",
+        "confidence_threshold": 1.0,
+        "confidence_top1_weight": 0.75,
+        "confidence_volatility_gate_enabled": False,
+        "confidence_volatility_window": 126,
+        "confidence_volatility_max_ratio": 1.3,
+    },
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: {
+        "ranking_pool": (
+            "EWY", "EWT", "INDA", "FXI", "EWJ", "VGK", "VOO", "XLK", "SMH", "GLD",
+            "SLV", "USO", "DBA", "XLE", "XLF", "ITA", "XLP", "XLU", "XLV", "IHI", "VNQ", "KRE",
+        ),
+        "canary_assets": ("SPY", "EFA", "EEM", "AGG"),
+        "safe_haven": "BIL",
+        "top_n": 2,
+        "hold_bonus": 0.02,
+        "canary_bad_threshold": 4,
+        "rebalance_months": (3, 6, 9, 12),
+        "sma_period": 250,
+        "confidence_weighting_enabled": True,
+        "confidence_metric": "z_gap",
+        "confidence_threshold": 1.0,
+        "confidence_top1_weight": 0.75,
+        "confidence_volatility_gate_enabled": True,
+        "confidence_volatility_window": 126,
+        "confidence_volatility_max_ratio": 1.3,
     },
     TQQQ_GROWTH_INCOME_PROFILE: {
         "benchmark_symbol": "QQQ",
@@ -167,6 +197,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
 
 STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "global_etf_rotation_entrypoint",
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: "global_etf_confidence_vol_gate_entrypoint",
     TQQQ_GROWTH_INCOME_PROFILE: "tqqq_growth_income_entrypoint",
     SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
@@ -176,6 +207,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
 
 STRATEGY_TARGET_MODES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "weight",
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: "weight",
     TQQQ_GROWTH_INCOME_PROFILE: "value",
     SOXL_SOXX_TREND_INCOME_PROFILE: "value",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
@@ -225,6 +257,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.global_etf_rotation",
     ),
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: _build_strategy_definition(
+        GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.global_etf_rotation",
+    ),
     TQQQ_GROWTH_INCOME_PROFILE: _build_strategy_definition(
         TQQQ_GROWTH_INCOME_PROFILE,
         component_name="allocation",
@@ -263,6 +300,17 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="global_etf_rotation",
         benchmark="VOO",
         role="defensive_rotation",
+        status="runtime_enabled",
+    ),
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: StrategyMetadata(
+        canonical_profile=GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE,
+        display_name="Global ETF Confidence Vol Gate",
+        description="SMA250 Global ETF rotation with high-confidence 75/25 Top1/Top2 weighting gated by relative volatility.",
+        aliases=(),
+        cadence="quarterly + daily canary",
+        asset_scope="global_etf_rotation",
+        benchmark="VOO",
+        role="defensive_rotation_research_candidate",
         status="runtime_enabled",
     ),
     TQQQ_GROWTH_INCOME_PROFILE: StrategyMetadata(

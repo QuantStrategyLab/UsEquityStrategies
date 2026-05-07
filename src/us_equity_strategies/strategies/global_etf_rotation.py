@@ -40,6 +40,7 @@ SMA_PERIOD = 200
 HOLD_BONUS = 0.02
 CANARY_BAD_THRESHOLD = 4
 REBALANCE_MONTHS = {3, 6, 9, 12}
+CONFIDENCE_METRIC_Z_GAP = "z_gap"
 
 
 def _load_nyse_calendar():
@@ -103,6 +104,45 @@ def check_sma(closes: pd.Series, period: int = SMA_PERIOD) -> bool:
     return bool(closes.iloc[-1] > closes.iloc[-period:].mean())
 
 
+def _annualized_volatility(closes: pd.Series, window: int) -> float:
+    if len(closes) <= window:
+        return float("nan")
+    returns = closes.pct_change(fill_method=None).dropna()
+    if len(returns) < window:
+        return float("nan")
+    volatility = returns.iloc[-window:].std()
+    if pd.isna(volatility):
+        return float("nan")
+    return float(volatility * np.sqrt(252))
+
+
+def _score_confidence(sorted_tickers: list[tuple[str, float]], *, metric: str) -> float:
+    if len(sorted_tickers) < 2:
+        return float("nan")
+    gap = float(sorted_tickers[0][1] - sorted_tickers[1][1])
+    if metric == CONFIDENCE_METRIC_Z_GAP:
+        dispersion = float(np.nanstd([score for _ticker, score in sorted_tickers]))
+        if dispersion <= 0.0 or np.isnan(dispersion):
+            return float("nan")
+        return gap / dispersion
+    return gap
+
+
+def _passes_relative_volatility_gate(
+    price_data: dict[str, pd.Series],
+    top1: str,
+    top2: str,
+    *,
+    window: int,
+    max_ratio: float,
+) -> tuple[bool, float, float]:
+    top1_vol = _annualized_volatility(price_data.get(top1, pd.Series(dtype=float)), window)
+    top2_vol = _annualized_volatility(price_data.get(top2, pd.Series(dtype=float)), window)
+    if np.isnan(top1_vol) or np.isnan(top2_vol) or top2_vol <= 0.0:
+        return False, top1_vol, top2_vol
+    return top1_vol <= top2_vol * max_ratio, top1_vol, top2_vol
+
+
 def compute_signals(
     ib,
     current_holdings,
@@ -119,11 +159,20 @@ def compute_signals(
     translator: Callable,
     pacing_sec: float,
     sma_period: int = SMA_PERIOD,
+    confidence_weighting_enabled: bool = False,
+    confidence_metric: str = CONFIDENCE_METRIC_Z_GAP,
+    confidence_threshold: float = 1.0,
+    confidence_top1_weight: float = 0.75,
+    confidence_volatility_gate_enabled: bool = False,
+    confidence_volatility_window: int = 126,
+    confidence_volatility_max_ratio: float = 1.3,
 ):
     """
     Compute target weights.
     Returns (weights_dict, signal_description, is_emergency, canary_str).
     """
+    ranking_pool = list(ranking_pool)
+    canary_assets = list(canary_assets)
     all_tickers = list(set(ranking_pool + canary_assets + [safe_haven]))
     price_data = {}
     for ticker in all_tickers:
@@ -191,9 +240,41 @@ def compute_signals(
 
     per_weight = 1.0 / top_n
     weights = {ticker: per_weight for ticker, _score in top}
+    confidence_note = ""
+    if confidence_weighting_enabled and top_n == 2 and len(top) == 2:
+        confidence = _score_confidence(sorted_tickers, metric=str(confidence_metric))
+        top1, top2 = top[0][0], top[1][0]
+        use_confidence_weight = not np.isnan(confidence) and confidence >= float(confidence_threshold)
+        top1_vol = top2_vol = float("nan")
+        if use_confidence_weight and confidence_volatility_gate_enabled:
+            use_confidence_weight, top1_vol, top2_vol = _passes_relative_volatility_gate(
+                price_data,
+                top1,
+                top2,
+                window=int(confidence_volatility_window),
+                max_ratio=float(confidence_volatility_max_ratio),
+            )
+        if use_confidence_weight:
+            top1_weight = min(1.0, max(per_weight, float(confidence_top1_weight)))
+            weights = {top1: top1_weight, top2: 1.0 - top1_weight}
+            confidence_note = (
+                f"\n  Confidence: {confidence:.3f} >= {float(confidence_threshold):.3f}; "
+                f"{top1} weight {top1_weight:.1%}"
+            )
+        else:
+            confidence_note = (
+                f"\n  Confidence: {confidence:.3f}"
+                if not np.isnan(confidence)
+                else "\n  Confidence: n/a"
+            )
+        if confidence_volatility_gate_enabled and not np.isnan(top1_vol) and not np.isnan(top2_vol):
+            confidence_note += (
+                f"; vol {top1}/{top2}: {top1_vol:.1%}/{top2_vol:.1%}, "
+                f"max ratio {float(confidence_volatility_max_ratio):.2f}"
+            )
     if len(top) < top_n:
         weights[safe_haven] = weights.get(safe_haven, 0) + per_weight * (top_n - len(top))
 
     top_str = ", ".join(f"{ticker}({score:.3f})" for ticker, score in top)
-    signal_desc = translator("quarterly", n=top_n) + f"\n  Top: {top_str}"
+    signal_desc = translator("quarterly", n=top_n) + f"\n  Top: {top_str}{confidence_note}"
     return weights, signal_desc, False, canary_str

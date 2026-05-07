@@ -14,6 +14,7 @@ from us_equity_strategies.account_sizing import (
     build_account_size_diagnostics_from_context,
 )
 from us_equity_strategies.manifests import (
+    global_etf_confidence_vol_gate_manifest,
     global_etf_rotation_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
     qqq_tech_enhancement_manifest,
@@ -200,8 +201,8 @@ def _build_tqqq_benchmark_text(notification_context: Mapping[str, object] | None
     )
 
 
-def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(global_etf_rotation_manifest.default_config, ctx)
+def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifest) -> StrategyDecision:
+    config = merge_runtime_config(manifest.default_config, ctx)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
@@ -222,7 +223,7 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
         "canary_status": canary_str,
         "actionable": weights is not None,
     }
-    diagnostics.update(_account_size_diagnostics(global_etf_rotation_manifest.profile, ctx))
+    diagnostics.update(_account_size_diagnostics(manifest.profile, ctx))
     diagnostics["signal_description"] = append_account_size_warning(
         str(diagnostics["signal_description"]),
         diagnostics,
@@ -248,6 +249,14 @@ def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
+
+
+def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
+    return _evaluate_global_etf_rotation_with_manifest(ctx, manifest=global_etf_rotation_manifest)
+
+
+def evaluate_global_etf_confidence_vol_gate(ctx: StrategyContext) -> StrategyDecision:
+    return _evaluate_global_etf_rotation_with_manifest(ctx, manifest=global_etf_confidence_vol_gate_manifest)
 
 
 GLOBAL_ETF_ROTATION_LEGACY_DOC = "Legacy compute_signals adapter retained for platform compatibility."
@@ -709,6 +718,10 @@ global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=global_etf_rotation_manifest,
     _evaluate=evaluate_global_etf_rotation,
 )
+global_etf_confidence_vol_gate_entrypoint = CallableStrategyEntrypoint(
+    manifest=global_etf_confidence_vol_gate_manifest,
+    _evaluate=evaluate_global_etf_confidence_vol_gate,
+)
 tqqq_growth_income_entrypoint = CallableStrategyEntrypoint(
     manifest=tqqq_growth_income_manifest,
     _evaluate=evaluate_tqqq_growth_income,
@@ -733,12 +746,14 @@ mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
 
 __all__ = [
     "global_etf_rotation_entrypoint",
+    "global_etf_confidence_vol_gate_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_top50_balanced_entrypoint",
     "evaluate_global_etf_rotation",
+    "evaluate_global_etf_confidence_vol_gate",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",

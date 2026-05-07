@@ -11,6 +11,7 @@ from quant_platform_kit.strategy_contracts import (
 )
 
 from us_equity_strategies.catalog import (
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     get_strategy_definition,
@@ -42,6 +43,10 @@ PLATFORM_NATIVE_TARGET_MODES: dict[str, str] = {
 
 BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     "global_etf_rotation": StrategyRuntimeAdapter(
+        status_icon="🐤",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
+    ),
+    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE: StrategyRuntimeAdapter(
         status_icon="🐤",
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
     ),
