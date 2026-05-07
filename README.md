@@ -276,6 +276,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - If `SOXX > MA140 * 1.08`, the core sleeve targets `SOXL 70% + SOXX 20%`.
 - If `SOXX > MA140 * 1.06`, or an existing SOXL sleeve has not broken `MA140 * 0.98`, the core sleeve targets `SOXL 65% + SOXX 20%`.
 - If the gate is off, the core sleeve holds defensive `SOXX 15%`.
+- Overheat controls are active on the live profile: when the base tier is full or mid, `SOXX` RSI14 above the effective threshold and/or a break above the upper Bollinger band downgrade the tier by one step per trigger.
+- The live RSI threshold is dynamic: `max(70, prior 252 trading days RSI14 90th percentile)`, with `70` as the fallback floor when the dynamic indicator is unavailable.
 - Unused trading-layer capital is parked in `BOXX`.
 
 **Sizing behavior**
@@ -297,6 +299,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `ATTACK_ALLOCATION_MODE = soxx_gate_tiered_blend`
 - `BLEND_GATE_SOXL_WEIGHT = 0.70`, `BLEND_GATE_MID_SOXL_WEIGHT = 0.65`
 - `BLEND_GATE_ACTIVE_SOXX_WEIGHT = 0.20`, `BLEND_GATE_DEFENSIVE_SOXX_WEIGHT = 0.15`
+- RSI overheat enabled with dynamic threshold `max(70, rolling 252d RSI14 q90)`
+- Bollinger overheat enabled; stacked RSI + Bollinger triggers can downgrade full directly to defensive
 - Gate buffers: entry `8%`, mid `6%`, exit `2%`
 - Income layer starts at `150000 USD`, caps at `15%`
 - Income split: `QQQI 70%`, `SPYI 30%`
@@ -532,6 +536,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 如果 `SOXX > MA140 * 1.08`，核心层目标为 `SOXL 70% + SOXX 20%`。
 - 如果 `SOXX > MA140 * 1.06`，或已有 SOXL 仓位尚未跌破 `MA140 * 0.98`，核心层目标为 `SOXL 65% + SOXX 20%`。
 - 如果趋势闸门关闭，核心层防守目标为 `SOXX 15%`。
+- 线上 profile 启用过热控制：基础档位为 full 或 mid 时，如果 `SOXX` RSI14 高于有效阈值，和/或价格突破布林上轨，会按触发项逐级降档。
+- 线上 RSI 阈值为动态阈值：`max(70, 过去 252 个交易日 RSI14 的 90% 分位数)`；动态指标缺失时以 `70` 作为 fallback floor。
 - 交易层没有部署出去的资金停在 `BOXX`。
 
 **仓位规则**
@@ -553,6 +559,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `ATTACK_ALLOCATION_MODE = soxx_gate_tiered_blend`
 - `BLEND_GATE_SOXL_WEIGHT = 0.70`，`BLEND_GATE_MID_SOXL_WEIGHT = 0.65`
 - `BLEND_GATE_ACTIVE_SOXX_WEIGHT = 0.20`，`BLEND_GATE_DEFENSIVE_SOXX_WEIGHT = 0.15`
+- RSI 过热已启用，动态阈值为 `max(70, rolling 252d RSI14 q90)`
+- 布林带过热已启用；RSI + 布林带双触发时，full 可直接降到 defensive
 - 闸门缓冲：入场 `8%`，中档 `6%`，退出 `2%`
 - 收入层起点 `150000 USD`，上限 `15%`
 - 收入层配比：`QQQI 70%`，`SPYI 30%`
