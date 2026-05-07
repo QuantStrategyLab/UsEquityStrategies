@@ -456,6 +456,41 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "market_status_blend_gate_overlay_capped",
         )
 
+        dynamic_hold_plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {
+                    "price": 109.0,
+                    "ma_trend": 100.0,
+                    "rsi14": 75.0,
+                    "rsi14_dynamic_threshold": 78.0,
+                    "bb_upper": 120.0,
+                },
+            },
+            account_state,
+            **{**common_kwargs, "blend_gate_dynamic_rsi_threshold_enabled": True},
+        )
+        self.assertEqual(dynamic_hold_plan["blend_tier"], "full")
+        self.assertEqual(dynamic_hold_plan["overlay_trigger_count"], 0)
+        self.assertEqual(dynamic_hold_plan["trend_rsi14_effective_threshold"], 78.0)
+
+        dynamic_mid_plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {
+                    "price": 109.0,
+                    "ma_trend": 100.0,
+                    "rsi14": 79.0,
+                    "rsi14_dynamic_threshold": 78.0,
+                    "bb_upper": 120.0,
+                },
+            },
+            account_state,
+            **{**common_kwargs, "blend_gate_dynamic_rsi_threshold_enabled": True},
+        )
+        self.assertEqual(dynamic_mid_plan["blend_tier"], "mid")
+        self.assertEqual(dynamic_mid_plan["overlay_trigger_codes"], ("blend_gate_reason_rsi_cap",))
+
         defensive_plan = build_soxl_soxx_plan(
             {
                 "soxl": {"price": 50.0, "ma_trend": 45.0},

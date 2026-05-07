@@ -124,6 +124,7 @@ soxl_soxx_trend_income_manifest = _manifest(
         "blend_gate_defensive_soxx_weight": 0.15,
         "blend_gate_rsi_cap_enabled": True,
         "blend_gate_rsi_threshold": 70.0,
+        "blend_gate_dynamic_rsi_threshold_enabled": True,
         "blend_gate_bollinger_cap_enabled": True,
         "blend_gate_overlay_stack_triggers": True,
     },

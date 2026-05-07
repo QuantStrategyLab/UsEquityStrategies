@@ -134,6 +134,7 @@ def build_rebalance_plan(
     blend_gate_defensive_soxx_weight=0.15,
     blend_gate_rsi_cap_enabled=False,
     blend_gate_rsi_threshold=70.0,
+    blend_gate_dynamic_rsi_threshold_enabled=False,
     blend_gate_bollinger_cap_enabled=False,
     blend_gate_overlay_stack_triggers=False,
 ):
@@ -181,6 +182,9 @@ def build_rebalance_plan(
     trend_ma20 = _as_float_or_none(_indicator_value(indicators, trend_symbol, "ma20"))
     trend_ma20_slope = _as_float_or_none(_indicator_value(indicators, trend_symbol, "ma20_slope"))
     trend_rsi14 = _as_float_or_none(_indicator_value(indicators, trend_symbol, "rsi14"))
+    trend_rsi14_dynamic_threshold = _as_float_or_none(
+        _indicator_value(indicators, trend_symbol, "rsi14_dynamic_threshold")
+    )
     trend_bb_mid = _as_float_or_none(_indicator_value(indicators, trend_symbol, "bb_mid"))
     trend_bb_upper = _as_float_or_none(_indicator_value(indicators, trend_symbol, "bb_upper"))
     trend_bb_lower = _as_float_or_none(_indicator_value(indicators, trend_symbol, "bb_lower"))
@@ -197,11 +201,15 @@ def build_rebalance_plan(
     target_active_soxx_ratio = _as_clamped_ratio(blend_gate_active_soxx_weight, default=0.20)
     target_defensive_soxx_ratio = _as_clamped_ratio(blend_gate_defensive_soxx_weight, default=0.15)
     use_rsi_cap = _as_bool(blend_gate_rsi_cap_enabled, default=False)
+    use_dynamic_rsi_threshold = _as_bool(blend_gate_dynamic_rsi_threshold_enabled, default=False)
     use_bollinger_cap = _as_bool(blend_gate_bollinger_cap_enabled, default=False)
     stack_overlay_triggers = _as_bool(blend_gate_overlay_stack_triggers, default=False)
     rsi_threshold = _as_float_or_none(blend_gate_rsi_threshold)
     if rsi_threshold is None:
         rsi_threshold = 70.0
+    effective_rsi_threshold = rsi_threshold
+    if use_dynamic_rsi_threshold and trend_rsi14_dynamic_threshold is not None:
+        effective_rsi_threshold = max(rsi_threshold, trend_rsi14_dynamic_threshold)
 
     blend_tier = "defensive"
     if trend_price > trend_entry_line:
@@ -212,10 +220,10 @@ def build_rebalance_plan(
     overlay_trigger_reasons: list[str] = []
     overlay_trigger_codes: list[str] = []
     if base_blend_tier in {"full", "mid"}:
-        if use_rsi_cap and trend_rsi14 is not None and trend_rsi14 > rsi_threshold:
+        if use_rsi_cap and trend_rsi14 is not None and trend_rsi14 > effective_rsi_threshold:
             overlay_trigger_codes.append("blend_gate_reason_rsi_cap")
             overlay_trigger_reasons.append(
-                _translate_with_fallback(translator, "blend_gate_reason_rsi_cap", f"RSI>{rsi_threshold:.0f}")
+                _translate_with_fallback(translator, "blend_gate_reason_rsi_cap", f"RSI>{effective_rsi_threshold:.0f}")
             )
         if use_bollinger_cap and trend_bb_upper is not None and trend_price > trend_bb_upper:
             overlay_trigger_codes.append("blend_gate_reason_bollinger_cap")
@@ -331,6 +339,8 @@ def build_rebalance_plan(
         "ma20": trend_ma20,
         "ma20_slope": trend_ma20_slope,
         "rsi14": trend_rsi14,
+        "rsi14_dynamic_threshold": trend_rsi14_dynamic_threshold,
+        "rsi14_effective_threshold": effective_rsi_threshold,
         "bb_mid": trend_bb_mid,
         "bb_upper": trend_bb_upper,
         "bb_lower": trend_bb_lower,
@@ -401,11 +411,14 @@ def build_rebalance_plan(
         "trend_ma20": trend_ma20,
         "trend_ma20_slope": trend_ma20_slope,
         "trend_rsi14": trend_rsi14,
+        "trend_rsi14_dynamic_threshold": trend_rsi14_dynamic_threshold,
+        "trend_rsi14_effective_threshold": effective_rsi_threshold,
         "trend_bb_mid": trend_bb_mid,
         "trend_bb_upper": trend_bb_upper,
         "trend_bb_lower": trend_bb_lower,
         "blend_gate_rsi_cap_enabled": use_rsi_cap,
         "blend_gate_rsi_threshold": rsi_threshold,
+        "blend_gate_dynamic_rsi_threshold_enabled": use_dynamic_rsi_threshold,
         "blend_gate_bollinger_cap_enabled": use_bollinger_cap,
         "blend_gate_overlay_stack_triggers": stack_overlay_triggers,
     }

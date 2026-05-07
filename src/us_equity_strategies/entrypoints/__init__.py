@@ -442,6 +442,8 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "trend_ma20": plan.get("trend_ma20"),
         "trend_ma20_slope": plan.get("trend_ma20_slope"),
         "trend_rsi14": plan.get("trend_rsi14"),
+        "trend_rsi14_dynamic_threshold": plan.get("trend_rsi14_dynamic_threshold"),
+        "trend_rsi14_effective_threshold": plan.get("trend_rsi14_effective_threshold"),
         "trend_bb_upper": plan.get("trend_bb_upper"),
         **account_size_diagnostics,
         "execution_annotations": {
@@ -476,6 +478,8 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "trend_ma20": plan.get("trend_ma20"),
             "trend_ma20_slope": plan.get("trend_ma20_slope"),
             "trend_rsi14": plan.get("trend_rsi14"),
+            "trend_rsi14_dynamic_threshold": plan.get("trend_rsi14_dynamic_threshold"),
+            "trend_rsi14_effective_threshold": plan.get("trend_rsi14_effective_threshold"),
             "trend_bb_upper": plan.get("trend_bb_upper"),
         },
     }
