@@ -1,6 +1,6 @@
 # 美股策略状态与研究手册
 
-_更新日期：2026-05-04_
+_更新日期：2026-05-08_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
 
@@ -10,11 +10,12 @@ _更新日期：2026-05-04_
 
 ## 当前可配置 profiles
 
-这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否实盘启用仍由各部署配置和风控决定。
+这 7 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否实盘启用仍由各部署配置和风控决定。
 
 | Profile | 中文定位 | 输入类型 | 特点 | 当前建议 |
 | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | 全球 ETF 防守轮动 | 直接运行输入 | 季度 Top2 ETF 轮动，每日 canary 防守，弱市切 `BIL`。 | 可切换；偏低波动防守线。 |
+| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | 直接运行输入 | `global_etf_rotation` 的 SMA250 实验变体；高置信且 Top1 相对波动不过高时切 `75% / 25%`。 | 可做 paper / 小比例观察；不是替代默认档。 |
 | `tqqq_growth_income` | TQQQ 增长收益 | 直接运行输入 | `QQQ` / `TQQQ` 双轮增长，默认 `45% / 45% / 8% BOXX / 2% cash`；`QQQM` 可作为低单价交易代理。 | 小账户最容易落地；不需要 snapshot artifact。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | 直接运行输入 | 以 `SOXX` 140 日趋势闸门控制 `SOXL` / `SOXX` / `BOXX`；剩余资金停 BOXX，可叠加收入层。 | 半导体高弹性直接输入策略；波动高于宽基。 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | feature snapshot | 科技/通信个股月频选择，受控回调入场，保留 BOXX 缓冲。 | 需要月度 snapshot；适合先小比例或观察运行。 |
@@ -45,6 +46,7 @@ _更新日期：2026-05-04_
 | TQQQ 买入持有参考 | 2017-01-03 至 2026-04-10 | 37.77% | -81.66% | 收益高但回撤过深，只作风险参照。 | 同上 |
 | Top50 `blend_top2_50_top4_50`，21 日 universe lag | 2017-10-02 至 2026-04-16 | 36.41% | -30.56% | 当前最强无杠杆候选之一；回撤可接受但 Top2 袖子带来集中风险，需要 paper 观察。 | `UsEquitySnapshotPipelines/data/output/mega_cap_leader_rotation_dynamic_top50_concentration_variants/concentration_variant_summary.csv` |
 | Top50 `top2_cap50_no_defense`，21 日 universe lag | 2017-10-02 至 2026-04-16 | 39.83% | -38.79% | 收益最高但两只股票 50/50 太集中，只作为 aggressive research 证据，不作为默认。 | `UsEquitySnapshotPipelines/docs/mega-cap-leader-rotation-dynamic-validation.md` |
+| `global_etf_confidence_vol_gate` production-like 研究 | 2015-01-05 至 2026-05-06 | 14.77% | -23.35% | 相比同口径 Top2/SMA250 的 13.60% CAGR、-23.35% 回撤，收益和 Sharpe 改善；仍未跑赢 QQQ 长期 CAGR，因此只作为 Global ETF 自身增强候选。 | [`docs/research/global_etf_confidence_vol_gate.md`](./research/global_etf_confidence_vol_gate.md) |
 | Crisis unified response historical research，含旧 5% TACO 袖子 | 1999-03-10 至 2026-04-16 | 23.89% | -56.04% | 相比合成 TQQQ 基线显著降低 2000/2008 级别灾难回撤；但该历史版本包含 TACO，不等于当前 defense-only shadow plugin。 | `UsEquitySnapshotPipelines/data/output/crisis_response_audit_trial/external_fragility10_severe10_fin_credit/summary.csv` |
 
 暂时没有写进正式表的内容：
