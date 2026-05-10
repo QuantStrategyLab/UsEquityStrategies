@@ -137,6 +137,12 @@ soxl_soxx_trend_income_manifest = _manifest(
         "blend_gate_dynamic_rsi_threshold_enabled": True,
         "blend_gate_bollinger_cap_enabled": True,
         "blend_gate_overlay_stack_triggers": True,
+        "blend_gate_volatility_delever_enabled": True,
+        "blend_gate_volatility_delever_symbol": "SOXX",
+        "blend_gate_volatility_delever_window": 20,
+        "blend_gate_volatility_delever_threshold": 0.50,
+        "blend_gate_volatility_delever_retention_ratio": 0.0,
+        "blend_gate_volatility_delever_redirect_symbol": "SOXX",
     },
 )
 

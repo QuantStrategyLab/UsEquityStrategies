@@ -392,7 +392,10 @@ class StrategyEntrypointTests(unittest.TestCase):
 
     def test_soxl_soxx_trend_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
-        indicators = {"soxl": {"price": 80.0, "ma_trend": 75.0}}
+        indicators = {
+            "soxl": {"price": 80.0, "ma_trend": 75.0},
+            "soxx": {"price": 80.0, "ma_trend": 75.0, "realized_volatility_20": 0.20},
+        }
         account_state = {
             "available_cash": 10000.0,
             "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 5000.0, "QQQI": 1000.0, "SPYI": 1000.0},
