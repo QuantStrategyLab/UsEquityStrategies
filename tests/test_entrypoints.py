@@ -42,6 +42,13 @@ class StrategyEntrypointTests(unittest.TestCase):
             translator=lambda key, **kwargs: f"{key}:{kwargs}",
             pacing_sec=0.0,
             canary_bad_threshold=0,
+            sma_period=entrypoint.manifest.default_config["sma_period"],
+            confidence_weighting_enabled=entrypoint.manifest.default_config["confidence_weighting_enabled"],
+            confidence_threshold=entrypoint.manifest.default_config["confidence_threshold"],
+            confidence_top1_weight=entrypoint.manifest.default_config["confidence_top1_weight"],
+            confidence_volatility_gate_enabled=entrypoint.manifest.default_config["confidence_volatility_gate_enabled"],
+            confidence_volatility_window=entrypoint.manifest.default_config["confidence_volatility_window"],
+            confidence_volatility_max_ratio=entrypoint.manifest.default_config["confidence_volatility_max_ratio"],
         )
 
         decision = entrypoint.evaluate(
@@ -76,9 +83,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
         self.assertEqual(adapter.runtime_policy.signal_effective_after_trading_days, 1)
         confidence_adapter = get_platform_runtime_adapter("global_etf_confidence_vol_gate", platform_id="ibkr")
-        self.assertEqual(confidence_adapter.available_inputs, frozenset({"market_history"}))
-        self.assertEqual(confidence_adapter.available_capabilities, frozenset({"broker_client"}))
-        self.assertEqual(confidence_adapter.runtime_policy.signal_effective_after_trading_days, 1)
+        self.assertEqual(confidence_adapter, adapter)
+        confidence_entrypoint = get_strategy_entrypoint("global_etf_confidence_vol_gate")
+        self.assertEqual(confidence_entrypoint.manifest.profile, "global_etf_rotation")
         paper_signal_adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id="paper_signal")
         self.assertEqual(paper_signal_adapter.available_inputs, frozenset({"market_history"}))
         self.assertEqual(paper_signal_adapter.available_capabilities, frozenset())

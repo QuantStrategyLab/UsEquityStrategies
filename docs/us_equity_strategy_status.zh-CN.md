@@ -10,12 +10,11 @@ _更新日期：2026-05-08_
 
 ## 当前可配置 profiles
 
-这 7 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否实盘启用仍由各部署配置和风控决定。
+这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否实盘启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
 
 | Profile | 中文定位 | 输入类型 | 特点 | 当前建议 |
 | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | 全球 ETF 防守轮动 | 直接运行输入 | 季度 Top2 ETF 轮动，每日 canary 防守，弱市切 `BIL`。 | 可切换；偏低波动防守线。 |
-| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | 直接运行输入 | `global_etf_rotation` 的 SMA250 实验变体；高置信且 Top1 相对波动不过高时切 `75% / 25%`。 | 可做 paper / 小比例观察；不是替代默认档。 |
+| `global_etf_rotation` | 全球 ETF 防守轮动 | 直接运行输入 | 季度 Top2 ETF 轮动，默认启用 SMA250 置信度 + 相对波动门控；每日 canary 防守，弱市切 `BIL`。 | 默认保留；当前推荐档。 |
 | `tqqq_growth_income` | TQQQ 增长收益 | 直接运行输入 | `QQQ` / `TQQQ` 双轮增长，默认 `45% / 45% / 8% BOXX / 2% cash`；`QQQM` 可作为低单价交易代理。 | 小账户最容易落地；不需要 snapshot artifact。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | 直接运行输入 | 以 `SOXX` 140 日趋势闸门控制 `SOXL` / `SOXX` / `BOXX`；剩余资金停 BOXX，可叠加收入层。 | 半导体高弹性直接输入策略；波动高于宽基。 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | feature snapshot | 科技/通信个股月频选择，受控回调入场，保留 BOXX 缓冲。 | 需要月度 snapshot；适合先小比例或观察运行。 |
@@ -51,7 +50,7 @@ _更新日期：2026-05-08_
 
 暂时没有写进正式表的内容：
 
-- `global_etf_rotation`：已完成阈值 4 版本复核，归档索引已更新为可保留版本；该版 CAGR 13.25%，最大回撤 -23.29%，优于 SPY 的回撤。
+- `global_etf_rotation`：已切到 SMA250 置信度 + 相对波动门控的保留版；最新回测 CAGR 13.91%，最大回撤 -23.29%，已替代原先的等权默认档。`global_etf_confidence_vol_gate` 仅保留为同一 runtime profile 的 legacy alias / 回放名。
 
 ## 研究中但未进入实盘的方向
 

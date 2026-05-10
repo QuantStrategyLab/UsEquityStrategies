@@ -4,7 +4,7 @@ _Updated: 2026-05-08_
 
 ## Candidate
 
-`global_etf_confidence_vol_gate` is an experimental variant of `global_etf_rotation`.
+`global_etf_confidence_vol_gate` is the legacy comparison alias for the same signal package now retained by `global_etf_rotation`.
 
 - Universe, canary basket, safe haven, quarterly cadence, 13612W momentum, and hold bonus stay aligned with `global_etf_rotation`.
 - The variant uses `sma_period=250`.
@@ -15,7 +15,7 @@ _Updated: 2026-05-08_
 
 ## Production-Like Backtest Snapshot
 
-The research run used daily close history through 2026-05-07, quarterly rebalances, daily canary checks, and 5 bps turnover cost. The comparison below uses the same SMA250 baseline as the candidate.
+The research run used daily close history through 2026-05-07, quarterly rebalances, daily canary checks, and 5 bps turnover cost. The comparison below uses the same SMA250 baseline as the candidate and matches the current default `global_etf_rotation` defaults.
 
 | Strategy | Sample | CAGR | Max drawdown | Volatility | Sharpe | Final equity |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -27,10 +27,10 @@ The research run used daily close history through 2026-05-07, quarterly rebalanc
 
 The ungated confidence rule improved CAGR but widened drawdown. The relative volatility gate filtered several high-confidence Top1 cases where the leader was much more volatile than the runner-up, bringing max drawdown back to the SMA250 Top2 baseline while preserving higher CAGR and Sharpe.
 
-This does not make the profile a QQQ replacement: QQQ buy-and-hold still has a higher long-run CAGR in the same broad research window. The candidate is only an internal Global ETF enhancement path for operators who want the Global ETF risk profile but are willing to test a modest concentration rule.
+This does not make the profile a QQQ replacement: QQQ buy-and-hold still has a higher long-run CAGR in the same broad research window. The retained default Global ETF profile still keeps the same risk profile; this note is only the audit trail for the parameter set that was folded into that default and the alias kept for regression checks.
 
 ## Rollout Recommendation
 
-- Keep `global_etf_rotation` unchanged as the default defensive profile.
-- Expose `global_etf_confidence_vol_gate` as a separate runtime profile.
-- Use paper or small allocation first; integer-share runtimes may drift more because the candidate can target unequal `75 / 25` weights.
+- Keep `global_etf_rotation` as the default defensive profile.
+- Keep `global_etf_confidence_vol_gate` only as an explicit comparison alias for regression checks.
+- Use paper or small allocation first if you run the `75 / 25` comparison path; integer-share runtimes may drift more because the candidate can target unequal weights.
