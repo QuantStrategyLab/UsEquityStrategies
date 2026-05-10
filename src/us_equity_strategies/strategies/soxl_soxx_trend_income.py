@@ -50,6 +50,14 @@ def _as_bool(value, *, default=False):
     return bool(default)
 
 
+def _as_positive_int(value, *, default: int) -> int:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        result = int(default)
+    return max(1, result)
+
+
 def _downgrade_tier(tier: str, steps: int) -> str:
     tiers = ("full", "mid", "defensive")
     return tiers[min(tiers.index(tier) + steps, len(tiers) - 1)]
@@ -137,6 +145,12 @@ def build_rebalance_plan(
     blend_gate_dynamic_rsi_threshold_enabled=False,
     blend_gate_bollinger_cap_enabled=False,
     blend_gate_overlay_stack_triggers=False,
+    blend_gate_volatility_delever_enabled=False,
+    blend_gate_volatility_delever_symbol="SOXX",
+    blend_gate_volatility_delever_window=20,
+    blend_gate_volatility_delever_threshold=0.50,
+    blend_gate_volatility_delever_retention_ratio=0.0,
+    blend_gate_volatility_delever_redirect_symbol="SOXX",
 ):
     strategy_assets = ["SOXL", "SOXX", "BOXX", "QQQI", "SPYI"]
     available_cash = account_state["available_cash"]
@@ -204,6 +218,34 @@ def build_rebalance_plan(
     use_dynamic_rsi_threshold = _as_bool(blend_gate_dynamic_rsi_threshold_enabled, default=False)
     use_bollinger_cap = _as_bool(blend_gate_bollinger_cap_enabled, default=False)
     stack_overlay_triggers = _as_bool(blend_gate_overlay_stack_triggers, default=False)
+    use_volatility_delever = _as_bool(blend_gate_volatility_delever_enabled, default=False)
+    volatility_delever_symbol = str(blend_gate_volatility_delever_symbol or trend_symbol).strip().upper()
+    if not volatility_delever_symbol:
+        volatility_delever_symbol = trend_symbol
+    volatility_delever_window = _as_positive_int(blend_gate_volatility_delever_window, default=20)
+    volatility_delever_threshold = _as_float_or_none(blend_gate_volatility_delever_threshold)
+    if volatility_delever_threshold is None:
+        volatility_delever_threshold = 0.50
+    volatility_delever_retention_ratio = _as_clamped_ratio(
+        blend_gate_volatility_delever_retention_ratio,
+        default=0.0,
+    )
+    volatility_delever_redirect_symbol = str(
+        blend_gate_volatility_delever_redirect_symbol or "SOXX"
+    ).strip().upper()
+    if volatility_delever_redirect_symbol not in {"SOXX", "BOXX"}:
+        volatility_delever_redirect_symbol = "SOXX"
+    volatility_delever_metric = _as_float_or_none(
+        _indicator_value(
+            indicators,
+            volatility_delever_symbol,
+            f"realized_volatility_{volatility_delever_window}",
+        )
+    )
+    if volatility_delever_metric is None:
+        volatility_delever_metric = _as_float_or_none(
+            _indicator_value(indicators, volatility_delever_symbol, "realized_volatility")
+        )
     rsi_threshold = _as_float_or_none(blend_gate_rsi_threshold)
     if rsi_threshold is None:
         rsi_threshold = 70.0
@@ -234,9 +276,12 @@ def build_rebalance_plan(
                     "price>upper band",
                 )
             )
-    overlay_trigger_count = len(overlay_trigger_reasons)
-    if overlay_trigger_count > 0:
-        blend_tier = _downgrade_tier(base_blend_tier, overlay_trigger_count if stack_overlay_triggers else 1)
+    tier_overlay_trigger_count = len(overlay_trigger_reasons)
+    if tier_overlay_trigger_count > 0:
+        blend_tier = _downgrade_tier(
+            base_blend_tier,
+            tier_overlay_trigger_count if stack_overlay_triggers else 1,
+        )
 
     selected_soxl_ratio, selected_soxx_ratio, boxx_ratio, active_risk_asset = _resolve_tier_allocations(
         tier=blend_tier,
@@ -245,6 +290,48 @@ def build_rebalance_plan(
         active_soxx_ratio=target_active_soxx_ratio,
         defensive_soxx_ratio=target_defensive_soxx_ratio,
     )
+    volatility_delever_triggered = (
+        use_volatility_delever
+        and selected_soxl_ratio > 0.0
+        and volatility_delever_metric is not None
+        and volatility_delever_metric >= volatility_delever_threshold
+    )
+    volatility_delever_removed_ratio = 0.0
+    if volatility_delever_triggered:
+        retained_soxl_ratio = selected_soxl_ratio * volatility_delever_retention_ratio
+        volatility_delever_removed_ratio = max(0.0, selected_soxl_ratio - retained_soxl_ratio)
+        selected_soxl_ratio = retained_soxl_ratio
+        if volatility_delever_redirect_symbol == "BOXX":
+            boxx_ratio += volatility_delever_removed_ratio
+        else:
+            selected_soxx_ratio += volatility_delever_removed_ratio
+        if selected_soxl_ratio > 0.0 and selected_soxx_ratio > 0.0:
+            active_risk_asset = "SOXX+SOXL"
+        elif selected_soxl_ratio > 0.0:
+            active_risk_asset = "SOXL"
+        elif selected_soxx_ratio > 0.0:
+            active_risk_asset = "SOXX"
+        else:
+            active_risk_asset = "BOXX"
+        overlay_trigger_codes.append("blend_gate_reason_volatility_delever")
+        overlay_trigger_reasons.append(
+            _translate_with_fallback(
+                translator,
+                "blend_gate_reason_volatility_delever",
+                (
+                    f"{volatility_delever_symbol} {volatility_delever_window}d volatility "
+                    f"{volatility_delever_metric * 100:.1f}% >= "
+                    f"{volatility_delever_threshold * 100:.1f}%, redirect SOXL to "
+                    f"{volatility_delever_redirect_symbol}"
+                ),
+                symbol=volatility_delever_symbol,
+                window=volatility_delever_window,
+                volatility=f"{volatility_delever_metric * 100:.1f}%",
+                threshold=f"{volatility_delever_threshold * 100:.1f}%",
+                redirect_symbol=volatility_delever_redirect_symbol,
+            )
+        )
+    overlay_trigger_count = len(overlay_trigger_reasons)
     soxl_target = core_equity * selected_soxl_ratio
     soxx_target = core_equity * selected_soxx_ratio
     deploy_ratio_text = f"{(selected_soxl_ratio + selected_soxx_ratio) * 100:.1f}%"
@@ -346,6 +433,13 @@ def build_rebalance_plan(
         "bb_lower": trend_bb_lower,
         "overlay_trigger_count": overlay_trigger_count,
         "overlay_trigger_reasons": tuple(overlay_trigger_reasons),
+        "volatility_delever_symbol": volatility_delever_symbol,
+        "volatility_delever_window": volatility_delever_window,
+        "volatility_delever_threshold": volatility_delever_threshold,
+        "volatility_delever_metric": volatility_delever_metric,
+        "volatility_delever_triggered": volatility_delever_triggered,
+        "volatility_delever_retention_ratio": volatility_delever_retention_ratio,
+        "volatility_delever_redirect_symbol": volatility_delever_redirect_symbol,
     }
     portfolio_context = {
         "total_equity": float(total_strategy_equity),
@@ -421,4 +515,13 @@ def build_rebalance_plan(
         "blend_gate_dynamic_rsi_threshold_enabled": use_dynamic_rsi_threshold,
         "blend_gate_bollinger_cap_enabled": use_bollinger_cap,
         "blend_gate_overlay_stack_triggers": stack_overlay_triggers,
+        "blend_gate_volatility_delever_enabled": use_volatility_delever,
+        "blend_gate_volatility_delever_symbol": volatility_delever_symbol,
+        "blend_gate_volatility_delever_window": volatility_delever_window,
+        "blend_gate_volatility_delever_threshold": volatility_delever_threshold,
+        "blend_gate_volatility_delever_metric": volatility_delever_metric,
+        "blend_gate_volatility_delever_triggered": volatility_delever_triggered,
+        "blend_gate_volatility_delever_retention_ratio": volatility_delever_retention_ratio,
+        "blend_gate_volatility_delever_redirect_symbol": volatility_delever_redirect_symbol,
+        "blend_gate_volatility_delever_removed_ratio": volatility_delever_removed_ratio,
     }
