@@ -6,7 +6,6 @@ from typing import Any
 
 MIN_RECOMMENDED_EQUITY_USD: dict[str, float] = {
     "global_etf_rotation": 3_000.0,
-    "global_etf_confidence_vol_gate": 3_000.0,
     "tqqq_growth_income": 500.0,
     "soxl_soxx_trend_income": 1_000.0,
     "russell_1000_multi_factor_defensive": 30_000.0,

@@ -14,12 +14,13 @@ entries in this matrix.
 The current runtime-enabled US equity profiles are:
 
 - `global_etf_rotation`
-- `global_etf_confidence_vol_gate`
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_1000_multi_factor_defensive`
 - `tech_communication_pullback_enhancement`
 - `mega_cap_leader_rotation_top50_balanced`
+
+`global_etf_confidence_vol_gate` is a legacy alias that resolves to `global_etf_rotation` and does not appear as a separate runtime-enabled row.
 
 These profiles are designed against the shared contract and are portable across
 the current US equity platform IDs:
@@ -65,7 +66,6 @@ New US equity profiles should use only these canonical `required_inputs`:
 | Profile | `target_mode` | `required_inputs` | Adapter coverage | Runtime status | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Quarterly top-2 ETF rotation with daily canary defense. |
-| `global_etf_confidence_vol_gate` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | SMA250 Global ETF variant that allows 75/25 Top1/Top2 only behind a momentum-confidence and relative-volatility gate. |
 | `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Artifact-backed Russell 1000 defensive selection. |

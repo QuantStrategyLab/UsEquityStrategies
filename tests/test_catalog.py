@@ -4,7 +4,6 @@ from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
-    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE,
     GLOBAL_ETF_ROTATION_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
@@ -37,15 +36,7 @@ class CatalogTest(unittest.TestCase):
             frozenset({"market_history"}),
         )
 
-        self.assertIn(GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE, catalog)
-        self.assertEqual(
-            get_compatible_platforms(GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE),
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
-        self.assertEqual(
-            catalog[GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE].required_inputs,
-            frozenset({"market_history"}),
-        )
+        self.assertNotIn("global_etf_confidence_vol_gate", catalog)
 
         self.assertIn(TQQQ_GROWTH_INCOME_PROFILE, catalog)
         self.assertEqual(catalog[TQQQ_GROWTH_INCOME_PROFILE].domain, "us_equity")
@@ -97,6 +88,13 @@ class CatalogTest(unittest.TestCase):
             signal_module.module_path,
             "us_equity_strategies.strategies.global_etf_rotation",
         )
+        self.assertEqual(definition.default_config["sma_period"], 250)
+        self.assertTrue(definition.default_config["confidence_weighting_enabled"])
+        self.assertTrue(definition.default_config["confidence_volatility_gate_enabled"])
+        self.assertEqual(
+            get_strategy_definition("global_etf_confidence_vol_gate").profile,
+            GLOBAL_ETF_ROTATION_PROFILE,
+        )
 
         schwab_definition = get_strategy_definition("tqqq_growth_income")
         self.assertEqual(schwab_definition.profile, TQQQ_GROWTH_INCOME_PROFILE)
@@ -130,12 +128,6 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.qqq_tech_enhancement",
         )
 
-        confidence_gate_definition = get_strategy_definition(GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE)
-        self.assertEqual(confidence_gate_definition.profile, GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE)
-        self.assertEqual(confidence_gate_definition.default_config["sma_period"], 250)
-        self.assertTrue(confidence_gate_definition.default_config["confidence_weighting_enabled"])
-        self.assertTrue(confidence_gate_definition.default_config["confidence_volatility_gate_enabled"])
-
         balanced_definition = get_strategy_definition("mega_cap_leader_rotation_top50_balanced")
         self.assertEqual(balanced_definition.profile, MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE)
         balanced_module = get_strategy_component_map(balanced_definition)["signal_logic"]
@@ -167,6 +159,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(get_strategy_metadata("qqq_tech_enhancement").canonical_profile, QQQ_TECH_ENHANCEMENT_PROFILE)
         aliases = get_profile_aliases()
         self.assertEqual(aliases["qqq_tech_enhancement"], QQQ_TECH_ENHANCEMENT_PROFILE)
+        self.assertEqual(
+            aliases["global_etf_confidence_vol_gate"],
+            GLOBAL_ETF_ROTATION_PROFILE,
+        )
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
         compatibility = get_strategy_platform_compatibility_map()
         self.assertEqual(
@@ -179,7 +175,7 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
         self.assertEqual(
-            metadata_map[GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE].status,
+            metadata_map[GLOBAL_ETF_ROTATION_PROFILE].status,
             "runtime_enabled",
         )
         self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
@@ -198,7 +194,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["display_name"], "Tech/Communication Pullback Enhancement")
         self.assertEqual(by_profile[TQQQ_GROWTH_INCOME_PROFILE]["aliases"], ())
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
-        self.assertIn("signal_logic", by_profile[GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE]["component_names"])
+        self.assertNotIn("global_etf_confidence_vol_gate", by_profile)
         self.assertEqual(
             by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
             FULL_SHARED_PLATFORM_MATRIX,
@@ -223,7 +219,6 @@ class CatalogTest(unittest.TestCase):
             frozenset(
                 {
                     GLOBAL_ETF_ROTATION_PROFILE,
-                    GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE,
                     TQQQ_GROWTH_INCOME_PROFILE,
                     SOXL_SOXX_TREND_INCOME_PROFILE,
                     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,

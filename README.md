@@ -105,8 +105,7 @@ diagnostics when account equity is below the suggested minimum.
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | Most suitable for small accounts; TQQQ can usually trade, but BOXX/cash targets may drift. |
 | `soxl_soxx_trend_income` | `1000 USD` | Can run with drift on integer-share platforms; fractional-share runtimes can express the small SOXX/BOXX legs more closely. |
-| `global_etf_rotation` | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account. |
-| `global_etf_confidence_vol_gate` | `3000 USD` | Same execution caveats as `global_etf_rotation`; the profile can express unequal 75/25 targets only when share sizing supports them closely enough. |
+| `global_etf_rotation` (`global_etf_confidence_vol_gate` legacy alias) | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account; the legacy alias shares the same execution caveats. |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | The fixed 50% Top2 / 50% Top4 sleeve blend can drift when integer shares cannot represent the intended unequal weights. |
 | `tech_communication_pullback_enhancement` (`qqq_tech_enhancement` legacy alias) | `10000 USD` | Small accounts reduce position count and single-name concentration rises. |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | The default 24-stock basket is not suitable for small accounts. |
@@ -117,7 +116,7 @@ reports explicit about the gap between account size and backtest assumptions.
 ### Research candidates and archive
 
 - `mega_cap_leader_rotation_top50_balanced`: runtime-enabled monthly profile for the current Top50 balanced candidate. It consumes a transparent Top50 monthly snapshot and runs a fixed 50% Top2 cap50 sleeve plus 50% Top4 cap25 sleeve, with no broad QQQ trend de-risking by default.
-- `global_etf_confidence_vol_gate`: runtime-enabled experimental variant of `global_etf_rotation`. It keeps the same universe and canary defense, uses SMA250, and only shifts from 50/50 Top2 to 75/25 Top1/Top2 when the Top1 momentum z-gap is at least `1.0` and Top1's trailing 126-day volatility is no more than `1.3x` Top2's volatility.
+- `global_etf_confidence_vol_gate`: legacy alias and comparison name for the canonical `global_etf_rotation` runtime profile. It keeps the same universe and canary defense, uses the same SMA250 / z-gap / relative-volatility gate parameter set, and remains available for explicit regression checks.
 - `mega_cap_leader_rotation`: umbrella research/backtest name for the static and dynamic variants; see [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md).
 
 ### global_etf_rotation
@@ -134,21 +133,21 @@ reports explicit about the gap between account size and backtest assumptions.
 
 **Indicators and rules**
 - Momentum uses Keller-style `13612W` monthly momentum: `(12×R1M + 4×R3M + 2×R6M + R12M) / 19`.
-- Trend filter: candidate ETF must be above its 200-day SMA.
+- Trend filter: candidate ETF must be above its 250-day SMA.
 - Hold bonus: an existing holding receives `+2%` score bonus to reduce turnover.
 - Daily canary check: if all 4 canary assets have negative or missing momentum, the strategy goes `100% BIL` immediately.
 
 **Rebalance behavior**
 - Normal rotation only happens on the last NYSE trading day of March, June, September, and December.
 - On a rebalance day, the strategy ranks the eligible universe and selects the top 2 ETFs.
-- Selected ETFs are equally weighted (`50 / 50`).
+- Selected ETFs are normally equally weighted (`50 / 50`), but the default confidence gate can tilt them to `75 / 25` when the Top1 lead is strong and not materially more volatile than Top2.
 - If fewer than 2 names survive, the unused slot is parked in `BIL`.
 - On non-rebalance days, the strategy returns no target change unless the canary emergency path is triggered.
 
-**Confidence-volatility variant**
-- `global_etf_rotation` keeps confidence weighting disabled by default.
-- `global_etf_confidence_vol_gate` enables the same signal engine with `sma_period=250`, `confidence_threshold=1.0`, `confidence_top1_weight=0.75`, `confidence_volatility_window=126`, and `confidence_volatility_max_ratio=1.3`.
-- The variant concentrates only when Top1 is clearly ahead and not materially more volatile than Top2; otherwise it remains equal-weight Top2.
+**Confidence-volatility alias**
+- `global_etf_rotation` is the canonical runtime profile and defaults to the SMA250 confidence-gated configuration.
+- `global_etf_confidence_vol_gate` now resolves to the same runtime profile and remains only as an explicit comparison alias for regression checks.
+- The gate concentrates only when Top1 is clearly ahead and not materially more volatile than Top2; otherwise it remains equal-weight Top2.
 
 **Why it exists**
 - Compared with a pure tech or leveraged-Nasdaq approach, this profile is meant to be steadier.
@@ -349,8 +348,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 | Canonical profile | 显示名 | 兼容平台仓库 | 策略频率 | 核心思路 |
 | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，带每日 canary 防守 |
-| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 季度调仓 + 每日 canary | `global_etf_rotation` 的 SMA250 实验变体，高置信且 Top1 相对波动不过高时切 75/25 |
+| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，默认使用 SMA250 置信度 + 相对波动门控 |
+| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 季度调仓 + 每日 canary | 与 `global_etf_rotation` 同源的显式对照入口，保留 75/25 规则与门控参数 |
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
@@ -363,7 +362,8 @@ cron 配置由各个平台仓库负责：
 
 - 日频策略：每个美股交易日临近收盘运行一次。
 - `global_etf_rotation`：每日检查 canary 风险，但正常轮动只在
-  `3 / 6 / 9 / 12` 月最后一个 NYSE 交易日触发。
+  `3 / 6 / 9 / 12` 月最后一个 NYSE 交易日触发；默认采用 SMA250
+  置信度 + 相对波动门控。
 - 月频 snapshot 策略：由 `UsEquitySnapshotPipelines` 按月发布 feature
   snapshot，再由下游运行时在月度窗口内执行一次。
 
@@ -375,8 +375,8 @@ cron 配置由各个平台仓库负责：
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | 最适合小账户；通常能买到 TQQQ，但 BOXX / 现金层会有偏差。 |
 | `soxl_soxx_trend_income` | `1000 USD` | 整数股平台会有偏离；支持碎股的运行时可以更接近小额 SOXX / BOXX 目标仓位。 |
-| `global_etf_rotation` | `3000 USD` | Top2 ETF 轮动遇到高价 ETF 时会明显偏离。 |
-| `global_etf_confidence_vol_gate` | `3000 USD` | 与 `global_etf_rotation` 相同；如果触发 75/25 不等权，小账户和整数股平台会更容易产生偏离。 |
+| `global_etf_rotation` | `3000 USD` | 默认档已切到 SMA250 + 置信度门控；Top2 ETF 轮动遇到高价 ETF 时仍会偏离。 |
+| `global_etf_confidence_vol_gate` | `3000 USD` | 与 `global_etf_rotation` 同一执行约束；保留 75/25 对照入口时，小账户和整数股平台会更容易产生偏离。 |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | 固定 50% Top2 / 50% Top4 袖珍组合需要不等权持仓，小账户整数股会产生明显偏离。 |
 | `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | 默认 24 只股票组合，不适合小账户。 |
@@ -386,7 +386,7 @@ cron 配置由各个平台仓库负责：
 ### 研究候选与存档
 
 - `mega_cap_leader_rotation_top50_balanced`：已注册为 runtime-enabled 月频 profile，消费透明 Top50 月度 snapshot，运行固定 50% Top2 cap50 + 50% Top4 cap25 的组合，不默认使用宽基趋势降仓。
-- `global_etf_confidence_vol_gate`：`global_etf_rotation` 的 runtime-enabled 实验变体。它保留同一标的池和 canary 防守，使用 SMA250；只有当 Top1 动量 z-gap 至少为 `1.0`，且 Top1 过去 126 日波动率不超过 Top2 的 `1.3x` 时，才从 Top2 等权切到 Top1/Top2 的 `75/25`。
+- `global_etf_confidence_vol_gate`：`global_etf_rotation` 的显式对照入口，保留同一标的池和 canary 防守。它使用同样的 SMA250 / z-gap / 相对波动门控参数，方便做回归对照和小样本验证。
 - `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation
@@ -415,8 +415,8 @@ cron 配置由各个平台仓库负责：
 - 非调仓日默认不改目标仓位，除非触发 canary 应急防守。
 
 **置信度 + 波动过滤变体**
-- `global_etf_rotation` 默认关闭置信度加权，保持原有 Top2 等权行为。
-- `global_etf_confidence_vol_gate` 使用同一个信号引擎，但设置为 `sma_period=250`、`confidence_threshold=1.0`、`confidence_top1_weight=0.75`、`confidence_volatility_window=126`、`confidence_volatility_max_ratio=1.3`。
+- `global_etf_rotation` 现在默认使用 `sma_period=250`、`confidence_threshold=1.0`、`confidence_weighting_enabled=True`、`confidence_top1_weight=0.75`、`confidence_volatility_gate_enabled=True`、`confidence_volatility_window=126`、`confidence_volatility_max_ratio=1.3`。
+- `global_etf_confidence_vol_gate` 保留为显式对照入口，参数与默认档一致，便于回放和回归比较。
 - 只有 Top1 明显领先且相对 Top2 不显著更高波动时，才切到 `75 / 25`；否则仍保持 Top2 等权。
 
 **这套策略的定位**

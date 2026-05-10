@@ -31,8 +31,10 @@ def _manifest(
 global_etf_rotation_manifest = _manifest(
     profile="global_etf_rotation",
     display_name="Global ETF Rotation",
-    description="Quarterly top-2 global ETF rotation with daily canary defense and BIL safe haven.",
-    aliases=("global_macro_etf_rotation",),
+    description=(
+        "Quarterly top-2 global ETF rotation with daily canary defense, SMA250 confidence gating, and BIL safe haven."
+    ),
+    aliases=("global_macro_etf_rotation", GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE),
     required_inputs=frozenset({"market_history"}),
     default_config={
         "ranking_pool": (
@@ -65,30 +67,9 @@ global_etf_rotation_manifest = _manifest(
         "hold_bonus": 0.02,
         "canary_bad_threshold": 4,
         "rebalance_months": (3, 6, 9, 12),
-        "sma_period": 200,
-        "confidence_weighting_enabled": False,
-        "confidence_metric": "z_gap",
-        "confidence_threshold": 1.0,
-        "confidence_top1_weight": 0.75,
-        "confidence_volatility_gate_enabled": False,
-        "confidence_volatility_window": 126,
-        "confidence_volatility_max_ratio": 1.3,
-    },
-)
-
-global_etf_confidence_vol_gate_manifest = _manifest(
-    profile=GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE,
-    display_name="Global ETF Confidence Vol Gate",
-    description=(
-        "Experimental SMA250 Global ETF rotation that shifts to 75/25 Top1/Top2 only when "
-        "momentum confidence is high and Top1 volatility is close to Top2."
-    ),
-    aliases=(),
-    required_inputs=frozenset({"market_history"}),
-    default_config={
-        **global_etf_rotation_manifest.default_config,
         "sma_period": 250,
         "confidence_weighting_enabled": True,
+        "confidence_metric": "z_gap",
         "confidence_threshold": 1.0,
         "confidence_top1_weight": 0.75,
         "confidence_volatility_gate_enabled": True,
@@ -243,7 +224,6 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
 
 MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
-    global_etf_confidence_vol_gate_manifest.profile: global_etf_confidence_vol_gate_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
     soxl_soxx_trend_income_manifest.profile: soxl_soxx_trend_income_manifest,
     russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
@@ -267,7 +247,6 @@ __all__ = [
     "MANIFESTS",
     "get_strategy_manifest",
     "global_etf_rotation_manifest",
-    "global_etf_confidence_vol_gate_manifest",
     "tqqq_growth_income_manifest",
     "soxl_soxx_trend_income_manifest",
     "qqq_tech_enhancement_manifest",

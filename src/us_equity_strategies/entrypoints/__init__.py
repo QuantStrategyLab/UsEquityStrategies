@@ -14,7 +14,6 @@ from us_equity_strategies.account_sizing import (
     build_account_size_diagnostics_from_context,
 )
 from us_equity_strategies.manifests import (
-    global_etf_confidence_vol_gate_manifest,
     global_etf_rotation_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
     qqq_tech_enhancement_manifest,
@@ -253,10 +252,6 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
 
 def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
     return _evaluate_global_etf_rotation_with_manifest(ctx, manifest=global_etf_rotation_manifest)
-
-
-def evaluate_global_etf_confidence_vol_gate(ctx: StrategyContext) -> StrategyDecision:
-    return _evaluate_global_etf_rotation_with_manifest(ctx, manifest=global_etf_confidence_vol_gate_manifest)
 
 
 GLOBAL_ETF_ROTATION_LEGACY_DOC = "Legacy compute_signals adapter retained for platform compatibility."
@@ -718,10 +713,6 @@ global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=global_etf_rotation_manifest,
     _evaluate=evaluate_global_etf_rotation,
 )
-global_etf_confidence_vol_gate_entrypoint = CallableStrategyEntrypoint(
-    manifest=global_etf_confidence_vol_gate_manifest,
-    _evaluate=evaluate_global_etf_confidence_vol_gate,
-)
 tqqq_growth_income_entrypoint = CallableStrategyEntrypoint(
     manifest=tqqq_growth_income_manifest,
     _evaluate=evaluate_tqqq_growth_income,
@@ -746,14 +737,12 @@ mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
 
 __all__ = [
     "global_etf_rotation_entrypoint",
-    "global_etf_confidence_vol_gate_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_top50_balanced_entrypoint",
     "evaluate_global_etf_rotation",
-    "evaluate_global_etf_confidence_vol_gate",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
