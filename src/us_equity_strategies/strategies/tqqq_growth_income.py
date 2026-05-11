@@ -232,6 +232,8 @@ def build_rebalance_plan(
     )
     sell_order_symbols = ("TQQQ", unlevered_symbol, "SPYI", "QQQI", "BOXX")
     buy_order_symbols = ("SPYI", "QQQI", "TQQQ", unlevered_symbol)
+    snapshot_metadata = getattr(snapshot, "metadata", {}) or {}
+    account_hash = snapshot_metadata.get("account_hash") if isinstance(snapshot_metadata, dict) else None
 
     return {
         "strategy_symbols": strategy_symbols,
@@ -240,7 +242,7 @@ def build_rebalance_plan(
         "buy_order_symbols": buy_order_symbols,
         "cash_sweep_symbol": "BOXX",
         "portfolio_rows": (("TQQQ", unlevered_symbol, "BOXX"), ("QQQI", "SPYI")),
-        "account_hash": snapshot.metadata["account_hash"],
+        "account_hash": account_hash,
         "market_values": market_values,
         "quantities": quantities,
         "total_equity": total_equity,

@@ -56,6 +56,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX"))
         self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQ"))
         self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), ("QQQI", "SPYI")))
+        self.assertEqual(plan["account_hash"], "acct-1")
         self.assertEqual(plan["allocation_mode"], "fixed_qqq_tqqq_pullback")
         self.assertAlmostEqual(plan["target_values"]["TQQQ"], 150000.0 * 0.45)
         self.assertAlmostEqual(plan["target_values"]["QQQ"], 150000.0 * 0.45)
@@ -79,6 +80,41 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 20000.0)
         self.assertEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 15000.0)
         self.assertEqual(plan["notification_context"]["portfolio"]["investable_cash"], 5000.0)
+
+    def test_tqqq_growth_income_accepts_portfolio_without_account_hash(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=150000.0, quantity=1000)],
+            total_equity=150000.0,
+            buying_power=20000.0,
+            metadata={"account_ids": ["U18308207"]},
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.03,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.10,
+        )
+
+        self.assertIsNone(plan["account_hash"])
+        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX"))
+        self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 20000.0)
 
     def test_tqqq_growth_income_can_trade_qqqm_while_using_qqq_signal(self):
         _skip_if_missing_numeric_stack()
