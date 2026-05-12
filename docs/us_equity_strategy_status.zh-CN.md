@@ -29,7 +29,7 @@ _更新日期：2026-05-08_
 | --- | --- |
 | `mega_cap_leader_rotation_dynamic_top20` | 同期 CAGR 21.51%、最大回撤 -23.14%；收益明显弱于 `mega_cap_leader_rotation_top50_balanced` 的 36.41%。 |
 | `mega_cap_leader_rotation_aggressive` | Top50 top3/cap35 CAGR 32.42%、最大回撤 -28.64%；仍弱于 Top50 balanced，且更集中。 |
-| `dynamic_mega_leveraged_pullback` | CAGR 30.96%、最大回撤 -34.80%；2x 产品和 MAGS/TACO 路线更复杂，未优于当前保留路线。 |
+| `dynamic_mega_leveraged_pullback` | CAGR 30.96%、最大回撤 -34.80%；2x 产品和事件反弹路线更复杂，未优于当前保留路线。 |
 
 历史研究输出可以继续作为离线证据查看，但这些名字不再是有效 `STRATEGY_PROFILE`，也不再保留平台 replay adapter。
 
@@ -46,7 +46,7 @@ _更新日期：2026-05-08_
 | Top50 `blend_top2_50_top4_50`，21 日 universe lag | 2017-10-02 至 2026-04-16 | 36.41% | -30.56% | 当前最强无杠杆候选之一；回撤可接受但 Top2 袖子带来集中风险，需要 paper 观察。 | `UsEquitySnapshotPipelines/data/output/mega_cap_leader_rotation_dynamic_top50_concentration_variants/concentration_variant_summary.csv` |
 | Top50 `top2_cap50_no_defense`，21 日 universe lag | 2017-10-02 至 2026-04-16 | 39.83% | -38.79% | 收益最高但两只股票 50/50 太集中，只作为 aggressive research 证据，不作为默认。 | `UsEquitySnapshotPipelines/docs/mega-cap-leader-rotation-dynamic-validation.md` |
 | `global_etf_confidence_vol_gate` production-like 研究 | 2015-01-05 至 2026-05-06 | 14.77% | -23.35% | 相比同口径 Top2/SMA250 的 13.60% CAGR、-23.35% 回撤，收益和 Sharpe 改善；仍未跑赢 QQQ 长期 CAGR，因此只作为 Global ETF 自身增强候选。 | [`docs/research/global_etf_confidence_vol_gate.md`](./research/global_etf_confidence_vol_gate.md) |
-| Crisis unified response historical research，含旧 5% TACO 袖子 | 1999-03-10 至 2026-04-16 | 23.89% | -56.04% | 相比合成 TQQQ 基线显著降低 2000/2008 级别灾难回撤；但该历史版本包含 TACO，不等于当前 defense-only shadow plugin。 | `UsEquitySnapshotPipelines/data/output/crisis_response_audit_trial/external_fragility10_severe10_fin_credit/summary.csv` |
+| Crisis unified response historical research，含旧 5% 反弹袖子 | 1999-03-10 至 2026-04-16 | 23.89% | -56.04% | 相比合成 TQQQ 基线显著降低 2000/2008 级别灾难回撤；但该历史版本包含旧反弹袖子，不等于当前 defense-only shadow plugin。 | `UsEquitySnapshotPipelines/data/output/crisis_response_audit_trial/external_fragility10_severe10_fin_credit/summary.csv` |
 
 暂时没有写进正式表的内容：
 
@@ -57,7 +57,7 @@ _更新日期：2026-05-08_
 | 研究方向 | 当前状态 | 不直接实盘的原因 |
 | --- | --- | --- |
 | `crisis_response_shadow` 插件 | 可作为 `tqqq_growth_income` 的 `shadow` 插件候选，只写信号、日志和通知上下文。 | 现在是 defense-only 黑天鹅观察流，不下单、不改 allocation；需要稳定 shadow 日志后再做 evidence review。 |
-| TACO rebound / MAGS 路线 | 保持 research-only，不作为运行策略 profile。 | 对 MAGS 的正贡献不稳定，且事件反弹预算不应该混进黑天鹅逃命插件。 |
+| 事件反弹 / MAGS 路线 | 保持 research-only，不作为运行策略 profile。 | 对 MAGS 的正贡献不稳定，且事件反弹预算不应该混进黑天鹅逃命插件。 |
 | AI 审计 / AI 上下文 | 不进入交易路径。 | 回测结果来自确定性指标，不依赖 AI；AI 可以辅助离线 review、总结新闻或检查文档，但不能作为自动买卖开关。 |
 | Russell 1000 代理长周期回测 | 研究待补。 | 2017 年前缺少可靠 point-in-time Russell 1000 / Top50 数据，需要代理构造并明确后视偏差。 |
 | Top50 balanced paper 观察 | 当前保留候选。 | 历史结果强，且无杠杆，但 Top2 袖子仍有集中风险；要确认 snapshot、整数股、换手和通知稳定。 |
