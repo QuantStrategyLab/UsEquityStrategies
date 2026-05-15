@@ -81,6 +81,40 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 15000.0)
         self.assertEqual(plan["notification_context"]["portfolio"]["investable_cash"], 5000.0)
 
+    def test_tqqq_growth_income_normalizes_close_column_case(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"Close": 100.0 + index * 0.5, "High": 101.0 + index * 0.5, "Low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=150000.0, quantity=1000)],
+            total_equity=150000.0,
+            buying_power=20000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.03,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.10,
+        )
+
+        self.assertAlmostEqual(plan["qqq_p"], 229.5)
+        self.assertEqual(plan["notification_context"]["benchmark"]["symbol"], "QQQ")
+
     def test_tqqq_growth_income_accepts_portfolio_without_account_hash(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
