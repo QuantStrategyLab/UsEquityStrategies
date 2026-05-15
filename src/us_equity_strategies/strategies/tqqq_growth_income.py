@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from quant_platform_kit.common.history import normalize_history_frame
+
 PULLBACK_REBOUND_THRESHOLD_MODE_FIXED = "fixed"
 PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED = "volatility_scaled"
 PULLBACK_REBOUND_THRESHOLD_MODES = {
@@ -30,35 +32,6 @@ def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) ->
 def _translate_with_fallback(translator, key: str, fallback: str, **kwargs) -> str:
     rendered = translator(key, **kwargs)
     return fallback if rendered == key else rendered
-
-
-def _normalize_history_frame(history, *, label: str) -> pd.DataFrame:
-    if isinstance(history, pd.DataFrame):
-        frame = history.copy()
-    elif isinstance(history, pd.Series):
-        frame = history.to_frame(name="close")
-    else:
-        frame = pd.DataFrame(list(history))
-
-    if frame.empty:
-        raise ValueError(f"{label} must contain close history")
-
-    lower_columns = {str(column).strip().lower(): column for column in frame.columns}
-    if "close" not in frame.columns:
-        close_column = lower_columns.get("close")
-        if close_column is not None:
-            frame = frame.rename(columns={close_column: "close"})
-        elif len(frame.columns) == 1:
-            frame = frame.rename(columns={frame.columns[0]: "close"})
-        else:
-            columns = ", ".join(str(column) for column in frame.columns)
-            raise ValueError(f"{label} must include a close column; got columns: {columns or '<none>'}")
-
-    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    frame = frame.dropna(subset=["close"]).reset_index(drop=True)
-    if frame.empty:
-        raise ValueError(f"{label} close history is empty after normalization")
-    return frame
 
 
 def _resolve_pullback_rebound_threshold(
@@ -108,7 +81,7 @@ def build_rebalance_plan(
     dual_drive_pullback_rebound_threshold=0.0,
     dual_drive_pullback_rebound_volatility_multiplier=2.0,
 ):
-    df_qqq = _normalize_history_frame(qqq_history, label="benchmark_history")
+    df_qqq = normalize_history_frame(qqq_history, label="benchmark_history")
     qqq_p = df_qqq["close"].iloc[-1]
     ma200 = df_qqq["close"].rolling(200).mean().iloc[-1]
     ma20 = df_qqq["close"].rolling(20).mean()
