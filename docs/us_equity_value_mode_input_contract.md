@@ -28,9 +28,9 @@ should implement.
 Current implementation status:
 
 - `tqqq_growth_income` already uses canonical strategy-facing inputs on
-  `schwab` and `longbridge`
+  `schwab`, `longbridge`, and `firstrade`
 - `soxl_soxx_trend_income` already uses canonical strategy-facing inputs
-  on `ibkr`, `schwab`, and `longbridge`
+  on `ibkr`, `schwab`, `longbridge`, and `firstrade`
 
 ## Fixed end-state summary
 
@@ -267,6 +267,7 @@ Current status:
 
 - implemented on `schwab`
 - implemented on `longbridge`
+- implemented on `firstrade`
 - `ibkr` remains future work for this specific profile
 
 ## Profile contract: `soxl_soxx_trend_income`
@@ -366,13 +367,14 @@ Current status:
 - implemented on `ibkr`
 - implemented on `schwab`
 - implemented on `longbridge`
+- implemented on `firstrade`
 
 ## Platform matrix implied by this document
 
-| Profile | Current `ibkr` adapter | Current `schwab` adapter | Current `longbridge` adapter |
-| --- | --- | --- | --- |
-| `tqqq_growth_income` | not yet implemented | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
-| `soxl_soxx_trend_income` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
+| Profile | Current `ibkr` adapter | Current `schwab` adapter | Current `longbridge` adapter | Current `firstrade` adapter |
+| --- | --- | --- | --- | --- |
+| `tqqq_growth_income` | not yet implemented | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
+| `soxl_soxx_trend_income` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 
 This matrix defines current adapter state, not rollout state.
 Whether a platform becomes `enabled=true` stays a separate rollout decision.

@@ -15,6 +15,7 @@ from us_equity_strategies.runtime_adapters import (
     PAPER_SIGNAL_PLATFORM,
     PLATFORM_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM,
+    FIRSTRADE_PLATFORM,
     get_platform_runtime_adapter,
 )
 
@@ -54,12 +55,14 @@ PLATFORM_NATIVE_TARGET_MODES = {
     IBKR_PLATFORM: "weight",
     SCHWAB_PLATFORM: "value",
     LONGBRIDGE_PLATFORM: "value",
+    FIRSTRADE_PLATFORM: "value",
 }
 FULL_MATRIX_PLATFORMS = frozenset(
     {
         IBKR_PLATFORM,
         SCHWAB_PLATFORM,
         LONGBRIDGE_PLATFORM,
+        FIRSTRADE_PLATFORM,
         PAPER_SIGNAL_PLATFORM,
     }
 )
@@ -95,6 +98,7 @@ BANNED_SOURCE_SNIPPETS = (
     "ibkr",
     "schwab",
     "longbridge",
+    "firstrade",
     "paper_signal",
     "ACCOUNT_GROUP",
     "ACCOUNT_REGION",

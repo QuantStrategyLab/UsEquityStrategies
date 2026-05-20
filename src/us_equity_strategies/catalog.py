@@ -26,7 +26,9 @@ TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_e
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
-FULL_SHARED_PLATFORM_MATRIX = frozenset({"ibkr", "schwab", "longbridge", "paper_signal"})
+FULL_SHARED_PLATFORM_MATRIX = frozenset(
+    {"ibkr", "schwab", "longbridge", "firstrade", "paper_signal"}
+)
 
 
 STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
