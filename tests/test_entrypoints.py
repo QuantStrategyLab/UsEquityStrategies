@@ -112,7 +112,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(decision.diagnostics["signal_date"], "2026-03-31")
 
     def test_weight_mode_global_etf_runtime_adapters_use_portfolio_snapshot_on_value_native_platforms(self) -> None:
-        for platform_id in ("schwab", "longbridge"):
+        for platform_id in ("schwab", "longbridge", "firstrade"):
             adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
@@ -237,7 +237,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("QQQ", config["managed_symbols"])
 
     def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
-        for platform_id in ("ibkr", "schwab", "longbridge", "paper_signal"):
+        for platform_id in ("ibkr", "schwab", "longbridge", "firstrade", "paper_signal"):
             adapter = get_platform_runtime_adapter("tqqq_growth_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
@@ -541,7 +541,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
 
     def test_value_mode_semiconductor_runtime_adapters_use_canonical_inputs(self) -> None:
-        for platform_id in ("schwab", "longbridge", "paper_signal"):
+        for platform_id in ("schwab", "longbridge", "firstrade", "paper_signal"):
             adapter = get_platform_runtime_adapter("soxl_soxx_trend_income", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
@@ -631,7 +631,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 safe_haven="BOXX",
             ),
         )
-        for platform_id in ("schwab", "longbridge"):
+        for platform_id in ("schwab", "longbridge", "firstrade"):
             russell_value_native_adapter = get_platform_runtime_adapter(
                 "russell_1000_multi_factor_defensive",
                 platform_id=platform_id,
@@ -693,6 +693,15 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(schwab_tech_adapter.portfolio_input_name, "portfolio_snapshot")
+        firstrade_tech_adapter = get_platform_runtime_adapter(
+            "qqq_tech_enhancement",
+            platform_id="firstrade",
+        )
+        self.assertEqual(
+            firstrade_tech_adapter.available_inputs,
+            frozenset({"feature_snapshot", "portfolio_snapshot"}),
+        )
+        self.assertEqual(firstrade_tech_adapter.portfolio_input_name, "portfolio_snapshot")
         paper_tech_adapter = get_platform_runtime_adapter("qqq_tech_enhancement", platform_id="paper_signal")
         self.assertEqual(
             paper_tech_adapter.available_inputs,
@@ -726,6 +735,15 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"feature_snapshot", "portfolio_snapshot"}),
         )
         self.assertEqual(longbridge_mega_adapter.portfolio_input_name, "portfolio_snapshot")
+        firstrade_mega_adapter = get_platform_runtime_adapter(
+            "mega_cap_leader_rotation_top50_balanced",
+            platform_id="firstrade",
+        )
+        self.assertEqual(
+            firstrade_mega_adapter.available_inputs,
+            frozenset({"feature_snapshot", "portfolio_snapshot"}),
+        )
+        self.assertEqual(firstrade_mega_adapter.portfolio_input_name, "portfolio_snapshot")
         paper_mega_adapter = get_platform_runtime_adapter("mega_cap_leader_rotation_top50_balanced", platform_id="paper_signal")
         self.assertEqual(
             paper_mega_adapter.available_inputs,

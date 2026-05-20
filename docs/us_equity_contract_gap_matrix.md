@@ -28,7 +28,12 @@ the current US equity platform IDs:
 - `ibkr`
 - `schwab`
 - `longbridge`
+- `firstrade`
 - `paper_signal`
+
+`firstrade` is a broker runtime backed by an unofficial reverse-engineered
+client. Its strategy contract remains the same as other broker runtimes;
+broker authentication and API risk are owned by `FirstradePlatform`.
 
 `paper_signal` is brokerless and publishes signal notifications only. The
 strategy contract is still shared; broker execution remains platform-specific.
@@ -65,12 +70,12 @@ New US equity profiles should use only these canonical `required_inputs`:
 
 | Profile | `target_mode` | `required_inputs` | Adapter coverage | Runtime status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Quarterly top-2 ETF rotation with daily canary defense. |
-| `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
-| `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
-| `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Artifact-backed Russell 1000 defensive selection. |
-| `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Artifact-backed tech/communication pullback selection with bundled config support. |
-| `mega_cap_leader_rotation_top50_balanced` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `paper_signal` | runtime-enabled | Retained Top50 balanced leader-rotation path. |
+| `global_etf_rotation` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Quarterly top-2 ETF rotation with daily canary defense. |
+| `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
+| `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
+| `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Artifact-backed Russell 1000 defensive selection. |
+| `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Artifact-backed tech/communication pullback selection with bundled config support. |
+| `mega_cap_leader_rotation_top50_balanced` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Retained Top50 balanced leader-rotation path. |
 
 ## Current Conclusions
 

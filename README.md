@@ -22,15 +22,16 @@ The current integration path is:
 
 Legacy strategy functions may still exist as internal adapters, but downstream runtimes should treat `entrypoints/` and manifests as the supported integration surface.
 
-### Four-runtime authoring standard
+### Five-runtime authoring standard
 
 Greenfield `us_equity` profiles should be authored once against the shared
-contract and be structurally portable across all four downstream runtimes from
+contract and be structurally portable across all five downstream runtimes from
 the first PR:
 
 - `InteractiveBrokersPlatform`
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
+- `FirstradePlatform`
 - `PaperSignalPlatform`
 
 This means:
@@ -59,13 +60,13 @@ paper/compatibility later” as the default workflow.
 
 | Canonical profile | Display name | Compatible platforms | Cadence | Benchmark | Role | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
-| `global_etf_confidence_vol_gate` | Global ETF Confidence Vol Gate | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation_research_candidate` | `runtime_enabled` |
-| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
-| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
-| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
-| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
+| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
+| `global_etf_confidence_vol_gate` | Global ETF Confidence Vol Gate | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation_research_candidate` | `runtime_enabled` |
+| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
+| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
+| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
 `runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that runtime stack, including brokerless paper/notify runtimes. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own runtime-specific wiring.
 
