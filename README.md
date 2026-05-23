@@ -22,17 +22,16 @@ The current integration path is:
 
 Legacy strategy functions may still exist as internal adapters, but downstream runtimes should treat `entrypoints/` and manifests as the supported integration surface.
 
-### Five-runtime authoring standard
+### Live broker authoring standard
 
 Greenfield `us_equity` profiles should be authored once against the shared
-contract and be structurally portable across all five downstream runtimes from
-the first PR:
+contract and be structurally portable across all live broker runtimes from the
+first PR:
 
 - `InteractiveBrokersPlatform`
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
 - `FirstradePlatform`
-- `PaperSignalPlatform`
 
 This means:
 
@@ -44,7 +43,7 @@ This means:
 
 If one runtime is intentionally unsupported in a PR, call it out explicitly and
 keep the portability gap visible in review notes. Do not plan to “backfill
-paper/compatibility later” as the default workflow.
+broker compatibility later” as the default workflow.
 
 ### Authoring and portability guides
 
@@ -60,15 +59,15 @@ paper/compatibility later” as the default workflow.
 
 | Canonical profile | Display name | Compatible platforms | Cadence | Benchmark | Role | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
-| `global_etf_confidence_vol_gate` | Global ETF Confidence Vol Gate | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation_research_candidate` | `runtime_enabled` |
-| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
-| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
-| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
-| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
-| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform`, `PaperSignalPlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
+| `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
+| `global_etf_confidence_vol_gate` | Global ETF Confidence Vol Gate | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation_research_candidate` | `runtime_enabled` |
+| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
+| `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
+| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
-`runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on that runtime stack, including brokerless paper/notify runtimes. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own runtime-specific wiring.
+`runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on the listed live broker runtime stack. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own runtime-specific wiring.
 
 Cadence here is the strategy-level intent. Platform repositories own the actual
 Cloud Scheduler / GitHub Actions cron settings:
@@ -349,15 +348,15 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 | Canonical profile | 显示名 | 兼容平台仓库 | 策略频率 | 核心思路 |
 | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，默认使用 SMA250 置信度 + 相对波动门控 |
-| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 季度调仓 + 每日 canary | 与 `global_etf_rotation` 同源的显式对照入口，保留 75/25 规则与门控参数 |
-| `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
-| `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
-| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
-| `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
-| `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `PaperSignalPlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
+| `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，默认使用 SMA250 置信度 + 相对波动门控 |
+| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 季度调仓 + 每日 canary | 与 `global_etf_rotation` 同源的显式对照入口，保留 75/25 规则与门控参数 |
+| `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
+| `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
+| `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
+| `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
-`runtime_enabled` 策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口被各个平台仓库引用；`research_only` profile 保留定义、manifest、entrypoint 和 adapter 作为研究/回放存档，但不会进入平台 rollout allowlist。运行时和部署配置统一使用 canonical profile key。这里的“兼容平台”既包括三个 live broker runtime，也包括 brokerless 的 `PaperSignalPlatform`。
+`runtime_enabled` 策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口被各个平台仓库引用；`research_only` profile 保留定义、manifest、entrypoint 和 adapter 作为研究/回放存档，但不会进入平台 rollout allowlist。运行时和部署配置统一使用 canonical profile key。这里的“兼容平台”指当前 live broker runtime。
 这里的策略频率表达的是策略层意图；实际 Cloud Scheduler / GitHub Actions
 cron 配置由各个平台仓库负责：
 
