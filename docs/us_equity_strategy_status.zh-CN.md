@@ -10,7 +10,7 @@ _更新日期：2026-05-08_
 
 ## 当前可配置 profiles
 
-这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否实盘启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
+这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
 
 | Profile | 中文定位 | 输入类型 | 特点 | 当前建议 |
 | --- | --- | --- | --- | --- |
@@ -52,9 +52,9 @@ _更新日期：2026-05-08_
 
 - `global_etf_rotation`：已切到 SMA250 置信度 + 相对波动门控的保留版；最新回测 CAGR 13.91%，最大回撤 -23.29%，已替代原先的等权默认档。`global_etf_confidence_vol_gate` 仅保留为同一 runtime profile 的 legacy alias / 回放名。
 
-## 研究中但未进入实盘的方向
+## 研究中但未进入运行 profile 的方向
 
-| 研究方向 | 当前状态 | 不直接实盘的原因 |
+| 研究方向 | 当前状态 | 不直接部署的原因 |
 | --- | --- | --- |
 | `crisis_response_shadow` 插件 | 可作为 `tqqq_growth_income` 的 `shadow` 插件候选，只写信号、日志和通知上下文。 | 现在是 defense-only 黑天鹅观察流，不下单、不改 allocation；需要稳定 shadow 日志后再做 evidence review。 |
 | 事件反弹 / MAGS 路线 | 保持 research-only，不作为运行策略 profile。 | 对 MAGS 的正贡献不稳定，且事件反弹预算不应该混进黑天鹅逃命插件。 |

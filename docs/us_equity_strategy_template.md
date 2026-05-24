@@ -217,7 +217,7 @@ For **new** US equity profiles, `required_inputs` may only use these canonical n
 - Do **not** add a new ad-hoc input name in `catalog.py`, `manifest`, or runtime adapters.
 - Do **not** introduce a new alias for a retired engineering profile key. If an old key has already been removed, keep it only in explicit rejection tests.
 - If the canonical list is insufficient, update the spec in `QuantPlatformKit` first.
-- Existing live profiles may still use legacy names during migration. New profiles should not copy those legacy names forward.
+- Existing runtime profiles may still use legacy names during migration. New profiles should not copy those legacy names forward.
 
 If the strategy needs a portfolio object in `ctx.portfolio`, also set `portfolio_input_name="portfolio_snapshot"` in each runtime adapter so the shared context builder injects the same normalized input into `ctx.portfolio`.
 
@@ -475,7 +475,7 @@ Copy this checklist into the PR body for any new US equity profile.
 
 ## 10. Migration note for existing profiles
 
-When migrating an existing live profile, keep the runtime stable first:
+When migrating an existing runtime profile, keep the runtime stable first:
 
 1. preserve the current trading formula
 2. normalize inputs and outputs

@@ -285,8 +285,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - If `SOXX > MA140 * 1.08`, the core sleeve targets `SOXL 70% + SOXX 20%`.
 - If `SOXX > MA140 * 1.06`, or an existing SOXL sleeve has not broken `MA140 * 0.98`, the core sleeve targets `SOXL 65% + SOXX 20%`.
 - If the gate is off, the core sleeve holds defensive `SOXX 15%`.
-- Overheat controls are active on the live profile: when the base tier is full or mid, `SOXX` RSI14 above the effective threshold and/or a break above the upper Bollinger band downgrade the tier by one step per trigger.
-- The live RSI threshold is dynamic: `max(70, prior 252 trading days RSI14 90th percentile)`, with `70` as the fallback floor when the dynamic indicator is unavailable.
+- Overheat controls are active on the default runtime profile: when the base tier is full or mid, `SOXX` RSI14 above the effective threshold and/or a break above the upper Bollinger band downgrade the tier by one step per trigger.
+- The runtime RSI threshold is dynamic: `max(70, prior 252 trading days RSI14 90th percentile)`, with `70` as the fallback floor when the dynamic indicator is unavailable.
 - Unused trading-layer capital is parked in `BOXX`.
 
 **Sizing behavior**
