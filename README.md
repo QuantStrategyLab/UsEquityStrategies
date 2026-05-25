@@ -226,13 +226,13 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 ### tqqq_growth_income
 
 **Objective**
-- Run the default no-income `QQQ` / `TQQQ` dual-drive growth profile.
-- Keep the legacy income and BOXX symbols in the managed universe so existing holdings can be reduced cleanly.
+- Run the default `QQQ` / `TQQQ` dual-drive growth profile with an additive income sleeve.
+- Keep BOXX and income symbols in the managed universe so existing holdings can be maintained and added to cleanly.
 
 **Portfolio layers**
 - Growth layer: `QQQ` and `TQQQ`; broker runtimes can replace the unlevered growth sleeve with a lower-price proxy such as `QQQM` while keeping `QQQ` as the signal source.
 - Default active reserve: 2% cash plus 8% BOXX
-- Legacy / cleanup layer: `BOXX`, `SPYI`, `QQQI`
+- Income layer: `SCHD`, `DGRO`, `SGOV`, `SPYI`, `QQQI`
 
 **Signals and indicators**
 - Uses daily `QQQ` history as the signal source.
@@ -246,10 +246,15 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - If `QQQ` falls below `MA200`, the profile exits `QQQ` and `TQQQ`, keeps 2% cash, and parks the rest in `BOXX` by default.
 - A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20`, `MA20` slope is positive, and `QQQ` has rebounded from its rolling 20-day low by more than the dynamic volatility-scaled gate. The default gate is `2.0x` the recent 20-day `QQQ` daily return volatility, which avoids a fixed 3% constant while still filtering weak MA200 chop without changing the normal above-`MA200` trend rule.
 
-**Income-layer rules (`SPYI` / `QQQI`)**
-- The default configuration sets `income_threshold_usd = 1_000_000_000`, so the income layer is disabled for normal account sizes.
-- Lowering that threshold opts back into the legacy income sleeve.
-- `QQQI_INCOME_RATIO` still decides the split between `QQQI` and `SPYI` when the income layer is enabled.
+**Income-layer rules**
+- The sleeve is explicitly controlled by `income_layer_enabled`; keeping it in config makes the income layer an optional risk-control overlay per strategy.
+- The default configuration starts the income layer at `income_layer_start_usd = 150000`.
+- Runtime defaults use `income_layer_ratio_mode = log_cap`: the target ratio grows on a logarithmic curve up to the configured safety cap.
+- The hard safety cap is `income_layer_max_ratio = 50%`, selected from the current full-income replay as the highest-return setting that kept standard windows inside the SPY drawdown benchmark at `1M USD` starting equity.
+- Default stress model: income sleeve stress drawdown `30%`, starting loss budget `8%` of account equity, decaying by `1%` per doubling until the `6%` floor.
+- Existing income holdings are locked with `max(current_income_layer_value, desired_income_layer_value)`, so the layer adds capital instead of force-selling down.
+- New income allocation defaults to `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%`.
+- `income_threshold_usd` and `qqqi_income_ratio` remain as compatibility inputs for older callers.
 
 **Defense behavior (`BOXX` and cash)**
 - The fixed dual-drive configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
@@ -265,7 +270,14 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD_MODE = volatility_scaled`
 - `DUAL_DRIVE_PULLBACK_REBOUND_VOLATILITY_MULTIPLIER = 2.0`
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD = 0.0` (fixed-mode fallback only)
-- `INCOME_THRESHOLD_USD = 1000000000`
+- `INCOME_LAYER_START_USD = 150000`
+- `INCOME_LAYER_RATIO_MODE = log_cap`
+- `INCOME_LAYER_MAX_RATIO = 0.50`
+- `INCOME_LAYER_STRESS_DRAWDOWN_RATIO = 0.30`
+- `INCOME_LAYER_BASE_LOSS_BUDGET_RATIO = 0.08`
+- `INCOME_LAYER_MIN_LOSS_BUDGET_RATIO = 0.06`
+- `INCOME_LAYER_ALLOCATIONS = SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%`
+- `INCOME_THRESHOLD_USD = 150000` (legacy alias)
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
@@ -278,7 +290,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 **Portfolio layers**
 - Trading layer: `SOXL`, `SOXX`, `BOXX`
-- Income layer: `QQQI`, `SPYI`
+- Income / ballast layer: `SCHD`, `DGRO`, `SGOV`, `SPYI`, `QQQI`
 
 **Trading-layer rules**
 - The default runtime mode uses a tiered `SOXX` trend gate to avoid relying on one all-or-nothing threshold.
@@ -287,6 +299,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - If the gate is off, the core sleeve holds defensive `SOXX 15%`.
 - Overheat controls are active on the default runtime profile: when the base tier is full or mid, `SOXX` RSI14 above the effective threshold and/or a break above the upper Bollinger band downgrade the tier by one step per trigger.
 - The runtime RSI threshold is dynamic: `max(70, prior 252 trading days RSI14 90th percentile)`, with `70` as the fallback floor when the dynamic indicator is unavailable.
+- The default volatility delever gate redirects SOXL exposure into SOXX when `SOXX` 10-day annualized realized volatility is at least `50%`.
 - Unused trading-layer capital is parked in `BOXX`.
 
 **Sizing behavior**
@@ -295,10 +308,12 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - The downstream runtime also keeps a cash reserve and only trades when the rebalance gap is large enough.
 
 **Income-layer rules**
+- The sleeve is explicitly controlled by `income_layer_enabled`; each strategy can keep its own threshold, cap, ratio mode, and allocation basket.
 - The income layer starts only after total strategy equity crosses `income_layer_start_usd`.
-- It ramps linearly to `income_layer_max_ratio` by `2x` that threshold.
+- Runtime defaults use `log_cap`: logarithmic growth first, then a hard cap tuned by full-income replay against the SPY drawdown benchmark.
+- The hard safety cap is `income_layer_max_ratio = 90%`; SOXL keeps a much larger safety layer because the semiconductor leveraged core needs more ballast to keep combined account drawdown inside SPY once the account is above the income-layer threshold.
 - Existing income holdings are locked with `max(current_income_layer_value, desired_income_layer_value)`, so the layer only adds capital instead of force-selling down.
-- New income allocation is split by configurable `QQQI` / `SPYI` weights.
+- New income allocation uses the configurable diversified `income_layer_allocations` basket.
 
 **Default runtime profile settings**
 - `TREND_MA_WINDOW = 140`
@@ -311,8 +326,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - RSI overheat enabled with dynamic threshold `max(70, rolling 252d RSI14 q90)`
 - Bollinger overheat enabled; stacked RSI + Bollinger triggers can downgrade full directly to defensive
 - Gate buffers: entry `8%`, mid `6%`, exit `2%`
-- Income layer starts at `150000 USD`, caps at `15%`
-- Income split: `QQQI 70%`, `SPYI 30%`
+- Income layer starts at `150000 USD`, uses `log_cap`, and hard-caps at `90%`
+- Income basket: `SCHD 20%`, `DGRO 10%`, `SGOV 65%`, `SPYI 4%`, `QQQI 1%`
 
 ---
 
@@ -496,13 +511,13 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 ### tqqq_growth_income
 
 **策略目标**
-- 默认配置采用不带收入层的 `QQQ` / `TQQQ` 双轮增长策略。
-- 继续把旧收入层和 BOXX 资产留在管理列表里，方便把已有持仓平滑降下来。
+- 默认配置采用带加法收入层的 `QQQ` / `TQQQ` 双轮增长策略。
+- 继续把 BOXX 和收入资产留在管理列表里，方便维护已有持仓并逐步增配。
 
 **资产层级**
 - 增长层：`QQQ`、`TQQQ`；券商运行时可以把非杠杆增长袖子换成低单价代理，例如 `QQQM`，但主信号仍使用 `QQQ`。
 - 默认激活时：2% 现金加 8% BOXX
-- 旧持仓清理 / 兼容层：`BOXX`、`SPYI`、`QQQI`
+- 收入层：`SCHD`、`DGRO`、`SGOV`、`SPYI`、`QQQI`
 
 **信号和指标**
 - 以 `QQQ` 的日线数据作为主信号源。
@@ -516,10 +531,15 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 如果 `QQQ` 跌破 `MA200`，默认退出 `QQQ` 和 `TQQQ`，保留 2% 现金，其余转入 `BOXX`。
 - 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20`、`MA20` 斜率为正，且 `QQQ` 较滚动 20 日低点的反弹幅度超过动态波动率门槛时，可重新打开风险仓位。默认门槛是最近 20 日 `QQQ` 日收益波动率的 `2.0x`，避免使用固定 3% 常数，同时继续过滤较弱的 MA200 附近震荡，不改变 `MA200` 上方的主趋势规则。
 
-**收入层规则（`SPYI` / `QQQI`）**
-- 默认配置把 `income_threshold_usd` 设为 `1_000_000_000`，普通账户规模下等于关闭收入层。
-- 如果以后要重新启用收入层，可以把这个阈值调低。
-- `QQQI_INCOME_RATIO` 仍然决定收入层启用时 `QQQI` 和 `SPYI` 的拆分比例。
+**收入层规则**
+- 收入层由 `income_layer_enabled` 显式控制；它是每个策略可选的风险/资金覆盖层，不是写死在策略里的分红附加项。
+- 默认配置在 `income_layer_start_usd = 150000` 时启动收入层。
+- 运行默认使用 `income_layer_ratio_mode = log_cap`：目标比例按对数曲线增长，最高到配置的安全上限。
+- 硬安全上限是 `income_layer_max_ratio = 50%`；这是用当前真实收入层样本，在 `100 万 USD` 起始权益下按“标准窗口回撤不超过 SPY”筛出来的最高收益默认值。
+- `log_loss_budget` 仍保留为可选模式，适合只想约束收入层自身压力亏损的账户。
+- 收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，所以默认只增配，不主动减配。
+- 新增收入资金默认按 `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` 拆分。
+- `income_threshold_usd` 和 `qqqi_income_ratio` 仍保留为旧调用方兼容参数。
 
 **防守行为（`BOXX` 与现金）**
 - fixed dual-drive 默认配置只保留一小部分现金，剩余闲置资金进入 BOXX。
@@ -535,7 +555,14 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD_MODE = volatility_scaled`
 - `DUAL_DRIVE_PULLBACK_REBOUND_VOLATILITY_MULTIPLIER = 2.0`
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD = 0.0`（仅作为 fixed 模式 fallback）
-- `INCOME_THRESHOLD_USD = 1000000000`
+- `INCOME_LAYER_START_USD = 150000`
+- `INCOME_LAYER_RATIO_MODE = log_cap`
+- `INCOME_LAYER_MAX_RATIO = 0.50`
+- `INCOME_LAYER_STRESS_DRAWDOWN_RATIO = 0.30`
+- `INCOME_LAYER_BASE_LOSS_BUDGET_RATIO = 0.08`
+- `INCOME_LAYER_MIN_LOSS_BUDGET_RATIO = 0.06`
+- `INCOME_LAYER_ALLOCATIONS = SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%`
+- `INCOME_THRESHOLD_USD = 150000`（旧参数别名）
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
@@ -548,7 +575,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 
 **资产层级**
 - 交易层：`SOXL`、`SOXX`、`BOXX`
-- 收入层：`QQQI`、`SPYI`
+- 收入 / 压舱层：`SCHD`、`DGRO`、`SGOV`、`SPYI`、`QQQI`
 
 **交易层规则**
 - 默认运行配置使用 `SOXX` 趋势分层闸门，避免仓位完全依赖单一开关。
@@ -557,6 +584,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 如果趋势闸门关闭，核心层防守目标为 `SOXX 15%`。
 - 线上 profile 启用过热控制：基础档位为 full 或 mid 时，如果 `SOXX` RSI14 高于有效阈值，和/或价格突破布林上轨，会按触发项逐级降档。
 - 线上 RSI 阈值为动态阈值：`max(70, 过去 252 个交易日 RSI14 的 90% 分位数)`；动态指标缺失时以 `70` 作为 fallback floor。
+- 默认波动率降杠杆闸门：当 `SOXX` 10 日年化实际波动率不低于 `50%` 时，将 SOXL 暴露转向 SOXX。
 - 交易层没有部署出去的资金停在 `BOXX`。
 
 **仓位规则**
@@ -565,10 +593,12 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 下游运行层另外还会保留现金储备，并且只有偏离目标足够大时才触发调仓。
 
 **收入层规则**
+- 收入层由 `income_layer_enabled` 显式控制；每个策略可以独立配置门槛、上限、增长模式和标的篮子。
 - 总策略权益超过 `income_layer_start_usd` 才启动收入层。
-- 到 `2 倍阈值` 时，收入层线性抬升到 `income_layer_max_ratio`。
+- 运行默认使用 `log_cap`：先按对数曲线增长，再由硬上限控制组合风险。
+- 硬安全上限是 `income_layer_max_ratio = 90%`；SOXL 半导体杠杆核心波动更高，所以资金过门槛后需要更大的安全/收入层，才能让组合回撤压到 SPY 口径以内。
 - 收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，所以默认只增配，不主动减配。
-- 新增收入资金按可配置的 `QQQI / SPYI` 比例拆分。
+- 新增收入资金按可配置的多资产 `income_layer_allocations` 篮子拆分。
 
 **默认运行 profile 配置值**
 - `TREND_MA_WINDOW = 140`
@@ -581,5 +611,16 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - RSI 过热已启用，动态阈值为 `max(70, rolling 252d RSI14 q90)`
 - 布林带过热已启用；RSI + 布林带双触发时，full 可直接降到 defensive
 - 闸门缓冲：入场 `8%`，中档 `6%`，退出 `2%`
-- 收入层起点 `150000 USD`，上限 `15%`
-- 收入层配比：`QQQI 70%`，`SPYI 30%`
+- 收入层起点 `150000 USD`，使用 `log_cap`，硬上限 `90%`
+- 收入层配比：`SCHD 20%`，`DGRO 10%`，`SGOV 65%`，`SPYI 4%`，`QQQI 1%`
+
+**账户级收入层默认参数**
+
+权重型策略默认也启用收入层，但它作为账户级覆盖层执行：原策略先生成核心权重，收入层再按账户规模缩小核心权重并加入收入篮子；没有 `portfolio_snapshot` 时保持原权重不变。
+
+| Profile | 起点 | 硬上限 | 压力回撤 | 损失预算 | 默认收入篮子 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `global_etf_rotation` | `500000` | `15%` | `18%` | `2.5% -> 2.0%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
+| `russell_1000_multi_factor_defensive` | `400000` | `20%` | `18%` | `3.0% -> 2.5%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `tech_communication_pullback_enhancement` | `250000` | `30%` | `22%` | `5.0% -> 4.0%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
+| `mega_cap_leader_rotation_top50_balanced` | `300000` | `25%` | `20%` | `4.0% -> 3.0%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |

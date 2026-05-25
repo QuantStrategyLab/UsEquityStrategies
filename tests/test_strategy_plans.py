@@ -55,7 +55,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
 
         self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX"))
         self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQ"))
-        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), ("QQQI", "SPYI")))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), ("SPYI", "QQQI")))
         self.assertEqual(plan["account_hash"], "acct-1")
         self.assertEqual(plan["allocation_mode"], "fixed_qqq_tqqq_pullback")
         self.assertAlmostEqual(plan["target_values"]["TQQQ"], 150000.0 * 0.45)
@@ -190,11 +190,89 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["strategy_symbols"], ["TQQQ", "QQQM", "BOXX", "SPYI", "QQQI"])
         self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQM", "SPYI", "QQQI", "BOXX"))
         self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQM"))
-        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQM", "BOXX"), ("QQQI", "SPYI")))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQM", "BOXX"), ("SPYI", "QQQI")))
         self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.45)
         self.assertNotIn("QQQ", plan["target_values"])
         self.assertIn("QQQM: $", plan["dashboard"])
         self.assertIn("QQQ: 229.50 | MA200 Exit:", plan["dashboard"])
+
+    def test_tqqq_growth_income_supports_diversified_income_layer(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=225000.0, quantity=1000)],
+            total_equity=225000.0,
+            buying_power=30000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+        income_symbols = ("SCHD", "DGRO", "SGOV", "SPYI", "QQQI")
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=150000.0,
+            qqqi_income_ratio=0.10,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.20,
+            income_layer_qqqi_weight=0.10,
+            income_layer_spyi_weight=0.20,
+            income_layer_allocations={
+                "SCHD": 0.40,
+                "DGRO": 0.20,
+                "SGOV": 0.10,
+                "SPYI": 0.20,
+                "QQQI": 0.10,
+            },
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        self.assertEqual(plan["income_layer_symbols"], income_symbols)
+        self.assertEqual(plan["strategy_symbols"], ["TQQQ", "QQQ", "BOXX", *income_symbols])
+        self.assertEqual(plan["buy_order_symbols"], (*income_symbols, "TQQQ", "QQQ"))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), income_symbols))
+        self.assertAlmostEqual(plan["income_layer_ratio"], 0.10)
+        self.assertAlmostEqual(plan["income_layer_value"], 22500.0)
+        self.assertAlmostEqual(plan["target_values"]["TQQQ"], 91125.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQ"], 91125.0)
+        self.assertAlmostEqual(plan["target_values"]["BOXX"], 16200.0)
+        self.assertAlmostEqual(plan["target_values"]["SCHD"], 9000.0)
+        self.assertAlmostEqual(plan["target_values"]["DGRO"], 4500.0)
+        self.assertAlmostEqual(plan["target_values"]["SGOV"], 2250.0)
+        self.assertAlmostEqual(plan["target_values"]["SPYI"], 4500.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQI"], 2250.0)
+
+    def test_tqqq_growth_income_log_loss_budget_caps_income_layer(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            get_income_layer_ratio,
+        )
+
+        ratio = get_income_layer_ratio(
+            600000.0,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.50,
+            income_layer_ratio_mode="log_loss_budget",
+            income_layer_log_growth_factor=0.70,
+            income_layer_stress_drawdown_ratio=0.30,
+            income_layer_base_loss_budget_ratio=0.08,
+            income_layer_min_loss_budget_ratio=0.06,
+            income_layer_loss_budget_decay_per_double=0.01,
+        )
+
+        self.assertAlmostEqual(ratio, 0.20)
 
     def test_tqqq_growth_income_live_dual_drive_uses_stateful_ma200_exit(self):
         _skip_if_missing_numeric_stack()
@@ -467,6 +545,72 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(held_mid_plan["blend_tier"], "mid")
         self.assertAlmostEqual(held_mid_plan["targets"]["SOXL"], 65000.0)
 
+    def test_soxl_soxx_trend_income_supports_diversified_income_basket(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        income_symbols = ("SCHD", "DGRO", "SGOV", "SPYI", "QQQI")
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {
+                "SOXL": 0.0,
+                "SOXX": 0.0,
+                "BOXX": 300000.0,
+                **{symbol: 0.0 for symbol in income_symbols},
+            },
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 3000, **{symbol: 0 for symbol in income_symbols}},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 3000, **{symbol: 0 for symbol in income_symbols}},
+            "total_strategy_equity": 300000.0,
+        }
+
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0},
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.25,
+            income_layer_qqqi_weight=0.05,
+            income_layer_spyi_weight=0.15,
+            income_layer_allocations={
+                "SCHD": 0.40,
+                "DGRO": 0.20,
+                "SGOV": 0.20,
+                "SPYI": 0.15,
+                "QQQI": 0.05,
+            },
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+        )
+
+        self.assertEqual(plan["income_layer_symbols"], income_symbols)
+        self.assertEqual(plan["limit_order_symbols"], ("SOXL", "SOXX", *income_symbols))
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 157500.0)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 45000.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 22500.0)
+        self.assertAlmostEqual(plan["targets"]["SCHD"], 30000.0)
+        self.assertAlmostEqual(plan["targets"]["DGRO"], 15000.0)
+        self.assertAlmostEqual(plan["targets"]["SGOV"], 15000.0)
+        self.assertAlmostEqual(plan["targets"]["SPYI"], 11250.0)
+        self.assertAlmostEqual(plan["targets"]["QQQI"], 3750.0)
+
     def test_soxl_soxx_trend_income_overlay_cap_can_downgrade_live_tier(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (
@@ -601,7 +745,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                 "soxx": {
                     "price": 109.0,
                     "ma_trend": 100.0,
-                    "realized_volatility_20": 0.55,
+                    "realized_volatility_10": 0.55,
                 },
             },
             account_state,
@@ -626,7 +770,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             blend_gate_defensive_soxx_weight=0.15,
             blend_gate_volatility_delever_enabled=True,
             blend_gate_volatility_delever_symbol="SOXX",
-            blend_gate_volatility_delever_window=20,
+            blend_gate_volatility_delever_window=10,
             blend_gate_volatility_delever_threshold=0.50,
             blend_gate_volatility_delever_retention_ratio=0.0,
             blend_gate_volatility_delever_redirect_symbol="SOXX",
@@ -635,6 +779,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["base_blend_tier"], "full")
         self.assertEqual(plan["blend_tier"], "full")
         self.assertTrue(plan["blend_gate_volatility_delever_triggered"])
+        self.assertEqual(plan["blend_gate_volatility_delever_window"], 10)
         self.assertEqual(plan["active_risk_asset"], "SOXX")
         self.assertEqual(plan["overlay_trigger_codes"], ("blend_gate_reason_volatility_delever",))
         self.assertAlmostEqual(plan["targets"]["SOXL"], 0.0)

@@ -6,6 +6,15 @@ import numpy as np
 import pandas as pd
 
 from quant_platform_kit.common.history import normalize_history_frame
+from us_equity_strategies.income_layer import (
+    INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
+    INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET,
+    INCOME_LAYER_RATIO_MODES,
+    as_clamped_ratio,
+    build_income_layer_plan,
+    get_income_layer_ratio,
+    normalize_income_layer_allocations,
+)
 
 PULLBACK_REBOUND_THRESHOLD_MODE_FIXED = "fixed"
 PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED = "volatility_scaled"
@@ -13,6 +22,15 @@ PULLBACK_REBOUND_THRESHOLD_MODES = {
     PULLBACK_REBOUND_THRESHOLD_MODE_FIXED,
     PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED,
 }
+CORE_ASSETS = ("TQQQ", "BOXX")
+__all__ = [
+    "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
+    "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
+    "INCOME_LAYER_RATIO_MODES",
+    "build_rebalance_plan",
+    "get_income_layer_ratio",
+    "get_income_ratio",
+]
 
 
 def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) -> float:
@@ -69,6 +87,18 @@ def build_rebalance_plan(
     qqqi_income_ratio,
     cash_reserve_ratio,
     rebalance_threshold_ratio,
+    income_layer_start_usd=None,
+    income_layer_max_ratio=None,
+    income_layer_qqqi_weight=None,
+    income_layer_spyi_weight=None,
+    income_layer_allocations=None,
+    income_layer_enabled=True,
+    income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
+    income_layer_log_growth_factor=0.70,
+    income_layer_stress_drawdown_ratio=0.30,
+    income_layer_base_loss_budget_ratio=0.08,
+    income_layer_min_loss_budget_ratio=0.06,
+    income_layer_loss_budget_decay_per_double=0.01,
     attack_allocation_mode="fixed_qqq_tqqq_pullback",
     dual_drive_qqq_weight=0.45,
     dual_drive_tqqq_weight=0.45,
@@ -94,10 +124,23 @@ def build_rebalance_plan(
     unlevered_symbol = str(dual_drive_unlevered_symbol or "QQQ").strip().upper()
     if not unlevered_symbol:
         raise ValueError("dual_drive_unlevered_symbol must be a non-empty ticker")
-    if unlevered_symbol in {"TQQQ", "BOXX", "SPYI", "QQQI"}:
+    legacy_qqqi_ratio = as_clamped_ratio(qqqi_income_ratio, default=0.5)
+    fallback_qqqi_weight = (
+        legacy_qqqi_ratio if income_layer_qqqi_weight is None else as_clamped_ratio(income_layer_qqqi_weight)
+    )
+    fallback_spyi_weight = (
+        1.0 - legacy_qqqi_ratio if income_layer_spyi_weight is None else as_clamped_ratio(income_layer_spyi_weight)
+    )
+    income_allocations = normalize_income_layer_allocations(
+        income_layer_allocations,
+        fallback_allocations=(("SPYI", fallback_spyi_weight), ("QQQI", fallback_qqqi_weight)),
+        excluded_symbols=(*CORE_ASSETS, unlevered_symbol),
+    )
+    income_symbols = tuple(income_allocations)
+    if unlevered_symbol in {*CORE_ASSETS, *income_symbols}:
         raise ValueError("dual_drive_unlevered_symbol must not overlap another TQQQ profile sleeve")
 
-    strategy_symbols = ["TQQQ", unlevered_symbol, "BOXX", "SPYI", "QQQI"]
+    strategy_symbols = ["TQQQ", unlevered_symbol, "BOXX", *income_symbols]
     market_values = {symbol: 0.0 for symbol in strategy_symbols}
     quantities = {symbol: 0.0 for symbol in strategy_symbols}
     for position in snapshot.positions:
@@ -108,15 +151,25 @@ def build_rebalance_plan(
     total_equity = snapshot.total_equity
     real_buying_power = float(snapshot.buying_power or 0.0)
 
-    income_ratio = get_income_ratio(
-        total_equity,
-        income_threshold_usd=income_threshold_usd,
+    layer_start = income_threshold_usd if income_layer_start_usd is None else income_layer_start_usd
+    layer_max_ratio = 0.60 if income_layer_max_ratio is None else income_layer_max_ratio
+    income_layer_plan = build_income_layer_plan(
+        total_equity_usd=total_equity,
+        market_values=market_values,
+        allocations=income_allocations,
+        income_layer_enabled=income_layer_enabled,
+        income_layer_start_usd=layer_start,
+        income_layer_max_ratio=layer_max_ratio,
+        income_layer_ratio_mode=income_layer_ratio_mode,
+        income_layer_log_growth_factor=income_layer_log_growth_factor,
+        income_layer_stress_drawdown_ratio=income_layer_stress_drawdown_ratio,
+        income_layer_base_loss_budget_ratio=income_layer_base_loss_budget_ratio,
+        income_layer_min_loss_budget_ratio=income_layer_min_loss_budget_ratio,
+        income_layer_loss_budget_decay_per_double=income_layer_loss_budget_decay_per_double,
     )
-    target_income_val = total_equity * income_ratio
-    target_spyi_val = target_income_val * (1.0 - qqqi_income_ratio)
-    target_qqqi_val = target_income_val * qqqi_income_ratio
+    target_income_values = income_layer_plan.target_values
 
-    strategy_equity = max(0.0, total_equity - target_income_val)
+    strategy_equity = max(0.0, total_equity - income_layer_plan.locked_value)
     reserved = strategy_equity * cash_reserve_ratio
 
     latest_ma20 = ma20.iloc[-1]
@@ -225,15 +278,15 @@ def build_rebalance_plan(
         f"{translator('dashboard_label')} | {translator('equity')}: ${total_equity:,.2f}\n"
         f"TQQQ: ${market_values['TQQQ']:,.2f} | {unlevered_symbol}: ${market_values[unlevered_symbol]:,.2f} | "
         f"BOXX: ${market_values['BOXX']:,.2f}\n"
-        f"SPYI: ${market_values['SPYI']:,.2f} | QQQI: ${market_values['QQQI']:,.2f}\n"
+        f"Income: {' | '.join(f'{symbol}: ${market_values[symbol]:,.2f}' for symbol in income_symbols) or '$0.00'}\n"
         f"{translator('buying_power')}: ${real_buying_power:,.2f} | "
         f"{reserved_cash_label}: ${reserved:,.2f} | "
         f"{investable_cash_label}: ${investable_buying_power:,.2f}\n"
         f"{translator('signal_label')}: {sig_display}\n"
         f"{benchmark_line}"
     )
-    sell_order_symbols = ("TQQQ", unlevered_symbol, "SPYI", "QQQI", "BOXX")
-    buy_order_symbols = ("SPYI", "QQQI", "TQQQ", unlevered_symbol)
+    sell_order_symbols = ("TQQQ", unlevered_symbol, *income_symbols, "BOXX")
+    buy_order_symbols = (*income_symbols, "TQQQ", unlevered_symbol)
     snapshot_metadata = getattr(snapshot, "metadata", {}) or {}
     account_hash = snapshot_metadata.get("account_hash") if isinstance(snapshot_metadata, dict) else None
 
@@ -243,7 +296,7 @@ def build_rebalance_plan(
         "sell_order_symbols": sell_order_symbols,
         "buy_order_symbols": buy_order_symbols,
         "cash_sweep_symbol": "BOXX",
-        "portfolio_rows": (("TQQQ", unlevered_symbol, "BOXX"), ("QQQI", "SPYI")),
+        "portfolio_rows": (("TQQQ", unlevered_symbol, "BOXX"), income_symbols),
         "account_hash": account_hash,
         "market_values": market_values,
         "quantities": quantities,
@@ -256,9 +309,13 @@ def build_rebalance_plan(
             "TQQQ": target_tqqq_val,
             unlevered_symbol: target_unlevered_val,
             "BOXX": target_boxx_val,
-            "SPYI": target_spyi_val,
-            "QQQI": target_qqqi_val,
+            **target_income_values,
         },
+        "income_layer_allocations": income_layer_plan.allocations,
+        "income_layer_symbols": income_layer_plan.symbols,
+        "income_layer_ratio": income_layer_plan.ratio,
+        "income_layer_value": income_layer_plan.locked_value,
+        **income_layer_plan.diagnostics,
         "sig_display": sig_display,
         "dashboard": dashboard,
         "notification_context": notification_context,

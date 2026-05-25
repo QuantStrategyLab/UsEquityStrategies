@@ -172,9 +172,15 @@ class StrategyEntrypointTests(unittest.TestCase):
 
         target_values = {position.symbol: position.target_value for position in decision.positions}
         self.assertEqual(target_values, legacy_plan["target_values"])
-        self.assertAlmostEqual(target_values["QQQ"] / snapshot.total_equity, 0.45)
-        self.assertAlmostEqual(target_values["TQQQ"] / snapshot.total_equity, 0.45)
-        self.assertAlmostEqual(target_values["BOXX"] / snapshot.total_equity, 0.08)
+        strategy_equity = snapshot.total_equity - 3200.0
+        self.assertAlmostEqual(target_values["QQQ"], strategy_equity * 0.45)
+        self.assertAlmostEqual(target_values["TQQQ"], strategy_equity * 0.45)
+        self.assertAlmostEqual(target_values["BOXX"], strategy_equity * 0.08)
+        self.assertEqual(target_values["SCHD"], 0.0)
+        self.assertEqual(target_values["DGRO"], 0.0)
+        self.assertEqual(target_values["SGOV"], 0.0)
+        self.assertEqual(target_values["SPYI"], 1500.0)
+        self.assertEqual(target_values["QQQI"], 1700.0)
         self.assertNotIn("sell_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["threshold"], legacy_plan["threshold"])
@@ -216,7 +222,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
-            ("TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"),
+            ("TQQQ", "QQQ", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
         )
 
     def test_tqqq_growth_income_defaults_to_fixed_dual_drive_live_profile(self) -> None:
@@ -232,9 +238,37 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(config["dual_drive_pullback_rebound_threshold"], 0.0)
         self.assertEqual(config["dual_drive_pullback_rebound_volatility_multiplier"], 2.0)
         self.assertEqual(config["cash_reserve_ratio"], 0.02)
-        self.assertEqual(config["income_threshold_usd"], 1_000_000_000.0)
+        self.assertEqual(config["income_threshold_usd"], 150000.0)
+        self.assertIs(config["income_layer_enabled"], True)
+        self.assertEqual(config["income_layer_start_usd"], 150000.0)
+        self.assertEqual(config["income_layer_max_ratio"], 0.50)
+        self.assertEqual(config["income_layer_ratio_mode"], "log_cap")
+        self.assertEqual(config["income_layer_log_growth_factor"], 0.70)
+        self.assertEqual(config["income_layer_stress_drawdown_ratio"], 0.30)
+        self.assertEqual(config["income_layer_base_loss_budget_ratio"], 0.08)
+        self.assertEqual(config["income_layer_min_loss_budget_ratio"], 0.06)
+        self.assertEqual(config["income_layer_loss_budget_decay_per_double"], 0.01)
+        self.assertEqual(
+            config["income_layer_allocations"],
+            {"SCHD": 0.30, "DGRO": 0.20, "SGOV": 0.40, "SPYI": 0.08, "QQQI": 0.02},
+        )
         self.assertEqual(config["execution_cash_reserve_ratio"], 0.0)
         self.assertIn("QQQ", config["managed_symbols"])
+
+    def test_weight_mode_profiles_default_to_income_layer_config(self) -> None:
+        expected = {
+            "global_etf_rotation": (500000.0, 0.15),
+            "russell_1000_multi_factor_defensive": (400000.0, 0.20),
+            "qqq_tech_enhancement": (250000.0, 0.30),
+            "mega_cap_leader_rotation_top50_balanced": (300000.0, 0.25),
+        }
+        for profile, (start_usd, max_ratio) in expected.items():
+            config = get_strategy_entrypoint(profile).manifest.default_config
+            self.assertIs(config["income_layer_enabled"], True)
+            self.assertEqual(config["income_layer_start_usd"], start_usd)
+            self.assertEqual(config["income_layer_max_ratio"], max_ratio)
+            self.assertEqual(config["income_layer_ratio_mode"], "log_loss_budget")
+            self.assertTrue(config["income_layer_allocations"])
 
     def test_value_mode_hybrid_runtime_adapters_use_canonical_inputs(self) -> None:
         for platform_id in ("ibkr", "schwab", "longbridge", "firstrade", "paper_signal"):
@@ -394,7 +428,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
         indicators = {
             "soxl": {"price": 80.0, "ma_trend": 75.0},
-            "soxx": {"price": 80.0, "ma_trend": 75.0, "realized_volatility_20": 0.20},
+            "soxx": {"price": 80.0, "ma_trend": 75.0, "realized_volatility_10": 0.20},
         }
         account_state = {
             "available_cash": 10000.0,
@@ -498,7 +532,14 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
-            ("SOXL", "SOXX", "BOXX", "QQQI", "SPYI"),
+            ("SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
+        )
+        self.assertIs(entrypoint.manifest.default_config["income_layer_enabled"], True)
+        self.assertEqual(entrypoint.manifest.default_config["income_layer_ratio_mode"], "log_cap")
+        self.assertEqual(entrypoint.manifest.default_config["income_layer_max_ratio"], 0.90)
+        self.assertEqual(
+            entrypoint.manifest.default_config["income_layer_allocations"],
+            {"SCHD": 0.20, "DGRO": 0.10, "SGOV": 0.65, "SPYI": 0.04, "QQQI": 0.01},
         )
 
     def test_soxl_soxx_trend_income_entrypoint_rejects_retired_fixed_dual_drive_runtime_config(self) -> None:
@@ -605,6 +646,35 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(mega_decision.diagnostics["selected_count"], 4)
         self.assertIn("blend_sleeves", mega_decision.diagnostics)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
+
+    def test_weight_mode_income_layer_scales_core_weights_when_portfolio_is_large(self) -> None:
+        tech = get_strategy_entrypoint("qqq_tech_enhancement")
+        decision = tech.evaluate(
+            StrategyContext(
+                as_of="2026-04-01",
+                market_data={"feature_snapshot": _feature_snapshot()},
+                portfolio=PortfolioSnapshot(
+                    as_of="2026-04-01",
+                    total_equity=1_000_000.0,
+                    buying_power=1_000_000.0,
+                    cash_balance=1_000_000.0,
+                    positions=(),
+                ),
+                state={"current_holdings": {"AAPL"}},
+            )
+        )
+
+        weights = {position.symbol: position.target_weight for position in decision.positions}
+        self.assertTrue(decision.diagnostics["income_layer_applied"])
+        self.assertGreater(decision.diagnostics["income_layer_ratio"], 0.0)
+        self.assertIn("SCHD", weights)
+        self.assertIn("DGRO", weights)
+        self.assertIn("SGOV", weights)
+        income_symbols = {"SCHD", "DGRO", "SGOV", "SPYI", "QQQI"}
+        self.assertLess(
+            sum(weight for symbol, weight in weights.items() if symbol not in income_symbols),
+            1.0,
+        )
 
     def test_ibkr_runtime_adapters_expose_unified_snapshot_runtime_metadata(self) -> None:
         global_adapter = get_platform_runtime_adapter("global_macro_etf_rotation", platform_id="ibkr")

@@ -107,7 +107,7 @@ class CatalogTest(unittest.TestCase):
         longbridge_definition = get_strategy_definition("soxl_soxx_trend_income")
         self.assertEqual(longbridge_definition.profile, SOXL_SOXX_TREND_INCOME_PROFILE)
         self.assertTrue(longbridge_definition.default_config["blend_gate_volatility_delever_enabled"])
-        self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_window"], 20)
+        self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_window"], 10)
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_threshold"], 0.50)
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_redirect_symbol"], "SOXX")
         longbridge_module = get_strategy_component_map(longbridge_definition)["allocation"]

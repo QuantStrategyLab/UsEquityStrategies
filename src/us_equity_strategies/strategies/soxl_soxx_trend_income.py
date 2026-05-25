@@ -2,8 +2,26 @@ from __future__ import annotations
 
 import numpy as np
 
+from us_equity_strategies.income_layer import (
+    INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
+    INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET,
+    INCOME_LAYER_RATIO_MODES,
+    build_income_layer_plan,
+    get_income_layer_ratio,
+    normalize_income_layer_allocations,
+)
+
 
 SOXX_GATE_TIERED_BLEND_MODE = "soxx_gate_tiered_blend"
+CORE_ASSETS = ("SOXL", "SOXX", "BOXX")
+__all__ = [
+    "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
+    "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
+    "INCOME_LAYER_RATIO_MODES",
+    "SOXX_GATE_TIERED_BLEND_MODE",
+    "build_rebalance_plan",
+    "get_income_layer_ratio",
+]
 
 
 def _translate_with_fallback(translator, key, fallback, **kwargs):
@@ -96,27 +114,6 @@ def _resolve_tier_allocations(
     return soxl_ratio, soxx_ratio, boxx_ratio, active_risk_asset
 
 
-def get_income_layer_ratio(
-    total_equity_usd,
-    *,
-    income_layer_start_usd,
-    income_layer_max_ratio,
-):
-    if total_equity_usd <= income_layer_start_usd:
-        return 0.0
-
-    if total_equity_usd <= (income_layer_start_usd * 2):
-        return float(
-            np.interp(
-                total_equity_usd,
-                [income_layer_start_usd, income_layer_start_usd * 2],
-                [0.0, income_layer_max_ratio],
-            )
-        )
-
-    return income_layer_max_ratio
-
-
 def build_rebalance_plan(
     indicators,
     account_state,
@@ -131,6 +128,14 @@ def build_rebalance_plan(
     income_layer_max_ratio,
     income_layer_qqqi_weight,
     income_layer_spyi_weight,
+    income_layer_allocations=None,
+    income_layer_enabled=True,
+    income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
+    income_layer_log_growth_factor=0.70,
+    income_layer_stress_drawdown_ratio=0.30,
+    income_layer_base_loss_budget_ratio=0.08,
+    income_layer_min_loss_budget_ratio=0.06,
+    income_layer_loss_budget_decay_per_double=0.01,
     trend_entry_buffer=0.03,
     trend_mid_buffer=0.06,
     trend_exit_buffer=0.03,
@@ -147,33 +152,50 @@ def build_rebalance_plan(
     blend_gate_overlay_stack_triggers=False,
     blend_gate_volatility_delever_enabled=False,
     blend_gate_volatility_delever_symbol="SOXX",
-    blend_gate_volatility_delever_window=20,
+    blend_gate_volatility_delever_window=10,
     blend_gate_volatility_delever_threshold=0.50,
     blend_gate_volatility_delever_retention_ratio=0.0,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
 ):
-    strategy_assets = ["SOXL", "SOXX", "BOXX", "QQQI", "SPYI"]
+    income_allocations = normalize_income_layer_allocations(
+        income_layer_allocations,
+        fallback_allocations=(
+            ("QQQI", _as_clamped_ratio(income_layer_qqqi_weight)),
+            ("SPYI", _as_clamped_ratio(income_layer_spyi_weight)),
+        ),
+        excluded_symbols=CORE_ASSETS,
+    )
+    income_symbols = tuple(income_allocations)
+    strategy_assets = [*CORE_ASSETS, *income_symbols]
     available_cash = account_state["available_cash"]
-    market_values = account_state["market_values"]
-    quantities = account_state["quantities"]
-    sellable_quantities = account_state["sellable_quantities"]
+    raw_market_values = account_state["market_values"]
+    raw_quantities = account_state["quantities"]
+    raw_sellable_quantities = account_state["sellable_quantities"]
+    market_values = {symbol: float(raw_market_values.get(symbol, 0.0)) for symbol in strategy_assets}
+    quantities = {symbol: float(raw_quantities.get(symbol, 0.0)) for symbol in strategy_assets}
+    sellable_quantities = {symbol: float(raw_sellable_quantities.get(symbol, 0.0)) for symbol in strategy_assets}
     total_strategy_equity = account_state["total_strategy_equity"]
     current_min_trade = max(min_trade_floor, total_strategy_equity * min_trade_ratio)
 
-    current_income_layer_value = market_values["QQQI"] + market_values["SPYI"]
-    income_layer_ratio = get_income_layer_ratio(
-        total_strategy_equity,
+    income_layer_plan = build_income_layer_plan(
+        total_equity_usd=total_strategy_equity,
+        market_values=market_values,
+        allocations=income_allocations,
+        income_layer_enabled=income_layer_enabled,
         income_layer_start_usd=income_layer_start_usd,
         income_layer_max_ratio=income_layer_max_ratio,
+        income_layer_ratio_mode=income_layer_ratio_mode,
+        income_layer_log_growth_factor=income_layer_log_growth_factor,
+        income_layer_stress_drawdown_ratio=income_layer_stress_drawdown_ratio,
+        income_layer_base_loss_budget_ratio=income_layer_base_loss_budget_ratio,
+        income_layer_min_loss_budget_ratio=income_layer_min_loss_budget_ratio,
+        income_layer_loss_budget_decay_per_double=income_layer_loss_budget_decay_per_double,
     )
-    desired_income_layer_value = total_strategy_equity * income_layer_ratio
-    locked_income_layer_value = max(current_income_layer_value, desired_income_layer_value)
-    income_layer_add_value = max(0.0, locked_income_layer_value - current_income_layer_value)
-    core_equity = max(0.0, total_strategy_equity - locked_income_layer_value)
+    core_equity = max(0.0, total_strategy_equity - income_layer_plan.locked_value)
     deploy_ratio_text = "0.0%"
-    income_ratio_text = f"{income_layer_ratio * 100:.1f}%"
+    income_ratio_text = f"{income_layer_plan.ratio * 100:.1f}%"
     income_locked_ratio_text = (
-        f"{(locked_income_layer_value / total_strategy_equity) * 100:.1f}%"
+        f"{(income_layer_plan.locked_value / total_strategy_equity) * 100:.1f}%"
         if total_strategy_equity > 0
         else "0.0%"
     )
@@ -222,7 +244,7 @@ def build_rebalance_plan(
     volatility_delever_symbol = str(blend_gate_volatility_delever_symbol or trend_symbol).strip().upper()
     if not volatility_delever_symbol:
         volatility_delever_symbol = trend_symbol
-    volatility_delever_window = _as_positive_int(blend_gate_volatility_delever_window, default=20)
+    volatility_delever_window = _as_positive_int(blend_gate_volatility_delever_window, default=10)
     volatility_delever_threshold = _as_float_or_none(blend_gate_volatility_delever_threshold)
     if volatility_delever_threshold is None:
         volatility_delever_threshold = 0.50
@@ -410,10 +432,9 @@ def build_rebalance_plan(
     targets = {
         "SOXL": soxl_target,
         "SOXX": soxx_target,
-        "QQQI": market_values["QQQI"] + (income_layer_add_value * income_layer_qqqi_weight),
-        "SPYI": market_values["SPYI"] + (income_layer_add_value * income_layer_spyi_weight),
         "BOXX": max(0.0, core_equity * boxx_ratio),
     }
+    targets.update(income_layer_plan.target_values)
     reserved_cash = max(0.0, total_strategy_equity * cash_reserve_ratio)
     investable_cash = max(0.0, available_cash - reserved_cash)
     benchmark_context = {
@@ -466,8 +487,8 @@ def build_rebalance_plan(
     return {
         "strategy_assets": strategy_assets,
         # Execution metadata consumed by downstream platform repos.
-        "limit_order_symbols": ("SOXL", "SOXX", "QQQI", "SPYI"),
-        "portfolio_rows": (("SOXL", "SOXX"), ("QQQI", "SPYI"), ("BOXX",)),
+        "limit_order_symbols": ("SOXL", "SOXX", *income_symbols),
+        "portfolio_rows": (("SOXL", "SOXX"), income_symbols, ("BOXX",)),
         "available_cash": available_cash,
         "market_values": market_values,
         "quantities": quantities,
@@ -481,6 +502,11 @@ def build_rebalance_plan(
         "deploy_ratio_text": deploy_ratio_text,
         "income_ratio_text": income_ratio_text,
         "income_locked_ratio_text": income_locked_ratio_text,
+        "income_layer_allocations": income_layer_plan.allocations,
+        "income_layer_symbols": income_layer_plan.symbols,
+        "income_layer_ratio": income_layer_plan.ratio,
+        "income_layer_value": income_layer_plan.locked_value,
+        **income_layer_plan.diagnostics,
         "active_risk_asset": active_risk_asset,
         "reserved_cash": reserved_cash,
         "investable_cash": investable_cash,

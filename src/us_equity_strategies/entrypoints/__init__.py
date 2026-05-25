@@ -31,10 +31,12 @@ from us_equity_strategies.strategies import (
 )
 
 from ._common import (
+    apply_income_layer_to_weights,
     default_signal_text_fn,
     default_translator,
     get_current_holdings,
     merge_runtime_config,
+    pop_income_layer_config,
     require_market_data,
     require_portfolio,
     target_values_to_positions,
@@ -202,6 +204,7 @@ def _build_tqqq_benchmark_text(notification_context: Mapping[str, object] | None
 
 def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifest) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
+    income_layer_config = pop_income_layer_config(config)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
@@ -217,10 +220,17 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         pacing_sec=float(config.pop("pacing_sec", 0.0)),
         **config,
     )
+    weights, income_layer_diagnostics = apply_income_layer_to_weights(
+        weights,
+        income_layer_config=income_layer_config,
+        ctx=ctx,
+        excluded_symbols=(config.get("safe_haven"),),
+    )
     diagnostics = {
         "signal_description": signal_desc,
         "canary_status": canary_str,
         "actionable": weights is not None,
+        **income_layer_diagnostics,
     }
     diagnostics.update(_account_size_diagnostics(manifest.profile, ctx))
     diagnostics["signal_description"] = append_account_size_warning(
@@ -522,6 +532,7 @@ soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
 
 def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(russell_1000_multi_factor_defensive_manifest.default_config, ctx)
+    income_layer_config = pop_income_layer_config(config)
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
     config.pop("run_as_of", None)
@@ -533,6 +544,12 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
         get_current_holdings(ctx),
         **config,
     )
+    weights, income_layer_diagnostics = apply_income_layer_to_weights(
+        weights,
+        income_layer_config=income_layer_config,
+        ctx=ctx,
+        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
+    )
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
@@ -541,6 +558,7 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
     )
     diagnostics = {
         **metadata,
+        **income_layer_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
         "signal_source": legacy_russell.SIGNAL_SOURCE,
@@ -583,6 +601,7 @@ legacy_russell.compute_signals.__doc__ = (
 
 def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
+    income_layer_config = pop_income_layer_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     config.pop("execution_cash_reserve_ratio", None)
@@ -595,6 +614,12 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
         get_current_holdings(ctx),
         **config,
     )
+    weights, income_layer_diagnostics = apply_income_layer_to_weights(
+        weights,
+        income_layer_config=income_layer_config,
+        ctx=ctx,
+        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
+    )
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
@@ -603,6 +628,7 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     )
     diagnostics = {
         **metadata,
+        **income_layer_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
         "signal_source": qqq_tech_enhancement_strategy.SIGNAL_SOURCE,
@@ -654,6 +680,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     manifest,
 ) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
+    income_layer_config = pop_income_layer_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     config.pop("execution_cash_reserve_ratio", None)
@@ -668,6 +695,16 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         get_current_holdings(ctx),
         **config,
     )
+    weights, income_layer_diagnostics = apply_income_layer_to_weights(
+        weights,
+        income_layer_config=income_layer_config,
+        ctx=ctx,
+        excluded_symbols=(
+            config.get("safe_haven"),
+            config.get("benchmark_symbol"),
+            config.get("broad_benchmark_symbol"),
+        ),
+    )
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
@@ -676,6 +713,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     )
     diagnostics = {
         **metadata,
+        **income_layer_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
         "signal_source": mega_cap_leader_rotation_strategy.SIGNAL_SOURCE,
