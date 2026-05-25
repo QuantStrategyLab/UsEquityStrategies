@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "us-equity-strategies"
-version = "0.7.40"
+version = "0.7.41"
 description = "Shared US equity strategy catalog and implementations"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "pandas>=2.0",
   "pytz>=2024.1",
-  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@d43800180aae1c7fe7051496a6af5d76f2c65879",
+  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@532346b6e22d9f9c0a25c5e859f29084d7b27f6c",
 ]
 
 [tool.setuptools]
