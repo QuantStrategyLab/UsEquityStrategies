@@ -153,7 +153,7 @@ def build_rebalance_plan(
     blend_gate_volatility_delever_enabled=False,
     blend_gate_volatility_delever_symbol="SOXX",
     blend_gate_volatility_delever_window=10,
-    blend_gate_volatility_delever_threshold=0.50,
+    blend_gate_volatility_delever_threshold=0.55,
     blend_gate_volatility_delever_retention_ratio=0.0,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
 ):
@@ -247,7 +247,7 @@ def build_rebalance_plan(
     volatility_delever_window = _as_positive_int(blend_gate_volatility_delever_window, default=10)
     volatility_delever_threshold = _as_float_or_none(blend_gate_volatility_delever_threshold)
     if volatility_delever_threshold is None:
-        volatility_delever_threshold = 0.50
+        volatility_delever_threshold = 0.55
     volatility_delever_retention_ratio = _as_clamped_ratio(
         blend_gate_volatility_delever_retention_ratio,
         default=0.0,
