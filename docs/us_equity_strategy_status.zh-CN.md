@@ -39,8 +39,8 @@ _更新日期：2026-05-26_
 
 | Profile | 模式 | 起点 | 平滑带 | 硬上限 | 默认收入篮子 |
 | --- | --- | ---: | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `150000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `150000` | `20%` | `90%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `tqqq_growth_income` | `log_cap` | `250000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `250000` | `20%` | `95%` | `SCHD 25% / DGRO 15% / SGOV 55% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
 | `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 | `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |

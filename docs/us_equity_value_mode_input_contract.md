@@ -47,6 +47,8 @@ Shared rules for both profiles:
 - broker execution metadata must stay outside the strategy contract
 - strategy diagnostics should expose structured notification context; platform
   repos may still render their own dashboard / Telegram text
+- notification, i18n, and audit-log payload shape is defined in
+  [`us_equity_notification_i18n_contract.md`](./us_equity_notification_i18n_contract.md)
 - daily value-mode profiles should also expose explicit execution-timing
   metadata through diagnostics / execution annotations rather than relying on
   scheduler prose alone:

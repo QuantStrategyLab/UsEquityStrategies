@@ -51,7 +51,9 @@ broker compatibility later” as the default workflow.
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md): reviewer checklist before enabling a profile on broker runtimes.
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md): runtime-enabled profile contract gaps versus the cross-platform target.
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md): fixed canonical input contract for the two current value-mode profiles.
+- [`docs/us_equity_notification_i18n_contract.md`](./docs/us_equity_notification_i18n_contract.md): structured notification/i18n/logging contract for strategy diagnostics and downstream renderers.
 - [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md): Chinese operator-facing status handbook for switchable profiles, input modes, research candidates, and archived backtest evidence.
+- [`docs/research/income_layer_design.md`](./docs/research/income_layer_design.md): income-layer threshold, activation band, curve mode, drawdown constraint, and default parameter conclusions.
 - [`docs/research/global_etf_confidence_vol_gate.md`](./docs/research/global_etf_confidence_vol_gate.md): Global ETF confidence plus relative-volatility gate research notes.
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): mega-cap leader rotation research notes and Top50 balanced profile notes.
 
@@ -60,14 +62,13 @@ broker compatibility later” as the default workflow.
 | Canonical profile | Display name | Compatible platforms | Cadence | Benchmark | Role | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | Global ETF Rotation | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation` | `runtime_enabled` |
-| `global_etf_confidence_vol_gate` | Global ETF Confidence Vol Gate | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `quarterly + daily canary` | `VOO` | `defensive_rotation_research_candidate` | `runtime_enabled` |
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
-`runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. Compatibility here means the strategy is structurally usable on the listed live broker runtime stack. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own runtime-specific wiring.
+`runtime_enabled` strategies are consumed by platform repositories through `QuantPlatformKit` strategy contracts and component loaders. Canonical profile keys are the runtime-facing layer; display names are the human-facing layer. `global_etf_confidence_vol_gate` is retained only as a legacy alias for `global_etf_rotation`, not as a separate runtime profile. Compatibility here means the strategy is structurally usable on the listed live broker runtime stack. Each deployment explicitly selects its strategy with `STRATEGY_PROFILE`; platform repositories own runtime-specific wiring.
 
 Cadence here is the strategy-level intent. Platform repositories own the actual
 Cloud Scheduler / GitHub Actions cron settings:
@@ -80,7 +81,6 @@ Cloud Scheduler / GitHub Actions cron settings:
   - `execution_timing_contract`
   - `signal_effective_after_trading_days`
 - the current daily runtime profiles (`global_etf_rotation`,
-  `global_etf_confidence_vol_gate`,
   `tqqq_growth_income`, `soxl_soxx_trend_income`) are tagged as
   `next_trading_day` strategies at the strategy/runtime contract layer, so
   downstream runtimes and audit reports do not need to infer this from prose.
@@ -248,8 +248,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 
 **Income-layer rules**
 - The sleeve is explicitly controlled by `income_layer_enabled`; keeping it in config makes the income layer an optional risk-control overlay per strategy.
-- The default configuration starts the income layer at `income_layer_start_usd = 150000`.
-- A 20% activation band soft-starts the income layer from `150000` to `180000`, avoiding a hard jump when equity oscillates around the threshold.
+- The default configuration starts the income layer at `income_layer_start_usd = 250000`.
+- A 20% activation band soft-starts the income layer from `250000` to `300000`, avoiding a hard jump when equity oscillates around the threshold.
 - Runtime defaults use `income_layer_ratio_mode = log_cap`: the target ratio grows on a logarithmic curve up to the configured safety cap.
 - The hard safety cap is `income_layer_max_ratio = 50%`, selected from the current full-income replay as the highest-return setting that kept standard windows inside the SPY drawdown benchmark at `1M USD` starting equity.
 - Default stress model: income sleeve stress drawdown `30%`, starting loss budget `8%` of account equity, decaying by `1%` per doubling until the `6%` floor.
@@ -271,7 +271,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD_MODE = volatility_scaled`
 - `DUAL_DRIVE_PULLBACK_REBOUND_VOLATILITY_MULTIPLIER = 2.0`
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD = 0.0` (fixed-mode fallback only)
-- `INCOME_LAYER_START_USD = 150000`
+- `INCOME_LAYER_START_USD = 250000`
 - `INCOME_LAYER_ACTIVATION_BAND_RATIO = 0.20`
 - `INCOME_LAYER_RATIO_MODE = log_cap`
 - `INCOME_LAYER_MAX_RATIO = 0.50`
@@ -279,7 +279,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `INCOME_LAYER_BASE_LOSS_BUDGET_RATIO = 0.08`
 - `INCOME_LAYER_MIN_LOSS_BUDGET_RATIO = 0.06`
 - `INCOME_LAYER_ALLOCATIONS = SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%`
-- `INCOME_THRESHOLD_USD = 150000` (legacy alias)
+- `INCOME_THRESHOLD_USD = 250000` (legacy alias)
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
@@ -312,9 +312,9 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 **Income-layer rules**
 - The sleeve is explicitly controlled by `income_layer_enabled`; each strategy can keep its own threshold, cap, ratio mode, and allocation basket.
 - The income layer starts only after total strategy equity crosses `income_layer_start_usd`.
-- A 20% activation band soft-starts the income layer from `150000` to `180000`, avoiding a hard jump when equity oscillates around the threshold.
+- A 20% activation band soft-starts the income layer from `250000` to `300000`, avoiding a hard jump when equity oscillates around the threshold.
 - Runtime defaults use `log_cap`: logarithmic growth first, then a hard cap tuned by full-income replay against the SPY drawdown benchmark.
-- The hard safety cap is `income_layer_max_ratio = 90%`; SOXL keeps a much larger safety layer because the semiconductor leveraged core needs more ballast to keep combined account drawdown inside SPY once the account is above the income-layer threshold.
+- The hard safety cap is `income_layer_max_ratio = 95%`; SOXL keeps a much larger safety layer because the semiconductor leveraged core needs more ballast to keep combined account drawdown inside SPY once the account is above the income-layer threshold.
 - Existing income holdings are locked with `max(current_income_layer_value, desired_income_layer_value)`, so the layer only adds capital instead of force-selling down.
 - New income allocation uses the configurable diversified `income_layer_allocations` basket.
 
@@ -330,8 +330,8 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - Bollinger overheat enabled; stacked RSI + Bollinger triggers can downgrade full directly to defensive
 - Volatility delever gate: `SOXX` 10-day realized volatility `>= 55%`, redirect `SOXL` to `SOXX`
 - Gate buffers: entry `8%`, mid `6%`, exit `2%`
-- Income layer starts at `150000 USD`, soft-starts over a `20%` activation band, uses `log_cap`, and hard-caps at `90%`
-- Income basket: `SCHD 20%`, `DGRO 10%`, `SGOV 65%`, `SPYI 4%`, `QQQI 1%`
+- Income layer starts at `250000 USD`, soft-starts over a `20%` activation band, uses `log_cap`, and hard-caps at `95%`
+- Income basket: `SCHD 25%`, `DGRO 15%`, `SGOV 55%`, `SPYI 4%`, `QQQI 1%`
 
 **Account-level income-layer defaults**
 
@@ -343,8 +343,8 @@ growth as possible. Non-leveraged profiles use `log_loss_budget` as a lighter ac
 
 | Profile | Mode | Start | Activation band | Hard cap | Default income basket |
 | --- | --- | ---: | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `150000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `150000` | `20%` | `90%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `tqqq_growth_income` | `log_cap` | `250000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `250000` | `20%` | `95%` | `SCHD 25% / DGRO 15% / SGOV 55% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
 | `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 | `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
@@ -401,7 +401,9 @@ Example override:
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：runtime-enabled profile 距离跨平台目标契约的差异矩阵。
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
+- [`docs/us_equity_notification_i18n_contract.zh-CN.md`](./docs/us_equity_notification_i18n_contract.zh-CN.md)：策略诊断、通知、日志和 i18n 渲染的结构化契约。
 - [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明可切换 profile、输入类型、研究候选和已归档回测证据。
+- [`docs/research/income_layer_design.md`](./docs/research/income_layer_design.md)：收入层设计结论的英文版。
 - [`docs/research/income_layer_design.zh-CN.md`](./docs/research/income_layer_design.zh-CN.md)：收入层门槛、平滑带、曲线模式和默认参数的设计结论。
 - [`docs/research/global_etf_confidence_vol_gate.md`](./docs/research/global_etf_confidence_vol_gate.md)：Global ETF 置信度 + 相对波动过滤研究说明。
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的研究说明，以及 dynamic top20 运行 profile 说明。
@@ -411,14 +413,13 @@ Example override:
 | Canonical profile | 显示名 | 兼容平台仓库 | 策略频率 | 核心思路 |
 | --- | --- | --- | --- | --- |
 | `global_etf_rotation` | 全球 ETF 轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 季度调仓 + 每日 canary | 22 只全球 ETF 的季度 Top 2 轮动，默认使用 SMA250 置信度 + 相对波动门控 |
-| `global_etf_confidence_vol_gate` | 全球 ETF 置信度波动过滤 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 季度调仓 + 每日 canary | 与 `global_etf_rotation` 同源的显式对照入口，保留 75/25 规则与门控参数 |
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
 | `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
-`runtime_enabled` 策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口被各个平台仓库引用；`research_only` profile 保留定义、manifest、entrypoint 和 adapter 作为研究/回放存档，但不会进入平台 rollout allowlist。运行时和部署配置统一使用 canonical profile key。这里的“兼容平台”指当前 live broker runtime。
+`runtime_enabled` 策略通过 `QuantPlatformKit` 提供的策略契约和组件加载接口被各个平台仓库引用；`global_etf_confidence_vol_gate` 仅作为 `global_etf_rotation` 的旧别名保留，不再是独立运行 profile。运行时和部署配置统一使用 canonical profile key。这里的“兼容平台”指当前 live broker runtime。
 这里的策略频率表达的是策略层意图；实际 Cloud Scheduler / GitHub Actions
 cron 配置由各个平台仓库负责：
 
@@ -437,8 +438,7 @@ cron 配置由各个平台仓库负责：
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | 最适合小账户；通常能买到 TQQQ，但 BOXX / 现金层会有偏差。 |
 | `soxl_soxx_trend_income` | `1000 USD` | 整数股平台会有偏离；支持碎股的运行时可以更接近小额 SOXX / BOXX 目标仓位。 |
-| `global_etf_rotation` | `3000 USD` | 默认档已切到 SMA250 + 置信度门控；Top2 ETF 轮动遇到高价 ETF 时仍会偏离。 |
-| `global_etf_confidence_vol_gate` | `3000 USD` | 与 `global_etf_rotation` 同一执行约束；保留 75/25 对照入口时，小账户和整数股平台会更容易产生偏离。 |
+| `global_etf_rotation`（历史别名 `global_etf_confidence_vol_gate`） | `3000 USD` | 默认档已切到 SMA250 + 置信度门控；Top2 ETF 轮动遇到高价 ETF 时仍会偏离。 |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | 固定 50% Top2 / 50% Top4 袖珍组合需要不等权持仓，小账户整数股会产生明显偏离。 |
 | `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |
 | `russell_1000_multi_factor_defensive` | `30000 USD` | 默认 24 只股票组合，不适合小账户。 |
@@ -448,7 +448,7 @@ cron 配置由各个平台仓库负责：
 ### 研究候选与存档
 
 - `mega_cap_leader_rotation_top50_balanced`：已注册为 runtime-enabled 月频 profile，消费透明 Top50 月度 snapshot，运行固定 50% Top2 cap50 + 50% Top4 cap25 的组合，不默认使用宽基趋势降仓。
-- `global_etf_confidence_vol_gate`：`global_etf_rotation` 的显式对照入口，保留同一标的池和 canary 防守。它使用同样的 SMA250 / z-gap / 相对波动门控参数，方便做回归对照和小样本验证。
+- `global_etf_confidence_vol_gate`：`global_etf_rotation` 的旧别名和回归对照名，保留同一标的池、canary 防守和 SMA250 / z-gap / 相对波动门控参数。
 - `mega_cap_leader_rotation`：静态池和动态池的研究/回测总称；说明见 [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)。
 
 ### global_etf_rotation
@@ -465,20 +465,20 @@ cron 配置由各个平台仓库负责：
 
 **指标和规则**
 - 动量使用 Keller 风格的 `13612W` 月频动量：`(12×R1M + 4×R3M + 2×R6M + R12M) / 19`。
-- 趋势过滤：候选 ETF 必须站上 `200 日均线`。
+- 趋势过滤：候选 ETF 必须站上 `250 日均线`。
 - 持有加分：当前持仓会获得 `+2%` 分数加成，用来降低换手。
 - 每日 canary 检查：如果 `SPY / EFA / EEM / AGG` 这 4 个资产的动量全部为负，或缺失到全部失效，就立刻切到 `100% BIL`。
 
 **调仓行为**
 - 正常轮动只在 `3 / 6 / 9 / 12` 月最后一个 NYSE 交易日触发。
 - 到调仓日后，对合格标的打分，选出前 2 名。
-- 前 2 名等权配置，默认 `50 / 50`。
+- 前 2 名通常等权配置；当 Top1 领先足够大且相对波动不明显高于 Top2 时，默认置信度门控可切到 `75 / 25`。
 - 如果合格标的不满 2 个，空出来的部分停到 `BIL`。
 - 非调仓日默认不改目标仓位，除非触发 canary 应急防守。
 
 **置信度 + 波动过滤变体**
 - `global_etf_rotation` 现在默认使用 `sma_period=250`、`confidence_threshold=1.0`、`confidence_weighting_enabled=True`、`confidence_top1_weight=0.75`、`confidence_volatility_gate_enabled=True`、`confidence_volatility_window=126`、`confidence_volatility_max_ratio=1.3`。
-- `global_etf_confidence_vol_gate` 保留为显式对照入口，参数与默认档一致，便于回放和回归比较。
+- `global_etf_confidence_vol_gate` 保留为旧别名和回归对照名，参数与默认档一致，便于回放和回归比较。
 - 只有 Top1 明显领先且相对 Top2 不显著更高波动时，才切到 `75 / 25`；否则仍保持 Top2 等权。
 
 **这套策略的定位**
@@ -580,8 +580,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 
 **收入层规则**
 - 收入层由 `income_layer_enabled` 显式控制；它是每个策略可选的风险/资金覆盖层，不是写死在策略里的分红附加项。
-- 默认配置在 `income_layer_start_usd = 150000` 时启动收入层。
-- 默认 `income_layer_activation_band_ratio = 0.20`，也就是在 `150000` 到 `180000` 之间把目标收入层比例从 0 平滑放大到正常值，避免账户在门槛上下波动时突然大幅切换。
+- 默认配置在 `income_layer_start_usd = 250000` 时启动收入层。
+- 默认 `income_layer_activation_band_ratio = 0.20`，也就是在 `250000` 到 `300000` 之间把目标收入层比例从 0 平滑放大到正常值，避免账户在门槛上下波动时突然大幅切换。
 - 运行默认使用 `income_layer_ratio_mode = log_cap`：目标比例按对数曲线增长，最高到配置的安全上限。
 - 硬安全上限是 `income_layer_max_ratio = 50%`；这是用当前真实收入层样本，在 `100 万 USD` 起始权益下按“标准窗口回撤不超过 SPY”筛出来的最高收益默认值。
 - `log_loss_budget` 仍保留为可选模式，适合只想约束收入层自身压力亏损的账户。
@@ -603,7 +603,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD_MODE = volatility_scaled`
 - `DUAL_DRIVE_PULLBACK_REBOUND_VOLATILITY_MULTIPLIER = 2.0`
 - `DUAL_DRIVE_PULLBACK_REBOUND_THRESHOLD = 0.0`（仅作为 fixed 模式 fallback）
-- `INCOME_LAYER_START_USD = 150000`
+- `INCOME_LAYER_START_USD = 250000`
 - `INCOME_LAYER_ACTIVATION_BAND_RATIO = 0.20`
 - `INCOME_LAYER_RATIO_MODE = log_cap`
 - `INCOME_LAYER_MAX_RATIO = 0.50`
@@ -611,7 +611,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `INCOME_LAYER_BASE_LOSS_BUDGET_RATIO = 0.08`
 - `INCOME_LAYER_MIN_LOSS_BUDGET_RATIO = 0.06`
 - `INCOME_LAYER_ALLOCATIONS = SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%`
-- `INCOME_THRESHOLD_USD = 150000`（旧参数别名）
+- `INCOME_THRESHOLD_USD = 250000`（旧参数别名）
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
@@ -644,9 +644,9 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 **收入层规则**
 - 收入层由 `income_layer_enabled` 显式控制；每个策略可以独立配置门槛、上限、增长模式和标的篮子。
 - 总策略权益超过 `income_layer_start_usd` 才启动收入层。
-- 默认 `income_layer_activation_band_ratio = 0.20`，也就是在 `150000` 到 `180000` 之间把目标收入层比例从 0 平滑放大到正常值。
+- 默认 `income_layer_activation_band_ratio = 0.20`，也就是在 `250000` 到 `300000` 之间把目标收入层比例从 0 平滑放大到正常值。
 - 运行默认使用 `log_cap`：先按对数曲线增长，再由硬上限控制组合风险。
-- 硬安全上限是 `income_layer_max_ratio = 90%`；SOXL 半导体杠杆核心波动更高，所以资金过门槛后需要更大的安全/收入层，才能让组合回撤压到 SPY 口径以内。
+- 硬安全上限是 `income_layer_max_ratio = 95%`；SOXL 半导体杠杆核心波动更高，所以资金过门槛后需要更大的安全/收入层，才能让组合回撤压到 SPY 口径以内。
 - 收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，所以默认只增配，不主动减配。
 - 新增收入资金按可配置的多资产 `income_layer_allocations` 篮子拆分。
 
@@ -662,8 +662,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 布林带过热已启用；RSI + 布林带双触发时，full 可直接降到 defensive
 - 波动率降杠杆闸门：`SOXX` 10 日实际波动率 `>= 55%`，将 `SOXL` 转向 `SOXX`
 - 闸门缓冲：入场 `8%`，中档 `6%`，退出 `2%`
-- 收入层起点 `150000 USD`，平滑启动带 `20%`，使用 `log_cap`，硬上限 `90%`
-- 收入层配比：`SCHD 20%`，`DGRO 10%`，`SGOV 65%`，`SPYI 4%`，`QQQI 1%`
+- 收入层起点 `250000 USD`，平滑启动带 `20%`，使用 `log_cap`，硬上限 `95%`
+- 收入层配比：`SCHD 25%`，`DGRO 15%`，`SGOV 55%`，`SPYI 4%`，`QQQI 1%`
 
 **账户级收入层默认参数**
 
@@ -673,8 +673,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 
 | Profile | 模式 | 起点 | 平滑带 | 硬上限 | 压力回撤 | 损失预算 | 默认收入篮子 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `150000` | `20%` | `50%` | `30%` | `8.0% -> 6.0%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `150000` | `20%` | `90%` | `30%` | `8.0% -> 6.0%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `tqqq_growth_income` | `log_cap` | `250000` | `20%` | `50%` | `30%` | `8.0% -> 6.0%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `250000` | `20%` | `95%` | `30%` | `8.0% -> 6.0%` | `SCHD 25% / DGRO 15% / SGOV 55% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `18%` | `2.5% -> 2.0%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
 | `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `18%` | `3.0% -> 2.5%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 | `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `22%` | `5.0% -> 4.0%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
