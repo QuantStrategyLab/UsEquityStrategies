@@ -324,6 +324,8 @@ def build_rebalance_plan(
     if max_investment_usd is not None:
         requested_investment = min(requested_investment, max(0.0, float(max_investment_usd)))
     planned_investment = min(requested_investment, investable_cash)
+    cash_capped = planned_investment < requested_investment
+    cash_shortfall = max(0.0, requested_investment - planned_investment)
 
     skip_reason = None
     actionable = True
@@ -360,6 +362,10 @@ def build_rebalance_plan(
         f"Smart DCA {regime}: multiplier {multiplier:.2f}x, "
         f"planned buy ${planned_investment:,.2f} from cash ${available_cash:,.2f}"
     )
+    if cash_capped and planned_investment > 0.0:
+        signal_desc = (
+            f"{signal_desc} | cash capped from requested ${requested_investment:,.2f}"
+        )
     status_desc = (
         f"{window_text} | avg drawdown {aggregate_metrics['avg_drawdown_252d']:.1%}, "
         f"avg gap vs SMA200 {aggregate_metrics['avg_sma200_gap']:.1%}"
@@ -382,6 +388,8 @@ def build_rebalance_plan(
         "base_investment_usd": float(base_investment_usd),
         "requested_investment_usd": float(requested_investment),
         "planned_investment_usd": float(planned_investment if actionable else 0.0),
+        "cash_capped": bool(cash_capped),
+        "cash_shortfall_usd": float(cash_shortfall),
         "available_cash": float(available_cash),
         "reserved_cash": float(reserved_cash),
         "investable_cash": float(investable_cash),

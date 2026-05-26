@@ -18,6 +18,12 @@ def _normal_history() -> pd.Series:
     return _series([100.0 + i * 0.02 for i in range(260)])
 
 
+def _severe_pullback_history() -> pd.Series:
+    return _series(
+        [100.0 + i * 0.10 for i in range(220)] + [122.0 - i * 1.0 for i in range(40)]
+    )
+
+
 def _expensive_history() -> pd.Series:
     return _series([100.0 + i * 0.20 for i in range(260)])
 
@@ -79,6 +85,26 @@ def test_smart_dca_waits_when_cash_is_below_minimum() -> None:
 
     assert plan["actionable"] is False
     assert plan["skip_reason"] == "insufficient_cash"
+
+
+def test_smart_dca_caps_pullback_buy_to_investable_cash() -> None:
+    history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
+
+    plan = build_rebalance_plan(
+        lambda _client, symbol: history[symbol],
+        _portfolio(buying_power=1550.0),
+        as_of="2026-05-26",
+    )
+
+    assert plan["actionable"] is True
+    assert plan["regime"] == "severe_pullback"
+    assert plan["requested_investment_usd"] == 2000.0
+    assert plan["planned_investment_usd"] == 1500.0
+    assert plan["cash_capped"] is True
+    assert plan["cash_shortfall_usd"] == 500.0
+    assert plan["target_values"]["QQQM"] == 1750.0
+    assert plan["target_values"]["SPLG"] == 1950.0
+    assert "cash capped from requested $2,000.00" in plan["signal_description"]
 
 
 def test_smart_dca_disables_platform_rebalance_threshold_by_default() -> None:
