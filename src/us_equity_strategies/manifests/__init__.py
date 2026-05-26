@@ -5,6 +5,7 @@ from quant_platform_kit.strategy_contracts import StrategyManifest
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
+NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
 
 
@@ -326,6 +327,46 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
     },
 )
 
+nasdaq_sp500_smart_dca_manifest = _manifest(
+    profile=NASDAQ_SP500_SMART_DCA_PROFILE,
+    display_name="Nasdaq/S&P 500 Smart DCA",
+    description="Buy-only Nasdaq 100 and S&P 500 smart DCA profile with trend, pullback, and overvaluation gates.",
+    aliases=(),
+    required_inputs=frozenset({"market_history", "portfolio_snapshot"}),
+    default_config={
+        "signal_symbols": ("QQQ", "SPY"),
+        "trade_allocations": {
+            "QQQM": 0.50,
+            "SPLG": 0.50,
+        },
+        "managed_symbols": ("QQQM", "SPLG"),
+        "base_investment_usd": 1000.0,
+        "max_investment_usd": 2000.0,
+        "cash_reserve_usd": 50.0,
+        "min_investment_usd": 200.0,
+        "cadence": "monthly",
+        "monthly_day": 25,
+        "monthly_window_calendar_days": 5,
+        "weekly_day": 4,
+        "mild_drawdown_threshold": 0.08,
+        "deep_drawdown_threshold": 0.15,
+        "severe_drawdown_threshold": 0.25,
+        "mild_discount_gap": 0.05,
+        "deep_discount_gap": 0.10,
+        "expensive_gap": 0.12,
+        "very_expensive_gap": 0.20,
+        "shallow_drawdown_threshold": 0.03,
+        "overbought_rsi": 70.0,
+        "base_multiplier": 1.0,
+        "mild_pullback_multiplier": 1.25,
+        "deep_pullback_multiplier": 1.50,
+        "severe_pullback_multiplier": 2.0,
+        "expensive_multiplier": 0.50,
+        "very_expensive_multiplier": 0.0,
+        "execution_cash_reserve_ratio": 0.0,
+    },
+)
+
 MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
@@ -333,6 +374,7 @@ MANIFESTS = {
     russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
     qqq_tech_enhancement_manifest.profile: qqq_tech_enhancement_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest.profile: mega_cap_leader_rotation_top50_balanced_manifest,
+    nasdaq_sp500_smart_dca_manifest.profile: nasdaq_sp500_smart_dca_manifest,
 }
 
 MANIFEST_ALIASES = {
@@ -356,4 +398,5 @@ __all__ = [
     "qqq_tech_enhancement_manifest",
     "russell_1000_multi_factor_defensive_manifest",
     "mega_cap_leader_rotation_top50_balanced_manifest",
+    "nasdaq_sp500_smart_dca_manifest",
 ]

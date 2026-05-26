@@ -1,6 +1,6 @@
 # US equity contract gap matrix
 
-_Updated: 2026-05-08_
+_Updated: 2026-05-26_
 
 This document tracks the current shared US equity strategy contract across
 `UsEquityStrategies`, `QuantPlatformKit`, and the platform runtimes.
@@ -19,6 +19,7 @@ The current runtime-enabled US equity profiles are:
 - `russell_1000_multi_factor_defensive`
 - `tech_communication_pullback_enhancement`
 - `mega_cap_leader_rotation_top50_balanced`
+- `nasdaq_sp500_smart_dca`
 
 `global_etf_confidence_vol_gate` is a legacy alias that resolves to `global_etf_rotation` and does not appear as a separate runtime-enabled row.
 
@@ -76,6 +77,7 @@ New US equity profiles should use only these canonical `required_inputs`:
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Artifact-backed Russell 1000 defensive selection. |
 | `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Artifact-backed tech/communication pullback selection with bundled config support. |
 | `mega_cap_leader_rotation_top50_balanced` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Retained Top50 balanced leader-rotation path. |
+| `nasdaq_sp500_smart_dca` | `value` | `market_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Buy-only Nasdaq/S&P 500 smart DCA using market-history indicators and cash availability. |
 
 ## Current Conclusions
 
