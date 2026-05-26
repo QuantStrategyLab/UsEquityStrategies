@@ -17,6 +17,9 @@ _更新日期：2026-05-26_
 | `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
 | `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
 
+启动门槛、平滑带和接近上限位置的图表见
+[`income_layer_activation_drawdown_2026-05-26.svg`](./income_layer_activation_drawdown_2026-05-26.svg)。
+
 ## 设计规则
 
 - 杠杆策略使用 `log_cap`：目标是让组合层回撤接近或不超过 SPY / QQQ 对照，同时尽量保留复利。
