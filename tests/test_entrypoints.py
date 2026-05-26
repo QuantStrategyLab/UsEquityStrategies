@@ -242,6 +242,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIs(config["income_layer_enabled"], True)
         self.assertEqual(config["income_layer_start_usd"], 150000.0)
         self.assertEqual(config["income_layer_max_ratio"], 0.50)
+        self.assertEqual(config["income_layer_activation_band_ratio"], 0.20)
         self.assertEqual(config["income_layer_ratio_mode"], "log_cap")
         self.assertEqual(config["income_layer_log_growth_factor"], 0.70)
         self.assertEqual(config["income_layer_stress_drawdown_ratio"], 0.30)
@@ -257,16 +258,17 @@ class StrategyEntrypointTests(unittest.TestCase):
 
     def test_weight_mode_profiles_default_to_income_layer_config(self) -> None:
         expected = {
-            "global_etf_rotation": (500000.0, 0.15),
-            "russell_1000_multi_factor_defensive": (400000.0, 0.20),
-            "qqq_tech_enhancement": (250000.0, 0.30),
-            "mega_cap_leader_rotation_top50_balanced": (300000.0, 0.25),
+            "global_etf_rotation": (500000.0, 0.15, 0.10),
+            "russell_1000_multi_factor_defensive": (400000.0, 0.20, 0.10),
+            "qqq_tech_enhancement": (250000.0, 0.30, 0.15),
+            "mega_cap_leader_rotation_top50_balanced": (300000.0, 0.25, 0.15),
         }
-        for profile, (start_usd, max_ratio) in expected.items():
+        for profile, (start_usd, max_ratio, activation_band_ratio) in expected.items():
             config = get_strategy_entrypoint(profile).manifest.default_config
             self.assertIs(config["income_layer_enabled"], True)
             self.assertEqual(config["income_layer_start_usd"], start_usd)
             self.assertEqual(config["income_layer_max_ratio"], max_ratio)
+            self.assertEqual(config["income_layer_activation_band_ratio"], activation_band_ratio)
             self.assertEqual(config["income_layer_ratio_mode"], "log_loss_budget")
             self.assertTrue(config["income_layer_allocations"])
 
@@ -537,6 +539,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIs(entrypoint.manifest.default_config["income_layer_enabled"], True)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_ratio_mode"], "log_cap")
         self.assertEqual(entrypoint.manifest.default_config["income_layer_max_ratio"], 0.90)
+        self.assertEqual(entrypoint.manifest.default_config["income_layer_activation_band_ratio"], 0.20)
         self.assertEqual(
             entrypoint.manifest.default_config["income_layer_allocations"],
             {"SCHD": 0.20, "DGRO": 0.10, "SGOV": 0.65, "SPYI": 0.04, "QQQI": 0.01},

@@ -117,6 +117,7 @@ def get_income_layer_ratio(
     income_layer_start_usd,
     income_layer_max_ratio,
     income_layer_enabled=True,
+    income_layer_activation_band_ratio=0.0,
     income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
     income_layer_log_growth_factor=0.70,
     income_layer_stress_drawdown_ratio=0.30,
@@ -129,6 +130,7 @@ def get_income_layer_ratio(
         income_layer_start_usd=income_layer_start_usd,
         income_layer_max_ratio=income_layer_max_ratio,
         income_layer_enabled=income_layer_enabled,
+        income_layer_activation_band_ratio=income_layer_activation_band_ratio,
         income_layer_ratio_mode=income_layer_ratio_mode,
         income_layer_log_growth_factor=income_layer_log_growth_factor,
         income_layer_stress_drawdown_ratio=income_layer_stress_drawdown_ratio,
@@ -145,6 +147,7 @@ def resolve_income_layer_ratio(
     income_layer_start_usd,
     income_layer_max_ratio,
     income_layer_enabled=True,
+    income_layer_activation_band_ratio=0.0,
     income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
     income_layer_log_growth_factor=0.70,
     income_layer_stress_drawdown_ratio=0.30,
@@ -161,9 +164,19 @@ def resolve_income_layer_ratio(
     total = max(0.0, float(total_equity_usd or 0.0))
     start = max(0.0, float(income_layer_start_usd or 0.0))
     max_ratio = as_clamped_ratio(income_layer_max_ratio, default=0.0, upper=1.0)
+    activation_band_ratio = as_clamped_ratio(
+        income_layer_activation_band_ratio,
+        default=0.0,
+        upper=10.0,
+    )
+    activation_band_usd = start * activation_band_ratio if start > 0.0 else 0.0
+    activation_end_usd = start + activation_band_usd
     if not enabled or total <= start or max_ratio <= 0.0:
         return 0.0, {
             "income_layer_enabled": enabled,
+            "income_layer_activation_band_ratio": activation_band_ratio,
+            "income_layer_activation_multiplier": 0.0,
+            "income_layer_activation_end_usd": activation_end_usd,
             "income_layer_ratio_mode": mode,
             "income_layer_log_ratio": 0.0,
             "income_layer_loss_budget_ratio": 0.0,
@@ -187,9 +200,16 @@ def resolve_income_layer_ratio(
         linear_ratio = max_ratio
         doubles_since_start = max(0.0, float(np.log2(total / start)))
 
+    activation_multiplier = 1.0
+    if activation_band_usd > 0.0:
+        activation_multiplier = max(0.0, min(1.0, (total - start) / activation_band_usd))
+
     if mode == INCOME_LAYER_RATIO_MODE_LINEAR_CAP:
-        return linear_ratio, {
+        return linear_ratio * activation_multiplier, {
             "income_layer_enabled": enabled,
+            "income_layer_activation_band_ratio": activation_band_ratio,
+            "income_layer_activation_multiplier": activation_multiplier,
+            "income_layer_activation_end_usd": activation_end_usd,
             "income_layer_ratio_mode": mode,
             "income_layer_log_ratio": linear_ratio,
             "income_layer_loss_budget_ratio": np.nan,
@@ -200,8 +220,11 @@ def resolve_income_layer_ratio(
     growth_factor = max(0.0, float(income_layer_log_growth_factor or 0.0))
     log_ratio = max_ratio * (1.0 - float(np.exp(-growth_factor * doubles_since_start)))
     if mode == INCOME_LAYER_RATIO_MODE_LOG_CAP:
-        return min(max_ratio, log_ratio), {
+        return min(max_ratio, log_ratio) * activation_multiplier, {
             "income_layer_enabled": enabled,
+            "income_layer_activation_band_ratio": activation_band_ratio,
+            "income_layer_activation_multiplier": activation_multiplier,
+            "income_layer_activation_end_usd": activation_end_usd,
             "income_layer_ratio_mode": mode,
             "income_layer_log_ratio": log_ratio,
             "income_layer_loss_budget_ratio": np.nan,
@@ -234,8 +257,11 @@ def resolve_income_layer_ratio(
     if stress_drawdown_ratio > 0.0:
         loss_budget_cap_ratio = min(max_ratio, loss_budget_ratio / stress_drawdown_ratio)
 
-    return min(max_ratio, log_ratio, loss_budget_cap_ratio), {
+    return min(max_ratio, log_ratio, loss_budget_cap_ratio) * activation_multiplier, {
         "income_layer_enabled": enabled,
+        "income_layer_activation_band_ratio": activation_band_ratio,
+        "income_layer_activation_multiplier": activation_multiplier,
+        "income_layer_activation_end_usd": activation_end_usd,
         "income_layer_ratio_mode": mode,
         "income_layer_log_ratio": log_ratio,
         "income_layer_loss_budget_ratio": loss_budget_ratio,
@@ -252,6 +278,7 @@ def build_income_layer_plan(
     income_layer_start_usd,
     income_layer_max_ratio,
     income_layer_enabled=True,
+    income_layer_activation_band_ratio=0.0,
     income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
     income_layer_log_growth_factor=0.70,
     income_layer_stress_drawdown_ratio=0.30,
@@ -265,6 +292,7 @@ def build_income_layer_plan(
         income_layer_start_usd=income_layer_start_usd,
         income_layer_max_ratio=income_layer_max_ratio,
         income_layer_enabled=income_layer_enabled,
+        income_layer_activation_band_ratio=income_layer_activation_band_ratio,
         income_layer_ratio_mode=income_layer_ratio_mode,
         income_layer_log_growth_factor=income_layer_log_growth_factor,
         income_layer_stress_drawdown_ratio=income_layer_stress_drawdown_ratio,

@@ -15,6 +15,7 @@ INCOME_LAYER_CONFIG_KEYS = {
     "income_layer_enabled",
     "income_layer_start_usd",
     "income_layer_max_ratio",
+    "income_layer_activation_band_ratio",
     "income_layer_ratio_mode",
     "income_layer_log_growth_factor",
     "income_layer_stress_drawdown_ratio",
@@ -89,6 +90,10 @@ def apply_income_layer_to_weights(
         income_layer_enabled=income_layer_config.get("income_layer_enabled", True),
         income_layer_start_usd=income_layer_config.get("income_layer_start_usd", 0.0),
         income_layer_max_ratio=income_layer_config.get("income_layer_max_ratio", 0.0),
+        income_layer_activation_band_ratio=income_layer_config.get(
+            "income_layer_activation_band_ratio",
+            0.0,
+        ),
         income_layer_ratio_mode=income_layer_config.get("income_layer_ratio_mode", "linear_cap"),
         income_layer_log_growth_factor=income_layer_config.get("income_layer_log_growth_factor", 0.70),
         income_layer_stress_drawdown_ratio=income_layer_config.get("income_layer_stress_drawdown_ratio", 0.30),
