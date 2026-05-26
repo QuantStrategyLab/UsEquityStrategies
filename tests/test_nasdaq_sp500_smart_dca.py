@@ -126,6 +126,7 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
             portfolio=_portfolio(),
             runtime_config={
                 "translator": lambda key, **_kwargs: key,
+                "pacing_sec": 0.5,
                 "signal_effective_after_trading_days": 0,
             },
         )

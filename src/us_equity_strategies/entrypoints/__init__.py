@@ -775,6 +775,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(nasdaq_sp500_smart_dca_manifest.default_config, ctx)
     translator = config.pop("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
+    config.pop("pacing_sec", None)
     pop_execution_only_config(config)
     market_history = require_market_data(ctx, "market_history")
     portfolio = require_portfolio(ctx)
