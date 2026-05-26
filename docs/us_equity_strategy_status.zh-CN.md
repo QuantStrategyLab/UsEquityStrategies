@@ -35,16 +35,16 @@ _更新日期：2026-05-26_
 
 ## 收入层默认启用口径
 
-所有保留的 runtime profile 默认都启用收入层，且下游策略配置可以覆盖任意 `income_layer_*` 参数；需要关闭时设置 `income_layer_enabled = false`。杠杆策略使用 `log_cap`，目标是让组合层最大回撤不超过 SPY 的同时尽量保留复利；非杠杆策略使用更轻的 `log_loss_budget`，作为账户规模变大后的波动钝化器。
+所有保留的 runtime profile 默认都启用收入层，且下游策略配置可以覆盖任意 `income_layer_*` 参数；需要关闭时设置 `income_layer_enabled = false`。杠杆策略使用 `log_cap`，目标是让组合层最大回撤不超过 SPY 的同时尽量保留复利；非杠杆策略使用更轻的 `log_loss_budget`，作为账户规模变大后的波动钝化器。`income_layer_activation_band_ratio` 会在 `start` 到 `start * (1 + band)` 之间把正常目标比例从 0 平滑放大到 1，避免门槛附近来回卡住。
 
-| Profile | 模式 | 起点 | 硬上限 | 默认收入篮子 |
-| --- | --- | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `150000` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `150000` | `90%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
-| `global_etf_rotation` | `log_loss_budget` | `500000` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
-| `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `25%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
+| Profile | 模式 | 起点 | 平滑带 | 硬上限 | 默认收入篮子 |
+| --- | --- | ---: | ---: | ---: | --- |
+| `tqqq_growth_income` | `log_cap` | `150000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `150000` | `20%` | `90%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
+| `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
+| `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
 
 ## 已归档回测摘要
 

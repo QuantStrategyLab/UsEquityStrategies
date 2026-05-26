@@ -78,6 +78,28 @@ class IncomeLayerTest(unittest.TestCase):
         self.assertEqual(diagnostics["income_layer_ratio_mode"], "log_cap")
         self.assertEqual(diagnostics["income_layer_loss_budget_cap_ratio"], 0.50)
 
+    def test_activation_band_smooths_ratio_after_start_threshold(self) -> None:
+        normal_ratio = get_income_layer_ratio(
+            165000.0,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.50,
+            income_layer_ratio_mode="log_cap",
+            income_layer_log_growth_factor=0.70,
+        )
+        softened_ratio, diagnostics = resolve_income_layer_ratio(
+            165000.0,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.50,
+            income_layer_activation_band_ratio=0.20,
+            income_layer_ratio_mode="log_cap",
+            income_layer_log_growth_factor=0.70,
+        )
+
+        self.assertAlmostEqual(softened_ratio, normal_ratio * 0.5)
+        self.assertAlmostEqual(diagnostics["income_layer_activation_band_ratio"], 0.20)
+        self.assertAlmostEqual(diagnostics["income_layer_activation_multiplier"], 0.5)
+        self.assertEqual(diagnostics["income_layer_activation_end_usd"], 180000.0)
+
 
 if __name__ == "__main__":
     unittest.main()
