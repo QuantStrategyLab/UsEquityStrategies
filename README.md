@@ -402,6 +402,7 @@ Example override:
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：runtime-enabled profile 距离跨平台目标契约的差异矩阵。
 - [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
 - [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明可切换 profile、输入类型、研究候选和已归档回测证据。
+- [`docs/research/income_layer_design.zh-CN.md`](./docs/research/income_layer_design.zh-CN.md)：收入层门槛、平滑带、曲线模式和默认参数的设计结论。
 - [`docs/research/global_etf_confidence_vol_gate.md`](./docs/research/global_etf_confidence_vol_gate.md)：Global ETF 置信度 + 相对波动过滤研究说明。
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的研究说明，以及 dynamic top20 运行 profile 说明。
 
