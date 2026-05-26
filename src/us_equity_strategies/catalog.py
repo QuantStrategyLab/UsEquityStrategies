@@ -312,6 +312,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "expensive_multiplier": 0.50,
         "very_expensive_multiplier": 0.0,
         "execution_cash_reserve_ratio": 0.0,
+        "execution_rebalance_threshold_ratio": 0.0,
     },
 }
 

@@ -26,6 +26,10 @@ INCOME_LAYER_CONFIG_KEYS = {
     "income_layer_spyi_weight",
     "income_layer_allocations",
 }
+EXECUTION_ONLY_CONFIG_KEYS = {
+    "execution_cash_reserve_ratio",
+    "execution_rebalance_threshold_ratio",
+}
 
 
 def merge_runtime_config(manifest_default_config: Mapping[str, object], ctx: StrategyContext) -> dict[str, object]:
@@ -36,6 +40,11 @@ def merge_runtime_config(manifest_default_config: Mapping[str, object], ctx: Str
 
 def pop_income_layer_config(config: dict[str, object]) -> dict[str, object]:
     return {key: config.pop(key) for key in INCOME_LAYER_CONFIG_KEYS if key in config}
+
+
+def pop_execution_only_config(config: dict[str, object]) -> None:
+    for key in EXECUTION_ONLY_CONFIG_KEYS:
+        config.pop(key, None)
 
 
 def _portfolio_market_values(ctx: StrategyContext, symbols: tuple[str, ...]) -> dict[str, float]:

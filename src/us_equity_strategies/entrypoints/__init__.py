@@ -38,6 +38,7 @@ from ._common import (
     default_translator,
     get_current_holdings,
     merge_runtime_config,
+    pop_execution_only_config,
     pop_income_layer_config,
     require_market_data,
     require_portfolio,
@@ -210,6 +211,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
+    pop_execution_only_config(config)
     market_history = require_market_data(ctx, "market_history")
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
@@ -277,8 +279,8 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     managed_symbols = _config_managed_symbols(config)
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
-    config.pop("execution_cash_reserve_ratio", None)
     config.pop("signal_effective_after_trading_days", None)
+    pop_execution_only_config(config)
     translator = config.pop("translator", default_translator)
     signal_text_fn = config.pop("signal_text_fn", default_signal_text_fn)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
@@ -392,6 +394,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
     config.pop("signal_effective_after_trading_days", None)
+    pop_execution_only_config(config)
     portfolio = require_portfolio(ctx)
     translator = config.pop("translator", default_translator)
     plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
@@ -539,8 +542,8 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
     config.pop("signal_text_fn", None)
     config.pop("run_as_of", None)
     config.pop("signal_effective_after_trading_days", None)
-    config.pop("execution_cash_reserve_ratio", None)
     config.pop("runtime_execution_window_trading_days", None)
+    pop_execution_only_config(config)
     weights, signal_desc, is_emergency, status_desc, metadata = legacy_russell.compute_signals(
         require_market_data(ctx, "feature_snapshot"),
         get_current_holdings(ctx),
@@ -606,7 +609,7 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     income_layer_config = pop_income_layer_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
-    config.pop("execution_cash_reserve_ratio", None)
+    pop_execution_only_config(config)
     if ctx.portfolio is not None and "portfolio_total_equity" not in config:
         total_equity = getattr(ctx.portfolio, "total_equity", None)
         if total_equity is not None:
@@ -685,7 +688,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     income_layer_config = pop_income_layer_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
-    config.pop("execution_cash_reserve_ratio", None)
+    pop_execution_only_config(config)
     if ctx.as_of is not None and "run_as_of" not in config:
         config["run_as_of"] = ctx.as_of
     if ctx.portfolio is not None and "portfolio_total_equity" not in config:
@@ -772,7 +775,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(nasdaq_sp500_smart_dca_manifest.default_config, ctx)
     translator = config.pop("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
-    config.pop("execution_cash_reserve_ratio", None)
+    pop_execution_only_config(config)
     market_history = require_market_data(ctx, "market_history")
     portfolio = require_portfolio(ctx)
     plan = nasdaq_sp500_smart_dca_strategy.build_rebalance_plan(

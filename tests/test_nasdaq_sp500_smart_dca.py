@@ -4,7 +4,8 @@ import pandas as pd
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
-from us_equity_strategies import get_strategy_entrypoint
+from us_equity_strategies import get_strategy_definition, get_strategy_entrypoint
+from us_equity_strategies.manifests import nasdaq_sp500_smart_dca_manifest
 from us_equity_strategies.strategies.nasdaq_sp500_smart_dca import build_rebalance_plan
 
 
@@ -78,6 +79,14 @@ def test_smart_dca_waits_when_cash_is_below_minimum() -> None:
 
     assert plan["actionable"] is False
     assert plan["skip_reason"] == "insufficient_cash"
+
+
+def test_smart_dca_disables_platform_rebalance_threshold_by_default() -> None:
+    catalog_config = get_strategy_definition("nasdaq_sp500_smart_dca").default_config
+    manifest_config = nasdaq_sp500_smart_dca_manifest.default_config
+
+    assert catalog_config["execution_rebalance_threshold_ratio"] == 0.0
+    assert manifest_config["execution_rebalance_threshold_ratio"] == 0.0
 
 
 def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> None:
