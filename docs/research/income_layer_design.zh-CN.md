@@ -6,12 +6,12 @@ _更新日期：2026-05-26_
 
 收入层不使用统一的 `1000000 USD` 启动门槛。`1000000 USD` 只作为大账户校准场景，用来验证组合层回撤是否能压到 SPY / QQQ 对照以内；真实运行参数按策略风险分别配置。
 
-当前默认设计保持为：
+当前默认设计固定为：
 
 | Profile | 模式 | 起点 | 平滑带 | 硬上限 | 默认收入篮子 |
 | --- | --- | ---: | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `150000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `150000` | `20%` | `90%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `tqqq_growth_income` | `log_cap` | `250000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `250000` | `20%` | `95%` | `SCHD 25% / DGRO 15% / SGOV 55% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
 | `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 | `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
@@ -26,7 +26,40 @@ _更新日期：2026-05-26_
 - `income_layer_max_ratio` 是组合层风险预算，不是收益最大化参数。上限提高通常降低回撤，但也会降低长期 CAGR。
 - 现有收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，默认只增配，不主动减配。
 
-## 杠杆策略代表性扫参
+## 杠杆策略实盘候选复核
+
+研究输出：
+
+`UsEquitySnapshotPipelines/data/output/levered_income_layer_candidate_compare_2026-05-26/`
+
+选择规则：
+
+- `1000000 USD` 初始权益作为大账户校准，不代表启动门槛。
+- 必须通过全部 SPY 和 QQQ 标准窗口回撤约束。
+- TQQQ 额外使用 `1000000 USD` 最大回撤不超过约 `15%` 的约束，匹配“100 万最多亏 15 万”的账户约束。
+- 在通过约束的候选里按 CAGR 排序，若收益接近则优先保留更简单、更贴近当前生产路径的核心策略。
+
+最终固定：
+
+| Strategy | Version | CAGR | Max drawdown | SPY windows | QQQ windows | Avg income ratio | End income ratio | Decision |
+| --- | --- | ---: | ---: | --- | --- | ---: | ---: | --- |
+| `tqqq_growth_income` | `start=250000, max=50%, current_tqqq basket` | `30.54%` | `-14.87%` | pass | pass | `39.03%` | `41.01%` | 采用 |
+| `tqqq_growth_income` | `start=500000, max=60%, current_tqqq basket` | `31.21%` | `-15.93%` | pass | pass | `36.25%` | `42.34%` | 不采用：超过 15% 大账户亏损预算 |
+| `tqqq_growth_income` | previous default `start=150000, max=50%` | `29.21%` | `-14.24%` | pass | pass | `42.63%` | `43.86%` | 被替换：收益较低且小账户更早进入收入层 |
+| `soxl_soxx_trend_income` | `start=250000, max=95%, balanced_income basket` | `36.14%` | `-9.04%` | pass | pass | `76.02%` | `82.57%` | 采用 |
+| `soxl_soxx_trend_income` | previous default `start=150000, max=90%, current_soxl basket` | `32.16%` | `-7.70%` | pass | pass | `78.52%` | `82.45%` | 被替换：收益明显较低 |
+
+SOXL 核心 overlay 也做了窄候选复核：
+
+| Core version | CAGR | Max drawdown | Note |
+| --- | ---: | ---: | --- |
+| current manifest：`SOXX 10d vol >= 55%, SOXL -> SOXX` | `49.74%` | `-42.31%` | 保留；与收入层组合后的 CAGR 最高 |
+| `SOXX 10d vol >= 55%, SOXL -> BOXX` | `49.84%` | `-42.31%` | 核心略高，但加入收入层后不如当前 manifest |
+| `SOXX 10d vol >= 50%, SOXL -> SOXX` | `48.48%` | `-42.31%` | 更频繁降档，收益低于当前 manifest |
+
+因此 SOXL 本次只调整收入层，不改核心 `blend_gate_volatility_delever_*` 默认值。
+
+## 杠杆策略代表性扫参归档
 
 研究输出：
 
@@ -38,7 +71,7 @@ _更新日期：2026-05-26_
 - 变体：当前默认、起点上下移动、平滑带 `0% / 20% / 50%`、上限收紧 / 放宽、收入篮子偏现金 / 更均衡
 - 评价：CAGR、最大回撤、是否通过 SPY / QQQ 窗口回撤约束、收入层平均 / 期末占比
 
-默认参数结果：
+旧默认参数结果：
 
 | Strategy | Initial equity | CAGR | Max drawdown | SPY windows | QQQ windows | Avg income ratio | End income ratio |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: |
@@ -49,12 +82,12 @@ _更新日期：2026-05-26_
 | `soxl_soxx_trend_income` | `250000` | `61.51%` | `-16.51%` | fail | fail | `55.69%` | `71.61%` |
 | `soxl_soxx_trend_income` | `1000000` | `32.16%` | `-7.70%` | pass | pass | `78.52%` | `82.45%` |
 
-读法：
+归档读法：
 
 - 小账户阶段不强行要求组合回撤不超过大盘。小账户的目标仍是增长层复利，收入层只在权益跨过门槛后逐步介入。
-- 资金达到 `1000000 USD` 后，默认配置能把 TQQQ 和 SOXL 的组合层回撤压到 SPY / QQQ 窗口对照以内。
-- TQQQ 在 `250000 USD` 起始权益时，把 `income_layer_max_ratio` 提到 `65%` 可以通过 SPY / QQQ 回撤窗口，但 CAGR 从 `34.21%` 降到 `31.59%`。默认保留 `50%`，因为它更适合作为增长账户折中。
-- SOXL 在 `1000000 USD` 起始权益时，`balanced_income` 篮子能把 CAGR 从 `32.16%` 提到 `33.12%`，但回撤从 `-7.70%` 扩到 `-8.00%`。默认仍保留更偏 SGOV 的 `current_soxl`，因为半导体杠杆核心本身波动更高。
+- 资金达到 `1000000 USD` 后，收入层配置必须把 TQQQ 和 SOXL 的组合层回撤压到 SPY / QQQ 窗口对照以内。
+- TQQQ 从 `150000` 启动上移到 `250000`，能让小账户阶段少受收入层拖累；在 `1000000 USD` 校准下仍保持约 `-14.87%` 最大回撤。
+- SOXL 从 `150000 / 90% / current_soxl` 调整为 `250000 / 95% / balanced_income`，在 `1000000 USD` 校准下 CAGR 从约 `32.16%` 提升到 `36.14%`，最大回撤从约 `-7.70%` 扩到 `-9.04%`，仍明显低于 15% 亏损预算并通过 SPY / QQQ 回撤窗口。
 
 ## 预设方向
 
@@ -67,4 +100,3 @@ _更新日期：2026-05-26_
 | `capital_preserve` | 大账户、亏损敏感 | 降低 `income_layer_start_usd` 或提高 `income_layer_max_ratio`，收入篮子更偏 SGOV / 防守资产。 |
 
 当前不把 preset 做成新的 runtime 参数，原因是 `income_layer_*` 已经足够可配置；preset 更适合后续作为文档模板或 UI 层快捷选项。
-
