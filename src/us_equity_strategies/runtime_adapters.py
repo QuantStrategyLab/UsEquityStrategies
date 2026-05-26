@@ -12,6 +12,7 @@ from quant_platform_kit.strategy_contracts import (
 
 from us_equity_strategies.catalog import (
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+    NASDAQ_SP500_SMART_DCA_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     get_strategy_definition,
     get_strategy_definitions,
@@ -19,6 +20,7 @@ from us_equity_strategies.catalog import (
 )
 from us_equity_strategies.strategies import (
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
+    nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
     qqq_tech_enhancement as qqq_tech_enhancement_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
 )
@@ -98,6 +100,11 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
             requires_snapshot_manifest_path=mega_cap_leader_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
             snapshot_contract_version="mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1",
         ),
+    ),
+    NASDAQ_SP500_SMART_DCA_PROFILE: StrategyRuntimeAdapter(
+        status_icon=nasdaq_sp500_smart_dca_strategy.STATUS_ICON,
+        portfolio_input_name="portfolio_snapshot",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
 }
 
@@ -184,6 +191,8 @@ def derive_runtime_input_mode(required_inputs: frozenset[str] | set[str] | tuple
         return "benchmark_history+portfolio_snapshot"
     if normalized == frozenset({"derived_indicators", "portfolio_snapshot"}):
         return "derived_indicators+portfolio_snapshot"
+    if normalized == frozenset({"market_history", "portfolio_snapshot"}):
+        return "market_history+portfolio_snapshot"
     if normalized == frozenset({"feature_snapshot"}):
         return "feature_snapshot"
     if normalized == frozenset({"feature_snapshot", "market_history", "benchmark_history", "portfolio_snapshot"}):

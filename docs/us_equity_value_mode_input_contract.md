@@ -1,10 +1,11 @@
 # US equity value-mode canonical input contract
 
-This document fixes the **strategy-facing canonical input contract** for the two
+This document fixes the **strategy-facing canonical input contract** for the
 current US equity value-mode profiles:
 
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
+- `nasdaq_sp500_smart_dca`
 
 It started as the P2.2 planning document for contract convergence.
 Both current value-mode runtime profiles have since been migrated in code; the
@@ -16,11 +17,12 @@ work around rollout and deeper payload normalization.
 The cross-platform target already says new US equity strategies should use
 canonical input names.
 
-The current two value-mode runtime profiles are now aligned on their
+The current value-mode runtime profiles are aligned on their
 strategy-facing canonical inputs:
 
 - `tqqq_growth_income` uses `benchmark_history` + `portfolio_snapshot`
 - `soxl_soxx_trend_income` uses `derived_indicators` + `portfolio_snapshot`
+- `nasdaq_sp500_smart_dca` uses `market_history` + `portfolio_snapshot`
 
 This document defines the end-state contract that later P2/P4 code changes
 should implement.
@@ -31,6 +33,8 @@ Current implementation status:
   `schwab`, `longbridge`, and `firstrade`
 - `soxl_soxx_trend_income` already uses canonical strategy-facing inputs
   on `ibkr`, `schwab`, `longbridge`, and `firstrade`
+- `nasdaq_sp500_smart_dca` was added directly on the canonical contract and
+  consumes a buy-only market-history + portfolio snapshot path
 
 ## Fixed end-state summary
 
@@ -38,6 +42,7 @@ Current implementation status:
 | --- | --- | --- | --- |
 | `tqqq_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
+| `nasdaq_sp500_smart_dca` | `value` | `market_history` + `portfolio_snapshot` | `market_history` + `portfolio_snapshot` |
 
 Shared rules for both profiles:
 
@@ -69,6 +74,8 @@ For this track, the exact target is:
   - `required_inputs = {"benchmark_history", "portfolio_snapshot"}`
 - `soxl_soxx_trend_income`
   - `required_inputs = {"derived_indicators", "portfolio_snapshot"}`
+- `nasdaq_sp500_smart_dca`
+  - `required_inputs = {"market_history", "portfolio_snapshot"}`
 
 `portfolio_snapshot` is not just an adapter-local helper. It is part of the
 strategy contract.
@@ -149,7 +156,7 @@ Rules:
   Telegram compaction
 - broker execution hints still do not belong in this payload
 
-### 5. Execution timing for daily value-mode profiles
+### 5. Execution timing for value-mode profiles
 
 The current daily value-mode profiles are evaluated on one trading day and are
 intended to become executable on the next trading day. That assumption should be
@@ -159,6 +166,9 @@ Current contract direction:
 
 - `tqqq_growth_income` -> `signal_effective_after_trading_days = 1`
 - `soxl_soxx_trend_income` -> `signal_effective_after_trading_days = 1`
+- `nasdaq_sp500_smart_dca` -> `signal_effective_after_trading_days = 0`; the
+  strategy is designed to run inside its own monthly cash-deployment window and
+  buy during the same runtime cycle when it is actionable
 
 Platform runtimes should inject this policy into `ctx.runtime_config`, and
 entrypoints should copy the resulting timing metadata into diagnostics so audit

@@ -56,6 +56,7 @@ broker compatibility later” as the default workflow.
 - [`docs/research/income_layer_design.md`](./docs/research/income_layer_design.md): income-layer threshold, activation band, curve mode, drawdown constraint, and default parameter conclusions.
 - [`docs/research/global_etf_confidence_vol_gate.md`](./docs/research/global_etf_confidence_vol_gate.md): Global ETF confidence plus relative-volatility gate research notes.
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md): mega-cap leader rotation research notes and Top50 balanced profile notes.
+- [`docs/research/nasdaq_sp500_smart_dca.md`](./docs/research/nasdaq_sp500_smart_dca.md): Nasdaq/S&P 500 smart DCA design notes.
 
 ### Strategy index
 
@@ -65,6 +66,7 @@ broker compatibility later” as the default workflow.
 | `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `SPY` | `defensive_stock_baseline` | `runtime_enabled` |
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ` | `parallel_cash_buffer_branch` | `runtime_enabled` |
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ` | `balanced_leader_rotation` | `runtime_enabled` |
+| `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `monthly` | `QQQ/SPY` | `buy_only_smart_dca` | `runtime_enabled` |
 | `tqqq_growth_income` | TQQQ Growth Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `daily` | `QQQ` | `offensive_dual_drive` | `runtime_enabled` |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | `daily` | `SOXX` | `sector_offensive_income` | `runtime_enabled` |
 
@@ -105,6 +107,7 @@ diagnostics when account equity is below the suggested minimum.
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | Most suitable for small accounts; TQQQ can usually trade, but BOXX/cash targets may drift. |
 | `soxl_soxx_trend_income` | `1000 USD` | Can run with drift on integer-share platforms; fractional-share runtimes can express the small SOXX/BOXX legs more closely. |
+| `nasdaq_sp500_smart_dca` | `1000 USD` | Buy-only DCA can run on small accounts, but whole-share execution may skip a month when QQQM/SPLG cannot be bought above the minimum notional. |
 | `global_etf_rotation` (`global_etf_confidence_vol_gate` legacy alias) | `3000 USD` | Top-2 ETF rotation can drift when selected ETFs are too expensive for the account; the legacy alias shares the same execution caveats. |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | The fixed 50% Top2 / 50% Top4 sleeve blend can drift when integer shares cannot represent the intended unequal weights. |
 | `tech_communication_pullback_enhancement` (`qqq_tech_enhancement` legacy alias) | `10000 USD` | Small accounts reduce position count and single-name concentration rises. |
@@ -400,13 +403,14 @@ Example override:
 - [`docs/us_equity_strategy_template.md`](./docs/us_equity_strategy_template.md)：新增美股策略时使用的模板文档。
 - [`docs/us_equity_portability_checklist.md`](./docs/us_equity_portability_checklist.md)：策略进入各券商运行时前的可移植性检查清单。
 - [`docs/us_equity_contract_gap_matrix.md`](./docs/us_equity_contract_gap_matrix.md)：runtime-enabled profile 距离跨平台目标契约的差异矩阵。
-- [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：两条 value-mode 策略的 canonical 输入契约定稿。
+- [`docs/us_equity_value_mode_input_contract.md`](./docs/us_equity_value_mode_input_contract.md)：value-mode 策略的 canonical 输入契约定稿。
 - [`docs/us_equity_notification_i18n_contract.zh-CN.md`](./docs/us_equity_notification_i18n_contract.zh-CN.md)：策略诊断、通知、日志和 i18n 渲染的结构化契约。
 - [`docs/us_equity_strategy_status.zh-CN.md`](./docs/us_equity_strategy_status.zh-CN.md)：中文运行手册，集中说明可切换 profile、输入类型、研究候选和已归档回测证据。
 - [`docs/research/income_layer_design.md`](./docs/research/income_layer_design.md)：收入层设计结论的英文版。
 - [`docs/research/income_layer_design.zh-CN.md`](./docs/research/income_layer_design.zh-CN.md)：收入层门槛、平滑带、曲线模式和默认参数的设计结论。
 - [`docs/research/global_etf_confidence_vol_gate.md`](./docs/research/global_etf_confidence_vol_gate.md)：Global ETF 置信度 + 相对波动过滤研究说明。
 - [`docs/research/mega_cap_leader_rotation.md`](./docs/research/mega_cap_leader_rotation.md)：巨头强者轮动的研究说明，以及 dynamic top20 运行 profile 说明。
+- [`docs/research/nasdaq_sp500_smart_dca.md`](./docs/research/nasdaq_sp500_smart_dca.md)：纳斯达克 / 标普智能定投设计说明。
 
 ### 策略索引
 
@@ -416,6 +420,7 @@ Example override:
 | `russell_1000_multi_factor_defensive` | 罗素1000多因子 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | Russell 1000 个股月频 price-only 选股，带 SPY + breadth 防守和 BOXX 停泊 |
 | `tech_communication_pullback_enhancement` | 科技通信回调增强 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | tech-heavy 月频个股选择，做受控回调，并显式保留 BOXX 缓冲 |
 | `mega_cap_leader_rotation_top50_balanced` | Mega Cap Top50 平衡龙头轮动 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | 当前 Top50 平衡候选，固定 50% Top2 cap50 + 50% Top4 cap25，不因 QQQ 趋势默认降仓 |
+| `nasdaq_sp500_smart_dca` | 纳斯达克 / 标普智能定投 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 月频 | 只买不卖，用 QQQ/SPY 的均线、回撤和过热状态决定本期定投金额倍数，买入 QQQM/SPLG |
 | `tqqq_growth_income` | TQQQ 增长收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 日频 | `QQQ` / `TQQQ` 双轮增长，默认 45% / 45% / 8% BOXX / 2% 现金 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | `InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `FirstradePlatform` | 日频 | SOXL / SOXX 趋势切换，剩余资金停在 BOXX，并叠加收入层 |
 
@@ -438,6 +443,7 @@ cron 配置由各个平台仓库负责：
 | --- | ---: | --- |
 | `tqqq_growth_income` | `500 USD` | 最适合小账户；通常能买到 TQQQ，但 BOXX / 现金层会有偏差。 |
 | `soxl_soxx_trend_income` | `1000 USD` | 整数股平台会有偏离；支持碎股的运行时可以更接近小额 SOXX / BOXX 目标仓位。 |
+| `nasdaq_sp500_smart_dca` | `1000 USD` | 只买不卖，适合小账户慢慢积累；整数股平台可能因为 QQQM/SPLG 价格和最小订单金额跳过当月。 |
 | `global_etf_rotation`（历史别名 `global_etf_confidence_vol_gate`） | `3000 USD` | 默认档已切到 SMA250 + 置信度门控；Top2 ETF 轮动遇到高价 ETF 时仍会偏离。 |
 | `mega_cap_leader_rotation_top50_balanced` | `10000 USD` | 固定 50% Top2 / 50% Top4 袖珍组合需要不等权持仓，小账户整数股会产生明显偏离。 |
 | `tech_communication_pullback_enhancement`（历史别名 `qqq_tech_enhancement`） | `10000 USD` | 小账户会降低持仓数，单票集中度上升。 |

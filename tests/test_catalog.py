@@ -6,6 +6,7 @@ from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+    NASDAQ_SP500_SMART_DCA_PROFILE,
     QQQ_TECH_ENHANCEMENT_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
@@ -74,6 +75,13 @@ class CatalogTest(unittest.TestCase):
             FULL_SHARED_PLATFORM_MATRIX,
         )
 
+        self.assertIn(NASDAQ_SP500_SMART_DCA_PROFILE, catalog)
+        self.assertEqual(catalog[NASDAQ_SP500_SMART_DCA_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            catalog[NASDAQ_SP500_SMART_DCA_PROFILE].required_inputs,
+            frozenset({"market_history", "portfolio_snapshot"}),
+        )
+
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
         catalog = get_strategy_definitions()
         compatibility = get_strategy_platform_compatibility_map()
@@ -140,6 +148,15 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.mega_cap_leader_rotation",
         )
 
+        smart_dca_definition = get_strategy_definition("nasdaq_sp500_smart_dca")
+        self.assertEqual(smart_dca_definition.profile, NASDAQ_SP500_SMART_DCA_PROFILE)
+        smart_dca_module = get_strategy_component_map(smart_dca_definition)["allocation"]
+        self.assertEqual(
+            smart_dca_module.module_path,
+            "us_equity_strategies.strategies.nasdaq_sp500_smart_dca",
+        )
+        self.assertEqual(smart_dca_definition.target_mode, "value")
+
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
         self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
@@ -191,6 +208,11 @@ class CatalogTest(unittest.TestCase):
             compatibility[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
+        self.assertEqual(metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].role, "buy_only_smart_dca")
+        self.assertEqual(
+            compatibility[NASDAQ_SP500_SMART_DCA_PROFILE],
+            FULL_SHARED_PLATFORM_MATRIX,
+        )
 
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
@@ -228,6 +250,7 @@ class CatalogTest(unittest.TestCase):
                     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
                     QQQ_TECH_ENHANCEMENT_PROFILE,
                     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+                    NASDAQ_SP500_SMART_DCA_PROFILE,
                 }
             ),
         )

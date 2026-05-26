@@ -16,6 +16,7 @@ from us_equity_strategies.account_sizing import (
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
+    nasdaq_sp500_smart_dca_manifest,
     qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
     soxl_soxx_trend_income_manifest,
@@ -24,6 +25,7 @@ from us_equity_strategies.manifests import (
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
+    nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
     tqqq_growth_income as tqqq_growth_income_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
@@ -765,6 +767,92 @@ mega_cap_leader_rotation_strategy.compute_signals.__doc__ = (
     .strip()
 )
 
+
+def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
+    config = merge_runtime_config(nasdaq_sp500_smart_dca_manifest.default_config, ctx)
+    translator = config.pop("translator", default_translator)
+    config.pop("signal_effective_after_trading_days", None)
+    config.pop("execution_cash_reserve_ratio", None)
+    market_history = require_market_data(ctx, "market_history")
+    portfolio = require_portfolio(ctx)
+    plan = nasdaq_sp500_smart_dca_strategy.build_rebalance_plan(
+        market_history,
+        portfolio,
+        as_of=ctx.as_of,
+        broker_client=ctx.capabilities.get("broker_client"),
+        **config,
+    )
+    diagnostics = {
+        "signal_description": plan["signal_description"],
+        "status_description": plan["status_description"],
+        "signal_source": nasdaq_sp500_smart_dca_strategy.SIGNAL_SOURCE,
+        "actionable": plan["actionable"],
+        "skip_reason": plan["skip_reason"],
+        "regime": plan["regime"],
+        "multiplier": plan["multiplier"],
+        "base_investment_usd": plan["base_investment_usd"],
+        "requested_investment_usd": plan["requested_investment_usd"],
+        "planned_investment_usd": plan["planned_investment_usd"],
+        "available_cash": plan["available_cash"],
+        "reserved_cash": plan["reserved_cash"],
+        "investable_cash": plan["investable_cash"],
+        "min_investment_usd": plan["min_investment_usd"],
+        "execution_window": plan["execution_window"],
+        "in_execution_window": plan["in_execution_window"],
+        "avg_drawdown_252d": plan["avg_drawdown_252d"],
+        "avg_sma200_gap": plan["avg_sma200_gap"],
+        "avg_rsi14": plan["avg_rsi14"],
+        "indicator_rows": plan["indicator_rows"],
+        "managed_symbols": plan["managed_symbols"],
+        "signal_symbols": plan["signal_symbols"],
+        "trade_allocations": plan["trade_allocations"],
+        "target_values": plan["target_values"],
+        "execution_annotations": {
+            "trade_threshold_value": plan["min_investment_usd"],
+            "raw_buying_power": plan["available_cash"],
+            "reserved_cash": plan["reserved_cash"],
+            "investable_cash": plan["investable_cash"],
+            "planned_investment_usd": plan["planned_investment_usd"],
+            "multiplier": plan["multiplier"],
+            "regime": plan["regime"],
+            "signal_display": plan["signal_description"],
+            "status_display": plan["status_description"],
+        },
+    }
+    diagnostics.update(_account_size_diagnostics(nasdaq_sp500_smart_dca_manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+        translator=translator,
+    )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                plan["managed_symbols"],
+                plan["target_values"],
+                get_current_holdings(ctx),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
+    )
+    _attach_execution_timing(diagnostics, ctx)
+    risk_flags = ("no_execute",) if not plan["actionable"] else ()
+    return StrategyDecision(
+        positions=target_values_to_positions(plan["target_values"]),
+        risk_flags=risk_flags,
+        diagnostics=diagnostics,
+    )
+
+
+nasdaq_sp500_smart_dca_strategy.build_rebalance_plan.__doc__ = (
+    ((nasdaq_sp500_smart_dca_strategy.build_rebalance_plan.__doc__ or "").strip() +
+     "\n\nPrefer us_equity_strategies entrypoints for platform integrations.")
+    .strip()
+)
+
 global_etf_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=global_etf_rotation_manifest,
     _evaluate=evaluate_global_etf_rotation,
@@ -789,6 +877,10 @@ mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
     manifest=mega_cap_leader_rotation_top50_balanced_manifest,
     _evaluate=evaluate_mega_cap_leader_rotation_top50_balanced,
 )
+nasdaq_sp500_smart_dca_entrypoint = CallableStrategyEntrypoint(
+    manifest=nasdaq_sp500_smart_dca_manifest,
+    _evaluate=evaluate_nasdaq_sp500_smart_dca,
+)
 
 
 __all__ = [
@@ -798,10 +890,12 @@ __all__ = [
     "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_top50_balanced_entrypoint",
+    "nasdaq_sp500_smart_dca_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
     "evaluate_qqq_tech_enhancement",
     "evaluate_mega_cap_leader_rotation_top50_balanced",
+    "evaluate_nasdaq_sp500_smart_dca",
 ]
