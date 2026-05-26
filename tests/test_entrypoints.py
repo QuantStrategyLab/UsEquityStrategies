@@ -238,9 +238,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(config["dual_drive_pullback_rebound_threshold"], 0.0)
         self.assertEqual(config["dual_drive_pullback_rebound_volatility_multiplier"], 2.0)
         self.assertEqual(config["cash_reserve_ratio"], 0.02)
-        self.assertEqual(config["income_threshold_usd"], 150000.0)
+        self.assertEqual(config["income_threshold_usd"], 250000.0)
         self.assertIs(config["income_layer_enabled"], True)
-        self.assertEqual(config["income_layer_start_usd"], 150000.0)
+        self.assertEqual(config["income_layer_start_usd"], 250000.0)
         self.assertEqual(config["income_layer_max_ratio"], 0.50)
         self.assertEqual(config["income_layer_activation_band_ratio"], 0.20)
         self.assertEqual(config["income_layer_ratio_mode"], "log_cap")
@@ -538,11 +538,11 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertIs(entrypoint.manifest.default_config["income_layer_enabled"], True)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_ratio_mode"], "log_cap")
-        self.assertEqual(entrypoint.manifest.default_config["income_layer_max_ratio"], 0.90)
+        self.assertEqual(entrypoint.manifest.default_config["income_layer_max_ratio"], 0.95)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_activation_band_ratio"], 0.20)
         self.assertEqual(
             entrypoint.manifest.default_config["income_layer_allocations"],
-            {"SCHD": 0.20, "DGRO": 0.10, "SGOV": 0.65, "SPYI": 0.04, "QQQI": 0.01},
+            {"SCHD": 0.25, "DGRO": 0.15, "SGOV": 0.55, "SPYI": 0.04, "QQQI": 0.01},
         )
 
     def test_soxl_soxx_trend_income_entrypoint_rejects_retired_fixed_dual_drive_runtime_config(self) -> None:
