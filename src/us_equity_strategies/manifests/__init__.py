@@ -364,6 +364,7 @@ nasdaq_sp500_smart_dca_manifest = _manifest(
         "expensive_multiplier": 0.50,
         "very_expensive_multiplier": 0.0,
         "execution_cash_reserve_ratio": 0.0,
+        "execution_rebalance_threshold_ratio": 0.0,
     },
 )
 
