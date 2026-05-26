@@ -299,7 +299,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - If the gate is off, the core sleeve holds defensive `SOXX 15%`.
 - Overheat controls are active on the default runtime profile: when the base tier is full or mid, `SOXX` RSI14 above the effective threshold and/or a break above the upper Bollinger band downgrade the tier by one step per trigger.
 - The runtime RSI threshold is dynamic: `max(70, prior 252 trading days RSI14 90th percentile)`, with `70` as the fallback floor when the dynamic indicator is unavailable.
-- The default volatility delever gate redirects SOXL exposure into SOXX when `SOXX` 10-day annualized realized volatility is at least `50%`.
+- The default volatility delever gate redirects SOXL exposure into SOXX when `SOXX` 10-day annualized realized volatility is at least `55%`.
 - Unused trading-layer capital is parked in `BOXX`.
 
 **Sizing behavior**
@@ -325,9 +325,48 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - `BLEND_GATE_ACTIVE_SOXX_WEIGHT = 0.20`, `BLEND_GATE_DEFENSIVE_SOXX_WEIGHT = 0.15`
 - RSI overheat enabled with dynamic threshold `max(70, rolling 252d RSI14 q90)`
 - Bollinger overheat enabled; stacked RSI + Bollinger triggers can downgrade full directly to defensive
+- Volatility delever gate: `SOXX` 10-day realized volatility `>= 55%`, redirect `SOXL` to `SOXX`
 - Gate buffers: entry `8%`, mid `6%`, exit `2%`
 - Income layer starts at `150000 USD`, uses `log_cap`, and hard-caps at `90%`
 - Income basket: `SCHD 20%`, `DGRO 10%`, `SGOV 65%`, `SPYI 4%`, `QQQI 1%`
+
+**Account-level income-layer defaults**
+
+All runtime-enabled profiles keep `income_layer_enabled = true` by default. Leveraged profiles use `log_cap`
+because the account-level goal is to keep the combined drawdown inside SPY while preserving as much compound
+growth as possible. Non-leveraged profiles use `log_loss_budget` as a lighter account-level ballast.
+
+| Profile | Mode | Start | Hard cap | Default income basket |
+| --- | --- | ---: | ---: | --- |
+| `tqqq_growth_income` | `log_cap` | `150000` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `150000` | `90%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `global_etf_rotation` | `log_loss_budget` | `500000` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
+| `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
+| `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `25%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
+
+Downstream strategy config can override any `income_layer_*` key. To disable the overlay for one run, set
+`income_layer_enabled = false`; to keep the overlay but make it more conservative or aggressive, override
+`income_layer_start_usd`, `income_layer_max_ratio`, `income_layer_ratio_mode`, and `income_layer_allocations`.
+
+Example override:
+
+```json
+{
+  "income_layer_enabled": true,
+  "income_layer_start_usd": 250000,
+  "income_layer_max_ratio": 0.60,
+  "income_layer_ratio_mode": "log_cap",
+  "income_layer_log_growth_factor": 0.70,
+  "income_layer_allocations": {
+    "SCHD": 0.25,
+    "DGRO": 0.15,
+    "SGOV": 0.55,
+    "SPYI": 0.04,
+    "QQQI": 0.01
+  }
+}
+```
 
 ---
 
@@ -584,7 +623,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 如果趋势闸门关闭，核心层防守目标为 `SOXX 15%`。
 - 线上 profile 启用过热控制：基础档位为 full 或 mid 时，如果 `SOXX` RSI14 高于有效阈值，和/或价格突破布林上轨，会按触发项逐级降档。
 - 线上 RSI 阈值为动态阈值：`max(70, 过去 252 个交易日 RSI14 的 90% 分位数)`；动态指标缺失时以 `70` 作为 fallback floor。
-- 默认波动率降杠杆闸门：当 `SOXX` 10 日年化实际波动率不低于 `50%` 时，将 SOXL 暴露转向 SOXX。
+- 默认波动率降杠杆闸门：当 `SOXX` 10 日年化实际波动率不低于 `55%` 时，将 SOXL 暴露转向 SOXX。
 - 交易层没有部署出去的资金停在 `BOXX`。
 
 **仓位规则**
@@ -610,17 +649,43 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `BLEND_GATE_ACTIVE_SOXX_WEIGHT = 0.20`，`BLEND_GATE_DEFENSIVE_SOXX_WEIGHT = 0.15`
 - RSI 过热已启用，动态阈值为 `max(70, rolling 252d RSI14 q90)`
 - 布林带过热已启用；RSI + 布林带双触发时，full 可直接降到 defensive
+- 波动率降杠杆闸门：`SOXX` 10 日实际波动率 `>= 55%`，将 `SOXL` 转向 `SOXX`
 - 闸门缓冲：入场 `8%`，中档 `6%`，退出 `2%`
 - 收入层起点 `150000 USD`，使用 `log_cap`，硬上限 `90%`
 - 收入层配比：`SCHD 20%`，`DGRO 10%`，`SGOV 65%`，`SPYI 4%`，`QQQI 1%`
 
 **账户级收入层默认参数**
 
-权重型策略默认也启用收入层，但它作为账户级覆盖层执行：原策略先生成核心权重，收入层再按账户规模缩小核心权重并加入收入篮子；没有 `portfolio_snapshot` 时保持原权重不变。
+所有保留的 runtime profile 默认都启用收入层。杠杆策略使用 `log_cap`，目标是让组合层最大回撤不超过 SPY 的同时尽量保留复利；非杠杆策略使用更轻的 `log_loss_budget`，主要作为账户规模变大后的波动钝化器。
 
-| Profile | 起点 | 硬上限 | 压力回撤 | 损失预算 | 默认收入篮子 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `global_etf_rotation` | `500000` | `15%` | `18%` | `2.5% -> 2.0%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `400000` | `20%` | `18%` | `3.0% -> 2.5%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `tech_communication_pullback_enhancement` | `250000` | `30%` | `22%` | `5.0% -> 4.0%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
-| `mega_cap_leader_rotation_top50_balanced` | `300000` | `25%` | `20%` | `4.0% -> 3.0%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
+权重型策略的收入层作为账户级覆盖层执行：原策略先生成核心权重，收入层再按账户规模缩小核心权重并加入收入篮子；没有 `portfolio_snapshot` 时保持原权重不变。
+
+| Profile | 模式 | 起点 | 硬上限 | 压力回撤 | 损失预算 | 默认收入篮子 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `tqqq_growth_income` | `log_cap` | `150000` | `50%` | `30%` | `8.0% -> 6.0%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_cap` | `150000` | `90%` | `30%` | `8.0% -> 6.0%` | `SCHD 20% / DGRO 10% / SGOV 65% / SPYI 4% / QQQI 1%` |
+| `global_etf_rotation` | `log_loss_budget` | `500000` | `15%` | `18%` | `2.5% -> 2.0%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
+| `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `20%` | `18%` | `3.0% -> 2.5%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `30%` | `22%` | `5.0% -> 4.0%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
+| `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `25%` | `20%` | `4.0% -> 3.0%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
+
+下游策略配置可以覆盖任意 `income_layer_*` 参数。单次关闭收入层时设置 `income_layer_enabled = false`；保留收入层但调整风险时，覆盖 `income_layer_start_usd`、`income_layer_max_ratio`、`income_layer_ratio_mode` 和 `income_layer_allocations`。
+
+示例：
+
+```json
+{
+  "income_layer_enabled": true,
+  "income_layer_start_usd": 250000,
+  "income_layer_max_ratio": 0.60,
+  "income_layer_ratio_mode": "log_cap",
+  "income_layer_log_growth_factor": 0.70,
+  "income_layer_allocations": {
+    "SCHD": 0.25,
+    "DGRO": 0.15,
+    "SGOV": 0.55,
+    "SPYI": 0.04,
+    "QQQI": 0.01
+  }
+}
+```
