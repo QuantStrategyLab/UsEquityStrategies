@@ -784,6 +784,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         portfolio,
         as_of=ctx.as_of,
         broker_client=ctx.capabilities.get("broker_client"),
+        translator=translator,
         **config,
     )
     diagnostics = {
