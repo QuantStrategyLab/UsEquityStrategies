@@ -40,7 +40,7 @@ Selection rules:
 - `1000000 USD` initial equity is a large-account calibration case, not the activation threshold.
 - Candidates must pass all SPY and QQQ standard-window drawdown constraints.
 - TQQQ additionally uses a roughly `15%` max drawdown constraint at `1000000 USD`, matching the "at most 150k loss on a 1M account" budget.
-- Among candidates that pass, rank by CAGR; if return is close, prefer the simpler path closest to the current production core.
+- Among candidates that pass, rank by CAGR; if return is close, prefer the simpler path closest to the current default core.
 
 Final selected defaults:
 
@@ -61,6 +61,28 @@ SOXL core overlay review:
 | `SOXX 10d vol >= 50%, SOXL -> SOXX` | `48.48%` | `-42.31%` | more frequent de-levering lowers return |
 
 Therefore the SOXL core `blend_gate_volatility_delever_*` defaults stay unchanged; only the income-layer defaults changed.
+
+## Core Default Review
+
+Follow-up research on 2026-05-26/27 retested the leveraged cores after the
+income-layer defaults were selected. The review intentionally stayed narrow:
+
+- TQQQ mix variants around the default `45% QQQ / 45% TQQQ / 8% BOXX / 2% cash`
+  active mix.
+- SOXL/SOXX mix variants around the default `70% SOXL / 20% SOXX` full tier,
+  `65% SOXL / 20% SOXX` mid tier, and `15% SOXX` defensive tier.
+- Volume-pressure overlays that only redirected leveraged exposure into the
+  matching unlevered ETF (`TQQQ -> QQQ`, `SOXL -> SOXX`).
+
+No candidate passed the no-regression rule across real-product and long
+synthetic stress windows. Softer mixes reduced drawdown only by giving up CAGR;
+higher-return mixes worsened drawdown. The best-looking SOXL volume overlay
+improved full-sample CAGR and drawdown, but lagged the 2024-2026 rebound window
+by more than 11 pp of CAGR, so volume remains a shadow/notification signal.
+
+Decision: keep the default TQQQ and SOXL/SOXX cores unchanged. Do not change
+`dual_drive_*`, `blend_gate_*`, or add volume-based executable overlays from
+this review.
 
 ## Reading the Defaults
 

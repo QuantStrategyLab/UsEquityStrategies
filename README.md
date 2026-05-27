@@ -249,6 +249,10 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - If `QQQ` falls below `MA200`, the profile exits `QQQ` and `TQQQ`, keeps 2% cash, and parks the rest in `BOXX` by default.
 - A below-`MA200` pullback state can still re-enable risk when `QQQ > MA20`, `MA20` slope is positive, and `QQQ` has rebounded from its rolling 20-day low by more than the dynamic volatility-scaled gate. The default gate is `2.0x` the recent 20-day `QQQ` daily return volatility, which avoids a fixed 3% constant while still filtering weak MA200 chop without changing the normal above-`MA200` trend rule.
 
+**Default-core review note**
+- A 2026-05-26/27 bounded review retested nearby QQQ/TQQQ mix ratios and volume-pressure overlays. Softer mixes reduced drawdown only by giving up CAGR, while higher-return mixes worsened drawdown.
+- No candidate passed the no-regression rule across the real-product and long synthetic stress windows, so the default dual-drive core remains unchanged.
+
 **Income-layer rules**
 - The sleeve is explicitly controlled by `income_layer_enabled`; keeping it in config makes the income layer an optional risk-control overlay per strategy.
 - The default configuration starts the income layer at `income_layer_start_usd = 250000`.
@@ -306,6 +310,11 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - The runtime RSI threshold is dynamic: `max(70, prior 252 trading days RSI14 90th percentile)`, with `70` as the fallback floor when the dynamic indicator is unavailable.
 - The default volatility delever gate redirects SOXL exposure into SOXX when `SOXX` 10-day annualized realized volatility is at least `55%`.
 - Unused trading-layer capital is parked in `BOXX`.
+
+**Default-core review note**
+- A 2026-05-26/27 bounded review retested nearby SOXL/SOXX mix ratios and volume-pressure overlays. Lower leverage variants reduced drawdown but materially gave up CAGR; higher-return variants worsened drawdown.
+- The most attractive volume candidate improved full-sample numbers but lagged badly in the 2024-2026 rebound window, so volume remains a shadow/notification input rather than executable allocation logic.
+- The SOXL/SOXX default core remains unchanged at the current trend, overheat, and 10-day 55% volatility-delever settings.
 
 **Sizing behavior**
 - The tiered gate directly sets core-sleeve exposure: full, mid, or defensive.
@@ -584,6 +593,10 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 如果 `QQQ` 跌破 `MA200`，默认退出 `QQQ` 和 `TQQQ`，保留 2% 现金，其余转入 `BOXX`。
 - 在 `MA200` 下方也保留一段回调参与逻辑：当 `QQQ > MA20`、`MA20` 斜率为正，且 `QQQ` 较滚动 20 日低点的反弹幅度超过动态波动率门槛时，可重新打开风险仓位。默认门槛是最近 20 日 `QQQ` 日收益波动率的 `2.0x`，避免使用固定 3% 常数，同时继续过滤较弱的 MA200 附近震荡，不改变 `MA200` 上方的主趋势规则。
 
+**默认核心复核说明**
+- 2026-05-26/27 的小范围复核重新测试了 QQQ/TQQQ 附近配比和成交量压力 overlay。更保守的配比只能通过牺牲 CAGR 换回撤，更高收益配比会让回撤变差。
+- 没有候选能同时通过真实产品样本和长合成压力样本的 no-regression 规则，因此默认双轮核心保持不变。
+
 **收入层规则**
 - 收入层由 `income_layer_enabled` 显式控制；它是每个策略可选的风险/资金覆盖层，不是写死在策略里的分红附加项。
 - 默认配置在 `income_layer_start_usd = 250000` 时启动收入层。
@@ -641,6 +654,11 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 线上 RSI 阈值为动态阈值：`max(70, 过去 252 个交易日 RSI14 的 90% 分位数)`；动态指标缺失时以 `70` 作为 fallback floor。
 - 默认波动率降杠杆闸门：当 `SOXX` 10 日年化实际波动率不低于 `55%` 时，将 SOXL 暴露转向 SOXX。
 - 交易层没有部署出去的资金停在 `BOXX`。
+
+**默认核心复核说明**
+- 2026-05-26/27 的小范围复核重新测试了 SOXL/SOXX 附近配比和成交量压力 overlay。降低杠杆可以降回撤，但 CAGR 牺牲明显；提高收益的候选会让回撤变差。
+- 表面最好的成交量候选在全样本改善，但在 2024-2026 反弹窗口明显拖累，因此成交量只保留为 shadow / 通知观察项，不进入可执行调仓逻辑。
+- SOXL/SOXX 默认核心保持为现有趋势闸门、过热降档和 10 日 55% 波动率降杠杆默认值。
 
 **仓位规则**
 - 分层闸门直接决定核心层风险暴露：full、mid 或 defensive。
