@@ -62,6 +62,18 @@ SOXL 核心 overlay 也做了窄候选复核：
 
 因此 SOXL 本次只调整收入层，不改核心 `blend_gate_volatility_delever_*` 默认值。
 
+## 核心默认参数复核
+
+2026-05-26/27 在收入层默认值选定后，又对杠杆核心做了一轮小范围复核。复核刻意保持窄候选：
+
+- TQQQ：围绕默认 `45% QQQ / 45% TQQQ / 8% BOXX / 2% cash` active mix 调整。
+- SOXL/SOXX：围绕默认 `70% SOXL / 20% SOXX` full tier、`65% SOXL / 20% SOXX` mid tier、`15% SOXX` defensive tier 调整。
+- 成交量压力 overlay：只允许把杠杆腿转到对应一倍标的，即 `TQQQ -> QQQ`、`SOXL -> SOXX`。
+
+没有候选同时通过真实产品样本和长合成压力样本的 no-regression 规则。更保守的配比只能通过牺牲 CAGR 降低回撤；更高收益配比会让回撤变差。表面最好的 SOXL 成交量 overlay 在全样本改善 CAGR 和回撤，但在 2024-2026 反弹窗口 CAGR 拖累超过 11 pp，因此成交量只保留为 shadow / 通知观察项。
+
+结论：TQQQ 和 SOXL/SOXX 的默认核心保持不变。本次复核不修改 `dual_drive_*`、`blend_gate_*`，也不加入基于成交量的可执行 overlay。
+
 ## 杠杆策略代表性扫参归档
 
 研究输出：
