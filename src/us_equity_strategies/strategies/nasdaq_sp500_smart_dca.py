@@ -27,6 +27,90 @@ class SymbolIndicator:
     trend_positive: bool
 
 
+def _translator_uses_zh(translator) -> bool:
+    if translator is None:
+        return False
+    try:
+        sample = str(translator("no_trades"))
+    except Exception:
+        return False
+    return any("\u4e00" <= char <= "\u9fff" for char in sample)
+
+
+def _translate_with_fallback(
+    translator,
+    key: str,
+    *,
+    fallback_en: str,
+    fallback_zh: str | None = None,
+    **kwargs,
+) -> str:
+    if translator is not None:
+        rendered = translator(key, **kwargs)
+        rendered_text = str(rendered)
+        if rendered_text != key and not rendered_text.startswith(f"{key}("):
+            return str(rendered)
+    if fallback_zh is not None and _translator_uses_zh(translator):
+        return fallback_zh.format(**kwargs)
+    return fallback_en.format(**kwargs)
+
+
+def _localized_regime(regime: str, translator) -> str:
+    labels = {
+        "normal": ("normal", "正常"),
+        "expensive": ("expensive", "偏贵"),
+        "very_expensive_overbought": ("very expensive and overbought", "极贵且超买"),
+        "mild_pullback": ("mild pullback", "温和回撤"),
+        "deep_pullback": ("deep pullback", "深度回撤"),
+        "severe_pullback": ("severe pullback", "严重回撤"),
+    }
+    fallback_en, fallback_zh = labels.get(regime, (regime, regime))
+    return _translate_with_fallback(
+        translator,
+        f"smart_dca_regime_{regime}",
+        fallback_en=fallback_en,
+        fallback_zh=fallback_zh,
+    )
+
+
+def _localized_skip_reason(skip_reason: str, translator) -> str:
+    labels = {
+        "outside_execution_window": ("outside execution window", "不在执行窗口"),
+        "valuation_too_expensive": ("valuation too expensive", "估值过贵"),
+        "insufficient_cash": ("insufficient cash", "可投资现金不足"),
+    }
+    fallback_en, fallback_zh = labels.get(skip_reason, (skip_reason, skip_reason))
+    return _translate_with_fallback(
+        translator,
+        f"smart_dca_skip_reason_{skip_reason}",
+        fallback_en=fallback_en,
+        fallback_zh=fallback_zh,
+    )
+
+
+def _localized_execution_window(window_text: str, translator) -> str:
+    if window_text.startswith("weekly_day="):
+        day = window_text.split("=", 1)[1]
+        return _translate_with_fallback(
+            translator,
+            "smart_dca_execution_window_weekly",
+            fallback_en="weekly_day={day}",
+            fallback_zh="每周执行日={day}",
+            day=day,
+        )
+    if window_text.startswith("monthly_day="):
+        pieces = dict(part.split("=", 1) for part in window_text.split() if "=" in part)
+        return _translate_with_fallback(
+            translator,
+            "smart_dca_execution_window_monthly",
+            fallback_en="monthly_day={monthly_day} window_calendar_days={window}",
+            fallback_zh="每月第 {monthly_day} 日起，窗口 {window} 个自然日",
+            monthly_day=pieces.get("monthly_day", ""),
+            window=pieces.get("window_calendar_days", ""),
+        )
+    return window_text
+
+
 def _coerce_float(value: Any, default: float = 0.0) -> float:
     try:
         numeric = float(value)
@@ -276,6 +360,7 @@ def build_rebalance_plan(
     expensive_multiplier: float = 0.50,
     very_expensive_multiplier: float = 0.0,
     broker_client=None,
+    translator=None,
 ) -> dict[str, object]:
     allocations = _normalize_allocations(trade_allocations or DEFAULT_TRADE_ALLOCATIONS)
     strategy_symbols = tuple(dict.fromkeys((*(_normalize_symbol(s) for s in managed_symbols), *allocations)))
@@ -358,20 +443,50 @@ def build_rebalance_plan(
         }
         for item in indicators
     )
-    signal_desc = (
-        f"Smart DCA {regime}: multiplier {multiplier:.2f}x, "
-        f"planned buy ${planned_investment:,.2f} from cash ${available_cash:,.2f}"
+    localized_regime = _localized_regime(regime, translator)
+    signal_desc = _translate_with_fallback(
+        translator,
+        "smart_dca_signal",
+        fallback_en=(
+            "Smart DCA {regime}: multiplier {multiplier}, "
+            "planned buy ${planned_investment} from cash ${available_cash}"
+        ),
+        fallback_zh=(
+            "智能定投 {regime}: 倍数 {multiplier}，计划买入 ${planned_investment}，"
+            "现金 ${available_cash}"
+        ),
+        regime=localized_regime,
+        multiplier=f"{multiplier:.2f}x",
+        planned_investment=f"{planned_investment:,.2f}",
+        available_cash=f"{available_cash:,.2f}",
     )
     if cash_capped and planned_investment > 0.0:
-        signal_desc = (
-            f"{signal_desc} | cash capped from requested ${requested_investment:,.2f}"
+        signal_desc = _translate_with_fallback(
+            translator,
+            "smart_dca_cash_capped",
+            fallback_en="{signal} | cash capped from requested ${requested_investment}",
+            fallback_zh="{signal} | 因现金限制，低于请求金额 ${requested_investment}",
+            signal=signal_desc,
+            requested_investment=f"{requested_investment:,.2f}",
         )
-    status_desc = (
-        f"{window_text} | avg drawdown {aggregate_metrics['avg_drawdown_252d']:.1%}, "
-        f"avg gap vs SMA200 {aggregate_metrics['avg_sma200_gap']:.1%}"
+    status_desc = _translate_with_fallback(
+        translator,
+        "smart_dca_status",
+        fallback_en="{window} | avg drawdown {avg_drawdown}, avg gap vs SMA200 {avg_sma200_gap}",
+        fallback_zh="{window} | 平均回撤 {avg_drawdown}，相对 SMA200 均值 {avg_sma200_gap}",
+        window=_localized_execution_window(window_text, translator),
+        avg_drawdown=f"{aggregate_metrics['avg_drawdown_252d']:.1%}",
+        avg_sma200_gap=f"{aggregate_metrics['avg_sma200_gap']:.1%}",
     )
     if skip_reason:
-        signal_desc = f"{signal_desc} | skip: {skip_reason}"
+        signal_desc = _translate_with_fallback(
+            translator,
+            "smart_dca_skip",
+            fallback_en="{signal} | skip: {skip_reason}",
+            fallback_zh="{signal} | 跳过：{skip_reason}",
+            signal=signal_desc,
+            skip_reason=_localized_skip_reason(skip_reason, translator),
+        )
 
     return {
         "actionable": actionable,

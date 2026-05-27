@@ -41,6 +41,14 @@ def _portfolio(*, buying_power: float = 5000.0) -> PortfolioSnapshot:
     )
 
 
+def _zh_translator(key: str, **kwargs) -> str:
+    translations = {
+        "no_trades": "本轮没有交易",
+    }
+    template = translations.get(key, key)
+    return template.format(**kwargs) if kwargs else template
+
+
 def test_smart_dca_buys_only_current_window_with_default_split() -> None:
     history = {"QQQ": _normal_history(), "SPY": _normal_history()}
 
@@ -107,6 +115,23 @@ def test_smart_dca_caps_pullback_buy_to_investable_cash() -> None:
     assert "cash capped from requested $2,000.00" in plan["signal_description"]
 
 
+def test_smart_dca_signal_uses_chinese_fallback_when_translator_is_zh() -> None:
+    history = {"QQQ": _normal_history(), "SPY": _normal_history()}
+
+    plan = build_rebalance_plan(
+        lambda _client, symbol: history[symbol],
+        _portfolio(buying_power=180.0),
+        as_of="2026-05-26",
+        translator=_zh_translator,
+    )
+
+    assert "智能定投" in plan["signal_description"]
+    assert "跳过：可投资现金不足" in plan["signal_description"]
+    assert "每月第 25 日起" in plan["status_description"]
+    assert "avg drawdown" not in plan["status_description"]
+    assert "Smart DCA" not in plan["signal_description"]
+
+
 def test_smart_dca_disables_platform_rebalance_threshold_by_default() -> None:
     catalog_config = get_strategy_definition("nasdaq_sp500_smart_dca").default_config
     manifest_config = nasdaq_sp500_smart_dca_manifest.default_config
@@ -125,7 +150,7 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
             market_data={"market_history": lambda _client, symbol: history[symbol]},
             portfolio=_portfolio(),
             runtime_config={
-                "translator": lambda key, **_kwargs: key,
+                "translator": _zh_translator,
                 "pacing_sec": 0.5,
                 "signal_effective_after_trading_days": 0,
             },
@@ -136,6 +161,7 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
     assert decision.risk_flags == ()
     assert targets == {"QQQM": 1500.0, "SPLG": 1700.0}
     assert decision.diagnostics["signal_source"] == "market_history+portfolio_snapshot"
+    assert "智能定投" in decision.diagnostics["signal_description"]
     assert decision.diagnostics["signal_date"] == "2026-05-26"
     assert decision.diagnostics["effective_date"] == "2026-05-26"
 
