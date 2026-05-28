@@ -1,8 +1,14 @@
 # US Equity Notification, i18n, and Log Contract
 
-_Updated: 2026-05-26_
+_Updated: 2026-05-29_
 
 This document defines the strategy-layer payload shape that downstream platform repositories should use for Telegram messages, dry-run reports, and audit logs. Strategy code owns structured facts and translation keys; platform repositories own final layout, routing, and compaction.
+
+When a strategy consumes a sidecar plugin artifact, plugin-provided display text
+must stay display-only. The strategy may pass through the plugin's
+`localized_messages` and `log_record`, but position logic must continue to read
+machine fields such as `canonical_route`, `suggested_action`, `reason_codes`,
+and `position_control`.
 
 ## Strategy Output
 
@@ -105,8 +111,28 @@ Rules:
 - Do not put broker secrets, account numbers, access tokens, or raw account identifiers in this payload. If an account identifier is needed, use an already-hashed account id.
 - Order-routing hints stay in platform repositories and should not be added to the strategy contract.
 
+## Sidecar Plugin Messages
+
+The `market_regime_control` plugin emits `strategy_plugin_messages.v1` and
+`strategy_plugin_log.v1` display contracts. Strategy consumers should preserve
+these fields under
+`notification_context["risk_controls"]["market_regime_control"]`:
+
+- `localized_messages`
+- `log_record`
+- `notification`
+
+These fields let platform repositories render consistent English and Chinese
+notifications/logs without duplicating route/action translation tables. They
+are not trading inputs. SOXL/SOXX does not enable `market_regime_control` by
+default; it can still receive the general market-regime notification artifact
+outside the strategy runtime for manual review.
+
 ## Current Coverage
 
 - `tqqq_growth_income` and `soxl_soxx_trend_income` attach `notification_context` to diagnostics and execution annotations.
 - Weight-mode monthly profiles expose `signal` and `status` translation contexts through strategy metadata; entrypoints render them through the supplied translator and preserve the structured payload.
 - Daily value-mode profiles also attach execution timing metadata: `signal_date`, `effective_date`, `execution_timing_contract`, and `signal_effective_after_trading_days`.
+- Market-regime plugin consumers pass through plugin `localized_messages`,
+  `log_record`, and `notification` for downstream rendering when a valid plugin
+  artifact is present.

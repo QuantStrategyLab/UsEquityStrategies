@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 import numpy as np
 
 from us_equity_strategies.income_layer import (
@@ -14,6 +16,10 @@ from us_equity_strategies.income_layer import (
 
 SOXX_GATE_TIERED_BLEND_MODE = "soxx_gate_tiered_blend"
 CORE_ASSETS = ("SOXL", "SOXX", "BOXX")
+MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
+MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
+LEGACY_CRISIS_RESPONSE_PROFILE = "crisis_response_shadow"
+LEGACY_TRUE_CRISIS_ROUTE = "true_crisis"
 __all__ = [
     "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
     "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
@@ -74,6 +80,145 @@ def _as_positive_int(value, *, default: int) -> int:
     except (TypeError, ValueError):
         result = int(default)
     return max(1, result)
+
+
+def _iter_mapping_payloads(value, *, _depth: int = 0):
+    if _depth > 4:
+        return
+    if isinstance(value, Mapping):
+        yield value
+        for item in value.values():
+            yield from _iter_mapping_payloads(item, _depth=_depth + 1)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            yield from _iter_mapping_payloads(item, _depth=_depth + 1)
+
+
+def _route_from_payload(payload: Mapping) -> str:
+    return str(payload.get("canonical_route") or payload.get("route") or "").strip().lower()
+
+
+def _normalized_text_tuple(value) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
+
+
+def _market_regime_context_not_found() -> dict[str, object]:
+    return {
+        "found": False,
+        "source": MARKET_REGIME_CONTROL_PROFILE,
+        "schema_version": "",
+        "active": False,
+        "route": "",
+        "route_source": "",
+        "suggested_action": "",
+        "risk_budget_scalar": 1.0,
+        "leverage_scalar": 1.0,
+        "risk_asset_scalar": 1.0,
+        "taco_allowed": False,
+        "local_delever_veto_allowed": False,
+        "crisis_defense_required": False,
+        "blocked_actions": (),
+        "vetoes": (),
+        "reason_codes": (),
+        "localized_messages": {},
+        "log_record": {},
+        "notification": {},
+        "blocked": False,
+    }
+
+
+def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, object]:
+    for payload in _iter_mapping_payloads(metadata):
+        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+        if plugin != MARKET_REGIME_CONTROL_PROFILE:
+            continue
+        position_control = payload.get("position_control")
+        if not isinstance(position_control, Mapping):
+            position_control = {}
+        arbiter = payload.get("arbiter")
+        if not isinstance(arbiter, Mapping):
+            arbiter = {}
+        route = str(
+            position_control.get("final_route")
+            or arbiter.get("final_route")
+            or payload.get("canonical_route")
+            or ""
+        ).strip().lower()
+        suggested_action = str(
+            position_control.get("suggested_action")
+            or arbiter.get("suggested_action")
+            or payload.get("suggested_action")
+            or ""
+        ).strip().lower()
+        blocked = suggested_action == "blocked"
+        return {
+            "found": True,
+            "source": MARKET_REGIME_CONTROL_PROFILE,
+            "schema_version": str(payload.get("schema_version") or "").strip(),
+            "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked,
+            "route": route,
+            "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
+            "suggested_action": suggested_action,
+            "risk_budget_scalar": _as_clamped_ratio(position_control.get("risk_budget_scalar"), default=1.0),
+            "leverage_scalar": _as_clamped_ratio(position_control.get("leverage_scalar"), default=1.0),
+            "risk_asset_scalar": _as_clamped_ratio(position_control.get("risk_asset_scalar"), default=1.0),
+            "taco_allowed": _as_bool(position_control.get("taco_allowed"), default=False),
+            "local_delever_veto_allowed": _as_bool(position_control.get("local_delever_veto_allowed"), default=False),
+            "crisis_defense_required": _as_bool(position_control.get("crisis_defense_required"), default=False),
+            "blocked_actions": _normalized_text_tuple(position_control.get("blocked_actions")),
+            "vetoes": _normalized_text_tuple(position_control.get("vetoes")) or _normalized_text_tuple(arbiter.get("vetoes")),
+            "reason_codes": (
+                _normalized_text_tuple(position_control.get("reason_codes"))
+                or _normalized_text_tuple(arbiter.get("reason_codes"))
+                or _normalized_text_tuple(payload.get("reason_codes"))
+            ),
+            "localized_messages": payload.get("localized_messages")
+            if isinstance(payload.get("localized_messages"), Mapping)
+            else {},
+            "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
+            "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
+            "blocked": blocked,
+        }
+    return _market_regime_context_not_found()
+
+
+def _resolve_legacy_crisis_response_context(metadata: Mapping) -> dict[str, object]:
+    for payload in _iter_mapping_payloads(metadata):
+        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+        if plugin != LEGACY_CRISIS_RESPONSE_PROFILE:
+            continue
+        route = _route_from_payload(payload)
+        true_crisis = route == LEGACY_TRUE_CRISIS_ROUTE or _as_bool(payload.get("true_crisis_active"), default=False)
+        return {
+            **_market_regime_context_not_found(),
+            "found": True,
+            "source": LEGACY_CRISIS_RESPONSE_PROFILE,
+            "schema_version": str(payload.get("schema_version") or "").strip(),
+            "active": true_crisis,
+            "route": "risk_off" if true_crisis else "no_action",
+            "route_source": LEGACY_CRISIS_RESPONSE_PROFILE,
+            "suggested_action": "defend" if true_crisis else "watch_only",
+            "risk_budget_scalar": 0.0 if true_crisis else 1.0,
+            "leverage_scalar": 0.0 if true_crisis else 1.0,
+            "risk_asset_scalar": 0.0 if true_crisis else 1.0,
+            "crisis_defense_required": true_crisis,
+            "reason_codes": _normalized_text_tuple(payload.get("reason_codes")) or ((f"{LEGACY_CRISIS_RESPONSE_PROFILE}:true_crisis",) if true_crisis else ()),
+        }
+    return _market_regime_context_not_found()
+
+
+def _active_risk_asset_from_ratios(soxl_ratio: float, soxx_ratio: float) -> str:
+    if soxl_ratio > 0.0 and soxx_ratio > 0.0:
+        return "SOXX+SOXL"
+    if soxl_ratio > 0.0:
+        return "SOXL"
+    if soxx_ratio > 0.0:
+        return "SOXX"
+    return "BOXX"
 
 
 def _downgrade_tier(tier: str, steps: int) -> str:
@@ -157,6 +302,9 @@ def build_rebalance_plan(
     blend_gate_volatility_delever_threshold=0.55,
     blend_gate_volatility_delever_retention_ratio=0.0,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
+    market_regime_control_enabled=False,
+    market_regime_control_apply_risk_reduced=False,
+    market_regime_control_apply_risk_off=True,
 ):
     income_allocations = normalize_income_layer_allocations(
         income_layer_allocations,
@@ -176,6 +324,25 @@ def build_rebalance_plan(
     quantities = {symbol: float(raw_quantities.get(symbol, 0.0)) for symbol in strategy_assets}
     sellable_quantities = {symbol: float(raw_sellable_quantities.get(symbol, 0.0)) for symbol in strategy_assets}
     total_strategy_equity = account_state["total_strategy_equity"]
+    account_metadata = account_state.get("metadata", {}) if isinstance(account_state, Mapping) else {}
+    if not isinstance(account_metadata, Mapping):
+        account_metadata = {}
+    market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=False)
+    market_regime_control_context = (
+        _resolve_market_regime_control_context(account_metadata)
+        if market_regime_control_enabled
+        else _market_regime_context_not_found()
+    )
+    if market_regime_control_enabled and not market_regime_control_context["found"]:
+        market_regime_control_context = _resolve_legacy_crisis_response_context(account_metadata)
+    market_regime_control_apply_risk_reduced = _as_bool(
+        market_regime_control_apply_risk_reduced,
+        default=False,
+    )
+    market_regime_control_apply_risk_off = _as_bool(
+        market_regime_control_apply_risk_off,
+        default=True,
+    )
     current_min_trade = max(min_trade_floor, total_strategy_equity * min_trade_ratio)
 
     income_layer_plan = build_income_layer_plan(
@@ -355,6 +522,50 @@ def build_rebalance_plan(
                 redirect_symbol=volatility_delever_redirect_symbol,
             )
         )
+    market_regime_control_applied = False
+    market_regime_control_removed_ratio = 0.0
+    market_regime_control_redirected_to_unlevered_ratio = 0.0
+    market_regime_control_route = str(market_regime_control_context["route"])
+    market_regime_control_route_allowed = (
+        market_regime_control_route == "risk_reduced" and market_regime_control_apply_risk_reduced
+    ) or (market_regime_control_route == "risk_off" and market_regime_control_apply_risk_off)
+    if bool(market_regime_control_context["active"] and market_regime_control_route_allowed):
+        before_market_regime_risk_ratio = selected_soxl_ratio + selected_soxx_ratio
+        leverage_scalar = float(market_regime_control_context["leverage_scalar"])
+        risk_asset_scalar = float(market_regime_control_context["risk_asset_scalar"])
+        leverage_removed_ratio = max(0.0, selected_soxl_ratio * (1.0 - leverage_scalar))
+        selected_soxl_ratio *= leverage_scalar
+        if str(market_regime_control_context["route"]) == "risk_reduced":
+            selected_soxx_ratio += leverage_removed_ratio
+            market_regime_control_redirected_to_unlevered_ratio = leverage_removed_ratio
+        if risk_asset_scalar < 1.0:
+            selected_soxl_ratio *= risk_asset_scalar
+            selected_soxx_ratio *= risk_asset_scalar
+        after_market_regime_risk_ratio = selected_soxl_ratio + selected_soxx_ratio
+        market_regime_control_removed_ratio = max(
+            0.0,
+            before_market_regime_risk_ratio - after_market_regime_risk_ratio,
+        )
+        boxx_ratio += market_regime_control_removed_ratio
+        active_risk_asset = _active_risk_asset_from_ratios(selected_soxl_ratio, selected_soxx_ratio)
+        market_regime_control_applied = (
+            leverage_removed_ratio > 1e-9
+            or before_market_regime_risk_ratio > after_market_regime_risk_ratio + 1e-9
+        )
+        if market_regime_control_applied:
+            reason_code = (
+                "blend_gate_reason_market_regime_control_risk_off"
+                if market_regime_control_route == "risk_off"
+                else "blend_gate_reason_market_regime_control_risk_reduced"
+            )
+            overlay_trigger_codes.append(reason_code)
+            overlay_trigger_reasons.append(
+                _translate_with_fallback(
+                    translator,
+                    reason_code,
+                    "market regime risk-off" if market_regime_control_route == "risk_off" else "market regime risk-reduced",
+                )
+            )
     overlay_trigger_count = len(overlay_trigger_reasons)
     soxl_target = core_equity * selected_soxl_ratio
     soxx_target = core_equity * selected_soxx_ratio
@@ -479,11 +690,38 @@ def build_rebalance_plan(
             for symbol in strategy_assets
         },
     }
+    risk_control_context = {
+        "market_regime_control": {
+            "enabled": market_regime_control_enabled,
+            "found": bool(market_regime_control_context["found"]),
+            "source": market_regime_control_context["source"],
+            "schema_version": market_regime_control_context["schema_version"],
+            "route": market_regime_control_context["route"],
+            "route_source": market_regime_control_context["route_source"],
+            "active": bool(market_regime_control_context["active"]),
+            "route_allowed": market_regime_control_route_allowed,
+            "applied": market_regime_control_applied,
+            "suggested_action": market_regime_control_context["suggested_action"],
+            "risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
+            "leverage_scalar": market_regime_control_context["leverage_scalar"],
+            "risk_asset_scalar": market_regime_control_context["risk_asset_scalar"],
+            "crisis_defense_required": market_regime_control_context["crisis_defense_required"],
+            "blocked_actions": market_regime_control_context["blocked_actions"],
+            "vetoes": market_regime_control_context["vetoes"],
+            "reason_codes": market_regime_control_context["reason_codes"],
+            "localized_messages": market_regime_control_context["localized_messages"],
+            "log_record": market_regime_control_context["log_record"],
+            "notification": market_regime_control_context["notification"],
+            "removed_ratio": market_regime_control_removed_ratio,
+            "redirected_to_unlevered_ratio": market_regime_control_redirected_to_unlevered_ratio,
+        },
+    }
     notification_context = {
         "status": status_context,
         "signal": signal_context,
         "benchmark": benchmark_context,
         "portfolio": portfolio_context,
+        "risk_controls": risk_control_context,
     }
 
     return {
@@ -552,4 +790,20 @@ def build_rebalance_plan(
         "blend_gate_volatility_delever_retention_ratio": volatility_delever_retention_ratio,
         "blend_gate_volatility_delever_redirect_symbol": volatility_delever_redirect_symbol,
         "blend_gate_volatility_delever_removed_ratio": volatility_delever_removed_ratio,
+        "market_regime_control_enabled": market_regime_control_enabled,
+        "market_regime_control_found": bool(market_regime_control_context["found"]),
+        "market_regime_control_source": market_regime_control_context["source"],
+        "market_regime_control_schema_version": market_regime_control_context["schema_version"],
+        "market_regime_control_route": market_regime_control_context["route"],
+        "market_regime_control_route_source": market_regime_control_context["route_source"],
+        "market_regime_control_active": bool(market_regime_control_context["active"]),
+        "market_regime_control_route_allowed": market_regime_control_route_allowed,
+        "market_regime_control_applied": market_regime_control_applied,
+        "market_regime_control_risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
+        "market_regime_control_leverage_scalar": market_regime_control_context["leverage_scalar"],
+        "market_regime_control_risk_asset_scalar": market_regime_control_context["risk_asset_scalar"],
+        "market_regime_control_crisis_defense_required": market_regime_control_context["crisis_defense_required"],
+        "market_regime_control_reason_codes": market_regime_control_context["reason_codes"],
+        "market_regime_control_removed_ratio": market_regime_control_removed_ratio,
+        "market_regime_control_redirected_to_unlevered_ratio": market_regime_control_redirected_to_unlevered_ratio,
     }
