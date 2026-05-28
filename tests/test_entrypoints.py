@@ -658,9 +658,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(entrypoint.manifest.default_config["income_layer_ratio_mode"], "log_cap")
         self.assertEqual(entrypoint.manifest.default_config["income_layer_max_ratio"], 0.95)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_activation_band_ratio"], 0.20)
-        self.assertIs(entrypoint.manifest.default_config["market_regime_control_enabled"], True)
-        self.assertIs(entrypoint.manifest.default_config["market_regime_control_apply_risk_reduced"], False)
-        self.assertIs(entrypoint.manifest.default_config["market_regime_control_apply_risk_off"], True)
+        self.assertNotIn("market_regime_control_enabled", entrypoint.manifest.default_config)
+        self.assertNotIn("market_regime_control_apply_risk_reduced", entrypoint.manifest.default_config)
+        self.assertNotIn("market_regime_control_apply_risk_off", entrypoint.manifest.default_config)
         self.assertEqual(
             entrypoint.manifest.default_config["income_layer_allocations"],
             {"SCHD": 0.25, "DGRO": 0.15, "SGOV": 0.55, "SPYI": 0.04, "QQQI": 0.01},

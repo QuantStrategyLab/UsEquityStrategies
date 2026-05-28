@@ -250,9 +250,9 @@ class CatalogTest(unittest.TestCase):
             True,
         )
         soxl = get_strategy_definition(SOXL_SOXX_TREND_INCOME_PROFILE).default_config
-        self.assertIs(soxl["market_regime_control_enabled"], True)
-        self.assertIs(soxl["market_regime_control_apply_risk_reduced"], False)
-        self.assertIs(soxl["market_regime_control_apply_risk_off"], True)
+        self.assertNotIn("market_regime_control_enabled", soxl)
+        self.assertNotIn("market_regime_control_apply_risk_reduced", soxl)
+        self.assertNotIn("market_regime_control_apply_risk_off", soxl)
 
         weight_scaled_profiles = (
             GLOBAL_ETF_ROTATION_PROFILE,

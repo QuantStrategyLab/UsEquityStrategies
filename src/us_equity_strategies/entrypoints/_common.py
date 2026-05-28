@@ -188,6 +188,9 @@ def _market_regime_control_not_found() -> dict[str, object]:
         "blocked_actions": (),
         "vetoes": (),
         "reason_codes": (),
+        "localized_messages": {},
+        "log_record": {},
+        "notification": {},
         "blocked": False,
     }
 
@@ -236,6 +239,11 @@ def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, 
                     or _normalized_text_tuple(arbiter.get("reason_codes"))
                     or _normalized_text_tuple(payload.get("reason_codes"))
                 ),
+                "localized_messages": payload.get("localized_messages")
+                if isinstance(payload.get("localized_messages"), Mapping)
+                else {},
+                "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
+                "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
                 "blocked": blocked,
             }
     return _market_regime_control_not_found()
@@ -972,6 +980,9 @@ def apply_market_regime_control_to_weights(
                     "removed_weight": removed_weight,
                     "safe_haven": safe_haven_symbol,
                     "reason_codes": context.get("reason_codes"),
+                    "localized_messages": context.get("localized_messages"),
+                    "log_record": context.get("log_record"),
+                    "notification": context.get("notification"),
                 }
             }
         },

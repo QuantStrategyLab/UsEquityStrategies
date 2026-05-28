@@ -124,6 +124,9 @@ def _market_regime_context_not_found() -> dict[str, object]:
         "blocked_actions": (),
         "vetoes": (),
         "reason_codes": (),
+        "localized_messages": {},
+        "log_record": {},
+        "notification": {},
         "blocked": False,
     }
 
@@ -173,6 +176,11 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
                 or _normalized_text_tuple(arbiter.get("reason_codes"))
                 or _normalized_text_tuple(payload.get("reason_codes"))
             ),
+            "localized_messages": payload.get("localized_messages")
+            if isinstance(payload.get("localized_messages"), Mapping)
+            else {},
+            "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
+            "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
             "blocked": blocked,
         }
     return _market_regime_context_not_found()
@@ -701,6 +709,9 @@ def build_rebalance_plan(
             "blocked_actions": market_regime_control_context["blocked_actions"],
             "vetoes": market_regime_control_context["vetoes"],
             "reason_codes": market_regime_control_context["reason_codes"],
+            "localized_messages": market_regime_control_context["localized_messages"],
+            "log_record": market_regime_control_context["log_record"],
+            "notification": market_regime_control_context["notification"],
             "removed_ratio": market_regime_control_removed_ratio,
             "redirected_to_unlevered_ratio": market_regime_control_redirected_to_unlevered_ratio,
         },

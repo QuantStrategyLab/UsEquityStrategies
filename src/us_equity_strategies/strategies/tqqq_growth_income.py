@@ -251,6 +251,11 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
             "actionable_score": _as_float_or_none(macro_component.get("actionable_score")),
             "total_score": _as_float_or_none(macro_component.get("total_score")),
             "reason_codes": reason_codes,
+            "localized_messages": payload.get("localized_messages")
+            if isinstance(payload.get("localized_messages"), Mapping)
+            else {},
+            "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
+            "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
             "blocked": blocked,
         }
     return {
@@ -271,6 +276,9 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         "actionable_score": None,
         "total_score": None,
         "reason_codes": (),
+        "localized_messages": {},
+        "log_record": {},
+        "notification": {},
         "blocked": False,
     }
 
@@ -644,6 +652,9 @@ def build_rebalance_plan(
             "blocked_actions": market_regime_control_context["blocked_actions"],
             "vetoes": market_regime_control_context["vetoes"],
             "reason_codes": market_regime_control_context["reason_codes"],
+            "localized_messages": market_regime_control_context["localized_messages"],
+            "log_record": market_regime_control_context["log_record"],
+            "notification": market_regime_control_context["notification"],
         },
         "dual_drive_crisis_defense": {
             "enabled": crisis_defense_enabled,

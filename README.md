@@ -268,7 +268,14 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - The fixed dual-drive configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
 - `BOXX` remains a managed symbol so old BOXX holdings can be traded down if present.
 - Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
-- If a mounted deterministic `macro_risk_governor` artifact is present in portfolio metadata, the TQQQ profile can apply its opt-in `leverage_scalar` / `risk_asset_scalar` controls. The default `delever` route redirects the TQQQ sleeve into the unlevered growth sleeve first, preserving risk exposure while reducing leverage; the `crisis` route can move the risk sleeve to BOXX.
+- If a mounted deterministic `market_regime_control` artifact is present in
+  portfolio metadata, the TQQQ profile can apply its opt-in `position_control`
+  scalars. The strategy keeps trading decisions on machine fields such as
+  `canonical_route`, `suggested_action`, and `reason_codes`, while passing
+  plugin `localized_messages` and `log_record` through notification diagnostics
+  for platform renderers. The default `risk_reduced` route redirects the TQQQ
+  sleeve into the unlevered growth sleeve first, preserving risk exposure while
+  reducing leverage; the `risk_off` route can move the risk sleeve to BOXX.
 
 **Default runtime profile settings**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
@@ -316,6 +323,9 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - A 2026-05-26/27 bounded review retested nearby SOXL/SOXX mix ratios and volume-pressure overlays. Lower leverage variants reduced drawdown but materially gave up CAGR; higher-return variants worsened drawdown.
 - The most attractive volume candidate improved full-sample numbers but lagged badly in the 2024-2026 rebound window, so volume remains a shadow/notification input rather than executable allocation logic.
 - The SOXL/SOXX default core remains unchanged at the current trend, overheat, and 10-day 55% volatility-delever settings.
+- SOXL/SOXX does not enable `market_regime_control` by default. Broad macro and
+  crisis plugin artifacts should remain general notifications unless an
+  operator explicitly opts the profile into position control.
 
 **Sizing behavior**
 - The tiered gate directly sets core-sleeve exposure: full, mid, or defensive.
@@ -612,7 +622,8 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 **防守行为（`BOXX` 与现金）**
 - fixed dual-drive 默认配置只保留一小部分现金，剩余闲置资金进入 BOXX。
 - `BOXX` 仍保留为管理资产，方便清理旧 BOXX 持仓。
-- 如果 portfolio metadata 挂载了确定性的 `macro_risk_governor` artifact，TQQQ profile 可以消费其中的 `leverage_scalar` / `risk_asset_scalar`。默认 `delever` 路线会先把 TQQQ 袖珍仓转到未加杠杆增长仓，尽量保留风险暴露但降低杠杆；`crisis` 路线可以把风险仓转入 BOXX。
+- 如果 portfolio metadata 挂载了确定性的 `market_regime_control` artifact，TQQQ profile 可以消费其中的 `position_control` 标量。策略判断仍只读取
+  `canonical_route`、`suggested_action`、`reason_codes` 等机器字段，同时把插件 `localized_messages` 和 `log_record` 透传到通知 diagnostics，供平台侧统一渲染。默认 `risk_reduced` 路线会先把 TQQQ 袖珍仓转到未加杠杆增长仓，尽量保留风险暴露但降低杠杆；`risk_off` 路线可以把风险仓转入 BOXX。
 - 是否真的下单，由下游执行层再结合再平衡阈值判断。
 
 **默认运行 profile 配置值**
@@ -661,6 +672,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - 2026-05-26/27 的小范围复核重新测试了 SOXL/SOXX 附近配比和成交量压力 overlay。降低杠杆可以降回撤，但 CAGR 牺牲明显；提高收益的候选会让回撤变差。
 - 表面最好的成交量候选在全样本改善，但在 2024-2026 反弹窗口明显拖累，因此成交量只保留为 shadow / 通知观察项，不进入可执行调仓逻辑。
 - SOXL/SOXX 默认核心保持为现有趋势闸门、过热降档和 10 日 55% 波动率降杠杆默认值。
+- SOXL/SOXX 默认不启用 `market_regime_control`。宏观和危机插件 artifact 应保持通用通知，由人工复核；只有操作员显式 opt-in 时才进入仓位控制。
 
 **仓位规则**
 - 分层闸门直接决定核心层风险暴露：full、mid 或 defensive。

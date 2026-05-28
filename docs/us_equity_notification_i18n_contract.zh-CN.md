@@ -1,8 +1,10 @@
 # 美股策略通知、i18n 与日志契约
 
-_更新日期：2026-05-26_
+_更新日期：2026-05-29_
 
 这份文档定义策略层输出给下游平台仓库的结构化通知契约。策略层负责事实、数值、机器码和翻译参数；平台仓库负责 Telegram / dry-run / 审计日志的最终排版、推送和压缩展示。
+
+当策略消费侧车插件 artifact 时，插件提供的中英文文案只能作为展示层字段。策略可以透传插件的 `localized_messages` 和 `log_record`，但仓位逻辑必须继续读取 `canonical_route`、`suggested_action`、`reason_codes`、`position_control` 等机器字段。
 
 ## 策略输出位置
 
@@ -105,8 +107,22 @@ notification_context = {
 - 不要把券商密钥、账户号、访问 token 或原始账户标识写入该 payload；如果需要账户标识，只能使用已经哈希过的 account id。
 - 下单顺序、订单约束等券商执行细节继续属于平台仓库，不进入策略契约。
 
+## 侧车插件通知文案
+
+`market_regime_control` 插件会输出 `strategy_plugin_messages.v1` 和
+`strategy_plugin_log.v1` 展示契约。策略消费端应在
+`notification_context["risk_controls"]["market_regime_control"]` 下保留这些字段：
+
+- `localized_messages`
+- `log_record`
+- `notification`
+
+这些字段让平台仓库可以统一渲染英文和中文通知 / 日志，不需要重复维护 route/action 翻译表。它们不是交易输入。SOXL/SOXX 默认不启用
+`market_regime_control`；它仍可在策略运行时之外接收通用市场状态通知 artifact，由人工复核。
+
 ## 当前覆盖
 
 - `tqqq_growth_income` 和 `soxl_soxx_trend_income` 已把 `notification_context` 写入 diagnostics 与 execution annotations。
 - 月频 weight-mode profile 通过策略 metadata 输出 `signal` / `status` 翻译上下文；entrypoint 使用传入 translator 渲染，同时保留结构化 payload。
 - 日频 value-mode profile 还会输出执行时间契约字段：`signal_date`、`effective_date`、`execution_timing_contract`、`signal_effective_after_trading_days`。
+- 市场状态插件消费者在存在有效插件 artifact 时，会透传插件 `localized_messages`、`log_record` 和 `notification`，供下游平台渲染。
