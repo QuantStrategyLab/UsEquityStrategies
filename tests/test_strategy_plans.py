@@ -661,7 +661,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_removed_value"], 100000.0 * 0.90)
         self.assertIn("Macro Risk Governor: applied", plan["dashboard"])
 
-    def test_tqqq_growth_income_market_regime_control_delever_redirects_tqqq_to_qqq(self):
+    def test_tqqq_growth_income_market_regime_control_delever_latest_policy_moves_risk_to_boxx(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
             build_rebalance_plan as build_tqqq_plan,
@@ -682,6 +682,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             metadata={
                 "market_regime_control": {
                     "plugin": "market_regime_control",
+                    "schema_version": "market_regime_control.v1",
                     "canonical_route": "risk_reduced",
                     "suggested_action": "delever",
                     "position_control": {
@@ -689,7 +690,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                         "suggested_action": "delever",
                         "route_source": "macro",
                         "leverage_scalar": 0.0,
-                        "risk_asset_scalar": 1.0,
+                        "risk_asset_scalar": 0.0,
                         "risk_budget_scalar": 1.0,
                         "taco_allowed": False,
                         "local_delever_veto_allowed": False,
@@ -720,12 +721,13 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
 
         self.assertTrue(plan["market_regime_control_found"])
+        self.assertEqual(plan["market_regime_control_schema_version"], "market_regime_control.v1")
         self.assertTrue(plan["market_regime_control_active"])
         self.assertEqual(plan["market_regime_control_route"], "risk_reduced")
         self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.90)
-        self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
+        self.assertAlmostEqual(plan["target_values"]["QQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
         self.assertIn("Market Regime Control: applied", plan["dashboard"])
 
     def test_tqqq_growth_income_market_regime_control_taco_allows_local_volatility_veto(self):
@@ -1175,6 +1177,139 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             plan["notification_context"]["signal"]["code"],
             "signal_blend_gate_overlay_capped",
         )
+
+    def test_soxl_soxx_trend_income_market_regime_control_delever_moves_risk_to_boxx(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 100000.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 100000.0,
+            "metadata": {
+                "market_regime_control": {
+                    "plugin": "market_regime_control",
+                    "schema_version": "market_regime_control.v1",
+                    "canonical_route": "risk_reduced",
+                    "suggested_action": "delever",
+                    "position_control": {
+                        "final_route": "risk_reduced",
+                        "suggested_action": "delever",
+                        "route_source": "macro",
+                        "leverage_scalar": 0.0,
+                        "risk_asset_scalar": 0.0,
+                        "risk_budget_scalar": 1.0,
+                        "reason_codes": ["macro:vix_crisis_level"],
+                    },
+                }
+            },
+        }
+
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0},
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+        )
+
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertEqual(plan["market_regime_control_schema_version"], "market_regime_control.v1")
+        self.assertEqual(plan["market_regime_control_route"], "risk_reduced")
+        self.assertTrue(plan["market_regime_control_applied"])
+        self.assertEqual(plan["active_risk_asset"], "BOXX")
+        self.assertEqual(plan["overlay_trigger_codes"], ("blend_gate_reason_market_regime_control_risk_reduced",))
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 0.0)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 0.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0)
+        self.assertAlmostEqual(plan["market_regime_control_removed_ratio"], 0.90)
+        self.assertAlmostEqual(plan["market_regime_control_redirected_to_unlevered_ratio"], 0.70)
+        self.assertEqual(
+            plan["notification_context"]["risk_controls"]["market_regime_control"]["route"],
+            "risk_reduced",
+        )
+
+    def test_soxl_soxx_trend_income_legacy_crisis_adapter_maps_to_market_regime_risk_off(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 100000.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 100000.0,
+            "metadata": {
+                "crisis_response_shadow": {
+                    "plugin": "crisis_response_shadow",
+                    "schema_version": "crisis_response_shadow.v1",
+                    "canonical_route": "true_crisis",
+                }
+            },
+        }
+
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0},
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+        )
+
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertEqual(plan["market_regime_control_source"], "crisis_response_shadow")
+        self.assertEqual(plan["market_regime_control_route"], "risk_off")
+        self.assertTrue(plan["market_regime_control_applied"])
+        self.assertEqual(plan["active_risk_asset"], "BOXX")
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 0.0)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 0.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0)
 
     def test_live_strategies_reject_retired_allocation_modes(self):
         _skip_if_missing_numeric_stack()

@@ -434,6 +434,7 @@ def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_sym
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": float(portfolio.total_equity),
+        "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
 
@@ -532,6 +533,22 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
         "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
         "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
+        "market_regime_control_found": plan.get("market_regime_control_found"),
+        "market_regime_control_source": plan.get("market_regime_control_source"),
+        "market_regime_control_schema_version": plan.get("market_regime_control_schema_version"),
+        "market_regime_control_route": plan.get("market_regime_control_route"),
+        "market_regime_control_route_source": plan.get("market_regime_control_route_source"),
+        "market_regime_control_active": plan.get("market_regime_control_active"),
+        "market_regime_control_applied": plan.get("market_regime_control_applied"),
+        "market_regime_control_risk_budget_scalar": plan.get("market_regime_control_risk_budget_scalar"),
+        "market_regime_control_leverage_scalar": plan.get("market_regime_control_leverage_scalar"),
+        "market_regime_control_risk_asset_scalar": plan.get("market_regime_control_risk_asset_scalar"),
+        "market_regime_control_crisis_defense_required": plan.get("market_regime_control_crisis_defense_required"),
+        "market_regime_control_reason_codes": plan.get("market_regime_control_reason_codes"),
+        "market_regime_control_removed_ratio": plan.get("market_regime_control_removed_ratio"),
+        "market_regime_control_redirected_to_unlevered_ratio": plan.get(
+            "market_regime_control_redirected_to_unlevered_ratio"
+        ),
         **account_size_diagnostics,
         "execution_annotations": {
             "trade_threshold_value": plan["threshold_value"],

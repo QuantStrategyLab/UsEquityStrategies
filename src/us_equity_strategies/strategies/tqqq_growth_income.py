@@ -235,6 +235,7 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
             macro_component = component_signals["macro"]
         return {
             "found": True,
+            "schema_version": str(payload.get("schema_version") or "").strip(),
             "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked,
             "route": route,
             "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
@@ -254,6 +255,7 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         }
     return {
         "found": False,
+        "schema_version": "",
         "active": False,
         "route": "",
         "route_source": "",
@@ -278,6 +280,7 @@ def _market_regime_control_as_macro_context(context: Mapping[str, object]) -> di
     macro_route = "crisis" if route == "risk_off" else "delever" if route == "risk_reduced" else route
     return {
         "found": bool(context.get("found")),
+        "schema_version": str(context.get("schema_version") or "").strip(),
         "active": bool(context.get("active")),
         "route": macro_route,
         "suggested_action": str(context.get("suggested_action") or "").strip().lower(),
@@ -620,6 +623,7 @@ def build_rebalance_plan(
         },
         "market_regime_control": {
             "found": bool(market_regime_control_context["found"]),
+            "schema_version": market_regime_control_context["schema_version"],
             "route": market_regime_control_context["route"],
             "route_source": market_regime_control_context["route_source"],
             "active": bool(market_regime_control_context["active"]),
@@ -763,6 +767,7 @@ def build_rebalance_plan(
         "dual_drive_macro_risk_governor_removed_value": macro_risk_governor_removed_value,
         "dual_drive_macro_risk_governor_redirected_to_unlevered": macro_risk_governor_redirected_to_unlevered,
         "market_regime_control_found": bool(market_regime_control_context["found"]),
+        "market_regime_control_schema_version": market_regime_control_context["schema_version"],
         "market_regime_control_route": market_regime_control_context["route"],
         "market_regime_control_route_source": market_regime_control_context["route_source"],
         "market_regime_control_active": bool(market_regime_control_context["active"]),
