@@ -294,7 +294,7 @@ def build_rebalance_plan(
     blend_gate_volatility_delever_threshold=0.55,
     blend_gate_volatility_delever_retention_ratio=0.0,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
-    market_regime_control_enabled=True,
+    market_regime_control_enabled=False,
     market_regime_control_apply_risk_reduced=False,
     market_regime_control_apply_risk_off=True,
 ):
@@ -319,7 +319,7 @@ def build_rebalance_plan(
     account_metadata = account_state.get("metadata", {}) if isinstance(account_state, Mapping) else {}
     if not isinstance(account_metadata, Mapping):
         account_metadata = {}
-    market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=True)
+    market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=False)
     market_regime_control_context = (
         _resolve_market_regime_control_context(account_metadata)
         if market_regime_control_enabled

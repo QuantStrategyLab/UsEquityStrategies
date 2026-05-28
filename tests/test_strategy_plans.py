@@ -1297,6 +1297,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             blend_gate_mid_soxl_weight=0.65,
             blend_gate_active_soxx_weight=0.20,
             blend_gate_defensive_soxx_weight=0.15,
+            market_regime_control_enabled=True,
             market_regime_control_apply_risk_reduced=True,
         )
 
@@ -1316,7 +1317,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "risk_reduced",
         )
 
-    def test_soxl_soxx_trend_income_default_risk_reduced_market_regime_is_notification_only(self):
+    def test_soxl_soxx_trend_income_default_does_not_consume_market_regime_control(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (
             SOXX_GATE_TIERED_BLEND_MODE,
@@ -1373,14 +1374,16 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             blend_gate_defensive_soxx_weight=0.15,
         )
 
-        self.assertTrue(plan["market_regime_control_found"])
-        self.assertEqual(plan["market_regime_control_route"], "risk_reduced")
+        self.assertFalse(plan["market_regime_control_enabled"])
+        self.assertFalse(plan["market_regime_control_found"])
+        self.assertEqual(plan["market_regime_control_route"], "")
         self.assertFalse(plan["market_regime_control_route_allowed"])
         self.assertFalse(plan["market_regime_control_applied"])
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
         self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
         self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
         self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+        self.assertFalse(plan["notification_context"]["risk_controls"]["market_regime_control"]["enabled"])
 
     def test_soxl_soxx_trend_income_can_disable_market_regime_control_position_effect(self):
         _skip_if_missing_numeric_stack()
@@ -1496,6 +1499,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             blend_gate_mid_soxl_weight=0.65,
             blend_gate_active_soxx_weight=0.20,
             blend_gate_defensive_soxx_weight=0.15,
+            market_regime_control_enabled=True,
         )
 
         self.assertTrue(plan["market_regime_control_found"])

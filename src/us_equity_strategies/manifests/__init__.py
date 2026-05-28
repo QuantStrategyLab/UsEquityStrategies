@@ -213,9 +213,6 @@ soxl_soxx_trend_income_manifest = _manifest(
         "blend_gate_volatility_delever_threshold": 0.55,
         "blend_gate_volatility_delever_retention_ratio": 0.0,
         "blend_gate_volatility_delever_redirect_symbol": "SOXX",
-        "market_regime_control_enabled": True,
-        "market_regime_control_apply_risk_reduced": False,
-        "market_regime_control_apply_risk_off": True,
     },
 )
 
