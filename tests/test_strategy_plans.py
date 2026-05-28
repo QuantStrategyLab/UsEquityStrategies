@@ -552,6 +552,241 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
         self.assertIn("Crisis Defense: applied", plan["dashboard"])
 
+    def test_tqqq_growth_income_macro_risk_governor_delever_redirects_tqqq_to_qqq(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
+                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
+            ],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={
+                "macro_risk_governor": {
+                    "plugin": "macro_risk_governor",
+                    "canonical_route": "delever",
+                    "suggested_action": "delever",
+                    "leverage_scalar": 0.0,
+                    "risk_asset_scalar": 1.0,
+                    "actionable_score": 5.0,
+                    "reason_codes": ["vix_crisis_level", "credit_pair_stress"],
+                }
+            },
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        self.assertTrue(plan["dual_drive_macro_risk_governor_found"])
+        self.assertTrue(plan["dual_drive_macro_risk_governor_active"])
+        self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
+        self.assertEqual(plan["dual_drive_macro_risk_governor_route"], "delever")
+        self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.90)
+        self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
+        self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_redirected_to_unlevered"], 100000.0 * 0.45)
+        self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_removed_value"], 0.0)
+        self.assertIn("Macro Risk Governor: applied", plan["dashboard"])
+
+    def test_tqqq_growth_income_macro_risk_governor_crisis_moves_risk_to_boxx(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
+                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
+            ],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={
+                "macro_risk_governor": {
+                    "plugin": "macro_risk_governor",
+                    "canonical_route": "crisis",
+                    "suggested_action": "defend",
+                    "leverage_scalar": 0.0,
+                    "risk_asset_scalar": 0.0,
+                    "actionable_score": 7.0,
+                }
+            },
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        self.assertTrue(plan["dual_drive_macro_risk_governor_active"])
+        self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
+        self.assertEqual(plan["dual_drive_macro_risk_governor_route"], "crisis")
+        self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
+        self.assertEqual(plan["target_values"]["QQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
+        self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_removed_value"], 100000.0 * 0.90)
+        self.assertIn("Macro Risk Governor: applied", plan["dashboard"])
+
+    def test_tqqq_growth_income_market_regime_control_delever_redirects_tqqq_to_qqq(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
+                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
+            ],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={
+                "market_regime_control": {
+                    "plugin": "market_regime_control",
+                    "canonical_route": "risk_reduced",
+                    "suggested_action": "delever",
+                    "position_control": {
+                        "final_route": "risk_reduced",
+                        "suggested_action": "delever",
+                        "route_source": "macro",
+                        "leverage_scalar": 0.0,
+                        "risk_asset_scalar": 1.0,
+                        "risk_budget_scalar": 1.0,
+                        "taco_allowed": False,
+                        "local_delever_veto_allowed": False,
+                        "reason_codes": ["macro:vix_crisis_level"],
+                    },
+                    "component_signals": {
+                        "macro": {
+                            "actionable_score": 5.0,
+                            "total_score": 5.0,
+                        }
+                    },
+                }
+            },
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertTrue(plan["market_regime_control_active"])
+        self.assertEqual(plan["market_regime_control_route"], "risk_reduced")
+        self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
+        self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.90)
+        self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
+        self.assertIn("Market Regime Control: applied", plan["dashboard"])
+
+    def test_tqqq_growth_income_market_regime_control_taco_allows_local_volatility_veto(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [{"close": 100.0, "high": 101.0, "low": 99.0} for _ in range(230)] + [
+            {"close": close, "high": close + 1.0, "low": close - 1.0}
+            for close in (104.0, 99.0, 106.0, 100.0, 108.0, 101.0, 110.0, 103.0, 112.0, 106.0, 115.0)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=100000.0, quantity=1000)],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={
+                "market_regime_control": {
+                    "plugin": "market_regime_control",
+                    "canonical_route": "opportunity_watch",
+                    "suggested_action": "notify_manual_review",
+                    "position_control": {
+                        "final_route": "opportunity_watch",
+                        "suggested_action": "notify_manual_review",
+                        "route_source": "taco",
+                        "leverage_scalar": 1.0,
+                        "risk_asset_scalar": 1.0,
+                        "risk_budget_scalar": 1.0,
+                        "taco_allowed": True,
+                        "local_delever_veto_allowed": True,
+                        "reason_codes": ["taco:taco_rebound"],
+                    },
+                }
+            },
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+            dual_drive_volatility_delever_enabled=True,
+            dual_drive_volatility_delever_window=5,
+            dual_drive_volatility_delever_threshold=0.10,
+        )
+
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertFalse(plan["market_regime_control_active"])
+        self.assertTrue(plan["market_regime_control_taco_allowed"])
+        self.assertTrue(plan["dual_drive_volatility_delever_triggered"])
+        self.assertFalse(plan["dual_drive_volatility_delever_applied"])
+        self.assertTrue(plan["dual_drive_volatility_delever_vetoed"])
+        self.assertEqual(plan["dual_drive_volatility_delever_veto_reason"], "taco_rebound_context")
+
     def test_soxl_soxx_trend_income_exposes_live_tiered_metadata(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (

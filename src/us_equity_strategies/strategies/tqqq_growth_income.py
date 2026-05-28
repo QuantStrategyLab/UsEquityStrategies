@@ -27,6 +27,10 @@ PULLBACK_REBOUND_THRESHOLD_MODES = {
 CORE_ASSETS = ("TQQQ", "BOXX")
 TACO_REBOUND_ROUTES = frozenset({"taco_rebound", "taco_fake_crisis"})
 TRUE_CRISIS_ROUTE = "true_crisis"
+MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
+MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
+MACRO_RISK_GOVERNOR_PROFILE = "macro_risk_governor"
+MACRO_RISK_GOVERNOR_ROUTES = frozenset({"delever", "crisis"})
 __all__ = [
     "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
     "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
@@ -137,6 +141,156 @@ def _is_true_crisis_active(metadata: Mapping) -> bool:
     return False
 
 
+def _clamped_ratio_or_default(value, *, default: float) -> float:
+    result = _as_float_or_none(value)
+    if result is None:
+        result = float(default)
+    return max(0.0, min(1.0, float(result)))
+
+
+def _resolve_macro_risk_governor_context(metadata: Mapping) -> dict[str, object]:
+    for payload in _iter_mapping_payloads(metadata):
+        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+        if plugin != MACRO_RISK_GOVERNOR_PROFILE:
+            continue
+        route = _route_from_payload(payload)
+        kill_switch_active = _as_bool(payload.get("kill_switch_active"), default=False)
+        active = route in MACRO_RISK_GOVERNOR_ROUTES and not kill_switch_active
+        reason_codes = payload.get("reason_codes")
+        if isinstance(reason_codes, str):
+            normalized_reasons = tuple(item.strip() for item in reason_codes.split(",") if item.strip())
+        elif isinstance(reason_codes, Sequence) and not isinstance(reason_codes, (bytes, bytearray)):
+            normalized_reasons = tuple(str(item).strip() for item in reason_codes if str(item).strip())
+        else:
+            normalized_reasons = ()
+        return {
+            "found": True,
+            "active": active,
+            "route": route,
+            "suggested_action": str(payload.get("suggested_action") or "").strip().lower(),
+            "leverage_scalar": _clamped_ratio_or_default(payload.get("leverage_scalar"), default=1.0),
+            "risk_asset_scalar": _clamped_ratio_or_default(payload.get("risk_asset_scalar"), default=1.0),
+            "actionable_score": _as_float_or_none(payload.get("actionable_score")),
+            "total_score": _as_float_or_none(payload.get("total_score")),
+            "reason_codes": normalized_reasons,
+            "kill_switch_active": kill_switch_active,
+            "source": MACRO_RISK_GOVERNOR_PROFILE,
+        }
+    return {
+        "found": False,
+        "active": False,
+        "route": "",
+        "suggested_action": "",
+        "leverage_scalar": 1.0,
+        "risk_asset_scalar": 1.0,
+        "actionable_score": None,
+        "total_score": None,
+        "reason_codes": (),
+        "kill_switch_active": False,
+        "source": MACRO_RISK_GOVERNOR_PROFILE,
+    }
+
+
+def _normalized_text_tuple(value) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
+
+
+def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, object]:
+    for payload in _iter_mapping_payloads(metadata):
+        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+        if plugin != MARKET_REGIME_CONTROL_PROFILE:
+            continue
+        position_control = payload.get("position_control")
+        if not isinstance(position_control, Mapping):
+            position_control = {}
+        arbiter = payload.get("arbiter")
+        if not isinstance(arbiter, Mapping):
+            arbiter = {}
+        route = str(
+            position_control.get("final_route")
+            or arbiter.get("final_route")
+            or payload.get("canonical_route")
+            or ""
+        ).strip().lower()
+        suggested_action = str(
+            position_control.get("suggested_action")
+            or arbiter.get("suggested_action")
+            or payload.get("suggested_action")
+            or ""
+        ).strip().lower()
+        blocked = suggested_action == "blocked"
+        reason_codes = (
+            _normalized_text_tuple(position_control.get("reason_codes"))
+            or _normalized_text_tuple(arbiter.get("reason_codes"))
+            or _normalized_text_tuple(payload.get("reason_codes"))
+        )
+        vetoes = _normalized_text_tuple(position_control.get("vetoes")) or _normalized_text_tuple(arbiter.get("vetoes"))
+        component_signals = payload.get("component_signals")
+        macro_component = {}
+        if isinstance(component_signals, Mapping) and isinstance(component_signals.get("macro"), Mapping):
+            macro_component = component_signals["macro"]
+        return {
+            "found": True,
+            "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked,
+            "route": route,
+            "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
+            "suggested_action": suggested_action,
+            "risk_budget_scalar": _clamped_ratio_or_default(position_control.get("risk_budget_scalar"), default=1.0),
+            "leverage_scalar": _clamped_ratio_or_default(position_control.get("leverage_scalar"), default=1.0),
+            "risk_asset_scalar": _clamped_ratio_or_default(position_control.get("risk_asset_scalar"), default=1.0),
+            "taco_allowed": _as_bool(position_control.get("taco_allowed"), default=False),
+            "local_delever_veto_allowed": _as_bool(position_control.get("local_delever_veto_allowed"), default=False),
+            "crisis_defense_required": _as_bool(position_control.get("crisis_defense_required"), default=False),
+            "blocked_actions": _normalized_text_tuple(position_control.get("blocked_actions")),
+            "vetoes": vetoes,
+            "actionable_score": _as_float_or_none(macro_component.get("actionable_score")),
+            "total_score": _as_float_or_none(macro_component.get("total_score")),
+            "reason_codes": reason_codes,
+            "blocked": blocked,
+        }
+    return {
+        "found": False,
+        "active": False,
+        "route": "",
+        "route_source": "",
+        "suggested_action": "",
+        "risk_budget_scalar": 1.0,
+        "leverage_scalar": 1.0,
+        "risk_asset_scalar": 1.0,
+        "taco_allowed": False,
+        "local_delever_veto_allowed": False,
+        "crisis_defense_required": False,
+        "blocked_actions": (),
+        "vetoes": (),
+        "actionable_score": None,
+        "total_score": None,
+        "reason_codes": (),
+        "blocked": False,
+    }
+
+
+def _market_regime_control_as_macro_context(context: Mapping[str, object]) -> dict[str, object]:
+    route = str(context.get("route") or "").strip().lower()
+    macro_route = "crisis" if route == "risk_off" else "delever" if route == "risk_reduced" else route
+    return {
+        "found": bool(context.get("found")),
+        "active": bool(context.get("active")),
+        "route": macro_route,
+        "suggested_action": str(context.get("suggested_action") or "").strip().lower(),
+        "leverage_scalar": _clamped_ratio_or_default(context.get("leverage_scalar"), default=1.0),
+        "risk_asset_scalar": _clamped_ratio_or_default(context.get("risk_asset_scalar"), default=1.0),
+        "actionable_score": context.get("actionable_score"),
+        "total_score": context.get("total_score"),
+        "reason_codes": _normalized_text_tuple(context.get("reason_codes")),
+        "kill_switch_active": bool(context.get("blocked")),
+        "source": MARKET_REGIME_CONTROL_PROFILE,
+    }
+
+
 def _resolve_realized_volatility(close: pd.Series, *, window: int) -> float | None:
     returns = pd.to_numeric(close, errors="coerce").pct_change(fill_method=None)
     volatility = returns.rolling(int(window), min_periods=int(window)).std().iloc[-1]
@@ -208,6 +362,7 @@ def build_rebalance_plan(
     dual_drive_volatility_delever_window=5,
     dual_drive_volatility_delever_threshold=0.28,
     dual_drive_volatility_delever_taco_veto_enabled=True,
+    dual_drive_macro_risk_governor_enabled=True,
     dual_drive_crisis_defense_enabled=True,
 ):
     df_qqq = normalize_history_frame(qqq_history, label="benchmark_history")
@@ -304,8 +459,23 @@ def build_rebalance_plan(
         else None
     )
     taco_veto_enabled = _as_bool(dual_drive_volatility_delever_taco_veto_enabled, default=True)
-    taco_rebound_context_active = _is_taco_rebound_context_active(snapshot_metadata)
-    true_crisis_active = _is_true_crisis_active(snapshot_metadata)
+    market_regime_control_context = _resolve_market_regime_control_context(snapshot_metadata)
+    if market_regime_control_context["found"]:
+        taco_rebound_context_active = bool(
+            market_regime_control_context["taco_allowed"]
+            and market_regime_control_context["local_delever_veto_allowed"]
+        )
+        true_crisis_active = bool(market_regime_control_context["crisis_defense_required"])
+    else:
+        taco_rebound_context_active = _is_taco_rebound_context_active(snapshot_metadata)
+        true_crisis_active = _is_true_crisis_active(snapshot_metadata)
+    macro_risk_governor_enabled = _as_bool(dual_drive_macro_risk_governor_enabled, default=True)
+    macro_risk_governor_context = (
+        _market_regime_control_as_macro_context(market_regime_control_context)
+        if market_regime_control_context["found"]
+        else _resolve_macro_risk_governor_context(snapshot_metadata)
+    )
+    macro_risk_governor_active = bool(macro_risk_governor_enabled and macro_risk_governor_context["active"])
     crisis_defense_enabled = _as_bool(dual_drive_crisis_defense_enabled, default=True)
     above_ma200 = qqq_p > ma200
     positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
@@ -345,6 +515,29 @@ def build_rebalance_plan(
         target_tqqq_val = 0.0
         target_boxx_val = max(0.0, strategy_equity - reserved)
         icon = "exit" if current_risk_active else "idle"
+    macro_risk_governor_applied = False
+    macro_risk_governor_removed_value = 0.0
+    macro_risk_governor_redirected_to_unlevered = 0.0
+    if macro_risk_governor_active:
+        before_macro_risk_value = float(target_tqqq_val + target_unlevered_val)
+        leverage_scalar = float(macro_risk_governor_context["leverage_scalar"])
+        risk_asset_scalar = float(macro_risk_governor_context["risk_asset_scalar"])
+        leverage_removed_value = max(0.0, target_tqqq_val * (1.0 - leverage_scalar))
+        target_tqqq_val *= leverage_scalar
+        if str(macro_risk_governor_context["route"]) == "delever":
+            target_unlevered_val += leverage_removed_value
+            macro_risk_governor_redirected_to_unlevered = leverage_removed_value
+        if risk_asset_scalar < 1.0:
+            target_tqqq_val *= risk_asset_scalar
+            target_unlevered_val *= risk_asset_scalar
+        after_macro_risk_value = float(target_tqqq_val + target_unlevered_val)
+        macro_risk_governor_removed_value = max(0.0, before_macro_risk_value - after_macro_risk_value)
+        target_boxx_val += macro_risk_governor_removed_value
+        macro_risk_governor_applied = (
+            leverage_removed_value > 1e-9 or before_macro_risk_value > after_macro_risk_value + 1e-9
+        )
+        if macro_risk_governor_applied:
+            icon = "macro_risk_defense" if str(macro_risk_governor_context["route"]) == "crisis" else "macro_delever"
     crisis_defense_applied = bool(crisis_defense_enabled and true_crisis_active)
     crisis_defense_removed_value = 0.0
     if crisis_defense_applied:
@@ -410,6 +603,37 @@ def build_rebalance_plan(
             "redirect_symbol": unlevered_symbol,
             "removed_value": volatility_delever_removed_value,
         },
+        "dual_drive_macro_risk_governor": {
+            "enabled": macro_risk_governor_enabled,
+            "found": bool(macro_risk_governor_context["found"]),
+            "route": macro_risk_governor_context["route"],
+            "suggested_action": macro_risk_governor_context["suggested_action"],
+            "active": macro_risk_governor_active,
+            "applied": macro_risk_governor_applied,
+            "leverage_scalar": macro_risk_governor_context["leverage_scalar"],
+            "risk_asset_scalar": macro_risk_governor_context["risk_asset_scalar"],
+            "actionable_score": macro_risk_governor_context["actionable_score"],
+            "total_score": macro_risk_governor_context["total_score"],
+            "reason_codes": macro_risk_governor_context["reason_codes"],
+            "removed_value": macro_risk_governor_removed_value,
+            "redirected_to_unlevered": macro_risk_governor_redirected_to_unlevered,
+        },
+        "market_regime_control": {
+            "found": bool(market_regime_control_context["found"]),
+            "route": market_regime_control_context["route"],
+            "route_source": market_regime_control_context["route_source"],
+            "active": bool(market_regime_control_context["active"]),
+            "suggested_action": market_regime_control_context["suggested_action"],
+            "risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
+            "leverage_scalar": market_regime_control_context["leverage_scalar"],
+            "risk_asset_scalar": market_regime_control_context["risk_asset_scalar"],
+            "taco_allowed": market_regime_control_context["taco_allowed"],
+            "local_delever_veto_allowed": market_regime_control_context["local_delever_veto_allowed"],
+            "crisis_defense_required": market_regime_control_context["crisis_defense_required"],
+            "blocked_actions": market_regime_control_context["blocked_actions"],
+            "vetoes": market_regime_control_context["vetoes"],
+            "reason_codes": market_regime_control_context["reason_codes"],
+        },
         "dual_drive_crisis_defense": {
             "enabled": crisis_defense_enabled,
             "triggered": true_crisis_active,
@@ -461,6 +685,16 @@ def build_rebalance_plan(
             f"\nVol Delever: {status} | QQQ {volatility_delever_window}d vol "
             f"{volatility_delever_metric * 100:.1f}% / {volatility_delever_threshold * 100:.1f}%"
         )
+    if macro_risk_governor_enabled and macro_risk_governor_context["found"]:
+        status = "applied" if macro_risk_governor_applied else "watch"
+        score = macro_risk_governor_context["actionable_score"]
+        score_text = "n/a" if score is None else f"{float(score):.1f}"
+        risk_control_label = (
+            "Market Regime Control"
+            if macro_risk_governor_context.get("source") == MARKET_REGIME_CONTROL_PROFILE
+            else "Macro Risk Governor"
+        )
+        dashboard += f"\n{risk_control_label}: {status} | route {macro_risk_governor_context['route'] or 'none'} | score {score_text}"
     if crisis_defense_enabled and true_crisis_active:
         status = "applied" if crisis_defense_applied else "watch"
         dashboard += f"\nCrisis Defense: {status} | destination BOXX"
@@ -519,6 +753,30 @@ def build_rebalance_plan(
         "dual_drive_volatility_delever_true_crisis_active": true_crisis_active,
         "dual_drive_volatility_delever_redirect_symbol": unlevered_symbol,
         "dual_drive_volatility_delever_removed_value": volatility_delever_removed_value,
+        "dual_drive_macro_risk_governor_enabled": macro_risk_governor_enabled,
+        "dual_drive_macro_risk_governor_found": bool(macro_risk_governor_context["found"]),
+        "dual_drive_macro_risk_governor_route": macro_risk_governor_context["route"],
+        "dual_drive_macro_risk_governor_active": macro_risk_governor_active,
+        "dual_drive_macro_risk_governor_applied": macro_risk_governor_applied,
+        "dual_drive_macro_risk_governor_leverage_scalar": macro_risk_governor_context["leverage_scalar"],
+        "dual_drive_macro_risk_governor_risk_asset_scalar": macro_risk_governor_context["risk_asset_scalar"],
+        "dual_drive_macro_risk_governor_removed_value": macro_risk_governor_removed_value,
+        "dual_drive_macro_risk_governor_redirected_to_unlevered": macro_risk_governor_redirected_to_unlevered,
+        "market_regime_control_found": bool(market_regime_control_context["found"]),
+        "market_regime_control_route": market_regime_control_context["route"],
+        "market_regime_control_route_source": market_regime_control_context["route_source"],
+        "market_regime_control_active": bool(market_regime_control_context["active"]),
+        "market_regime_control_risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
+        "market_regime_control_leverage_scalar": market_regime_control_context["leverage_scalar"],
+        "market_regime_control_risk_asset_scalar": market_regime_control_context["risk_asset_scalar"],
+        "market_regime_control_taco_allowed": market_regime_control_context["taco_allowed"],
+        "market_regime_control_local_delever_veto_allowed": market_regime_control_context[
+            "local_delever_veto_allowed"
+        ],
+        "market_regime_control_crisis_defense_required": market_regime_control_context["crisis_defense_required"],
+        "market_regime_control_blocked_actions": market_regime_control_context["blocked_actions"],
+        "market_regime_control_vetoes": market_regime_control_context["vetoes"],
+        "market_regime_control_reason_codes": market_regime_control_context["reason_codes"],
         "dual_drive_crisis_defense_enabled": crisis_defense_enabled,
         "dual_drive_crisis_defense_triggered": true_crisis_active,
         "dual_drive_crisis_defense_applied": crisis_defense_applied,

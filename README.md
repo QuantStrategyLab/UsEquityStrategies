@@ -268,6 +268,7 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
 - The fixed dual-drive configuration keeps a small cash buffer and uses BOXX for the remaining idle capital.
 - `BOXX` remains a managed symbol so old BOXX holdings can be traded down if present.
 - Downstream execution decides whether the gap to target is large enough to trade via a rebalance threshold.
+- If a mounted deterministic `macro_risk_governor` artifact is present in portfolio metadata, the TQQQ profile can apply its opt-in `leverage_scalar` / `risk_asset_scalar` controls. The default `delever` route redirects the TQQQ sleeve into the unlevered growth sleeve first, preserving risk exposure while reducing leverage; the `crisis` route can move the risk sleeve to BOXX.
 
 **Default runtime profile settings**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
@@ -611,6 +612,7 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 **防守行为（`BOXX` 与现金）**
 - fixed dual-drive 默认配置只保留一小部分现金，剩余闲置资金进入 BOXX。
 - `BOXX` 仍保留为管理资产，方便清理旧 BOXX 持仓。
+- 如果 portfolio metadata 挂载了确定性的 `macro_risk_governor` artifact，TQQQ profile 可以消费其中的 `leverage_scalar` / `risk_asset_scalar`。默认 `delever` 路线会先把 TQQQ 袖珍仓转到未加杠杆增长仓，尽量保留风险暴露但降低杠杆；`crisis` 路线可以把风险仓转入 BOXX。
 - 是否真的下单，由下游执行层再结合再平衡阈值判断。
 
 **默认运行 profile 配置值**
