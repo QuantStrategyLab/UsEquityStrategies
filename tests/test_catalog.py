@@ -244,6 +244,35 @@ class CatalogTest(unittest.TestCase):
             get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
         )
 
+    def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
+        self.assertIs(
+            get_strategy_definition(TQQQ_GROWTH_INCOME_PROFILE).default_config["market_regime_control_enabled"],
+            True,
+        )
+        soxl = get_strategy_definition(SOXL_SOXX_TREND_INCOME_PROFILE).default_config
+        self.assertIs(soxl["market_regime_control_enabled"], True)
+        self.assertIs(soxl["market_regime_control_apply_risk_reduced"], False)
+        self.assertIs(soxl["market_regime_control_apply_risk_off"], True)
+
+        weight_scaled_profiles = (
+            GLOBAL_ETF_ROTATION_PROFILE,
+            RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
+            QQQ_TECH_ENHANCEMENT_PROFILE,
+            MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+        )
+        for profile in weight_scaled_profiles:
+            config = get_strategy_definition(profile).default_config
+            self.assertIs(config["market_regime_control_enabled"], True)
+            self.assertIs(config["market_regime_control_apply_risk_reduced"], True)
+            self.assertIs(config["market_regime_control_apply_risk_off"], True)
+            self.assertEqual(config["market_regime_control_risk_reduced_scalar"], 0.50)
+            self.assertEqual(config["market_regime_control_risk_off_scalar"], 0.0)
+
+        self.assertNotIn(
+            "market_regime_control_enabled",
+            get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
+        )
+
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}

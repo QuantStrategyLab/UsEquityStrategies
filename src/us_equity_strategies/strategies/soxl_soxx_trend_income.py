@@ -294,6 +294,9 @@ def build_rebalance_plan(
     blend_gate_volatility_delever_threshold=0.55,
     blend_gate_volatility_delever_retention_ratio=0.0,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
+    market_regime_control_enabled=True,
+    market_regime_control_apply_risk_reduced=False,
+    market_regime_control_apply_risk_off=True,
 ):
     income_allocations = normalize_income_layer_allocations(
         income_layer_allocations,
@@ -316,9 +319,22 @@ def build_rebalance_plan(
     account_metadata = account_state.get("metadata", {}) if isinstance(account_state, Mapping) else {}
     if not isinstance(account_metadata, Mapping):
         account_metadata = {}
-    market_regime_control_context = _resolve_market_regime_control_context(account_metadata)
-    if not market_regime_control_context["found"]:
+    market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=True)
+    market_regime_control_context = (
+        _resolve_market_regime_control_context(account_metadata)
+        if market_regime_control_enabled
+        else _market_regime_context_not_found()
+    )
+    if market_regime_control_enabled and not market_regime_control_context["found"]:
         market_regime_control_context = _resolve_legacy_crisis_response_context(account_metadata)
+    market_regime_control_apply_risk_reduced = _as_bool(
+        market_regime_control_apply_risk_reduced,
+        default=False,
+    )
+    market_regime_control_apply_risk_off = _as_bool(
+        market_regime_control_apply_risk_off,
+        default=True,
+    )
     current_min_trade = max(min_trade_floor, total_strategy_equity * min_trade_ratio)
 
     income_layer_plan = build_income_layer_plan(
@@ -501,7 +517,11 @@ def build_rebalance_plan(
     market_regime_control_applied = False
     market_regime_control_removed_ratio = 0.0
     market_regime_control_redirected_to_unlevered_ratio = 0.0
-    if bool(market_regime_control_context["active"]):
+    market_regime_control_route = str(market_regime_control_context["route"])
+    market_regime_control_route_allowed = (
+        market_regime_control_route == "risk_reduced" and market_regime_control_apply_risk_reduced
+    ) or (market_regime_control_route == "risk_off" and market_regime_control_apply_risk_off)
+    if bool(market_regime_control_context["active"] and market_regime_control_route_allowed):
         before_market_regime_risk_ratio = selected_soxl_ratio + selected_soxx_ratio
         leverage_scalar = float(market_regime_control_context["leverage_scalar"])
         risk_asset_scalar = float(market_regime_control_context["risk_asset_scalar"])
@@ -525,10 +545,9 @@ def build_rebalance_plan(
             or before_market_regime_risk_ratio > after_market_regime_risk_ratio + 1e-9
         )
         if market_regime_control_applied:
-            route = str(market_regime_control_context["route"])
             reason_code = (
                 "blend_gate_reason_market_regime_control_risk_off"
-                if route == "risk_off"
+                if market_regime_control_route == "risk_off"
                 else "blend_gate_reason_market_regime_control_risk_reduced"
             )
             overlay_trigger_codes.append(reason_code)
@@ -536,7 +555,7 @@ def build_rebalance_plan(
                 _translate_with_fallback(
                     translator,
                     reason_code,
-                    "market regime risk-off" if route == "risk_off" else "market regime risk-reduced",
+                    "market regime risk-off" if market_regime_control_route == "risk_off" else "market regime risk-reduced",
                 )
             )
     overlay_trigger_count = len(overlay_trigger_reasons)
@@ -665,12 +684,14 @@ def build_rebalance_plan(
     }
     risk_control_context = {
         "market_regime_control": {
+            "enabled": market_regime_control_enabled,
             "found": bool(market_regime_control_context["found"]),
             "source": market_regime_control_context["source"],
             "schema_version": market_regime_control_context["schema_version"],
             "route": market_regime_control_context["route"],
             "route_source": market_regime_control_context["route_source"],
             "active": bool(market_regime_control_context["active"]),
+            "route_allowed": market_regime_control_route_allowed,
             "applied": market_regime_control_applied,
             "suggested_action": market_regime_control_context["suggested_action"],
             "risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
@@ -758,12 +779,14 @@ def build_rebalance_plan(
         "blend_gate_volatility_delever_retention_ratio": volatility_delever_retention_ratio,
         "blend_gate_volatility_delever_redirect_symbol": volatility_delever_redirect_symbol,
         "blend_gate_volatility_delever_removed_ratio": volatility_delever_removed_ratio,
+        "market_regime_control_enabled": market_regime_control_enabled,
         "market_regime_control_found": bool(market_regime_control_context["found"]),
         "market_regime_control_source": market_regime_control_context["source"],
         "market_regime_control_schema_version": market_regime_control_context["schema_version"],
         "market_regime_control_route": market_regime_control_context["route"],
         "market_regime_control_route_source": market_regime_control_context["route_source"],
         "market_regime_control_active": bool(market_regime_control_context["active"]),
+        "market_regime_control_route_allowed": market_regime_control_route_allowed,
         "market_regime_control_applied": market_regime_control_applied,
         "market_regime_control_risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
         "market_regime_control_leverage_scalar": market_regime_control_context["leverage_scalar"],

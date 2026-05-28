@@ -341,6 +341,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(config["dual_drive_volatility_delever_window"], 5)
         self.assertEqual(config["dual_drive_volatility_delever_threshold"], 0.28)
         self.assertIs(config["dual_drive_volatility_delever_taco_veto_enabled"], True)
+        self.assertIs(config["market_regime_control_enabled"], True)
         self.assertEqual(config["cash_reserve_ratio"], 0.02)
         self.assertEqual(config["income_threshold_usd"], 250000.0)
         self.assertIs(config["income_layer_enabled"], True)
@@ -657,6 +658,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(entrypoint.manifest.default_config["income_layer_ratio_mode"], "log_cap")
         self.assertEqual(entrypoint.manifest.default_config["income_layer_max_ratio"], 0.95)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_activation_band_ratio"], 0.20)
+        self.assertIs(entrypoint.manifest.default_config["market_regime_control_enabled"], True)
+        self.assertIs(entrypoint.manifest.default_config["market_regime_control_apply_risk_reduced"], False)
+        self.assertIs(entrypoint.manifest.default_config["market_regime_control_apply_risk_off"], True)
         self.assertEqual(
             entrypoint.manifest.default_config["income_layer_allocations"],
             {"SCHD": 0.25, "DGRO": 0.15, "SGOV": 0.55, "SPYI": 0.04, "QQQI": 0.01},

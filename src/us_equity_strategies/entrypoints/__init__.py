@@ -34,6 +34,7 @@ from us_equity_strategies.strategies import (
 
 from ._common import (
     apply_income_layer_to_weights,
+    apply_market_regime_control_to_weights,
     build_option_overlay_diagnostics,
     default_signal_text_fn,
     default_translator,
@@ -41,6 +42,7 @@ from ._common import (
     merge_runtime_config,
     pop_execution_only_config,
     pop_income_layer_config,
+    pop_market_regime_control_config,
     pop_option_overlay_config,
     require_market_data,
     require_portfolio,
@@ -127,6 +129,26 @@ def _attach_notification_context(
     return diagnostics
 
 
+def _merge_notification_contexts(
+    base: Mapping[str, object] | None,
+    overlay: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if not isinstance(overlay, Mapping) or not overlay:
+        return base
+    if not isinstance(base, Mapping) or not base:
+        return dict(overlay)
+    merged = dict(base)
+    overlay_risk_controls = overlay.get("risk_controls")
+    if isinstance(overlay_risk_controls, Mapping):
+        risk_controls = dict(merged.get("risk_controls") or {})
+        risk_controls.update(overlay_risk_controls)
+        merged["risk_controls"] = risk_controls
+    for key, value in overlay.items():
+        if key != "risk_controls":
+            merged.setdefault(key, value)
+    return merged
+
+
 def _attach_execution_timing(
     diagnostics: dict[str, object],
     ctx: StrategyContext,
@@ -211,6 +233,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
     config = merge_runtime_config(manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
     option_overlay_config = pop_option_overlay_config(config)
+    market_regime_control_config = pop_market_regime_control_config(config)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
@@ -233,11 +256,23 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         ctx=ctx,
         excluded_symbols=(config.get("safe_haven"),),
     )
+    weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
+        weights,
+        market_regime_control_config=market_regime_control_config,
+        ctx=ctx,
+        safe_haven=str(config.get("safe_haven", "BIL")),
+        excluded_symbols=(config.get("safe_haven"),),
+    )
+    notification_context = _merge_notification_contexts(
+        None,
+        market_regime_control_diagnostics.get("market_regime_control_notification_context"),
+    )
     diagnostics = {
         "signal_description": signal_desc,
         "canary_status": canary_str,
         "actionable": weights is not None,
         **income_layer_diagnostics,
+        **market_regime_control_diagnostics,
         **build_option_overlay_diagnostics(option_overlay_config, ctx),
     }
     diagnostics.update(_account_size_diagnostics(manifest.profile, ctx))
@@ -259,6 +294,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
             signal_text=diagnostics["signal_description"],
         ),
     )
+    _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
     risk_flags = ("emergency",) if is_emergency else ()
     return StrategyDecision(
@@ -358,6 +394,19 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "dual_drive_volatility_delever_redirect_symbol"
         ),
         "dual_drive_volatility_delever_removed_value": plan.get("dual_drive_volatility_delever_removed_value"),
+        "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
+        "market_regime_control_found": plan.get("market_regime_control_found"),
+        "market_regime_control_schema_version": plan.get("market_regime_control_schema_version"),
+        "market_regime_control_route": plan.get("market_regime_control_route"),
+        "market_regime_control_route_source": plan.get("market_regime_control_route_source"),
+        "market_regime_control_active": plan.get("market_regime_control_active"),
+        "market_regime_control_risk_budget_scalar": plan.get("market_regime_control_risk_budget_scalar"),
+        "market_regime_control_leverage_scalar": plan.get("market_regime_control_leverage_scalar"),
+        "market_regime_control_risk_asset_scalar": plan.get("market_regime_control_risk_asset_scalar"),
+        "market_regime_control_crisis_defense_required": plan.get(
+            "market_regime_control_crisis_defense_required"
+        ),
+        "market_regime_control_reason_codes": plan.get("market_regime_control_reason_codes"),
         "dual_drive_crisis_defense_enabled": plan.get("dual_drive_crisis_defense_enabled"),
         "dual_drive_crisis_defense_triggered": plan.get("dual_drive_crisis_defense_triggered"),
         "dual_drive_crisis_defense_applied": plan.get("dual_drive_crisis_defense_applied"),
@@ -385,6 +434,10 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "dual_drive_volatility_delever_veto_reason": plan.get(
                 "dual_drive_volatility_delever_veto_reason"
             ),
+            "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
+            "market_regime_control_found": plan.get("market_regime_control_found"),
+            "market_regime_control_route": plan.get("market_regime_control_route"),
+            "market_regime_control_active": plan.get("market_regime_control_active"),
             "dual_drive_crisis_defense_enabled": plan.get("dual_drive_crisis_defense_enabled"),
             "dual_drive_crisis_defense_triggered": plan.get("dual_drive_crisis_defense_triggered"),
             "dual_drive_crisis_defense_applied": plan.get("dual_drive_crisis_defense_applied"),
@@ -533,12 +586,14 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
         "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
         "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
+        "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
         "market_regime_control_found": plan.get("market_regime_control_found"),
         "market_regime_control_source": plan.get("market_regime_control_source"),
         "market_regime_control_schema_version": plan.get("market_regime_control_schema_version"),
         "market_regime_control_route": plan.get("market_regime_control_route"),
         "market_regime_control_route_source": plan.get("market_regime_control_route_source"),
         "market_regime_control_active": plan.get("market_regime_control_active"),
+        "market_regime_control_route_allowed": plan.get("market_regime_control_route_allowed"),
         "market_regime_control_applied": plan.get("market_regime_control_applied"),
         "market_regime_control_risk_budget_scalar": plan.get("market_regime_control_risk_budget_scalar"),
         "market_regime_control_leverage_scalar": plan.get("market_regime_control_leverage_scalar"),
@@ -594,6 +649,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
             "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
             "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
+            "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
         },
     }
     _attach_notification_context(diagnostics, notification_context)
@@ -615,6 +671,7 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
     config = merge_runtime_config(russell_1000_multi_factor_defensive_manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
     option_overlay_config = pop_option_overlay_config(config)
+    market_regime_control_config = pop_market_regime_control_config(config)
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
     config.pop("run_as_of", None)
@@ -632,15 +689,27 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
         ctx=ctx,
         excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
     )
+    weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
+        weights,
+        market_regime_control_config=market_regime_control_config,
+        ctx=ctx,
+        safe_haven=str(config.get("safe_haven", "BOXX")),
+        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
+    )
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
         metadata,
         translator=translator,
     )
+    notification_context = _merge_notification_contexts(
+        notification_context,
+        market_regime_control_diagnostics.get("market_regime_control_notification_context"),
+    )
     diagnostics = {
         **metadata,
         **income_layer_diagnostics,
+        **market_regime_control_diagnostics,
         **build_option_overlay_diagnostics(option_overlay_config, ctx),
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
@@ -686,6 +755,7 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
     option_overlay_config = pop_option_overlay_config(config)
+    market_regime_control_config = pop_market_regime_control_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
@@ -704,11 +774,22 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
         ctx=ctx,
         excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
     )
+    weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
+        weights,
+        market_regime_control_config=market_regime_control_config,
+        ctx=ctx,
+        safe_haven=str(config.get("safe_haven", "BOXX")),
+        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
+    )
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
         metadata,
         translator=translator,
+    )
+    notification_context = _merge_notification_contexts(
+        notification_context,
+        market_regime_control_diagnostics.get("market_regime_control_notification_context"),
     )
     option_overlay_diagnostics = build_option_overlay_diagnostics(
         option_overlay_config,
@@ -718,6 +799,7 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     diagnostics = {
         **metadata,
         **income_layer_diagnostics,
+        **market_regime_control_diagnostics,
         **option_overlay_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
@@ -772,6 +854,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     config = merge_runtime_config(manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
     option_overlay_config = pop_option_overlay_config(config)
+    market_regime_control_config = pop_market_regime_control_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
@@ -796,11 +879,26 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
             config.get("broad_benchmark_symbol"),
         ),
     )
+    weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
+        weights,
+        market_regime_control_config=market_regime_control_config,
+        ctx=ctx,
+        safe_haven=str(config.get("safe_haven", "BOXX")),
+        excluded_symbols=(
+            config.get("safe_haven"),
+            config.get("benchmark_symbol"),
+            config.get("broad_benchmark_symbol"),
+        ),
+    )
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
         metadata,
         translator=translator,
+    )
+    notification_context = _merge_notification_contexts(
+        notification_context,
+        market_regime_control_diagnostics.get("market_regime_control_notification_context"),
     )
     option_overlay_diagnostics = build_option_overlay_diagnostics(
         option_overlay_config,
@@ -810,6 +908,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     diagnostics = {
         **metadata,
         **income_layer_diagnostics,
+        **market_regime_control_diagnostics,
         **option_overlay_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,

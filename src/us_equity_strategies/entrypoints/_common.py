@@ -31,6 +31,14 @@ EXECUTION_ONLY_CONFIG_KEYS = {
     "execution_cash_reserve_ratio",
     "execution_rebalance_threshold_ratio",
 }
+MARKET_REGIME_CONTROL_CONFIG_KEYS = {
+    "market_regime_control_enabled",
+    "market_regime_control_apply_risk_reduced",
+    "market_regime_control_apply_risk_off",
+    "market_regime_control_risk_reduced_scalar",
+    "market_regime_control_risk_off_scalar",
+    "market_regime_control_safe_haven",
+}
 OPTION_OVERLAY_CONFIG_KEYS = {
     "option_growth_overlay_enabled",
     "option_growth_overlay_recipe",
@@ -41,6 +49,8 @@ OPTION_OVERLAY_CONFIG_KEYS = {
     "option_income_overlay_start_usd",
     "option_income_overlay_nav_risk_ratio",
 }
+MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
+MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
 OPTION_OVERLAY_RECIPE_DETAILS = {
     "tqqq_leaps_growth_v1": {
         "structure": "long_call_leaps",
@@ -105,6 +115,10 @@ def pop_execution_only_config(config: dict[str, object]) -> None:
         config.pop(key, None)
 
 
+def pop_market_regime_control_config(config: dict[str, object]) -> dict[str, object]:
+    return {key: config.pop(key) for key in MARKET_REGIME_CONTROL_CONFIG_KEYS if key in config}
+
+
 def _as_bool(value: object, *, default: bool = False) -> bool:
     if value is None:
         return default
@@ -128,6 +142,117 @@ def _as_float(value: object, *, default: float = 0.0) -> float:
 
 def _clamped_ratio(value: object, *, default: float, upper: float) -> float:
     return max(0.0, min(float(upper), _as_float(value, default=default)))
+
+
+def _iter_mapping_payloads(value: object, *, _depth: int = 0):
+    if _depth > 4:
+        return
+    if isinstance(value, Mapping):
+        yield value
+        for item in value.values():
+            yield from _iter_mapping_payloads(item, _depth=_depth + 1)
+    elif isinstance(value, (str, bytes, bytearray)):
+        return
+    else:
+        try:
+            iterator = iter(value)  # type: ignore[arg-type]
+        except TypeError:
+            return
+        for item in iterator:
+            yield from _iter_mapping_payloads(item, _depth=_depth + 1)
+
+
+def _normalized_text_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, (bytes, bytearray)):
+        return ()
+    try:
+        return tuple(str(item).strip() for item in value if str(item).strip())  # type: ignore[union-attr]
+    except TypeError:
+        return ()
+
+
+def _market_regime_control_not_found() -> dict[str, object]:
+    return {
+        "found": False,
+        "schema_version": "",
+        "active": False,
+        "route": "",
+        "route_source": "",
+        "suggested_action": "",
+        "risk_budget_scalar": 1.0,
+        "leverage_scalar": 1.0,
+        "risk_asset_scalar": 1.0,
+        "crisis_defense_required": False,
+        "blocked_actions": (),
+        "vetoes": (),
+        "reason_codes": (),
+        "blocked": False,
+    }
+
+
+def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, object]:
+    for source in sources:
+        for payload in _iter_mapping_payloads(source):
+            plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+            if plugin != MARKET_REGIME_CONTROL_PROFILE:
+                continue
+            position_control = payload.get("position_control")
+            if not isinstance(position_control, Mapping):
+                position_control = {}
+            arbiter = payload.get("arbiter")
+            if not isinstance(arbiter, Mapping):
+                arbiter = {}
+            route = str(
+                position_control.get("final_route")
+                or arbiter.get("final_route")
+                or payload.get("canonical_route")
+                or ""
+            ).strip().lower()
+            suggested_action = str(
+                position_control.get("suggested_action")
+                or arbiter.get("suggested_action")
+                or payload.get("suggested_action")
+                or ""
+            ).strip().lower()
+            blocked = suggested_action == "blocked"
+            return {
+                "found": True,
+                "schema_version": str(payload.get("schema_version") or "").strip(),
+                "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked,
+                "route": route,
+                "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
+                "suggested_action": suggested_action,
+                "risk_budget_scalar": _clamped_ratio(position_control.get("risk_budget_scalar"), default=1.0, upper=1.0),
+                "leverage_scalar": _clamped_ratio(position_control.get("leverage_scalar"), default=1.0, upper=1.0),
+                "risk_asset_scalar": _clamped_ratio(position_control.get("risk_asset_scalar"), default=1.0, upper=1.0),
+                "crisis_defense_required": _as_bool(position_control.get("crisis_defense_required"), default=False),
+                "blocked_actions": _normalized_text_tuple(position_control.get("blocked_actions")),
+                "vetoes": _normalized_text_tuple(position_control.get("vetoes"))
+                or _normalized_text_tuple(arbiter.get("vetoes")),
+                "reason_codes": (
+                    _normalized_text_tuple(position_control.get("reason_codes"))
+                    or _normalized_text_tuple(arbiter.get("reason_codes"))
+                    or _normalized_text_tuple(payload.get("reason_codes"))
+                ),
+                "blocked": blocked,
+            }
+    return _market_regime_control_not_found()
+
+
+def resolve_market_regime_control_context(ctx: StrategyContext) -> dict[str, object]:
+    portfolio_metadata = {}
+    if ctx.portfolio is not None:
+        raw_metadata = getattr(ctx.portfolio, "metadata", {}) or {}
+        if isinstance(raw_metadata, Mapping):
+            portfolio_metadata = raw_metadata
+    return _resolve_market_regime_control_from_payloads(
+        ctx.artifacts.get(MARKET_REGIME_CONTROL_PROFILE),
+        ctx.market_data.get(MARKET_REGIME_CONTROL_PROFILE),
+        ctx.runtime_config.get(MARKET_REGIME_CONTROL_PROFILE),
+        portfolio_metadata,
+    )
 
 
 def _effective_option_recipe_detail(
@@ -754,6 +879,102 @@ def apply_income_layer_to_weights(
         "income_layer_value": plan.locked_value,
         "income_layer_core_scale": core_scale,
         **plan.diagnostics,
+    }
+    return target_weights, diagnostics
+
+
+def apply_market_regime_control_to_weights(
+    weights,
+    *,
+    market_regime_control_config: Mapping[str, object],
+    ctx: StrategyContext,
+    safe_haven: str | None,
+    excluded_symbols=(),
+) -> tuple[dict[str, float] | None, dict[str, object]]:
+    if not weights:
+        return weights, {}
+
+    enabled = _as_bool(market_regime_control_config.get("market_regime_control_enabled"), default=False)
+    context = resolve_market_regime_control_context(ctx) if enabled else _market_regime_control_not_found()
+    route = str(context.get("route") or "").strip().lower()
+    apply_risk_reduced = _as_bool(
+        market_regime_control_config.get("market_regime_control_apply_risk_reduced"),
+        default=True,
+    )
+    apply_risk_off = _as_bool(
+        market_regime_control_config.get("market_regime_control_apply_risk_off"),
+        default=True,
+    )
+    route_allowed = (route == "risk_reduced" and apply_risk_reduced) or (route == "risk_off" and apply_risk_off)
+    active = bool(enabled and context.get("active") and route_allowed)
+    safe_haven_symbol = str(market_regime_control_config.get("market_regime_control_safe_haven") or safe_haven or "").strip().upper()
+    if route == "risk_off":
+        scalar = _clamped_ratio(
+            market_regime_control_config.get("market_regime_control_risk_off_scalar"),
+            default=float(context.get("risk_budget_scalar") or 0.0),
+            upper=1.0,
+        )
+    elif route == "risk_reduced":
+        scalar = _clamped_ratio(
+            market_regime_control_config.get("market_regime_control_risk_reduced_scalar"),
+            default=float(context.get("risk_budget_scalar") or 1.0),
+            upper=1.0,
+        )
+    else:
+        scalar = 1.0
+
+    target_weights = {str(symbol).strip().upper(): float(weight) for symbol, weight in dict(weights).items()}
+    excluded = {str(symbol or "").strip().upper() for symbol in (*tuple(excluded_symbols or ()), *INCOME_SYMBOLS)}
+    if safe_haven_symbol:
+        excluded.add(safe_haven_symbol)
+    risk_symbols = tuple(symbol for symbol, weight in target_weights.items() if symbol not in excluded and weight > 0.0)
+    removed_weight = 0.0
+    if active and risk_symbols:
+        for symbol in risk_symbols:
+            before = target_weights[symbol]
+            after = before * scalar
+            target_weights[symbol] = after
+            removed_weight += max(0.0, before - after)
+        if safe_haven_symbol and removed_weight > 1e-12:
+            target_weights[safe_haven_symbol] = target_weights.get(safe_haven_symbol, 0.0) + removed_weight
+
+    applied = bool(active and removed_weight > 1e-12)
+    diagnostics = {
+        "market_regime_control_enabled": enabled,
+        "market_regime_control_found": bool(context.get("found")),
+        "market_regime_control_schema_version": context.get("schema_version"),
+        "market_regime_control_route": route,
+        "market_regime_control_route_source": context.get("route_source"),
+        "market_regime_control_active": bool(context.get("active")),
+        "market_regime_control_applied": applied,
+        "market_regime_control_route_allowed": route_allowed,
+        "market_regime_control_risk_scalar": scalar,
+        "market_regime_control_removed_weight": removed_weight,
+        "market_regime_control_safe_haven": safe_haven_symbol,
+        "market_regime_control_risk_symbols": risk_symbols,
+        "market_regime_control_risk_budget_scalar": context.get("risk_budget_scalar"),
+        "market_regime_control_leverage_scalar": context.get("leverage_scalar"),
+        "market_regime_control_risk_asset_scalar": context.get("risk_asset_scalar"),
+        "market_regime_control_crisis_defense_required": context.get("crisis_defense_required"),
+        "market_regime_control_reason_codes": context.get("reason_codes"),
+        "market_regime_control_notification_context": {
+            "risk_controls": {
+                "market_regime_control": {
+                    "enabled": enabled,
+                    "found": bool(context.get("found")),
+                    "schema_version": context.get("schema_version"),
+                    "route": route,
+                    "route_source": context.get("route_source"),
+                    "active": bool(context.get("active")),
+                    "applied": applied,
+                    "route_allowed": route_allowed,
+                    "risk_scalar": scalar,
+                    "removed_weight": removed_weight,
+                    "safe_haven": safe_haven_symbol,
+                    "reason_codes": context.get("reason_codes"),
+                }
+            }
+        },
     }
     return target_weights, diagnostics
 

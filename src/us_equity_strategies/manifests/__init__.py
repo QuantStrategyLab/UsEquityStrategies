@@ -92,6 +92,11 @@ global_etf_rotation_manifest = _manifest(
             "SGOV": 0.30,
             "SPYI": 0.05,
         },
+        "market_regime_control_enabled": True,
+        "market_regime_control_apply_risk_reduced": True,
+        "market_regime_control_apply_risk_off": True,
+        "market_regime_control_risk_reduced_scalar": 0.50,
+        "market_regime_control_risk_off_scalar": 0.0,
     },
 )
 
@@ -148,6 +153,7 @@ tqqq_growth_income_manifest = _manifest(
         "dual_drive_volatility_delever_threshold": 0.28,
         "dual_drive_volatility_delever_taco_veto_enabled": True,
         "dual_drive_crisis_defense_enabled": True,
+        "market_regime_control_enabled": True,
     },
 )
 
@@ -207,6 +213,9 @@ soxl_soxx_trend_income_manifest = _manifest(
         "blend_gate_volatility_delever_threshold": 0.55,
         "blend_gate_volatility_delever_retention_ratio": 0.0,
         "blend_gate_volatility_delever_redirect_symbol": "SOXX",
+        "market_regime_control_enabled": True,
+        "market_regime_control_apply_risk_reduced": False,
+        "market_regime_control_apply_risk_off": True,
     },
 )
 
@@ -242,6 +251,11 @@ russell_1000_multi_factor_defensive_manifest = _manifest(
             "DGRO": 0.30,
             "SGOV": 0.25,
         },
+        "market_regime_control_enabled": True,
+        "market_regime_control_apply_risk_reduced": True,
+        "market_regime_control_apply_risk_off": True,
+        "market_regime_control_risk_reduced_scalar": 0.50,
+        "market_regime_control_risk_off_scalar": 0.0,
     },
 )
 
@@ -294,6 +308,11 @@ qqq_tech_enhancement_manifest = _manifest(
         "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 1000000.0,
         "option_growth_overlay_nav_budget_ratio": 0.03,
+        "market_regime_control_enabled": True,
+        "market_regime_control_apply_risk_reduced": True,
+        "market_regime_control_apply_risk_off": True,
+        "market_regime_control_risk_reduced_scalar": 0.50,
+        "market_regime_control_risk_off_scalar": 0.0,
     },
 )
 
@@ -345,6 +364,11 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
         "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 1000000.0,
         "option_growth_overlay_nav_budget_ratio": 0.03,
+        "market_regime_control_enabled": True,
+        "market_regime_control_apply_risk_reduced": True,
+        "market_regime_control_apply_risk_off": True,
+        "market_regime_control_risk_reduced_scalar": 0.50,
+        "market_regime_control_risk_off_scalar": 0.0,
     },
 )
 

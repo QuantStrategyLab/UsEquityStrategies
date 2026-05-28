@@ -367,6 +367,7 @@ def build_rebalance_plan(
     dual_drive_volatility_delever_taco_veto_enabled=True,
     dual_drive_macro_risk_governor_enabled=True,
     dual_drive_crisis_defense_enabled=True,
+    market_regime_control_enabled=True,
 ):
     df_qqq = normalize_history_frame(qqq_history, label="benchmark_history")
     qqq_p = df_qqq["close"].iloc[-1]
@@ -462,7 +463,12 @@ def build_rebalance_plan(
         else None
     )
     taco_veto_enabled = _as_bool(dual_drive_volatility_delever_taco_veto_enabled, default=True)
-    market_regime_control_context = _resolve_market_regime_control_context(snapshot_metadata)
+    market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=True)
+    market_regime_control_context = (
+        _resolve_market_regime_control_context(snapshot_metadata)
+        if market_regime_control_enabled
+        else _resolve_market_regime_control_context({})
+    )
     if market_regime_control_context["found"]:
         taco_rebound_context_active = bool(
             market_regime_control_context["taco_allowed"]
@@ -622,6 +628,7 @@ def build_rebalance_plan(
             "redirected_to_unlevered": macro_risk_governor_redirected_to_unlevered,
         },
         "market_regime_control": {
+            "enabled": market_regime_control_enabled,
             "found": bool(market_regime_control_context["found"]),
             "schema_version": market_regime_control_context["schema_version"],
             "route": market_regime_control_context["route"],
@@ -766,6 +773,7 @@ def build_rebalance_plan(
         "dual_drive_macro_risk_governor_risk_asset_scalar": macro_risk_governor_context["risk_asset_scalar"],
         "dual_drive_macro_risk_governor_removed_value": macro_risk_governor_removed_value,
         "dual_drive_macro_risk_governor_redirected_to_unlevered": macro_risk_governor_redirected_to_unlevered,
+        "market_regime_control_enabled": market_regime_control_enabled,
         "market_regime_control_found": bool(market_regime_control_context["found"]),
         "market_regime_control_schema_version": market_regime_control_context["schema_version"],
         "market_regime_control_route": market_regime_control_context["route"],
