@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 import numpy as np
 import pandas as pd
 
@@ -23,6 +25,8 @@ PULLBACK_REBOUND_THRESHOLD_MODES = {
     PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED,
 }
 CORE_ASSETS = ("TQQQ", "BOXX")
+TACO_REBOUND_ROUTES = frozenset({"taco_rebound", "taco_fake_crisis"})
+TRUE_CRISIS_ROUTE = "true_crisis"
 __all__ = [
     "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
     "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
@@ -50,6 +54,95 @@ def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) ->
 def _translate_with_fallback(translator, key: str, fallback: str, **kwargs) -> str:
     rendered = translator(key, **kwargs)
     return fallback if rendered == key else rendered
+
+
+def _as_bool(value, *, default: bool = False) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", ""}:
+        return False
+    return bool(default)
+
+
+def _as_positive_int(value, *, default: int) -> int:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        result = int(default)
+    return max(1, result)
+
+
+def _as_float_or_none(value) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(result):
+        return None
+    return result
+
+
+def _iter_mapping_payloads(value, *, _depth: int = 0):
+    if _depth > 4:
+        return
+    if isinstance(value, Mapping):
+        yield value
+        for item in value.values():
+            yield from _iter_mapping_payloads(item, _depth=_depth + 1)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            yield from _iter_mapping_payloads(item, _depth=_depth + 1)
+
+
+def _route_from_payload(payload: Mapping) -> str:
+    return str(payload.get("canonical_route") or payload.get("route") or "").strip().lower()
+
+
+def _is_taco_rebound_context_active(metadata: Mapping) -> bool:
+    if _as_bool(metadata.get("taco_rebound_context_active"), default=False):
+        return True
+    if _as_bool(metadata.get("taco_fake_crisis_active"), default=False):
+        return True
+    for payload in _iter_mapping_payloads(metadata):
+        route = _route_from_payload(payload)
+        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+        rebound_context_active = _as_bool(payload.get("rebound_context_active"), default=False)
+        if route in TACO_REBOUND_ROUTES and (
+            rebound_context_active
+            or route == "taco_fake_crisis"
+            or _as_bool(payload.get("event_context_active"), default=False)
+        ):
+            return True
+        if rebound_context_active and "taco" in plugin:
+            return True
+    return False
+
+
+def _is_true_crisis_active(metadata: Mapping) -> bool:
+    for key in ("true_crisis_active", "crisis_response_true_crisis_active"):
+        if _as_bool(metadata.get(key), default=False):
+            return True
+    for payload in _iter_mapping_payloads(metadata):
+        if _route_from_payload(payload) == TRUE_CRISIS_ROUTE:
+            return True
+        if _as_bool(payload.get("true_crisis_active"), default=False):
+            return True
+    return False
+
+
+def _resolve_realized_volatility(close: pd.Series, *, window: int) -> float | None:
+    returns = pd.to_numeric(close, errors="coerce").pct_change(fill_method=None)
+    volatility = returns.rolling(int(window), min_periods=int(window)).std().iloc[-1]
+    if pd.isna(volatility):
+        return None
+    return float(volatility * np.sqrt(252))
 
 
 def _resolve_pullback_rebound_threshold(
@@ -111,6 +204,11 @@ def build_rebalance_plan(
     dual_drive_pullback_rebound_threshold_mode=PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED,
     dual_drive_pullback_rebound_threshold=0.0,
     dual_drive_pullback_rebound_volatility_multiplier=2.0,
+    dual_drive_volatility_delever_enabled=True,
+    dual_drive_volatility_delever_window=5,
+    dual_drive_volatility_delever_threshold=0.28,
+    dual_drive_volatility_delever_taco_veto_enabled=True,
+    dual_drive_crisis_defense_enabled=True,
 ):
     df_qqq = normalize_history_frame(qqq_history, label="benchmark_history")
     qqq_p = df_qqq["close"].iloc[-1]
@@ -151,6 +249,9 @@ def build_rebalance_plan(
 
     total_equity = snapshot.total_equity
     real_buying_power = float(snapshot.buying_power or 0.0)
+    snapshot_metadata = getattr(snapshot, "metadata", {}) or {}
+    if not isinstance(snapshot_metadata, Mapping):
+        snapshot_metadata = {}
 
     layer_start = income_threshold_usd if income_layer_start_usd is None else income_layer_start_usd
     layer_max_ratio = 0.60 if income_layer_max_ratio is None else income_layer_max_ratio
@@ -192,6 +293,20 @@ def build_rebalance_plan(
         pullback_rebound_threshold <= 0.0
         or (pd.notna(pullback_rebound) and pullback_rebound > pullback_rebound_threshold)
     )
+    volatility_delever_enabled = _as_bool(dual_drive_volatility_delever_enabled, default=True)
+    volatility_delever_window = _as_positive_int(dual_drive_volatility_delever_window, default=5)
+    volatility_delever_threshold = _as_float_or_none(dual_drive_volatility_delever_threshold)
+    if volatility_delever_threshold is None:
+        volatility_delever_threshold = 0.28
+    volatility_delever_metric = (
+        _resolve_realized_volatility(df_qqq["close"], window=volatility_delever_window)
+        if volatility_delever_enabled
+        else None
+    )
+    taco_veto_enabled = _as_bool(dual_drive_volatility_delever_taco_veto_enabled, default=True)
+    taco_rebound_context_active = _is_taco_rebound_context_active(snapshot_metadata)
+    true_crisis_active = _is_true_crisis_active(snapshot_metadata)
+    crisis_defense_enabled = _as_bool(dual_drive_crisis_defense_enabled, default=True)
     above_ma200 = qqq_p > ma200
     positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
     slope_ok = positive_ma20_slope if bool(dual_drive_require_ma20_slope) else True
@@ -230,6 +345,35 @@ def build_rebalance_plan(
         target_tqqq_val = 0.0
         target_boxx_val = max(0.0, strategy_equity - reserved)
         icon = "exit" if current_risk_active else "idle"
+    crisis_defense_applied = bool(crisis_defense_enabled and true_crisis_active)
+    crisis_defense_removed_value = 0.0
+    if crisis_defense_applied:
+        crisis_defense_removed_value = float(target_tqqq_val + target_unlevered_val)
+        target_tqqq_val = 0.0
+        target_unlevered_val = 0.0
+        target_boxx_val = max(0.0, strategy_equity - reserved)
+        icon = "crisis_defense"
+    volatility_delever_triggered = (
+        volatility_delever_enabled
+        and target_tqqq_val > 0.0
+        and volatility_delever_metric is not None
+        and volatility_delever_metric >= volatility_delever_threshold
+    )
+    volatility_delever_vetoed = bool(
+        volatility_delever_triggered
+        and taco_veto_enabled
+        and taco_rebound_context_active
+        and not true_crisis_active
+    )
+    volatility_delever_applied = bool(volatility_delever_triggered and not volatility_delever_vetoed)
+    volatility_delever_removed_value = 0.0
+    volatility_delever_veto_reason = None
+    if volatility_delever_vetoed:
+        volatility_delever_veto_reason = "taco_rebound_context"
+    if volatility_delever_applied:
+        volatility_delever_removed_value = float(target_tqqq_val)
+        target_unlevered_val += volatility_delever_removed_value
+        target_tqqq_val = 0.0
     threshold = total_equity * rebalance_threshold_ratio
 
     ma20_slope_text = "n/a" if pd.isna(ma20_slope) else f"{ma20_slope:+.2f}"
@@ -251,6 +395,29 @@ def build_rebalance_plan(
     signal_context = {
         "state": icon,
     }
+    risk_control_context = {
+        "dual_drive_volatility_delever": {
+            "enabled": volatility_delever_enabled,
+            "window": volatility_delever_window,
+            "threshold": float(volatility_delever_threshold),
+            "metric": volatility_delever_metric,
+            "triggered": volatility_delever_triggered,
+            "applied": volatility_delever_applied,
+            "vetoed": volatility_delever_vetoed,
+            "veto_reason": volatility_delever_veto_reason,
+            "taco_rebound_context_active": taco_rebound_context_active,
+            "true_crisis_active": true_crisis_active,
+            "redirect_symbol": unlevered_symbol,
+            "removed_value": volatility_delever_removed_value,
+        },
+        "dual_drive_crisis_defense": {
+            "enabled": crisis_defense_enabled,
+            "triggered": true_crisis_active,
+            "applied": crisis_defense_applied,
+            "destination": "BOXX",
+            "removed_value": crisis_defense_removed_value,
+        },
+    }
     portfolio_context = {
         "total_equity": float(total_equity),
         "raw_buying_power": float(real_buying_power),
@@ -270,6 +437,7 @@ def build_rebalance_plan(
         "signal": signal_context,
         "benchmark": benchmark_context,
         "portfolio": portfolio_context,
+        "risk_controls": risk_control_context,
     }
 
     sig_display = signal_text_fn(icon)
@@ -287,10 +455,18 @@ def build_rebalance_plan(
         f"{translator('signal_label')}: {sig_display}\n"
         f"{benchmark_line}"
     )
+    if volatility_delever_enabled and volatility_delever_metric is not None:
+        status = "applied" if volatility_delever_applied else "vetoed" if volatility_delever_vetoed else "watch"
+        dashboard += (
+            f"\nVol Delever: {status} | QQQ {volatility_delever_window}d vol "
+            f"{volatility_delever_metric * 100:.1f}% / {volatility_delever_threshold * 100:.1f}%"
+        )
+    if crisis_defense_enabled and true_crisis_active:
+        status = "applied" if crisis_defense_applied else "watch"
+        dashboard += f"\nCrisis Defense: {status} | destination BOXX"
     sell_order_symbols = ("TQQQ", unlevered_symbol, *income_symbols, "BOXX")
     buy_order_symbols = (*income_symbols, "TQQQ", unlevered_symbol)
-    snapshot_metadata = getattr(snapshot, "metadata", {}) or {}
-    account_hash = snapshot_metadata.get("account_hash") if isinstance(snapshot_metadata, dict) else None
+    account_hash = snapshot_metadata.get("account_hash") if isinstance(snapshot_metadata, Mapping) else None
 
     return {
         "strategy_symbols": strategy_symbols,
@@ -330,6 +506,24 @@ def build_rebalance_plan(
         "pullback_rebound_threshold_mode": pullback_rebound_threshold_mode,
         "pullback_rebound_volatility": pullback_rebound_volatility,
         "pullback_rebound_volatility_multiplier": float(dual_drive_pullback_rebound_volatility_multiplier or 0.0),
+        "dual_drive_volatility_delever_enabled": volatility_delever_enabled,
+        "dual_drive_volatility_delever_window": volatility_delever_window,
+        "dual_drive_volatility_delever_threshold": float(volatility_delever_threshold),
+        "dual_drive_volatility_delever_metric": volatility_delever_metric,
+        "dual_drive_volatility_delever_triggered": volatility_delever_triggered,
+        "dual_drive_volatility_delever_applied": volatility_delever_applied,
+        "dual_drive_volatility_delever_vetoed": volatility_delever_vetoed,
+        "dual_drive_volatility_delever_veto_reason": volatility_delever_veto_reason,
+        "dual_drive_volatility_delever_taco_veto_enabled": taco_veto_enabled,
+        "dual_drive_volatility_delever_taco_rebound_context_active": taco_rebound_context_active,
+        "dual_drive_volatility_delever_true_crisis_active": true_crisis_active,
+        "dual_drive_volatility_delever_redirect_symbol": unlevered_symbol,
+        "dual_drive_volatility_delever_removed_value": volatility_delever_removed_value,
+        "dual_drive_crisis_defense_enabled": crisis_defense_enabled,
+        "dual_drive_crisis_defense_triggered": true_crisis_active,
+        "dual_drive_crisis_defense_applied": crisis_defense_applied,
+        "dual_drive_crisis_defense_destination": "BOXX",
+        "dual_drive_crisis_defense_removed_value": crisis_defense_removed_value,
         "allocation_mode": allocation_mode,
         "separator": separator,
     }

@@ -8,6 +8,7 @@ from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
 from us_equity_strategies.catalog import get_runtime_enabled_profiles
+from us_equity_strategies.entrypoints._common import OPTION_OVERLAY_CONFIG_KEYS, build_option_overlay_diagnostics
 from us_equity_strategies.runtime_adapters import describe_platform_runtime_requirements
 from us_equity_strategies.strategies.global_etf_rotation import compute_signals as legacy_global_compute_signals
 from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
@@ -22,6 +23,95 @@ from tests.test_mega_cap_leader_rotation import _mega_snapshot
 
 
 class StrategyEntrypointTests(unittest.TestCase):
+    def test_option_overlay_diagnostics_respect_start_threshold(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+            total_equity=300000.0,
+            positions=(),
+        )
+
+        diagnostics = build_option_overlay_diagnostics(
+            {
+                "option_growth_overlay_enabled": True,
+                "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+                "option_growth_overlay_start_usd": 250000.0,
+            },
+            StrategyContext(
+                as_of="2026-04-06",
+                portfolio=snapshot,
+                market_data={
+                    "option_chains": {
+                        "TQQQ": {
+                            "contracts": (
+                                {
+                                    "right": "C",
+                                    "expiration": "2028-01-21",
+                                    "strike": 70.0,
+                                    "delta": 0.74,
+                                    "bid": 29.0,
+                                    "ask": 31.0,
+                                },
+                            ),
+                        },
+                    },
+                },
+            ),
+        )
+
+        self.assertIs(diagnostics["option_growth_overlay_active"], True)
+        self.assertNotIn("option_growth_overlay_skip_reason", diagnostics)
+        self.assertEqual(
+            diagnostics["option_growth_overlay_recipe_detail"]["premium_budget_ratio"],
+            0.03,
+        )
+        option_intents = diagnostics["option_order_intents"]["intents"]
+        self.assertEqual(len(option_intents), 1)
+        self.assertEqual(option_intents[0]["action"], "buy_to_open")
+        self.assertEqual(option_intents[0]["underlier"], "TQQQ")
+        self.assertEqual(option_intents[0]["quantity"], 2)
+
+    def test_option_overlay_nav_budget_ratio_is_the_only_exposed_growth_knob(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+            total_equity=300000.0,
+            positions=(),
+        )
+
+        diagnostics = build_option_overlay_diagnostics(
+            {
+                "option_growth_overlay_enabled": True,
+                "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+                "option_growth_overlay_start_usd": 250000.0,
+                "option_growth_overlay_nav_budget_ratio": 0.06,
+            },
+            StrategyContext(
+                as_of="2026-04-06",
+                portfolio=snapshot,
+                market_data={
+                    "option_chains": {
+                        "TQQQ": {
+                            "contracts": (
+                                {
+                                    "right": "C",
+                                    "expiration": "2028-01-21",
+                                    "strike": 70.0,
+                                    "delta": 0.74,
+                                    "bid": 29.0,
+                                    "ask": 31.0,
+                                },
+                            ),
+                        },
+                    },
+                },
+            ),
+        )
+
+        self.assertEqual(
+            diagnostics["option_growth_overlay_recipe_detail"]["premium_budget_ratio"],
+            0.06,
+        )
+        self.assertEqual(diagnostics["option_order_intents"]["intents"][0]["quantity"], 5)
+
     def test_all_live_profiles_expose_unified_entrypoints(self) -> None:
         for profile in get_runtime_enabled_profiles():
             entrypoint = get_strategy_entrypoint(profile)
@@ -150,7 +240,12 @@ class StrategyEntrypointTests(unittest.TestCase):
             **{
                 key: value
                 for key, value in entrypoint.manifest.default_config.items()
-                if key not in {"benchmark_symbol", "managed_symbols", "execution_cash_reserve_ratio"}
+                if key not in {
+                    "benchmark_symbol",
+                    "managed_symbols",
+                    "execution_cash_reserve_ratio",
+                    *OPTION_OVERLAY_CONFIG_KEYS,
+                }
             },
         )
 
@@ -184,6 +279,11 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("sell_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["threshold"], legacy_plan["threshold"])
+        self.assertIs(decision.diagnostics["option_growth_overlay_enabled"], True)
+        self.assertEqual(decision.diagnostics["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
+        self.assertEqual(decision.diagnostics["option_growth_overlay_start_usd"], 250000.0)
+        self.assertIs(decision.diagnostics["option_growth_overlay_active"], False)
+        self.assertEqual(decision.diagnostics["option_growth_overlay_skip_reason"], "below_start_usd")
         self.assertEqual(decision.diagnostics["notification_context"]["benchmark"]["symbol"], "QQQ")
         self.assertEqual(
             decision.diagnostics["execution_annotations"]["notification_context"]["signal"]["state"],
@@ -237,6 +337,10 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(config["dual_drive_pullback_rebound_threshold_mode"], "volatility_scaled")
         self.assertEqual(config["dual_drive_pullback_rebound_threshold"], 0.0)
         self.assertEqual(config["dual_drive_pullback_rebound_volatility_multiplier"], 2.0)
+        self.assertIs(config["dual_drive_volatility_delever_enabled"], True)
+        self.assertEqual(config["dual_drive_volatility_delever_window"], 5)
+        self.assertEqual(config["dual_drive_volatility_delever_threshold"], 0.28)
+        self.assertIs(config["dual_drive_volatility_delever_taco_veto_enabled"], True)
         self.assertEqual(config["cash_reserve_ratio"], 0.02)
         self.assertEqual(config["income_threshold_usd"], 250000.0)
         self.assertIs(config["income_layer_enabled"], True)
@@ -254,6 +358,10 @@ class StrategyEntrypointTests(unittest.TestCase):
             {"SCHD": 0.30, "DGRO": 0.20, "SGOV": 0.40, "SPYI": 0.08, "QQQI": 0.02},
         )
         self.assertEqual(config["execution_cash_reserve_ratio"], 0.0)
+        self.assertIs(config["option_growth_overlay_enabled"], True)
+        self.assertEqual(config["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
+        self.assertEqual(config["option_growth_overlay_start_usd"], 250000.0)
+        self.assertEqual(config["option_growth_overlay_nav_budget_ratio"], 0.03)
         self.assertIn("QQQ", config["managed_symbols"])
 
     def test_weight_mode_profiles_default_to_income_layer_config(self) -> None:
@@ -446,7 +554,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             **{
                 key: value
                 for key, value in entrypoint.manifest.default_config.items()
-                if key != "managed_symbols"
+                if key != "managed_symbols" and key not in OPTION_OVERLAY_CONFIG_KEYS
             },
         )
 
@@ -493,6 +601,15 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("limit_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["active_risk_asset"], legacy_plan["active_risk_asset"])
+        self.assertIs(decision.diagnostics["option_income_overlay_enabled"], True)
+        self.assertEqual(decision.diagnostics["option_income_overlay_recipe"], "soxx_put_credit_spread_income_v1")
+        self.assertEqual(decision.diagnostics["option_income_overlay_start_usd"], 1000000.0)
+        self.assertEqual(
+            decision.diagnostics["option_income_overlay_recipe_detail"]["max_loss_budget_ratio"],
+            0.01,
+        )
+        self.assertIs(decision.diagnostics["option_income_overlay_active"], False)
+        self.assertEqual(decision.diagnostics["option_income_overlay_skip_reason"], "below_start_usd")
         self.assertEqual(
             decision.diagnostics["notification_context"]["status"]["code"],
             legacy_plan["notification_context"]["status"]["code"],
