@@ -128,6 +128,10 @@ tqqq_growth_income_manifest = _manifest(
             "SPYI": 0.08,
             "QQQI": 0.02,
         },
+        "option_growth_overlay_enabled": True,
+        "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+        "option_growth_overlay_start_usd": 250000.0,
+        "option_growth_overlay_nav_budget_ratio": 0.03,
         "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
         "dual_drive_qqq_weight": 0.45,
         "dual_drive_tqqq_weight": 0.45,
@@ -139,6 +143,11 @@ tqqq_growth_income_manifest = _manifest(
         "dual_drive_pullback_rebound_threshold_mode": "volatility_scaled",
         "dual_drive_pullback_rebound_threshold": 0.0,
         "dual_drive_pullback_rebound_volatility_multiplier": 2.0,
+        "dual_drive_volatility_delever_enabled": True,
+        "dual_drive_volatility_delever_window": 5,
+        "dual_drive_volatility_delever_threshold": 0.28,
+        "dual_drive_volatility_delever_taco_veto_enabled": True,
+        "dual_drive_crisis_defense_enabled": True,
     },
 )
 
@@ -174,6 +183,10 @@ soxl_soxx_trend_income_manifest = _manifest(
             "SPYI": 0.04,
             "QQQI": 0.01,
         },
+        "option_income_overlay_enabled": True,
+        "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
+        "option_income_overlay_start_usd": 1000000.0,
+        "option_income_overlay_nav_risk_ratio": 0.01,
         "trend_entry_buffer": 0.08,
         "trend_mid_buffer": 0.06,
         "trend_exit_buffer": 0.02,
@@ -277,6 +290,10 @@ qqq_tech_enhancement_manifest = _manifest(
             "SPYI": 0.10,
             "QQQI": 0.05,
         },
+        "option_growth_overlay_enabled": True,
+        "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
+        "option_growth_overlay_start_usd": 1000000.0,
+        "option_growth_overlay_nav_budget_ratio": 0.03,
     },
 )
 
@@ -324,6 +341,10 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
             "SGOV": 0.20,
             "SPYI": 0.05,
         },
+        "option_growth_overlay_enabled": True,
+        "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
+        "option_growth_overlay_start_usd": 1000000.0,
+        "option_growth_overlay_nav_budget_ratio": 0.03,
     },
 )
 

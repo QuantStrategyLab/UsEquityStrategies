@@ -34,12 +34,14 @@ from us_equity_strategies.strategies import (
 
 from ._common import (
     apply_income_layer_to_weights,
+    build_option_overlay_diagnostics,
     default_signal_text_fn,
     default_translator,
     get_current_holdings,
     merge_runtime_config,
     pop_execution_only_config,
     pop_income_layer_config,
+    pop_option_overlay_config,
     require_market_data,
     require_portfolio,
     target_values_to_positions,
@@ -208,6 +210,7 @@ def _build_tqqq_benchmark_text(notification_context: Mapping[str, object] | None
 def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifest) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
+    option_overlay_config = pop_option_overlay_config(config)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
@@ -235,6 +238,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         "canary_status": canary_str,
         "actionable": weights is not None,
         **income_layer_diagnostics,
+        **build_option_overlay_diagnostics(option_overlay_config, ctx),
     }
     diagnostics.update(_account_size_diagnostics(manifest.profile, ctx))
     diagnostics["signal_description"] = append_account_size_warning(
@@ -276,6 +280,7 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 
 def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
+    option_overlay_config = pop_option_overlay_config(config)
     managed_symbols = _config_managed_symbols(config)
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
@@ -313,6 +318,11 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         benchmark_text=benchmark_text,
         portfolio_context=notification_context.get("portfolio"),
     )
+    option_overlay_diagnostics = build_option_overlay_diagnostics(
+        option_overlay_config,
+        ctx,
+        base_diagnostics={"notification_context": notification_context},
+    )
     diagnostics = {
         "signal_display": signal_display,
         "dashboard": dashboard_text or plan["dashboard"],
@@ -327,9 +337,36 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         "pullback_rebound_threshold_mode": plan.get("pullback_rebound_threshold_mode"),
         "pullback_rebound_volatility": plan.get("pullback_rebound_volatility"),
         "pullback_rebound_volatility_multiplier": plan.get("pullback_rebound_volatility_multiplier"),
+        "dual_drive_volatility_delever_enabled": plan.get("dual_drive_volatility_delever_enabled"),
+        "dual_drive_volatility_delever_window": plan.get("dual_drive_volatility_delever_window"),
+        "dual_drive_volatility_delever_threshold": plan.get("dual_drive_volatility_delever_threshold"),
+        "dual_drive_volatility_delever_metric": plan.get("dual_drive_volatility_delever_metric"),
+        "dual_drive_volatility_delever_triggered": plan.get("dual_drive_volatility_delever_triggered"),
+        "dual_drive_volatility_delever_applied": plan.get("dual_drive_volatility_delever_applied"),
+        "dual_drive_volatility_delever_vetoed": plan.get("dual_drive_volatility_delever_vetoed"),
+        "dual_drive_volatility_delever_veto_reason": plan.get("dual_drive_volatility_delever_veto_reason"),
+        "dual_drive_volatility_delever_taco_veto_enabled": plan.get(
+            "dual_drive_volatility_delever_taco_veto_enabled"
+        ),
+        "dual_drive_volatility_delever_taco_rebound_context_active": plan.get(
+            "dual_drive_volatility_delever_taco_rebound_context_active"
+        ),
+        "dual_drive_volatility_delever_true_crisis_active": plan.get(
+            "dual_drive_volatility_delever_true_crisis_active"
+        ),
+        "dual_drive_volatility_delever_redirect_symbol": plan.get(
+            "dual_drive_volatility_delever_redirect_symbol"
+        ),
+        "dual_drive_volatility_delever_removed_value": plan.get("dual_drive_volatility_delever_removed_value"),
+        "dual_drive_crisis_defense_enabled": plan.get("dual_drive_crisis_defense_enabled"),
+        "dual_drive_crisis_defense_triggered": plan.get("dual_drive_crisis_defense_triggered"),
+        "dual_drive_crisis_defense_applied": plan.get("dual_drive_crisis_defense_applied"),
+        "dual_drive_crisis_defense_destination": plan.get("dual_drive_crisis_defense_destination"),
+        "dual_drive_crisis_defense_removed_value": plan.get("dual_drive_crisis_defense_removed_value"),
         "real_buying_power": plan["real_buying_power"],
         "total_equity": plan["total_equity"],
         **account_size_diagnostics,
+        **option_overlay_diagnostics,
         "execution_annotations": {
             "trade_threshold_value": plan["threshold"],
             "raw_buying_power": plan["real_buying_power"],
@@ -341,6 +378,17 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "benchmark_price": plan["qqq_p"],
             "long_trend_value": plan["ma200"],
             "exit_line": plan["exit_line"],
+            "dual_drive_volatility_delever_enabled": plan.get("dual_drive_volatility_delever_enabled"),
+            "dual_drive_volatility_delever_triggered": plan.get("dual_drive_volatility_delever_triggered"),
+            "dual_drive_volatility_delever_applied": plan.get("dual_drive_volatility_delever_applied"),
+            "dual_drive_volatility_delever_vetoed": plan.get("dual_drive_volatility_delever_vetoed"),
+            "dual_drive_volatility_delever_veto_reason": plan.get(
+                "dual_drive_volatility_delever_veto_reason"
+            ),
+            "dual_drive_crisis_defense_enabled": plan.get("dual_drive_crisis_defense_enabled"),
+            "dual_drive_crisis_defense_triggered": plan.get("dual_drive_crisis_defense_triggered"),
+            "dual_drive_crisis_defense_applied": plan.get("dual_drive_crisis_defense_applied"),
+            "dual_drive_crisis_defense_destination": plan.get("dual_drive_crisis_defense_destination"),
         },
     }
     _attach_notification_context(diagnostics, notification_context)
@@ -391,6 +439,7 @@ def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_sym
 
 def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
+    option_overlay_config = pop_option_overlay_config(config)
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
     config.pop("signal_effective_after_trading_days", None)
@@ -430,6 +479,15 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         signal_text=signal_message,
         portfolio_context=notification_context.get("portfolio"),
     )
+    option_overlay_diagnostics = build_option_overlay_diagnostics(
+        option_overlay_config,
+        ctx,
+        base_diagnostics={
+            "blend_tier": plan.get("blend_tier"),
+            "active_risk_asset": plan["active_risk_asset"],
+            "notification_context": notification_context,
+        },
+    )
     diagnostics = {
         "market_status": rendered_market_status,
         "signal_message": signal_message,
@@ -442,6 +500,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "threshold_value": plan["threshold_value"],
         "current_min_trade": plan["current_min_trade"],
         "total_strategy_equity": plan["total_strategy_equity"],
+        **option_overlay_diagnostics,
         "allocation_mode": plan.get("allocation_mode"),
         "trend_entry_buffer": plan.get("trend_entry_buffer"),
         "trend_mid_buffer": plan.get("trend_mid_buffer"),
@@ -538,6 +597,7 @@ soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
 def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(russell_1000_multi_factor_defensive_manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
+    option_overlay_config = pop_option_overlay_config(config)
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
     config.pop("run_as_of", None)
@@ -564,6 +624,7 @@ def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> Strate
     diagnostics = {
         **metadata,
         **income_layer_diagnostics,
+        **build_option_overlay_diagnostics(option_overlay_config, ctx),
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
         "signal_source": legacy_russell.SIGNAL_SOURCE,
@@ -607,6 +668,7 @@ legacy_russell.compute_signals.__doc__ = (
 def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
+    option_overlay_config = pop_option_overlay_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
@@ -631,9 +693,15 @@ def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
         metadata,
         translator=translator,
     )
+    option_overlay_diagnostics = build_option_overlay_diagnostics(
+        option_overlay_config,
+        ctx,
+        base_diagnostics=metadata,
+    )
     diagnostics = {
         **metadata,
         **income_layer_diagnostics,
+        **option_overlay_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
         "signal_source": qqq_tech_enhancement_strategy.SIGNAL_SOURCE,
@@ -686,6 +754,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
 ) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
+    option_overlay_config = pop_option_overlay_config(config)
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
@@ -716,9 +785,15 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         metadata,
         translator=translator,
     )
+    option_overlay_diagnostics = build_option_overlay_diagnostics(
+        option_overlay_config,
+        ctx,
+        base_diagnostics=metadata,
+    )
     diagnostics = {
         **metadata,
         **income_layer_diagnostics,
+        **option_overlay_diagnostics,
         "signal_description": rendered_signal_desc,
         "status_description": rendered_status_desc,
         "signal_source": mega_cap_leader_rotation_strategy.SIGNAL_SOURCE,
@@ -773,6 +848,7 @@ mega_cap_leader_rotation_strategy.compute_signals.__doc__ = (
 
 def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(nasdaq_sp500_smart_dca_manifest.default_config, ctx)
+    option_overlay_config = pop_option_overlay_config(config)
     translator = config.pop("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     config.pop("pacing_sec", None)
@@ -823,6 +899,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
             "signal_display": plan["signal_description"],
             "status_display": plan["status_description"],
         },
+        **build_option_overlay_diagnostics(option_overlay_config, ctx),
     }
     diagnostics.update(_account_size_diagnostics(nasdaq_sp500_smart_dca_manifest.profile, ctx))
     diagnostics["signal_description"] = append_account_size_warning(

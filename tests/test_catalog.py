@@ -214,6 +214,36 @@ class CatalogTest(unittest.TestCase):
             FULL_SHARED_PLATFORM_MATRIX,
         )
 
+    def test_option_overlay_defaults_are_scoped_to_supported_profiles(self):
+        tqqq = get_strategy_definition(TQQQ_GROWTH_INCOME_PROFILE).default_config
+        self.assertIs(tqqq["option_growth_overlay_enabled"], True)
+        self.assertEqual(tqqq["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
+        self.assertEqual(tqqq["option_growth_overlay_start_usd"], 250000.0)
+        self.assertEqual(tqqq["option_growth_overlay_nav_budget_ratio"], 0.03)
+
+        soxl = get_strategy_definition(SOXL_SOXX_TREND_INCOME_PROFILE).default_config
+        self.assertIs(soxl["option_income_overlay_enabled"], True)
+        self.assertEqual(soxl["option_income_overlay_recipe"], "soxx_put_credit_spread_income_v1")
+        self.assertEqual(soxl["option_income_overlay_start_usd"], 1000000.0)
+        self.assertEqual(soxl["option_income_overlay_nav_risk_ratio"], 0.01)
+
+        tech = get_strategy_definition(QQQ_TECH_ENHANCEMENT_PROFILE).default_config
+        mega = get_strategy_definition(MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE).default_config
+        for config in (tech, mega):
+            self.assertIs(config["option_growth_overlay_enabled"], True)
+            self.assertEqual(config["option_growth_overlay_recipe"], "qqq_leaps_growth_v1")
+            self.assertEqual(config["option_growth_overlay_start_usd"], 1000000.0)
+            self.assertEqual(config["option_growth_overlay_nav_budget_ratio"], 0.03)
+
+        self.assertNotIn(
+            "option_growth_overlay_enabled",
+            get_strategy_definition(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE).default_config,
+        )
+        self.assertNotIn(
+            "option_growth_overlay_enabled",
+            get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
+        )
+
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}
