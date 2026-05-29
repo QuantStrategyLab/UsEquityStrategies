@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . numpy pandas pandas_market_calendars pytz ruff
+          python -m pip install -e . numpy pandas pandas_market_calendars pytz pytest ruff
           python -m pip install --no-deps -e external/QuantPlatformKit
 
       - name: Run Ruff
@@ -57,4 +57,4 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests -v
+          PYTHONPATH=src python -m pytest -q tests
