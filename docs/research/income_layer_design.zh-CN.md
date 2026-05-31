@@ -1,5 +1,15 @@
 # 收入层设计研究结论
 
+
+## English summary
+
+- Full English version: [`income_layer_design.md`](income_layer_design.md). This summary keeps an English entry point in the Chinese file.
+- Purpose: this document covers `收入层设计研究结论` for `UsEquityStrategies`.
+- Main topics: `结论`, `设计规则`, `杠杆策略实盘候选复核`, `核心默认参数复核`, `杠杆策略代表性扫参归档`.
+- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
+- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
+- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+
 _更新日期：2026-05-26_
 
 ## 结论
