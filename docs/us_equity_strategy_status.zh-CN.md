@@ -1,5 +1,14 @@
 # 美股策略状态与研究手册
 
+
+## English summary
+
+- Purpose: this document covers `美股策略状态与研究手册` for `UsEquityStrategies`.
+- Main topics: `当前可配置 profiles`, `已移除的重复/较弱研究 profile 暴露`, `收入层默认启用口径`, `已归档回测摘要`, `研究中但未进入运行 profile 的方向`.
+- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
+- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
+- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+
 _更新日期：2026-05-26_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
