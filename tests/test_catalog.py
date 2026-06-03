@@ -194,7 +194,7 @@ class CatalogTest(unittest.TestCase):
             compatibility[TQQQ_GROWTH_INCOME_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
-        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "runtime_enabled")
+        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "research_only")
         self.assertEqual(
             metadata_map[GLOBAL_ETF_ROTATION_PROFILE].status,
             "runtime_enabled",
@@ -307,7 +307,6 @@ class CatalogTest(unittest.TestCase):
                     TQQQ_GROWTH_INCOME_PROFILE,
                     SOXL_SOXX_TREND_INCOME_PROFILE,
                     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-                    QQQ_TECH_ENHANCEMENT_PROFILE,
                     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
                     NASDAQ_SP500_SMART_DCA_PROFILE,
                 }
