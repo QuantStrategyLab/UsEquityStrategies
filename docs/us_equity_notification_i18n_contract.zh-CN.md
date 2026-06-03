@@ -102,10 +102,12 @@ notification_context = {
   "execution_annotations": {},
   "income_layer": {
     "applied": true,
-    "ratio": 0.361,
-    "mode": "log_cap",
-    "start_usd": 250000.0,
-    "max_ratio": 0.95
+    "ratio": 0.270,
+    "mode": "log_total_drawdown_budget",
+    "start_usd": 150000.0,
+    "max_ratio": 0.95,
+    "account_drawdown_budget_ratio": 0.35,
+    "account_stress_drawdown_ratio": 0.35
   }
 }
 ```

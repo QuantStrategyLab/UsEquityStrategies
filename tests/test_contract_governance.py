@@ -46,9 +46,6 @@ LIVE_PROFILE_LEGACY_ALIASES = {
     "tqqq_growth_income",
     "soxl_soxx_trend_income",
 }
-LIVE_PROFILE_TRANSITION_ALIASES = {
-    "tech_communication_pullback_enhancement": ("qqq_tech_enhancement",),
-}
 LIVE_US_EQUITY_FULL_MATRIX_PROFILES = get_runtime_enabled_profiles()
 ALLOWED_TARGET_MODES = frozenset({"weight", "value"})
 PLATFORM_NATIVE_TARGET_MODES = {
@@ -201,9 +198,6 @@ class ContractGovernanceTests(unittest.TestCase):
         for profile in LIVE_PROFILE_LEGACY_ALIASES:
             with self.subTest(profile=profile):
                 self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, ())
-        for profile, aliases in LIVE_PROFILE_TRANSITION_ALIASES.items():
-            with self.subTest(profile=profile):
-                self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, aliases)
 
     def test_live_us_equity_profiles_now_cover_the_full_four_platform_matrix(self) -> None:
         for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES:

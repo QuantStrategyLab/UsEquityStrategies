@@ -5,8 +5,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 
 from us_equity_strategies.income_layer import (
-    INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
-    INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET,
+    INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET,
     INCOME_LAYER_RATIO_MODES,
     build_income_layer_plan,
     get_income_layer_ratio,
@@ -21,8 +20,7 @@ MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
 LEGACY_CRISIS_RESPONSE_PROFILE = "crisis_response_shadow"
 LEGACY_TRUE_CRISIS_ROUTE = "true_crisis"
 __all__ = [
-    "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
-    "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
+    "INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET",
     "INCOME_LAYER_RATIO_MODES",
     "SOXX_GATE_TIERED_BLEND_MODE",
     "build_rebalance_plan",
@@ -276,12 +274,12 @@ def build_rebalance_plan(
     income_layer_allocations=None,
     income_layer_enabled=True,
     income_layer_activation_band_ratio=0.0,
-    income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
-    income_layer_log_growth_factor=0.70,
-    income_layer_stress_drawdown_ratio=0.30,
-    income_layer_base_loss_budget_ratio=0.08,
-    income_layer_min_loss_budget_ratio=0.06,
-    income_layer_loss_budget_decay_per_double=0.01,
+    income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET,
+    income_layer_core_stress_drawdown_ratio=0.45,
+    income_layer_income_stress_drawdown_ratio=0.06,
+    income_layer_base_drawdown_budget_ratio=0.45,
+    income_layer_min_drawdown_budget_ratio=0.25,
+    income_layer_drawdown_budget_decay_per_double=0.05,
     trend_entry_buffer=0.03,
     trend_mid_buffer=0.06,
     trend_exit_buffer=0.03,
@@ -354,11 +352,11 @@ def build_rebalance_plan(
         income_layer_max_ratio=income_layer_max_ratio,
         income_layer_activation_band_ratio=income_layer_activation_band_ratio,
         income_layer_ratio_mode=income_layer_ratio_mode,
-        income_layer_log_growth_factor=income_layer_log_growth_factor,
-        income_layer_stress_drawdown_ratio=income_layer_stress_drawdown_ratio,
-        income_layer_base_loss_budget_ratio=income_layer_base_loss_budget_ratio,
-        income_layer_min_loss_budget_ratio=income_layer_min_loss_budget_ratio,
-        income_layer_loss_budget_decay_per_double=income_layer_loss_budget_decay_per_double,
+        income_layer_core_stress_drawdown_ratio=income_layer_core_stress_drawdown_ratio,
+        income_layer_income_stress_drawdown_ratio=income_layer_income_stress_drawdown_ratio,
+        income_layer_base_drawdown_budget_ratio=income_layer_base_drawdown_budget_ratio,
+        income_layer_min_drawdown_budget_ratio=income_layer_min_drawdown_budget_ratio,
+        income_layer_drawdown_budget_decay_per_double=income_layer_drawdown_budget_decay_per_double,
     )
     core_equity = max(0.0, total_strategy_equity - income_layer_plan.locked_value)
     deploy_ratio_text = "0.0%"

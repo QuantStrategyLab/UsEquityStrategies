@@ -9,8 +9,6 @@ MIN_RECOMMENDED_EQUITY_USD: dict[str, float] = {
     "tqqq_growth_income": 500.0,
     "soxl_soxx_trend_income": 1_000.0,
     "russell_1000_multi_factor_defensive": 30_000.0,
-    "tech_communication_pullback_enhancement": 10_000.0,
-    "qqq_tech_enhancement": 10_000.0,
     "mega_cap_leader_rotation_top50_balanced": 10_000.0,
     "nasdaq_sp500_smart_dca": 1_000.0,
 }

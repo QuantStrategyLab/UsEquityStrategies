@@ -45,7 +45,7 @@ Research-only profiles may stay in code for reproducibility and future review, b
 
 | Profile | Name | Notes |
 | --- | --- | --- |
-| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | research-only; kept out of current configurable live profiles. |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | archived research-only; no longer a catalog/entrypoint runtime profile. |
 
 ## How this connects to execution
 

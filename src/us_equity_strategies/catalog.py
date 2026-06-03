@@ -17,6 +17,7 @@ from quant_platform_kit.common.strategies import (
 )
 
 from .ai_extensions import build_default_ai_extension_config
+from .income_layer_defaults import income_layer_default_config
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 # Legacy alias retained for lookups and docs; runtime registry is canonical rotation.
@@ -24,11 +25,8 @@ GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
-TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
-QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE = "qqq_tech_enhancement"
-QQQ_TECH_ENHANCEMENT_PROFILE = TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE
 FULL_SHARED_PLATFORM_MATRIX = frozenset(
     {"ibkr", "schwab", "longbridge", "firstrade", "paper_signal"}
 )
@@ -39,7 +37,6 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     TQQQ_GROWTH_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     SOXL_SOXX_TREND_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
-    QQQ_TECH_ENHANCEMENT_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
 }
@@ -49,7 +46,6 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
-    QQQ_TECH_ENHANCEMENT_PROFILE: frozenset({"feature_snapshot"}),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
 }
@@ -74,22 +70,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "confidence_volatility_gate_enabled": True,
         "confidence_volatility_window": 126,
         "confidence_volatility_max_ratio": 1.3,
-        "income_layer_enabled": True,
-        "income_layer_start_usd": 500000.0,
-        "income_layer_max_ratio": 0.15,
-        "income_layer_activation_band_ratio": 0.10,
-        "income_layer_ratio_mode": "log_loss_budget",
-        "income_layer_log_growth_factor": 0.55,
-        "income_layer_stress_drawdown_ratio": 0.18,
-        "income_layer_base_loss_budget_ratio": 0.025,
-        "income_layer_min_loss_budget_ratio": 0.020,
-        "income_layer_loss_budget_decay_per_double": 0.0025,
-        "income_layer_allocations": {
-            "SCHD": 0.40,
-            "DGRO": 0.25,
-            "SGOV": 0.30,
-            "SPYI": 0.05,
-        },
+        **income_layer_default_config(GLOBAL_ETF_ROTATION_PROFILE),
         "market_regime_control_enabled": True,
         "market_regime_control_apply_risk_reduced": True,
         "market_regime_control_apply_risk_off": True,
@@ -104,25 +85,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "cash_reserve_ratio": 0.02,
         "rebalance_threshold_ratio": 0.01,
         "execution_cash_reserve_ratio": 0.0,
-        "income_layer_enabled": True,
-        "income_layer_start_usd": 250000.0,
-        "income_layer_max_ratio": 0.50,
-        "income_layer_activation_band_ratio": 0.20,
-        "income_layer_ratio_mode": "log_cap",
-        "income_layer_log_growth_factor": 0.70,
-        "income_layer_stress_drawdown_ratio": 0.30,
-        "income_layer_base_loss_budget_ratio": 0.08,
-        "income_layer_min_loss_budget_ratio": 0.06,
-        "income_layer_loss_budget_decay_per_double": 0.01,
-        "income_layer_qqqi_weight": 0.02,
-        "income_layer_spyi_weight": 0.08,
-        "income_layer_allocations": {
-            "SCHD": 0.30,
-            "DGRO": 0.20,
-            "SGOV": 0.40,
-            "SPYI": 0.08,
-            "QQQI": 0.02,
-        },
+        **income_layer_default_config(TQQQ_GROWTH_INCOME_PROFILE),
         "option_growth_overlay_enabled": True,
         "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 250000.0,
@@ -154,25 +117,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "min_trade_ratio": 0.01,
         "min_trade_floor": 100.0,
         "rebalance_threshold_ratio": 0.01,
-        "income_layer_enabled": True,
-        "income_layer_start_usd": 250000.0,
-        "income_layer_max_ratio": 0.95,
-        "income_layer_activation_band_ratio": 0.20,
-        "income_layer_ratio_mode": "log_cap",
-        "income_layer_log_growth_factor": 0.70,
-        "income_layer_stress_drawdown_ratio": 0.30,
-        "income_layer_base_loss_budget_ratio": 0.08,
-        "income_layer_min_loss_budget_ratio": 0.06,
-        "income_layer_loss_budget_decay_per_double": 0.01,
-        "income_layer_qqqi_weight": 0.01,
-        "income_layer_spyi_weight": 0.04,
-        "income_layer_allocations": {
-            "SCHD": 0.25,
-            "DGRO": 0.15,
-            "SGOV": 0.55,
-            "SPYI": 0.04,
-            "QQQI": 0.01,
-        },
+        **income_layer_default_config(SOXL_SOXX_TREND_INCOME_PROFILE),
         "option_income_overlay_enabled": True,
         "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
         "option_income_overlay_start_usd": 1000000.0,
@@ -209,70 +154,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "hard_defense_exposure": 0.10,
         "soft_breadth_threshold": 0.55,
         "hard_breadth_threshold": 0.35,
-        "income_layer_enabled": True,
-        "income_layer_start_usd": 400000.0,
-        "income_layer_max_ratio": 0.20,
-        "income_layer_activation_band_ratio": 0.10,
-        "income_layer_ratio_mode": "log_loss_budget",
-        "income_layer_log_growth_factor": 0.55,
-        "income_layer_stress_drawdown_ratio": 0.18,
-        "income_layer_base_loss_budget_ratio": 0.030,
-        "income_layer_min_loss_budget_ratio": 0.025,
-        "income_layer_loss_budget_decay_per_double": 0.0025,
-        "income_layer_allocations": {
-            "SCHD": 0.45,
-            "DGRO": 0.30,
-            "SGOV": 0.25,
-        },
-        "market_regime_control_enabled": True,
-        "market_regime_control_apply_risk_reduced": True,
-        "market_regime_control_apply_risk_off": True,
-        "market_regime_control_risk_reduced_scalar": 0.50,
-        "market_regime_control_risk_off_scalar": 0.0,
-    },
-    QQQ_TECH_ENHANCEMENT_PROFILE: {
-        "benchmark_symbol": "QQQ",
-        "safe_haven": "BOXX",
-        "holdings_count": 8,
-        "single_name_cap": 0.10,
-        "sector_cap": 0.40,
-        "min_position_value_usd": 3000.0,
-        "max_dynamic_single_name_cap": 0.40,
-        "max_dynamic_sector_cap": 0.60,
-        "hold_bonus": 0.10,
-        "risk_on_exposure": 0.80,
-        "soft_defense_exposure": 0.60,
-        "hard_defense_exposure": 0.00,
-        "soft_breadth_threshold": 0.55,
-        "hard_breadth_threshold": 0.35,
-        "min_adv20_usd": 50000000.0,
-        "sector_whitelist": ("Information Technology", "Communication"),
-        "normalization": "universe_cross_sectional",
-        "score_template": "balanced_pullback",
-        "runtime_execution_window_trading_days": 3,
-        "execution_cash_reserve_ratio": 0.0,
-        "residual_proxy": "simple_excess_return_vs_QQQ",
-        "income_layer_enabled": True,
-        "income_layer_start_usd": 250000.0,
-        "income_layer_max_ratio": 0.30,
-        "income_layer_activation_band_ratio": 0.15,
-        "income_layer_ratio_mode": "log_loss_budget",
-        "income_layer_log_growth_factor": 0.60,
-        "income_layer_stress_drawdown_ratio": 0.22,
-        "income_layer_base_loss_budget_ratio": 0.050,
-        "income_layer_min_loss_budget_ratio": 0.040,
-        "income_layer_loss_budget_decay_per_double": 0.0050,
-        "income_layer_allocations": {
-            "SCHD": 0.40,
-            "DGRO": 0.25,
-            "SGOV": 0.20,
-            "SPYI": 0.10,
-            "QQQI": 0.05,
-        },
-        "option_growth_overlay_enabled": True,
-        "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
-        "option_growth_overlay_start_usd": 1000000.0,
-        "option_growth_overlay_nav_budget_ratio": 0.03,
+        **income_layer_default_config(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
         "market_regime_control_enabled": True,
         "market_regime_control_apply_risk_reduced": True,
         "market_regime_control_apply_risk_off": True,
@@ -301,22 +183,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "min_adv20_usd": 20000000.0,
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
-        "income_layer_enabled": True,
-        "income_layer_start_usd": 300000.0,
-        "income_layer_max_ratio": 0.25,
-        "income_layer_activation_band_ratio": 0.15,
-        "income_layer_ratio_mode": "log_loss_budget",
-        "income_layer_log_growth_factor": 0.55,
-        "income_layer_stress_drawdown_ratio": 0.20,
-        "income_layer_base_loss_budget_ratio": 0.040,
-        "income_layer_min_loss_budget_ratio": 0.030,
-        "income_layer_loss_budget_decay_per_double": 0.0050,
-        "income_layer_allocations": {
-            "SCHD": 0.45,
-            "DGRO": 0.30,
-            "SGOV": 0.20,
-            "SPYI": 0.05,
-        },
+        **income_layer_default_config(MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE),
         "option_growth_overlay_enabled": True,
         "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 1000000.0,
@@ -367,7 +234,6 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     TQQQ_GROWTH_INCOME_PROFILE: "tqqq_growth_income_entrypoint",
     SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
-    QQQ_TECH_ENHANCEMENT_PROFILE: "qqq_tech_enhancement_entrypoint",
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "mega_cap_leader_rotation_top50_balanced_entrypoint",
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
 }
@@ -377,16 +243,11 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     TQQQ_GROWTH_INCOME_PROFILE: "value",
     SOXL_SOXX_TREND_INCOME_PROFILE: "value",
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
-    QQQ_TECH_ENHANCEMENT_PROFILE: "weight",
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "weight",
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
 }
 
-STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {
-    QQQ_TECH_ENHANCEMENT_PROFILE: (
-        "package://us_equity_strategies/configs/tech_communication_pullback_enhancement.json"
-    ),
-}
+STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {}
 
 
 # `supported_platforms` 仍保留为兼容镜像，避免一次性改动所有平台 runtime。
@@ -438,11 +299,6 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
-    ),
-    QQQ_TECH_ENHANCEMENT_PROFILE: _build_strategy_definition(
-        QQQ_TECH_ENHANCEMENT_PROFILE,
-        component_name="signal_logic",
-        module_path="us_equity_strategies.strategies.qqq_tech_enhancement",
     ),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: _build_strategy_definition(
         MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
@@ -501,17 +357,6 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         benchmark="SPY",
         role="defensive_stock_baseline",
         status="runtime_enabled",
-    ),
-    QQQ_TECH_ENHANCEMENT_PROFILE: StrategyMetadata(
-        canonical_profile=QQQ_TECH_ENHANCEMENT_PROFILE,
-        display_name="Tech/Communication Pullback Enhancement",
-        description="Tech-heavy monthly stock selection with controlled pullback entry and explicit BOXX cash buffer.",
-        aliases=(QQQ_TECH_ENHANCEMENT_LEGACY_PROFILE,),
-        cadence="monthly",
-        asset_scope="us_tech_communication_stocks",
-        benchmark="QQQ",
-        role="parallel_cash_buffer_branch",
-        status="research_only",
     ),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: StrategyMetadata(
         canonical_profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,

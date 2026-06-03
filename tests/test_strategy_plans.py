@@ -243,18 +243,18 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["strategy_symbols"], ["TQQQ", "QQQ", "BOXX", *income_symbols])
         self.assertEqual(plan["buy_order_symbols"], (*income_symbols, "TQQQ", "QQQ"))
         self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), income_symbols))
-        self.assertAlmostEqual(plan["income_layer_ratio"], 0.10)
-        self.assertAlmostEqual(plan["income_layer_value"], 22500.0)
-        self.assertAlmostEqual(plan["target_values"]["TQQQ"], 91125.0)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 91125.0)
-        self.assertAlmostEqual(plan["target_values"]["BOXX"], 16200.0)
-        self.assertAlmostEqual(plan["target_values"]["SCHD"], 9000.0)
-        self.assertAlmostEqual(plan["target_values"]["DGRO"], 4500.0)
-        self.assertAlmostEqual(plan["target_values"]["SGOV"], 2250.0)
-        self.assertAlmostEqual(plan["target_values"]["SPYI"], 4500.0)
-        self.assertAlmostEqual(plan["target_values"]["QQQI"], 2250.0)
+        self.assertAlmostEqual(plan["income_layer_ratio"], 0.0790489865839401)
+        self.assertAlmostEqual(plan["income_layer_value"], 17786.021981386522)
+        self.assertAlmostEqual(plan["target_values"]["TQQQ"], 93246.29010837656)
+        self.assertAlmostEqual(plan["target_values"]["QQQ"], 93246.29010837656)
+        self.assertAlmostEqual(plan["target_values"]["BOXX"], 16577.118241489167)
+        self.assertAlmostEqual(plan["target_values"]["SCHD"], 7114.408792554609)
+        self.assertAlmostEqual(plan["target_values"]["DGRO"], 3557.2043962773044)
+        self.assertAlmostEqual(plan["target_values"]["SGOV"], 1778.6021981386523)
+        self.assertAlmostEqual(plan["target_values"]["SPYI"], 3557.2043962773044)
+        self.assertAlmostEqual(plan["target_values"]["QQQI"], 1778.6021981386523)
 
-    def test_tqqq_growth_income_log_loss_budget_caps_income_layer(self):
+    def test_tqqq_growth_income_total_drawdown_budget_sets_income_layer(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
             get_income_layer_ratio,
@@ -263,16 +263,16 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         ratio = get_income_layer_ratio(
             600000.0,
             income_layer_start_usd=150000.0,
-            income_layer_max_ratio=0.50,
-            income_layer_ratio_mode="log_loss_budget",
-            income_layer_log_growth_factor=0.70,
-            income_layer_stress_drawdown_ratio=0.30,
-            income_layer_base_loss_budget_ratio=0.08,
-            income_layer_min_loss_budget_ratio=0.06,
-            income_layer_loss_budget_decay_per_double=0.01,
+            income_layer_max_ratio=0.55,
+            income_layer_ratio_mode="log_total_drawdown_budget",
+            income_layer_core_stress_drawdown_ratio=0.45,
+            income_layer_income_stress_drawdown_ratio=0.08,
+            income_layer_base_drawdown_budget_ratio=0.45,
+            income_layer_min_drawdown_budget_ratio=0.25,
+            income_layer_drawdown_budget_decay_per_double=0.05,
         )
 
-        self.assertAlmostEqual(ratio, 0.20)
+        self.assertAlmostEqual(ratio, 0.27027027027027023)
 
     def test_tqqq_growth_income_live_dual_drive_uses_stateful_ma200_exit(self):
         _skip_if_missing_numeric_stack()
@@ -1051,14 +1051,14 @@ class StrategyPlanMetadataTest(unittest.TestCase):
 
         self.assertEqual(plan["income_layer_symbols"], income_symbols)
         self.assertEqual(plan["limit_order_symbols"], ("SOXL", "SOXX", *income_symbols))
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 157500.0)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 45000.0)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 22500.0)
-        self.assertAlmostEqual(plan["targets"]["SCHD"], 30000.0)
-        self.assertAlmostEqual(plan["targets"]["DGRO"], 15000.0)
-        self.assertAlmostEqual(plan["targets"]["SGOV"], 15000.0)
-        self.assertAlmostEqual(plan["targets"]["SPYI"], 11250.0)
-        self.assertAlmostEqual(plan["targets"]["QQQI"], 3750.0)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 183076.9230769231)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 52307.69230769232)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 26153.84615384616)
+        self.assertAlmostEqual(plan["targets"]["SCHD"], 15384.61538461538)
+        self.assertAlmostEqual(plan["targets"]["DGRO"], 7692.30769230769)
+        self.assertAlmostEqual(plan["targets"]["SGOV"], 7692.30769230769)
+        self.assertAlmostEqual(plan["targets"]["SPYI"], 5769.230769230767)
+        self.assertAlmostEqual(plan["targets"]["QQQI"], 1923.0769230769226)
 
     def test_soxl_soxx_trend_income_overlay_cap_can_downgrade_live_tier(self):
         _skip_if_missing_numeric_stack()
