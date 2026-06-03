@@ -1,5 +1,36 @@
 # UsEquityStrategies
 
+<!-- qsl-doc-overview:start -->
+
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+
+## Open-source overview / 开源项目入口
+
+| Item | Description |
+| --- | --- |
+| Project type | strategy package |
+| What it does | Shared US equity strategy implementations and runtime metadata for QuantStrategyLab broker platforms. |
+| 中文说明 | 美股策略实现与运行时元数据包，供 IBKR、Schwab、LongBridge、Firstrade 等平台加载。 |
+| Current status | Live strategy package. `runtime_enabled` profiles are intended for downstream platform runtimes; research-only profiles stay callable but are not part of the live set. |
+
+### Quick start
+
+- `python -m pip install -e '.[test]'`
+- `python -m pytest -q`
+
+### Deploy / operate safely
+
+No broker deployment happens from this repository. Publish/execute through the platform repositories after their dry-run checks pass.
+
+### Strategy performance / evidence boundary
+
+Key archived evidence is summarized in `docs/us_equity_strategy_status.zh-CN.md` and `docs/us_equity_runtime_archive.zh-CN.md`, including TQQQ, SOXL, Global ETF, Russell 1000 and Mega Cap profiles.
+
+> Detailed runbooks, migration notes, workflow internals, and historical decisions are kept below. Start with this overview before using the lower-level operational sections.
+
+<!-- qsl-doc-overview:end -->
+
 > ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
 
 [English](#english) | [中文](#中文)
