@@ -9,7 +9,8 @@ from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_strategy_entrypoint
 from us_equity_strategies.entrypoints._portfolio_dashboard import build_portfolio_dashboard
 
-from tests.test_qqq_tech_enhancement import _feature_snapshot
+from tests.test_mega_cap_leader_rotation import _mega_snapshot
+from tests.test_russell_1000_multi_factor_defensive import _normal_snapshot
 
 
 def _zh_translator(key: str, **_kwargs) -> str:
@@ -64,7 +65,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertNotIn("跟踪股票池", dashboard)
 
     def test_snapshot_entrypoint_attaches_strategy_portfolio_dashboard(self) -> None:
-        entrypoint = get_strategy_entrypoint("qqq_tech_enhancement")
+        entrypoint = get_strategy_entrypoint("russell_1000_multi_factor_defensive")
         snapshot = PortfolioSnapshot(
             as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
             total_equity=12500.0,
@@ -83,7 +84,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of="2026-04-21",
-                market_data={"feature_snapshot": _feature_snapshot()},
+                market_data={"feature_snapshot": _normal_snapshot()},
                 portfolio=snapshot,
                 state={"current_holdings": {"AAPL"}},
                 runtime_config={"translator": _zh_translator},
@@ -140,7 +141,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BOXX: $2,000.00 / 20股", dashboard)
 
     def test_snapshot_entrypoint_renders_structured_monthly_waiting_text_in_zh(self) -> None:
-        entrypoint = get_strategy_entrypoint("qqq_tech_enhancement")
+        entrypoint = get_strategy_entrypoint("mega_cap_leader_rotation_top50_balanced")
         snapshot = PortfolioSnapshot(
             as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
             total_equity=12500.0,
@@ -156,7 +157,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of="2026-04-10",
-                market_data={"feature_snapshot": _feature_snapshot()},
+                market_data={"feature_snapshot": _mega_snapshot()},
                 portfolio=snapshot,
                 state={"current_holdings": set()},
                 runtime_config={"translator": _zh_translator, "run_as_of": "2026-04-10"},

@@ -9,8 +9,7 @@ import pandas as pd
 
 from quant_platform_kit.common.history import normalize_history_frame
 from us_equity_strategies.income_layer import (
-    INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
-    INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET,
+    INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET,
     INCOME_LAYER_RATIO_MODES,
     as_clamped_ratio,
     build_income_layer_plan,
@@ -32,8 +31,7 @@ MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
 MACRO_RISK_GOVERNOR_PROFILE = "macro_risk_governor"
 MACRO_RISK_GOVERNOR_ROUTES = frozenset({"delever", "crisis"})
 __all__ = [
-    "INCOME_LAYER_RATIO_MODE_LINEAR_CAP",
-    "INCOME_LAYER_RATIO_MODE_LOG_LOSS_BUDGET",
+    "INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET",
     "INCOME_LAYER_RATIO_MODES",
     "build_rebalance_plan",
     "get_income_layer_ratio",
@@ -352,12 +350,12 @@ def build_rebalance_plan(
     income_layer_allocations=None,
     income_layer_enabled=True,
     income_layer_activation_band_ratio=0.0,
-    income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LINEAR_CAP,
-    income_layer_log_growth_factor=0.70,
-    income_layer_stress_drawdown_ratio=0.30,
-    income_layer_base_loss_budget_ratio=0.08,
-    income_layer_min_loss_budget_ratio=0.06,
-    income_layer_loss_budget_decay_per_double=0.01,
+    income_layer_ratio_mode=INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET,
+    income_layer_core_stress_drawdown_ratio=0.45,
+    income_layer_income_stress_drawdown_ratio=0.08,
+    income_layer_base_drawdown_budget_ratio=0.45,
+    income_layer_min_drawdown_budget_ratio=0.25,
+    income_layer_drawdown_budget_decay_per_double=0.05,
     attack_allocation_mode="fixed_qqq_tqqq_pullback",
     dual_drive_qqq_weight=0.45,
     dual_drive_tqqq_weight=0.45,
@@ -431,11 +429,11 @@ def build_rebalance_plan(
         income_layer_max_ratio=layer_max_ratio,
         income_layer_activation_band_ratio=income_layer_activation_band_ratio,
         income_layer_ratio_mode=income_layer_ratio_mode,
-        income_layer_log_growth_factor=income_layer_log_growth_factor,
-        income_layer_stress_drawdown_ratio=income_layer_stress_drawdown_ratio,
-        income_layer_base_loss_budget_ratio=income_layer_base_loss_budget_ratio,
-        income_layer_min_loss_budget_ratio=income_layer_min_loss_budget_ratio,
-        income_layer_loss_budget_decay_per_double=income_layer_loss_budget_decay_per_double,
+        income_layer_core_stress_drawdown_ratio=income_layer_core_stress_drawdown_ratio,
+        income_layer_income_stress_drawdown_ratio=income_layer_income_stress_drawdown_ratio,
+        income_layer_base_drawdown_budget_ratio=income_layer_base_drawdown_budget_ratio,
+        income_layer_min_drawdown_budget_ratio=income_layer_min_drawdown_budget_ratio,
+        income_layer_drawdown_budget_decay_per_double=income_layer_drawdown_budget_decay_per_double,
     )
     target_income_values = income_layer_plan.target_values
 

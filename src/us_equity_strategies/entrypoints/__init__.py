@@ -21,7 +21,6 @@ from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
     nasdaq_sp500_smart_dca_manifest,
-    qqq_tech_enhancement_manifest,
     russell_1000_multi_factor_defensive_manifest,
     soxl_soxx_trend_income_manifest,
     tqqq_growth_income_manifest,
@@ -33,7 +32,6 @@ from us_equity_strategies.strategies import (
     tqqq_growth_income as tqqq_growth_income_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
-    qqq_tech_enhancement as qqq_tech_enhancement_strategy,
 )
 
 from ._common import (
@@ -764,101 +762,6 @@ legacy_russell.compute_signals.__doc__ = (
 )
 
 
-def evaluate_qqq_tech_enhancement(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(qqq_tech_enhancement_manifest.default_config, ctx)
-    income_layer_config = pop_income_layer_config(config)
-    option_overlay_config = pop_option_overlay_config(config)
-    market_regime_control_config = pop_market_regime_control_config(config)
-    translator = config.get("translator", default_translator)
-    config.pop("signal_effective_after_trading_days", None)
-    pop_execution_only_config(config)
-    if ctx.portfolio is not None and "portfolio_total_equity" not in config:
-        total_equity = getattr(ctx.portfolio, "total_equity", None)
-        if total_equity is not None:
-            config["portfolio_total_equity"] = float(total_equity)
-    weights, signal_desc, is_emergency, status_desc, metadata = qqq_tech_enhancement_strategy.compute_signals(
-        require_market_data(ctx, "feature_snapshot"),
-        get_current_holdings(ctx),
-        **config,
-    )
-    weights, income_layer_diagnostics = apply_income_layer_to_weights(
-        weights,
-        income_layer_config=income_layer_config,
-        ctx=ctx,
-        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
-    )
-    weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
-        weights,
-        market_regime_control_config=market_regime_control_config,
-        ctx=ctx,
-        safe_haven=str(config.get("safe_haven", "BOXX")),
-        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
-    )
-    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
-        signal_desc,
-        status_desc,
-        metadata,
-        translator=translator,
-    )
-    notification_context = _merge_notification_contexts(
-        notification_context,
-        market_regime_control_diagnostics.get("market_regime_control_notification_context"),
-    )
-    option_overlay_diagnostics = build_option_overlay_diagnostics(
-        option_overlay_config,
-        ctx,
-        base_diagnostics=metadata,
-    )
-    diagnostics = {
-        **metadata,
-        **income_layer_diagnostics,
-        **market_regime_control_diagnostics,
-        **option_overlay_diagnostics,
-        "signal_description": rendered_signal_desc,
-        "status_description": rendered_status_desc,
-        "signal_source": qqq_tech_enhancement_strategy.SIGNAL_SOURCE,
-        "actionable": weights is not None,
-    }
-    diagnostics.update(_account_size_diagnostics(qqq_tech_enhancement_manifest.profile, ctx))
-    diagnostics["signal_description"] = append_account_size_warning(
-        str(diagnostics["signal_description"]),
-        diagnostics,
-        translator=translator,
-    )
-    _attach_dashboard_text(
-        diagnostics,
-        _build_dashboard_text(
-            ctx,
-            strategy_symbols=_symbols_from_sources(
-                metadata.get("managed_symbols"),
-                weights or {},
-                get_current_holdings(ctx),
-                config.get("safe_haven"),
-            ),
-            translator=translator,
-            signal_text=diagnostics["signal_description"],
-        ),
-    )
-    _attach_notification_context(diagnostics, notification_context)
-    risk_flags: tuple[str, ...] = ()
-    if is_emergency:
-        risk_flags += ("hard_defense",)
-    if weights is None:
-        risk_flags += ("no_execute",)
-    return StrategyDecision(
-        positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
-        risk_flags=risk_flags,
-        diagnostics=diagnostics,
-    )
-
-
-qqq_tech_enhancement_strategy.compute_signals.__doc__ = (
-    ((qqq_tech_enhancement_strategy.compute_signals.__doc__ or "").strip() +
-     "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
-    .strip()
-)
-
-
 def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     ctx: StrategyContext,
     *,
@@ -1080,10 +983,6 @@ russell_1000_multi_factor_defensive_entrypoint = CallableStrategyEntrypoint(
     manifest=russell_1000_multi_factor_defensive_manifest,
     _evaluate=evaluate_russell_1000_multi_factor_defensive,
 )
-qqq_tech_enhancement_entrypoint = CallableStrategyEntrypoint(
-    manifest=qqq_tech_enhancement_manifest,
-    _evaluate=evaluate_qqq_tech_enhancement,
-)
 mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
     manifest=mega_cap_leader_rotation_top50_balanced_manifest,
     _evaluate=evaluate_mega_cap_leader_rotation_top50_balanced,
@@ -1098,7 +997,6 @@ __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
-    "qqq_tech_enhancement_entrypoint",
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_top50_balanced_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
@@ -1106,7 +1004,6 @@ __all__ = [
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
-    "evaluate_qqq_tech_enhancement",
     "evaluate_mega_cap_leader_rotation_top50_balanced",
     "evaluate_nasdaq_sp500_smart_dca",
 ]

@@ -13,7 +13,6 @@ from quant_platform_kit.strategy_contracts import (
 from us_equity_strategies.catalog import (
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
-    QQQ_TECH_ENHANCEMENT_PROFILE,
     get_strategy_definition,
     get_strategy_definitions,
     resolve_canonical_profile,
@@ -21,7 +20,6 @@ from us_equity_strategies.catalog import (
 from us_equity_strategies.strategies import (
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
-    qqq_tech_enhancement as qqq_tech_enhancement_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
 )
 
@@ -68,24 +66,6 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         required_feature_columns=legacy_russell.REQUIRED_FEATURE_COLUMNS,
         managed_symbols_extractor=legacy_russell.extract_managed_symbols,
         artifact_contract=StrategyArtifactContract(requires_snapshot_artifacts=True),
-    ),
-    QQQ_TECH_ENHANCEMENT_PROFILE: StrategyRuntimeAdapter(
-        status_icon=qqq_tech_enhancement_strategy.STATUS_ICON,
-        required_feature_columns=qqq_tech_enhancement_strategy.REQUIRED_FEATURE_COLUMNS,
-        snapshot_date_columns=qqq_tech_enhancement_strategy.SNAPSHOT_DATE_COLUMNS,
-        max_snapshot_month_lag=qqq_tech_enhancement_strategy.MAX_SNAPSHOT_MONTH_LAG,
-        require_snapshot_manifest=qqq_tech_enhancement_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-        snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
-        runtime_parameter_loader=qqq_tech_enhancement_strategy.load_runtime_parameters,
-        managed_symbols_extractor=qqq_tech_enhancement_strategy.extract_managed_symbols,
-        artifact_contract=StrategyArtifactContract(
-            requires_snapshot_artifacts=True,
-            requires_snapshot_manifest_path=qqq_tech_enhancement_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-            requires_strategy_config_path=True,
-            snapshot_contract_version=qqq_tech_enhancement_strategy.SNAPSHOT_CONTRACT_VERSION,
-            config_source_policy="bundled_or_env",
-        ),
-        runtime_policy=StrategyRuntimePolicy(reconciliation_output_policy="optional"),
     ),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: StrategyRuntimeAdapter(
         status_icon=mega_cap_leader_rotation_strategy.STATUS_ICON,
@@ -145,20 +125,12 @@ def _build_runtime_adapter_for_platform(
     if normalized_platform == IBKR_PLATFORM:
         available_capabilities.add("broker_client")
 
-    runtime_policy = base_adapter.runtime_policy
-    if (
-        canonical_profile == QQQ_TECH_ENHANCEMENT_PROFILE
-        and normalized_platform == LONGBRIDGE_PLATFORM
-    ):
-        runtime_policy = replace(runtime_policy, runtime_execution_window_trading_days=1)
-
     return validate_strategy_runtime_adapter(
         replace(
             base_adapter,
             available_inputs=frozenset(available_inputs),
             available_capabilities=frozenset(available_capabilities),
             portfolio_input_name=portfolio_input_name,
-            runtime_policy=runtime_policy,
         )
     )
 

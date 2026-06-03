@@ -1,6 +1,4 @@
-import json
 import unittest
-from importlib import resources
 
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
@@ -9,7 +7,6 @@ from us_equity_strategies.catalog import (
     GLOBAL_ETF_ROTATION_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
-    QQQ_TECH_ENHANCEMENT_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
@@ -18,7 +15,6 @@ from us_equity_strategies.catalog import (
     get_runtime_enabled_profiles,
     get_strategy_index_rows,
     get_strategy_definition,
-    get_strategy_metadata,
     get_strategy_metadata_map,
     get_strategy_platform_compatibility_map,
     resolve_canonical_profile,
@@ -67,13 +63,6 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
         self.assertEqual(
             get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
-
-        self.assertIn(QQQ_TECH_ENHANCEMENT_PROFILE, catalog)
-        self.assertEqual(catalog[QQQ_TECH_ENHANCEMENT_PROFILE].domain, "us_equity")
-        self.assertEqual(
-            get_compatible_platforms(QQQ_TECH_ENHANCEMENT_PROFILE),
             FULL_SHARED_PLATFORM_MATRIX,
         )
 
@@ -134,14 +123,6 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
         )
 
-        cash_buffer_definition = get_strategy_definition("qqq_tech_enhancement")
-        self.assertEqual(cash_buffer_definition.profile, QQQ_TECH_ENHANCEMENT_PROFILE)
-        cash_buffer_module = get_strategy_component_map(cash_buffer_definition)["signal_logic"]
-        self.assertEqual(
-            cash_buffer_module.module_path,
-            "us_equity_strategies.strategies.qqq_tech_enhancement",
-        )
-
         balanced_definition = get_strategy_definition("mega_cap_leader_rotation_top50_balanced")
         self.assertEqual(balanced_definition.profile, MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE)
         balanced_module = get_strategy_component_map(balanced_definition)["signal_logic"]
@@ -162,13 +143,13 @@ class CatalogTest(unittest.TestCase):
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
         self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
-        self.assertEqual(get_strategy_definition("qqq_tech_enhancement").profile, QQQ_TECH_ENHANCEMENT_PROFILE)
         for legacy_profile in (
             "hybrid_growth_income",
             "qqq_tqqq_growth_income",
             "semiconductor_rotation_income",
             "semiconductor_trend_income",
             "tech_pullback_cash_buffer",
+            "qqq_tech_enhancement",
         ):
             with self.subTest(profile=legacy_profile):
                 with self.assertRaises(ValueError):
@@ -176,39 +157,23 @@ class CatalogTest(unittest.TestCase):
 
     def test_metadata_map_exposes_display_names_and_roles(self):
         metadata_map = get_strategy_metadata_map()
-        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].display_name, "Tech/Communication Pullback Enhancement")
-        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].role, "parallel_cash_buffer_branch")
         self.assertEqual(metadata_map[GLOBAL_ETF_ROTATION_PROFILE].benchmark, "VOO")
-        self.assertEqual(get_strategy_metadata("qqq_tech_enhancement").canonical_profile, QQQ_TECH_ENHANCEMENT_PROFILE)
         aliases = get_profile_aliases()
-        self.assertEqual(aliases["qqq_tech_enhancement"], QQQ_TECH_ENHANCEMENT_PROFILE)
         self.assertEqual(
             aliases["global_etf_confidence_vol_gate"],
             GLOBAL_ETF_ROTATION_PROFILE,
         )
         self.assertNotIn("tech_pullback_cash_buffer", aliases)
+        self.assertNotIn("qqq_tech_enhancement", aliases)
         compatibility = get_strategy_platform_compatibility_map()
-        self.assertEqual(
-            compatibility[QQQ_TECH_ENHANCEMENT_PROFILE],
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
         self.assertEqual(
             compatibility[TQQQ_GROWTH_INCOME_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
-        self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "research_only")
-        with (
-            resources.files("us_equity_strategies")
-            .joinpath("configs", "tech_communication_pullback_enhancement.json")
-            .open(encoding="utf-8")
-        ) as handle:
-            tech_config = json.load(handle)
-        self.assertEqual(tech_config["status"], "research_only")
         self.assertEqual(
             metadata_map[GLOBAL_ETF_ROTATION_PROFILE].status,
             "runtime_enabled",
         )
-        self.assertEqual(get_strategy_definition("qqq_tech_enhancement").target_mode, "weight")
         self.assertEqual(
             metadata_map[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE].role,
             "balanced_leader_rotation",
@@ -236,13 +201,11 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(soxl["option_income_overlay_start_usd"], 1000000.0)
         self.assertEqual(soxl["option_income_overlay_nav_risk_ratio"], 0.01)
 
-        tech = get_strategy_definition(QQQ_TECH_ENHANCEMENT_PROFILE).default_config
         mega = get_strategy_definition(MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE).default_config
-        for config in (tech, mega):
-            self.assertIs(config["option_growth_overlay_enabled"], True)
-            self.assertEqual(config["option_growth_overlay_recipe"], "qqq_leaps_growth_v1")
-            self.assertEqual(config["option_growth_overlay_start_usd"], 1000000.0)
-            self.assertEqual(config["option_growth_overlay_nav_budget_ratio"], 0.03)
+        self.assertIs(mega["option_growth_overlay_enabled"], True)
+        self.assertEqual(mega["option_growth_overlay_recipe"], "qqq_leaps_growth_v1")
+        self.assertEqual(mega["option_growth_overlay_start_usd"], 1000000.0)
+        self.assertEqual(mega["option_growth_overlay_nav_budget_ratio"], 0.03)
 
         self.assertNotIn(
             "option_growth_overlay_enabled",
@@ -266,7 +229,6 @@ class CatalogTest(unittest.TestCase):
         weight_scaled_profiles = (
             GLOBAL_ETF_ROTATION_PROFILE,
             RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-            QQQ_TECH_ENHANCEMENT_PROFILE,
             MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
         )
         for profile in weight_scaled_profiles:
@@ -285,14 +247,10 @@ class CatalogTest(unittest.TestCase):
     def test_strategy_index_rows_are_human_readable(self):
         rows = get_strategy_index_rows()
         by_profile = {row["canonical_profile"]: row for row in rows}
-        self.assertEqual(by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["display_name"], "Tech/Communication Pullback Enhancement")
         self.assertEqual(by_profile[TQQQ_GROWTH_INCOME_PROFILE]["aliases"], ())
         self.assertIn("signal_logic", by_profile[GLOBAL_ETF_ROTATION_PROFILE]["component_names"])
         self.assertNotIn("global_etf_confidence_vol_gate", by_profile)
-        self.assertEqual(
-            by_profile[QQQ_TECH_ENHANCEMENT_PROFILE]["compatible_platforms"],
-            FULL_SHARED_PLATFORM_MATRIX,
-        )
+        self.assertNotIn("tech_communication_pullback_enhancement", by_profile)
 
     def test_removed_research_profiles_are_not_cataloged(self):
         catalog = get_strategy_definitions()
@@ -300,6 +258,8 @@ class CatalogTest(unittest.TestCase):
             "mega_cap_leader_rotation_dynamic_top20",
             "mega_cap_leader_rotation_aggressive",
             "dynamic_mega_leveraged_pullback",
+            "tech_communication_pullback_enhancement",
+            "qqq_tech_enhancement",
         ):
             with self.subTest(profile=profile):
                 self.assertNotIn(profile, catalog)

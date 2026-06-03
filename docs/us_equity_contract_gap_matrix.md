@@ -8,7 +8,7 @@
 - 阅读顺序：先确认边界、输入输出和权限要求，再执行文档里的命令、CI、dry-run、发布或切换步骤。
 - 风险提示：涉及实盘、密钥、权限、Cloud Run、交易所或券商 API 的变更，必须先在测试环境或 dry-run 验证；不要只凭示例直接修改生产。
 - 英文正文保留更完整的命令、字段名和配置键；如果摘要和正文不一致，以正文中的实际命令和配置为准。
-_Updated: 2026-05-26_
+_Updated: 2026-06-04_
 
 This document tracks the current shared US equity strategy contract across
 `UsEquityStrategies`, `QuantPlatformKit`, and the platform runtimes.
@@ -25,7 +25,6 @@ The current runtime-enabled US equity profiles are:
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_1000_multi_factor_defensive`
-- `tech_communication_pullback_enhancement`
 - `mega_cap_leader_rotation_top50_balanced`
 - `nasdaq_sp500_smart_dca`
 
@@ -56,10 +55,14 @@ comparison with runtime-enabled peers:
 - `mega_cap_leader_rotation_dynamic_top20`
 - `mega_cap_leader_rotation_aggressive`
 - `dynamic_mega_leveraged_pullback`
+- `tech_communication_pullback_enhancement`
 
 The first two were superseded by `mega_cap_leader_rotation_top50_balanced`.
 The 2x dynamic mega-cap/MAGS route added more product and input complexity
 without a better promoted profile result.
+`tech_communication_pullback_enhancement` stayed as an archived research
+implementation/config for reproducibility, but it is no longer exposed through
+catalog, manifest, entrypoint, runtime adapter, or platform rollout surfaces.
 
 Historical output files can still be inspected in research directories, but
 these names are no longer valid `STRATEGY_PROFILE` values and should not appear
@@ -83,7 +86,6 @@ New US equity profiles should use only these canonical `required_inputs`:
 | `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
 | `russell_1000_multi_factor_defensive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Artifact-backed Russell 1000 defensive selection. |
-| `tech_communication_pullback_enhancement` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Artifact-backed tech/communication pullback selection with bundled config support. |
 | `mega_cap_leader_rotation_top50_balanced` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Retained Top50 balanced leader-rotation path. |
 | `nasdaq_sp500_smart_dca` | `value` | `market_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Buy-only Nasdaq/S&P 500 smart DCA using market-history indicators and cash availability. |
 

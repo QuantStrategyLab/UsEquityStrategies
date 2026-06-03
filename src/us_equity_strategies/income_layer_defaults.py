@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from copy import deepcopy
+
+INCOME_LAYER_RATIO_MODE = "log_total_drawdown_budget"
+
+GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
+TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
+SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
+RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
+MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
+
+INCOME_LAYER_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {
+    GLOBAL_ETF_ROTATION_PROFILE: {
+        "income_layer_enabled": True,
+        "income_layer_start_usd": 500000.0,
+        "income_layer_max_ratio": 0.15,
+        "income_layer_activation_band_ratio": 0.10,
+        "income_layer_ratio_mode": INCOME_LAYER_RATIO_MODE,
+        "income_layer_core_stress_drawdown_ratio": 0.30,
+        "income_layer_income_stress_drawdown_ratio": 0.08,
+        "income_layer_base_drawdown_budget_ratio": 0.30,
+        "income_layer_min_drawdown_budget_ratio": 0.267,
+        "income_layer_drawdown_budget_decay_per_double": 0.015,
+        "income_layer_allocations": {
+            "SCHD": 0.40,
+            "DGRO": 0.25,
+            "SGOV": 0.30,
+            "SPYI": 0.05,
+        },
+    },
+    TQQQ_GROWTH_INCOME_PROFILE: {
+        "income_layer_enabled": True,
+        "income_layer_start_usd": 250000.0,
+        "income_layer_max_ratio": 0.55,
+        "income_layer_activation_band_ratio": 0.20,
+        "income_layer_ratio_mode": INCOME_LAYER_RATIO_MODE,
+        "income_layer_core_stress_drawdown_ratio": 0.45,
+        "income_layer_income_stress_drawdown_ratio": 0.08,
+        "income_layer_base_drawdown_budget_ratio": 0.45,
+        "income_layer_min_drawdown_budget_ratio": 0.25,
+        "income_layer_drawdown_budget_decay_per_double": 0.05,
+        "income_layer_qqqi_weight": 0.02,
+        "income_layer_spyi_weight": 0.08,
+        "income_layer_allocations": {
+            "SCHD": 0.30,
+            "DGRO": 0.20,
+            "SGOV": 0.40,
+            "SPYI": 0.08,
+            "QQQI": 0.02,
+        },
+    },
+    SOXL_SOXX_TREND_INCOME_PROFILE: {
+        "income_layer_enabled": True,
+        "income_layer_start_usd": 150000.0,
+        "income_layer_max_ratio": 0.95,
+        "income_layer_activation_band_ratio": 0.20,
+        "income_layer_ratio_mode": INCOME_LAYER_RATIO_MODE,
+        "income_layer_core_stress_drawdown_ratio": 0.45,
+        "income_layer_income_stress_drawdown_ratio": 0.06,
+        "income_layer_base_drawdown_budget_ratio": 0.45,
+        "income_layer_min_drawdown_budget_ratio": 0.25,
+        "income_layer_drawdown_budget_decay_per_double": 0.05,
+        "income_layer_qqqi_weight": 0.01,
+        "income_layer_spyi_weight": 0.04,
+        "income_layer_allocations": {
+            "SCHD": 0.15,
+            "DGRO": 0.10,
+            "SGOV": 0.70,
+            "SPYI": 0.04,
+            "QQQI": 0.01,
+        },
+    },
+    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: {
+        "income_layer_enabled": True,
+        "income_layer_start_usd": 400000.0,
+        "income_layer_max_ratio": 0.20,
+        "income_layer_activation_band_ratio": 0.10,
+        "income_layer_ratio_mode": INCOME_LAYER_RATIO_MODE,
+        "income_layer_core_stress_drawdown_ratio": 0.30,
+        "income_layer_income_stress_drawdown_ratio": 0.08,
+        "income_layer_base_drawdown_budget_ratio": 0.30,
+        "income_layer_min_drawdown_budget_ratio": 0.256,
+        "income_layer_drawdown_budget_decay_per_double": 0.015,
+        "income_layer_allocations": {
+            "SCHD": 0.45,
+            "DGRO": 0.30,
+            "SGOV": 0.25,
+        },
+    },
+    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: {
+        "income_layer_enabled": True,
+        "income_layer_start_usd": 300000.0,
+        "income_layer_max_ratio": 0.25,
+        "income_layer_activation_band_ratio": 0.15,
+        "income_layer_ratio_mode": INCOME_LAYER_RATIO_MODE,
+        "income_layer_core_stress_drawdown_ratio": 0.35,
+        "income_layer_income_stress_drawdown_ratio": 0.08,
+        "income_layer_base_drawdown_budget_ratio": 0.35,
+        "income_layer_min_drawdown_budget_ratio": 0.2825,
+        "income_layer_drawdown_budget_decay_per_double": 0.020,
+        "income_layer_allocations": {
+            "SCHD": 0.45,
+            "DGRO": 0.30,
+            "SGOV": 0.25,
+        },
+    },
+}
+
+
+def income_layer_default_config(profile: str) -> dict[str, object]:
+    return deepcopy(INCOME_LAYER_DEFAULT_CONFIGS[profile])
+
+
+__all__ = [
+    "INCOME_LAYER_DEFAULT_CONFIGS",
+    "INCOME_LAYER_RATIO_MODE",
+    "income_layer_default_config",
+]

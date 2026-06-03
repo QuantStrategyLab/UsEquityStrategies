@@ -10,7 +10,7 @@
 - For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
 - If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
 
-_更新日期：2026-05-26_
+_更新日期：2026-06-04_
 
 ## 结论
 
@@ -20,24 +20,41 @@ _更新日期：2026-05-26_
 
 | Profile | 模式 | 起点 | 平滑带 | 硬上限 | 默认收入篮子 |
 | --- | --- | ---: | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `250000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `250000` | `20%` | `95%` | `SCHD 25% / DGRO 15% / SGOV 55% / SPYI 4% / QQQI 1%` |
-| `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
-| `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
+| `tqqq_growth_income` | `log_total_drawdown_budget` | `250000` | `20%` | `55%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_total_drawdown_budget` | `150000` | `20%` | `95%` | `SCHD 15% / DGRO 10% / SGOV 70% / SPYI 4% / QQQI 1%` |
+| `global_etf_rotation` | `log_total_drawdown_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
+| `russell_1000_multi_factor_defensive` | `log_total_drawdown_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `mega_cap_leader_rotation_top50_balanced` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+
+`tech_communication_pullback_enhancement` 已从可运行暴露中移除；策略实现和 bundled config 仅作为离线研究归档保留，因此不再有当前收入层默认参数。
 
 启动门槛、平滑带和接近上限位置的图表见
 [`income_layer_activation_drawdown_2026-05-26.svg`](./income_layer_activation_drawdown_2026-05-26.svg)。
 
 ## 设计规则
 
-- 杠杆策略使用 `log_cap`：目标是让组合层回撤接近或不超过 SPY / QQQ 对照，同时尽量保留复利。
-- 非杠杆策略使用 `log_loss_budget`：目标是账户规模变大后的波动钝化，而不是显著改变策略本身。
+- 默认模式统一使用 `log_total_drawdown_budget`：先按账户规模给出目标总回撤预算，再用核心策略压力回撤和收入篮子压力回撤反推出收入层比例。
+- 收入层默认启用；需要关闭时设置 `income_layer_enabled = false`。
+- 杠杆策略的小资金压力预算约为 `45%`，随后随账户翻倍逐步收紧到约 `30%`，更大账户继续向 `25%` 附近收敛。
+- 非杠杆策略使用更温和的账户级预算曲线，避免收入层过早改写核心策略。
 - `income_layer_start_usd` 必须按策略单独配置。杠杆策略更早启动，非杠杆策略更晚启动。
 - `income_layer_activation_band_ratio` 用来解决门槛附近来回切换的问题。目标收入层比例在 `start` 到 `start * (1 + band)` 之间从 0 平滑放大到正常值。
 - `income_layer_max_ratio` 是组合层风险预算，不是收益最大化参数。上限提高通常降低回撤，但也会降低长期 CAGR。
 - 现有收入层采用 `max(current_income_layer_value, desired_income_layer_value)` 锁定已有收入资产，默认只增配，不主动减配。
+
+## 账户级预算参数设计
+
+`base_drawdown_budget` 默认等于该策略的核心压力回撤估计，因此刚跨过 `start` 时收入层目标比例仍从 0 连续起步；随后按 `drawdown_budget_decay_per_double * log2(nav / start)` 平滑收紧，并由 `min_drawdown_budget` 设置大账户下限。收入层比例由公式反推：
+
+`income_ratio = (core_stress_drawdown - account_budget) / (core_stress_drawdown - income_stress_drawdown)`
+
+| Profile | 设计角色 | 核心压力回撤 | 收入篮子压力回撤 | 账户预算曲线 | 收入层上限 | 设计理由 |
+| --- | --- | ---: | ---: | --- | ---: | --- |
+| `tqqq_growth_income` | 宽基杠杆增长 | `45%` | `8%` | `45%` 起，每翻倍降 `5%`，最低 `25%` | `55%` | 小资金允许接近核心波动；约 `500k` 附近预算收紧到 `40%`，约 `2M` 附近到 `30%`，但保留复利弹性。 |
+| `soxl_soxx_trend_income` | 半导体杠杆趋势 | `45%` | `6%` | `45%` 起，每翻倍降 `5%`，最低 `25%` | `95%` | SOXL 路径更尖锐，收入篮子更偏 SGOV，因此允许更高收入层上限来处理大账户压力预算。 |
+| `global_etf_rotation` | 防守型 ETF 轮动 | `30%` | `8%` | `30%` 起，每翻倍降 `1.5%`，最低 `26.7%` | `15%` | 核心本身已有 canary 和 BIL 防守，收入层只做大账户钝化；最低预算贴合 15% 收入层上限的可实现回撤。 |
+| `russell_1000_multi_factor_defensive` | 防守型多因子股票 | `30%` | `8%` | `30%` 起，每翻倍降 `1.5%`，最低 `25.6%` | `20%` | 个股组合比 Global ETF 更分散但仍有权益风险，上限略高，最低预算贴合 20% 收入层上限。 |
+| `mega_cap_leader_rotation_top50_balanced` | 高集中龙头轮动 | `35%` | `8%` | `35%` 起，每翻倍降 `2%`，最低 `28.25%` | `25%` | Top2/Top4 集中度高，预算曲线同科技增强，但上限略低，避免过度拖累强趋势。 |
 
 ## 杠杆策略实盘候选复核
 
@@ -52,7 +69,7 @@ _更新日期：2026-05-26_
 - TQQQ 额外使用 `1000000 USD` 最大回撤不超过约 `15%` 的约束，匹配“100 万最多亏 15 万”的账户约束。
 - 在通过约束的候选里按 CAGR 排序，若收益接近则优先保留更简单、更贴近当前生产路径的核心策略。
 
-最终固定：
+2026-05-26 当时固定的候选如下；2026-06-04 已切换到账户级 `log_total_drawdown_budget` 默认，当前默认以本文开头表格为准：
 
 | Strategy | Version | CAGR | Max drawdown | SPY windows | QQQ windows | Avg income ratio | End income ratio | Decision |
 | --- | --- | ---: | ---: | --- | --- | ---: | ---: | --- |
@@ -71,6 +88,8 @@ SOXL 核心 overlay 也做了窄候选复核：
 | `SOXX 10d vol >= 50%, SOXL -> SOXX` | `48.48%` | `-42.31%` | 更频繁降档，收益低于当前 manifest |
 
 因此 SOXL 本次只调整收入层，不改核心 `blend_gate_volatility_delever_*` 默认值。
+
+2026-06-04 使用 Nasdaq 真实历史和官方收益率代理做轻量复核后，SOXL 默认收入层进一步切到更早启动、更偏 SGOV 的 `start=150000, max=95%, log_factor=0.50` 版本；样本内 CAGR 约 `38.73%`、最大回撤约 `-9.28%`，仍通过 SPY 窗口回撤约束。
 
 ## 核心默认参数复核
 
@@ -112,7 +131,7 @@ SOXL 核心 overlay 也做了窄候选复核：
 - 小账户阶段不强行要求组合回撤不超过大盘。小账户的目标仍是增长层复利，收入层只在权益跨过门槛后逐步介入。
 - 资金达到 `1000000 USD` 后，收入层配置必须把 TQQQ 和 SOXL 的组合层回撤压到 SPY / QQQ 窗口对照以内。
 - TQQQ 从 `150000` 启动上移到 `250000`，能让小账户阶段少受收入层拖累；在 `1000000 USD` 校准下仍保持约 `-14.87%` 最大回撤。
-- SOXL 从 `150000 / 90% / current_soxl` 调整为 `250000 / 95% / balanced_income`，在 `1000000 USD` 校准下 CAGR 从约 `32.16%` 提升到 `36.14%`，最大回撤从约 `-7.70%` 扩到 `-9.04%`，仍明显低于 15% 亏损预算并通过 SPY / QQQ 回撤窗口。
+- SOXL 先从 `150000 / 90% / current_soxl` 调整为 `250000 / 95% / balanced_income`；2026-06-04 复核后改为 `150000 / 95% / SGOV-heavy`，用更高 SGOV 占比抵消更早启动带来的收益拖累。
 
 ## 预设方向
 

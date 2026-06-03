@@ -45,7 +45,7 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
-| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | research-only，不进入当前可配置 live profile。 |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | 已归档 research-only，不再是 catalog/entrypoint 可运行 profile。 |
 
 ## 如何接到执行平台
 

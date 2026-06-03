@@ -11,13 +11,14 @@ from us_equity_strategies.account_sizing import (
     get_min_recommended_equity_usd,
 )
 
-from tests.test_qqq_tech_enhancement import _feature_snapshot
+from tests.test_mega_cap_leader_rotation import _mega_snapshot
 
 
 def test_min_recommended_equity_is_profile_specific() -> None:
     assert get_min_recommended_equity_usd("tqqq_growth_income") == 500.0
     assert get_min_recommended_equity_usd("soxl_soxx_trend_income") == 1_000.0
-    assert get_min_recommended_equity_usd("qqq_tech_enhancement") == 10_000.0
+    assert get_min_recommended_equity_usd("qqq_tech_enhancement") is None
+    assert get_min_recommended_equity_usd("tech_communication_pullback_enhancement") is None
     assert get_min_recommended_equity_usd("mega_cap_leader_rotation_top50_balanced") == 10_000.0
     assert get_min_recommended_equity_usd("nasdaq_sp500_smart_dca") == 1_000.0
     assert get_min_recommended_equity_usd("russell_1000_multi_factor_defensive") == 30_000.0
@@ -26,7 +27,7 @@ def test_min_recommended_equity_is_profile_specific() -> None:
 
 def test_account_size_diagnostics_warn_below_recommended_equity() -> None:
     diagnostics = build_account_size_diagnostics(
-        "tech_communication_pullback_enhancement",
+        "mega_cap_leader_rotation_top50_balanced",
         1_000.0,
     )
 
@@ -71,7 +72,7 @@ def test_account_size_diagnostics_do_not_warn_at_recommended_equity() -> None:
 
 
 def test_entrypoint_appends_small_account_warning_to_signal_description() -> None:
-    entrypoint = get_strategy_entrypoint("tech_communication_pullback_enhancement")
+    entrypoint = get_strategy_entrypoint("mega_cap_leader_rotation_top50_balanced")
     portfolio = PortfolioSnapshot(
         as_of=pd.Timestamp("2026-04-01").to_pydatetime(),
         total_equity=1_000.0,
@@ -84,7 +85,7 @@ def test_entrypoint_appends_small_account_warning_to_signal_description() -> Non
     decision = entrypoint.evaluate(
         StrategyContext(
             as_of="2026-04-01",
-            market_data={"feature_snapshot": _feature_snapshot()},
+            market_data={"feature_snapshot": _mega_snapshot()},
             portfolio=portfolio,
             state={"current_holdings": set()},
         )

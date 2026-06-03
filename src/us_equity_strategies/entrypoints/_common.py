@@ -18,11 +18,11 @@ INCOME_LAYER_CONFIG_KEYS = {
     "income_layer_max_ratio",
     "income_layer_activation_band_ratio",
     "income_layer_ratio_mode",
-    "income_layer_log_growth_factor",
-    "income_layer_stress_drawdown_ratio",
-    "income_layer_base_loss_budget_ratio",
-    "income_layer_min_loss_budget_ratio",
-    "income_layer_loss_budget_decay_per_double",
+    "income_layer_core_stress_drawdown_ratio",
+    "income_layer_income_stress_drawdown_ratio",
+    "income_layer_base_drawdown_budget_ratio",
+    "income_layer_min_drawdown_budget_ratio",
+    "income_layer_drawdown_budget_decay_per_double",
     "income_layer_qqqi_weight",
     "income_layer_spyi_weight",
     "income_layer_allocations",
@@ -857,14 +857,26 @@ def apply_income_layer_to_weights(
             "income_layer_activation_band_ratio",
             0.0,
         ),
-        income_layer_ratio_mode=income_layer_config.get("income_layer_ratio_mode", "linear_cap"),
-        income_layer_log_growth_factor=income_layer_config.get("income_layer_log_growth_factor", 0.70),
-        income_layer_stress_drawdown_ratio=income_layer_config.get("income_layer_stress_drawdown_ratio", 0.30),
-        income_layer_base_loss_budget_ratio=income_layer_config.get("income_layer_base_loss_budget_ratio", 0.08),
-        income_layer_min_loss_budget_ratio=income_layer_config.get("income_layer_min_loss_budget_ratio", 0.06),
-        income_layer_loss_budget_decay_per_double=income_layer_config.get(
-            "income_layer_loss_budget_decay_per_double",
-            0.01,
+        income_layer_ratio_mode=income_layer_config.get("income_layer_ratio_mode", "log_total_drawdown_budget"),
+        income_layer_core_stress_drawdown_ratio=income_layer_config.get(
+            "income_layer_core_stress_drawdown_ratio",
+            0.40,
+        ),
+        income_layer_income_stress_drawdown_ratio=income_layer_config.get(
+            "income_layer_income_stress_drawdown_ratio",
+            0.08,
+        ),
+        income_layer_base_drawdown_budget_ratio=income_layer_config.get(
+            "income_layer_base_drawdown_budget_ratio",
+            0.30,
+        ),
+        income_layer_min_drawdown_budget_ratio=income_layer_config.get(
+            "income_layer_min_drawdown_budget_ratio",
+            0.15,
+        ),
+        income_layer_drawdown_budget_decay_per_double=income_layer_config.get(
+            "income_layer_drawdown_budget_decay_per_double",
+            0.05,
         ),
     )
     locked_ratio = min(1.0, plan.locked_value / total_equity)

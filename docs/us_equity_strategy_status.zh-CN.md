@@ -9,7 +9,7 @@
 - For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
 - If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
 
-_更新日期：2026-05-26_
+_更新日期：2026-06-04_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
 
@@ -19,7 +19,7 @@ _更新日期：2026-05-26_
 
 ## 当前可配置 profiles
 
-这 7 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
+这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
 
 | Profile | 中文定位 | 输入类型 | 特点 | 当前建议 |
 | --- | --- | --- | --- | --- |
@@ -27,34 +27,33 @@ _更新日期：2026-05-26_
 | `tqqq_growth_income` | TQQQ 增长收益 | 直接运行输入 | `QQQ` / `TQQQ` 双轮增长，默认 `45% / 45% / 8% BOXX / 2% cash`；`QQQM` 可作为低单价交易代理。 | 小账户最容易落地；不需要 snapshot artifact。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | 直接运行输入 | 以 `SOXX` 140 日趋势闸门控制 `SOXL` / `SOXX` / `BOXX`；默认 `SOXX` 10 日实际波动率 `>=55%` 时将 `SOXL` 转向 `SOXX`，并叠加收入层。 | 半导体高弹性直接输入策略；波动高于宽基。 |
 | `nasdaq_sp500_smart_dca` | 纳斯达克 / 标普智能定投 | 直接运行输入 | 只买不卖；用 `QQQ/SPY` 的 200 日均线距离、252 日回撤和 RSI 过热状态决定本期定投金额倍数，默认买入 `QQQM/SPLG`。 | 适合现金账户长期积累；建议月度窗口运行。 |
-| `tech_communication_pullback_enhancement` | 科技通信回调增强 | feature snapshot | 科技/通信个股月频选择，受控回调入场，保留 BOXX 缓冲。 | 需要月度 snapshot；适合先小比例或观察运行。 |
 | `russell_1000_multi_factor_defensive` | Russell 1000 多因子防守 | feature snapshot | Russell 1000 price-only 多因子，SPY 趋势 + breadth 防守，默认 24 股。 | 可切换但更适合大账户；长周期代理研究仍需补归档。 |
 | `mega_cap_leader_rotation_top50_balanced` | Top50 平衡龙头轮动 | feature snapshot | 固定 `50% Top2 cap50 + 50% Top4 cap25` 袖子混合，不默认趋势降仓。 | 当前保留的无杠杆龙头轮动路线；建议 paper 观察。 |
 
 ## 已移除的重复/较弱研究 profile 暴露
 
-按“如果比同类 runtime-enabled 策略表现差，就不要继续保留可运行入口”的口径，下面 3 条已经从 catalog、manifest、entrypoint、runtime adapter、snapshot publish 和平台 rollout 暴露中移除：
+按“如果比同类 runtime-enabled 策略表现差，就不要继续保留可运行入口”的口径，下面 4 条已经从 catalog、manifest、entrypoint、runtime adapter、snapshot publish 和平台 rollout 暴露中移除：
 
 | 已移除 profile | 移除原因 |
 | --- | --- |
 | `mega_cap_leader_rotation_dynamic_top20` | 同期 CAGR 21.51%、最大回撤 -23.14%；收益明显弱于 `mega_cap_leader_rotation_top50_balanced` 的 36.41%。 |
 | `mega_cap_leader_rotation_aggressive` | Top50 top3/cap35 CAGR 32.42%、最大回撤 -28.64%；仍弱于 Top50 balanced，且更集中。 |
 | `dynamic_mega_leveraged_pullback` | CAGR 30.96%、最大回撤 -34.80%；2x 产品和事件反弹路线更复杂，未优于当前保留路线。 |
+| `tech_communication_pullback_enhancement` | 行业限制在科技/通信，收益明显低于 `mega_cap_leader_rotation_top50_balanced`，最大回撤也没有改善；策略实现和 bundled config 仅作为离线研究归档保留。 |
 
 历史研究输出可以继续作为离线证据查看，但这些名字不再是有效 `STRATEGY_PROFILE`，也不再保留平台 replay adapter。
 
 ## 收入层默认启用口径
 
-除 `nasdaq_sp500_smart_dca` 这类只买不卖的现金定投 profile 外，保留的组合型 runtime profile 默认都启用收入层，且下游策略配置可以覆盖任意 `income_layer_*` 参数；需要关闭时设置 `income_layer_enabled = false`。杠杆策略使用 `log_cap`，目标是让组合层最大回撤不超过 SPY 的同时尽量保留复利；非杠杆策略使用更轻的 `log_loss_budget`，作为账户规模变大后的波动钝化器。`income_layer_activation_band_ratio` 会在 `start` 到 `start * (1 + band)` 之间把正常目标比例从 0 平滑放大到 1，避免门槛附近来回卡住。
+除 `nasdaq_sp500_smart_dca` 这类只买不卖的现金定投 profile 外，保留的组合型 runtime profile 默认都启用收入层，且下游策略配置可以覆盖任意 `income_layer_*` 参数；需要关闭时设置 `income_layer_enabled = false`。当前默认统一使用 `log_total_drawdown_budget`，先按账户规模给出目标总回撤预算，再用核心策略压力回撤和收入篮子压力回撤反推出收入层比例。`income_layer_activation_band_ratio` 会在 `start` 到 `start * (1 + band)` 之间把正常目标比例从 0 平滑放大到 1，避免门槛附近来回卡住。
 
 | Profile | 模式 | 起点 | 平滑带 | 硬上限 | 默认收入篮子 |
 | --- | --- | ---: | ---: | ---: | --- |
-| `tqqq_growth_income` | `log_cap` | `250000` | `20%` | `50%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
-| `soxl_soxx_trend_income` | `log_cap` | `250000` | `20%` | `95%` | `SCHD 25% / DGRO 15% / SGOV 55% / SPYI 4% / QQQI 1%` |
-| `global_etf_rotation` | `log_loss_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `log_loss_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `tech_communication_pullback_enhancement` | `log_loss_budget` | `250000` | `15%` | `30%` | `SCHD 40% / DGRO 25% / SGOV 20% / SPYI 10% / QQQI 5%` |
-| `mega_cap_leader_rotation_top50_balanced` | `log_loss_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 20% / SPYI 5%` |
+| `tqqq_growth_income` | `log_total_drawdown_budget` | `250000` | `20%` | `55%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
+| `soxl_soxx_trend_income` | `log_total_drawdown_budget` | `150000` | `20%` | `95%` | `SCHD 15% / DGRO 10% / SGOV 70% / SPYI 4% / QQQI 1%` |
+| `global_etf_rotation` | `log_total_drawdown_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
+| `russell_1000_multi_factor_defensive` | `log_total_drawdown_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `mega_cap_leader_rotation_top50_balanced` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 
 ## 已归档回测摘要
 
