@@ -1,4 +1,6 @@
+import json
 import unittest
+from importlib import resources
 
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
@@ -195,6 +197,13 @@ class CatalogTest(unittest.TestCase):
             FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(metadata_map[QQQ_TECH_ENHANCEMENT_PROFILE].status, "research_only")
+        with (
+            resources.files("us_equity_strategies")
+            .joinpath("configs", "tech_communication_pullback_enhancement.json")
+            .open(encoding="utf-8")
+        ) as handle:
+            tech_config = json.load(handle)
+        self.assertEqual(tech_config["status"], "research_only")
         self.assertEqual(
             metadata_map[GLOBAL_ETF_ROTATION_PROFILE].status,
             "runtime_enabled",
