@@ -2,62 +2,92 @@
 
 [Chinese README](README.zh-CN.md)
 
-> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+> Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
 
-## What this project does
+## What this repository is
 
-UsEquityStrategies is a **Strategy package** in the QuantStrategyLab ecosystem. It contains reusable US equity strategy implementations and execution metadata shared by QuantStrategyLab platforms, including ETF rotation and income-oriented allocation modules.
+UsEquityStrategies is the QuantStrategyLab US equity strategy package. It provides reusable strategy implementations and runtime metadata for QuantStrategyLab US equity platforms.
 
-## Who this is for
+It is one layer of a multi-repository system:
 
-- Engineers and researchers who want to inspect, reproduce, or extend this part of the QuantStrategyLab stack.
-- Operators who need a clear entry point before reading the deeper runbooks or workflow files.
-- Reviewers who need to understand the repository purpose, safety boundary, and evidence requirements before enabling automation.
+- **Strategy packages**: hold reusable strategy code, metadata, and runtime entrypoints.
+- **Snapshot pipelines**: produce feature snapshots, rankings, backtests, and release evidence.
+- **Platform runtimes**: connect strategies to brokers, dry-run checks, notifications, and live deployment controls.
+- **Shared infrastructure**: keeps contracts, settings, adapters, plugins, and audit workflows reusable across repositories.
 
-## Current status
+This repository owns strategy code and metadata. It does not hold broker credentials, submit orders by itself, or replace the snapshot/backtest evidence required before a profile is enabled for live runtime settings.
 
-Live-facing strategy package. Any live profile should be backed by recent short, medium, and long-window validation.
+## Strategy profiles
+
+### Direct runtime strategies
+
+These profiles can run from market history, portfolio snapshots, or other runtime inputs without a separate feature-snapshot build step.
+
+| Profile | Name | Notes |
+| --- | --- | --- |
+| `global_etf_rotation` | Global ETF Rotation | runtime-enabled ETF rotation using market history. |
+| `tqqq_growth_income` | TQQQ Growth Income | runtime-enabled QQQ/TQQQ dual-drive profile with defensive and income sleeves. |
+| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | runtime-enabled semiconductor ETF trend profile. |
+| `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | runtime-enabled buy-only DCA profile for broad US equity ETFs. |
+
+### Snapshot-backed strategies
+
+These profiles depend on artifacts produced by `UsEquitySnapshotPipelines` before downstream platforms should use them.
+
+| Profile | Name | Notes |
+| --- | --- | --- |
+| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | runtime-enabled feature-snapshot stock selector. |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | runtime-enabled feature-snapshot mega-cap leader rotation. |
+
+### Research-only candidates
+
+Research-only profiles may stay in code for reproducibility and future review, but they should not appear in current configurable live profiles.
+
+| Profile | Name | Notes |
+| --- | --- | --- |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | research-only; kept out of current configurable live profiles. |
+
+## How this connects to execution
+
+Execution platforms consume this package through strategy loaders and runtime metadata. Current downstream platforms: CharlesSchwabPlatform, InteractiveBrokersPlatform, LongBridgePlatform, and FirstradePlatform.
+
+Use the platform repositories for broker credentials, dry-run/live switches, order submission, and deployment settings.
+
+## Evidence and live enablement
+
+Use this README as a map of the project, not as live performance data. Before enabling or changing a live profile, rerun the relevant snapshot/backtest pipeline and review short, medium, and long windows: return, max drawdown, benchmark-relative return, turnover, data freshness, and artifact version. If evidence is stale, incomplete, or the profile is marked research-only, keep it out of live runtime settings.
 
 ## Repository layout
 
-- `src/`: main library and runtime code.
-- `tests/`: unit and contract tests.
-- `docs/`: detailed design notes, runbooks, and evidence docs.
-- `.github/workflows/`: CI, scheduled jobs, and deployment workflows.
+- `src/`: library and runtime code.
+- `tests/`: unit, contract, and regression tests.
+- `docs/`: runbooks, design notes, evidence, and integration contracts.
+- `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
 
 ## Quick start
-
-From a fresh clone:
 
 ```bash
 python -m pip install -e .
 python -m pytest -q
 ```
 
-If a command requires credentials, run it only after reading the relevant workflow or runbook and configuring secrets outside Git.
+## Useful docs
 
-## Deployment and operation
+- [`docs/tqqq_ai_extensions.md`](docs/tqqq_ai_extensions.md)
+- [`docs/us_equity_contract_gap_matrix.md`](docs/us_equity_contract_gap_matrix.md)
+- [`docs/us_equity_notification_i18n_contract.md`](docs/us_equity_notification_i18n_contract.md)
+- [`docs/us_equity_notification_i18n_contract.zh-CN.md`](docs/us_equity_notification_i18n_contract.zh-CN.md)
+- [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
+- [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)
+- [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)
+- [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
 
-Install this package into a platform repository or point the platform strategy loader at this repository. Keep execution credentials in the platform repository, not here.
+## Safety and contribution notes
 
-Prefer manual or dry-run execution first. Enable schedules or live execution only after logs, artifacts, permissions, and rollback steps are reviewed.
-
-## Strategy performance and evidence
-
-Strategy performance must be judged from reproducible backtests and snapshot artifacts, not from README claims. For live use, compare candidate return, max drawdown, and benchmark-relative performance across short, medium, and long periods; strategies that fail the drawdown or benchmark gate should remain research-only.
-
-README files are intentionally not a source of dated performance promises. Re-run the relevant tests, backtests, or pipeline jobs before relying on any result.
-
-## Safety notes
-
-- Never commit API keys, broker credentials, OAuth tokens, cookies, or account identifiers.
-- Run new strategies and platform changes in dry-run or paper mode before any live execution.
-- Review generated orders, artifacts, and logs manually before enabling schedules.
-
-## Contributing
-
-Keep changes small, reproducible, and covered by the narrowest useful tests. For strategy-facing changes, include the evidence artifact or command used to validate behavior.
+- Keep secrets, account identifiers, tokens, cookies, and broker credentials out of Git and logs.
+- Prefer small, reviewable changes with tests or reproducible evidence.
+- For strategy changes, include the command or artifact used to validate behavior.
 
 ## License
 
-See [LICENSE](LICENSE) if present in this repository.
+See [LICENSE](LICENSE).

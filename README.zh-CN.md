@@ -2,62 +2,92 @@
 
 [English README](README.md)
 
-> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+> 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
 
-## 这个项目做什么
+## 这个仓库是什么
 
-UsEquityStrategies 是 QuantStrategyLab 体系中的**策略包**。提供 QuantStrategyLab 平台共用的美股策略实现和执行元数据，包括 ETF 轮动和收益型配置模块。
+UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLab 美股执行平台提供可复用策略实现和运行元数据。
 
-## 适合谁使用
+它属于一套多仓库量化系统中的一层：
 
-- 希望阅读、复现或扩展 QuantStrategyLab 相关模块的工程师和研究人员。
-- 在阅读详细 runbook 或 workflow 前，需要先理解项目入口的运维人员。
-- 在启用自动化前，需要确认项目职责、安全边界和证据要求的 reviewer。
+- **策略包**：保存可复用策略代码、元数据和运行入口。
+- **Snapshot 流水线**：生成 feature snapshot、ranking、回测和发布证据。
+- **执行平台**：把策略接到券商、dry-run 检查、通知和 live 部署控制。
+- **共享基础设施**：沉淀契约、配置、适配器、插件和审计 workflow，供多仓复用。
 
-## 当前状态
+本仓库负责策略代码和元数据，不保存券商凭据，不直接提交订单，也不替代 live enable 前需要看的 snapshot 和回测证据。
 
-面向 live 的策略包。任何 live profile 都应有近期短/中/长周期验证支持。
+## 策略 profile
+
+### 普通 runtime 策略
+
+这些 profile 可以基于 market history、portfolio snapshot 或其他运行时输入执行，不需要单独先生成 feature snapshot。
+
+| Profile | 名称 | 说明 |
+| --- | --- | --- |
+| `global_etf_rotation` | Global ETF Rotation | 使用 market history 的 runtime-enabled ETF 轮动。 |
+| `tqqq_growth_income` | TQQQ Growth Income | QQQ/TQQQ dual-drive，带防守和 income sleeve。 |
+| `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | 半导体 ETF 趋势策略。 |
+| `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | 面向宽基美股 ETF 的买入型 DCA profile。 |
+
+### Snapshot-backed 策略
+
+这些 profile 依赖 `UsEquitySnapshotPipelines` 生成的 artifact；下游平台使用前，应先确认对应产物已经验证和提升。
+
+| Profile | 名称 | 说明 |
+| --- | --- | --- |
+| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | 基于 feature snapshot 的 runtime-enabled 美股大盘股选择器。 |
+| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | 基于 feature snapshot 的 mega-cap leader rotation。 |
+
+### 研究侧候选
+
+研究侧 profile 可以保留在代码里用于复现和后续评审，但不应该出现在当前可配置 live profile 中。
+
+| Profile | 名称 | 说明 |
+| --- | --- | --- |
+| `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | research-only，不进入当前可配置 live profile。 |
+
+## 如何接到执行平台
+
+执行平台通过 strategy loader 和 runtime metadata 消费本策略包。当前下游平台：CharlesSchwabPlatform、InteractiveBrokersPlatform、LongBridgePlatform 和 FirstradePlatform。
+
+券商凭据、dry-run/live 开关、订单提交和部署配置都应放在执行平台仓库里，而不是放在策略仓库里。
+
+## 策略证据和 live enablement
+
+README 只作为项目地图，不替代最新表现数据。启用或调整 live profile 前，需要重新运行相关 snapshot/backtest pipeline，并分别看短、中、长周期的收益、最大回撤、相对基准收益、换手、数据新鲜度和 artifact 版本。证据过期、不完整，或者 profile 仍标记为 research-only，就不要放进 live runtime settings。
 
 ## 仓库结构
 
-- `src/`：主要库代码和运行时代码。
-- `tests/`：单元测试和契约测试。
-- `docs/`：详细设计说明、运行手册和证据文档。
-- `.github/workflows/`：CI、定时任务和部署 workflow。
+- `src/`：库代码和运行时代码。
+- `tests/`：单元测试、契约测试和回归测试。
+- `docs/`：运行手册、设计说明、证据和集成契约。
+- `.github/workflows/`：CI、定时任务、发布或部署 workflow。
 
 ## 快速开始
-
-从全新 clone 开始：
 
 ```bash
 python -m pip install -e .
 python -m pytest -q
 ```
 
-如果命令需要凭据，请先阅读相关 workflow 或 runbook，并把密钥配置在 Git 之外。
+## 延伸文档
 
-## 部署和运行
+- [`docs/tqqq_ai_extensions.md`](docs/tqqq_ai_extensions.md)
+- [`docs/us_equity_contract_gap_matrix.md`](docs/us_equity_contract_gap_matrix.md)
+- [`docs/us_equity_notification_i18n_contract.md`](docs/us_equity_notification_i18n_contract.md)
+- [`docs/us_equity_notification_i18n_contract.zh-CN.md`](docs/us_equity_notification_i18n_contract.zh-CN.md)
+- [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
+- [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)
+- [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)
+- [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
 
-在执行平台仓库中安装本包，或让平台策略加载器指向本仓库。执行凭据应留在平台仓库或密钥系统中，不应放在这里。
+## 安全和贡献说明
 
-建议先手工运行或 dry-run。只有在日志、产物、权限和回滚步骤都检查过之后，才启用定时任务或 live 执行。
-
-## 策略表现与证据边界
-
-策略表现应以可复现回测和快照产物为准，不能只看 README 描述。live 使用前需要在短/中/长周期比较收益、最大回撤和相对基准表现；未通过回撤或基准门槛的策略应保留在研究状态。
-
-README 不应该承诺固定收益或过期指标。实际使用前，请重新运行对应测试、回测或流水线任务。
-
-## 安全注意事项
-
-- 不要把 API key、券商凭据、OAuth token、Cookie 或账户标识提交到 Git。
-- 新策略或平台变更在 live 前必须先跑 dry-run 或 paper 流程。
-- 启用定时任务前，需要人工检查生成的订单、产物和日志。
-
-## 参与贡献
-
-请保持改动小、可复现，并用最小必要测试覆盖。涉及策略的改动，需要附上验证行为的证据产物或命令。
+- 不要把密钥、账户标识、token、Cookie 或券商凭据提交到 Git，也不要写进日志。
+- 改动尽量小，并配套测试或可复现证据。
+- 涉及策略行为的改动，请附上验证命令或产物路径。
 
 ## 许可证
 
-如仓库包含 [LICENSE](LICENSE)，请以该文件为准。
+详见 [LICENSE](LICENSE)。
