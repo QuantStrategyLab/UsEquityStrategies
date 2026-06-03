@@ -511,7 +511,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_tech_communication_stocks",
         benchmark="QQQ",
         role="parallel_cash_buffer_branch",
-        status="runtime_enabled",
+        status="research_only",
     ),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: StrategyMetadata(
         canonical_profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
