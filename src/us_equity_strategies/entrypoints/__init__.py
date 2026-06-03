@@ -13,6 +13,10 @@ from us_equity_strategies.account_sizing import (
     append_account_size_warning,
     build_account_size_diagnostics_from_context,
 )
+from us_equity_strategies.ai_extensions import (
+    AI_EXTENSION_SIGNAL_STATE_KEY,
+    build_ai_extension_diagnostics,
+)
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
@@ -321,6 +325,7 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config.pop("managed_symbols", None)
     config.pop("benchmark_symbol", None)
     config.pop("signal_effective_after_trading_days", None)
+    ai_extension_config = config.pop("ai_extensions", None)
     pop_execution_only_config(config)
     translator = config.pop("translator", default_translator)
     signal_text_fn = config.pop("signal_text_fn", default_signal_text_fn)
@@ -416,6 +421,14 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         "total_equity": plan["total_equity"],
         **account_size_diagnostics,
         **option_overlay_diagnostics,
+        "ai_extensions": build_ai_extension_diagnostics(
+            ai_extension_config,
+            signals=(
+                ctx.state.get(AI_EXTENSION_SIGNAL_STATE_KEY)
+                or ctx.artifacts.get(AI_EXTENSION_SIGNAL_STATE_KEY)
+                or ctx.market_data.get(AI_EXTENSION_SIGNAL_STATE_KEY)
+            ),
+        ),
         "execution_annotations": {
             "trade_threshold_value": plan["threshold"],
             "raw_buying_power": plan["real_buying_power"],

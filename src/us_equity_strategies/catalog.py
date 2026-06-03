@@ -16,6 +16,8 @@ from quant_platform_kit.common.strategies import (
     normalize_profile_name as qpk_normalize_profile_name,
 )
 
+from .ai_extensions import build_default_ai_extension_config
+
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 # Legacy alias retained for lookups and docs; runtime registry is canonical rotation.
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
@@ -143,6 +145,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "dual_drive_macro_risk_governor_enabled": True,
         "dual_drive_crisis_defense_enabled": True,
         "market_regime_control_enabled": True,
+        "ai_extensions": build_default_ai_extension_config(),
     },
     SOXL_SOXX_TREND_INCOME_PROFILE: {
         "managed_symbols": ("SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),

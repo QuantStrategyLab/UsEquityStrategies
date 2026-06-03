@@ -244,6 +244,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                     "benchmark_symbol",
                     "managed_symbols",
                     "execution_cash_reserve_ratio",
+                    "ai_extensions",
                     *OPTION_OVERLAY_CONFIG_KEYS,
                 }
             },
@@ -284,6 +285,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(decision.diagnostics["option_growth_overlay_start_usd"], 250000.0)
         self.assertIs(decision.diagnostics["option_growth_overlay_active"], False)
         self.assertEqual(decision.diagnostics["option_growth_overlay_skip_reason"], "below_start_usd")
+        self.assertFalse(decision.diagnostics["ai_extensions"]["enabled"])
         self.assertEqual(decision.diagnostics["notification_context"]["benchmark"]["symbol"], "QQQ")
         self.assertEqual(
             decision.diagnostics["execution_annotations"]["notification_context"]["signal"]["state"],
@@ -363,6 +365,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(config["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
         self.assertEqual(config["option_growth_overlay_start_usd"], 250000.0)
         self.assertEqual(config["option_growth_overlay_nav_budget_ratio"], 0.03)
+        self.assertFalse(config["ai_extensions"]["enabled"])
+        self.assertFalse(config["ai_extensions"]["modules"]["taco_panic_rebound"]["enabled"])
+        self.assertFalse(config["ai_extensions"]["modules"]["crisis_regime_guard"]["enabled"])
         self.assertIn("QQQ", config["managed_symbols"])
 
     def test_weight_mode_profiles_default_to_income_layer_config(self) -> None:

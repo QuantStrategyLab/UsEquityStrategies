@@ -279,6 +279,21 @@ The backtest output directory still includes `summary.csv`, `portfolio_returns.c
   sleeve into the unlevered growth sleeve first, preserving risk exposure while
   reducing leverage; the `risk_off` route can move the risk sleeve to BOXX.
 
+**Optional AI extensions**
+- AI extensions are off by default: `ai_extensions.enabled = false`.
+- The strategy core only declares the extension contract and diagnostics; it
+  does not call model APIs, read secrets, fetch news, or place orders.
+- The first extension contract supports `taco_panic_rebound` and
+  `crisis_regime_guard` as separate modules.
+- `taco_panic_rebound` is an optional TQQQ opportunity overlay funded only from
+  BOXX/cash.
+- `crisis_regime_guard` is a separate defensive risk module and must stay
+  paper-only until its crisis-regime backtest is accepted.
+- V1 TACO does not use VIX or macro indicators as hard vetoes or position-size
+  reducers.
+- See `docs/tqqq_ai_extensions.md` for the module contract, paper/live modes,
+  and funding rules.
+
 **Default runtime profile settings**
 - `ATTACK_ALLOCATION_MODE = fixed_qqq_tqqq_pullback`
 - `DUAL_DRIVE_QQQ_WEIGHT = 0.45`, `DUAL_DRIVE_TQQQ_WEIGHT = 0.45`
@@ -649,6 +664,15 @@ PYTHONPATH=src:../UsEquityStrategies/src:../QuantPlatformKit/src python scripts/
 - `CASH_RESERVE_RATIO = 0.02`
 - `EXECUTION_CASH_RESERVE_RATIO = 0.0`
 - `REBALANCE_THRESHOLD_RATIO = 0.01`
+
+**可选 AI 扩展**
+- AI 扩展默认关闭：`ai_extensions.enabled = false`。
+- 策略核心只声明扩展合同和 diagnostics；不调用模型 API、不读取密钥、不抓取新闻、也不下单。
+- 第一版扩展合同支持 `taco_panic_rebound` 和 `crisis_regime_guard` 两个独立模块。
+- `taco_panic_rebound` 是 TQQQ 机会型小仓 overlay，只能从 BOXX/现金里拿资金。
+- `crisis_regime_guard` 是独立防守模块；在危机识别回测通过前只能 paper，不直接影响实盘仓位。
+- V1 TACO 不用 VIX 或宏观指标做硬过滤，也不因为 VIX 高自动减仓。
+- 模块合同、paper/live 模式和分仓规则见 `docs/tqqq_ai_extensions.md`。
 
 ### soxl_soxx_trend_income
 

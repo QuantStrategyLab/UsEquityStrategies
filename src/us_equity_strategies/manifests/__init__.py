@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from quant_platform_kit.strategy_contracts import StrategyManifest
 
+from us_equity_strategies.ai_extensions import build_default_ai_extension_config
+
 TECH_COMMUNICATION_PULLBACK_ENHANCEMENT_PROFILE = "tech_communication_pullback_enhancement"
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
@@ -154,6 +156,7 @@ tqqq_growth_income_manifest = _manifest(
         "dual_drive_volatility_delever_taco_veto_enabled": True,
         "dual_drive_crisis_defense_enabled": True,
         "market_regime_control_enabled": True,
+        "ai_extensions": build_default_ai_extension_config(),
     },
 )
 
