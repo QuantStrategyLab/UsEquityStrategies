@@ -1,14 +1,6 @@
 # 美股策略通知、i18n 与日志契约
 
-
-## English summary
-
-- Full English version: [`us_equity_notification_i18n_contract.md`](us_equity_notification_i18n_contract.md). This summary keeps an English entry point in the Chinese file.
-- Purpose: this document covers `美股策略通知、i18n 与日志契约` for `UsEquityStrategies`.
-- Main topics: `策略输出位置`, `i18n 规则`, `已渲染展示字段`, `日志格式`, `侧车插件通知文案`.
-- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
-- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
-- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+[English](us_equity_notification_i18n_contract.md)
 
 _更新日期：2026-05-29_
 
