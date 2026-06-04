@@ -1,14 +1,5 @@
 # US equity runtime archive
 
-
-## English summary
-
-- Purpose: this document covers `US equity runtime archive` for `UsEquityStrategies`.
-- Main topics: `归档总览`, `已删除的旧研究`, `归档口径`.
-- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
-- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
-- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
-
 _更新日期：2026-06-03_
 
 这份索引只记录当前 `runtime_enabled` 的美股 profile 及其可复查证据。  

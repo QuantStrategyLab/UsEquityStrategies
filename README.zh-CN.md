@@ -13,7 +13,7 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 - **策略包**：保存可复用策略代码、元数据和运行入口。
 - **Snapshot 流水线**：生成 feature snapshot、ranking、回测和发布证据。
 - **执行平台**：把策略接到券商、dry-run 检查、通知和 live 部署控制。
-- **共享基础设施**：沉淀契约、配置、适配器、插件和审计 workflow，供多仓复用。
+- **共享基础设施**：维护契约、配置、适配器、插件和审计 workflow，供多仓复用。
 
 本仓库负责策略代码和元数据，不保存券商凭据，不直接提交订单，也不替代 live enable 前需要看的 snapshot 和回测证据。
 
