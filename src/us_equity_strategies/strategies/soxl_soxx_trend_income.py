@@ -576,13 +576,13 @@ def build_rebalance_plan(
     if overlay_trigger_count > 0:
         status_context = {
             "code": "market_status_blend_gate_overlay_capped",
-            "fallback": f"🧯 HEAT-CAP ({active_risk_asset})",
+            "fallback": f"🧯 RISK-CAP ({active_risk_asset})",
             "params": {"asset": active_risk_asset},
         }
         signal_context = {
             "code": "signal_blend_gate_overlay_capped",
             "fallback": (
-                f"{trend_symbol} above {trend_ma_window}d gated entry, but overlay cap "
+                f"{trend_symbol} above {trend_ma_window}d gated entry, but risk cap "
                 f"({', '.join(overlay_trigger_reasons)}) reduces to {allocation_text}"
             ),
             "params": {
