@@ -267,7 +267,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         target_values = {position.symbol: position.target_value for position in decision.positions}
         self.assertEqual(target_values, legacy_plan["target_values"])
         strategy_equity = snapshot.total_equity - 3200.0
-        self.assertAlmostEqual(target_values["QQQ"], strategy_equity * 0.45)
+        self.assertAlmostEqual(target_values["QQQM"], strategy_equity * 0.45)
         self.assertAlmostEqual(target_values["TQQQ"], strategy_equity * 0.45)
         self.assertAlmostEqual(target_values["BOXX"], strategy_equity * 0.08)
         self.assertEqual(target_values["SCHD"], 0.0)
@@ -322,16 +322,16 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(
             entrypoint.manifest.default_config["managed_symbols"],
-            ("TQQQ", "QQQ", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
+            ("TQQQ", "QQQM", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
         )
 
-    def test_tqqq_growth_income_defaults_to_fixed_dual_drive_live_profile(self) -> None:
+    def test_tqqq_growth_income_defaults_to_dynamic_dual_drive_live_profile(self) -> None:
         config = get_strategy_entrypoint("tqqq_growth_income").manifest.default_config
 
         self.assertEqual(config["attack_allocation_mode"], "fixed_qqq_tqqq_pullback")
         self.assertEqual(config["dual_drive_qqq_weight"], 0.45)
         self.assertEqual(config["dual_drive_tqqq_weight"], 0.45)
-        self.assertEqual(config["dual_drive_unlevered_symbol"], "QQQ")
+        self.assertEqual(config["dual_drive_unlevered_symbol"], "QQQM")
         self.assertEqual(config["dual_drive_cash_reserve_ratio"], 0.02)
         self.assertEqual(config["dual_drive_pullback_rebound_window"], 20)
         self.assertEqual(config["dual_drive_pullback_rebound_threshold_mode"], "volatility_scaled")
@@ -340,6 +340,13 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIs(config["dual_drive_volatility_delever_enabled"], True)
         self.assertEqual(config["dual_drive_volatility_delever_window"], 5)
         self.assertEqual(config["dual_drive_volatility_delever_threshold"], 0.28)
+        self.assertEqual(config["dual_drive_volatility_delever_exit_threshold"], 0.28)
+        self.assertEqual(config["dual_drive_volatility_delever_threshold_mode"], "rolling_percentile")
+        self.assertEqual(config["dual_drive_volatility_delever_dynamic_lookback"], 252)
+        self.assertEqual(config["dual_drive_volatility_delever_dynamic_percentile"], 0.90)
+        self.assertEqual(config["dual_drive_volatility_delever_dynamic_min_periods"], 126)
+        self.assertEqual(config["dual_drive_volatility_delever_dynamic_floor"], 0.24)
+        self.assertEqual(config["dual_drive_volatility_delever_dynamic_cap"], 0.36)
         self.assertIs(config["dual_drive_volatility_delever_taco_veto_enabled"], True)
         self.assertIs(config["market_regime_control_enabled"], True)
         self.assertEqual(config["cash_reserve_ratio"], 0.02)
@@ -366,7 +373,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertFalse(config["ai_extensions"]["enabled"])
         self.assertFalse(config["ai_extensions"]["modules"]["taco_panic_rebound"]["enabled"])
         self.assertFalse(config["ai_extensions"]["modules"]["crisis_regime_guard"]["enabled"])
-        self.assertIn("QQQ", config["managed_symbols"])
+        self.assertIn("QQQM", config["managed_symbols"])
+        self.assertNotIn("QQQ", config["managed_symbols"])
 
     def test_weight_mode_profiles_default_to_income_layer_config(self) -> None:
         expected = {
@@ -441,7 +449,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             positions=(
                 Position(symbol="TQQQ", quantity=10, market_value=8000.0),
                 Position(symbol="BOXX", quantity=20, market_value=4000.0),
-                Position(symbol="QQQ", quantity=0, market_value=0.0),
+                Position(symbol="QQQM", quantity=0, market_value=0.0),
                 Position(symbol="SPYI", quantity=30, market_value=1500.0),
                 Position(symbol="QQQI", quantity=30, market_value=1700.0),
             ),
@@ -465,8 +473,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
 
         target_values = {position.symbol: position.target_value for position in decision.positions}
-        self.assertIn("QQQ", target_values)
-        self.assertGreater(target_values["QQQ"], 0.0)
+        self.assertIn("QQQM", target_values)
+        self.assertGreater(target_values["QQQM"], 0.0)
 
     def test_tqqq_growth_income_entrypoint_accepts_qqqm_unlevered_sleeve(self) -> None:
         entrypoint = get_strategy_entrypoint("tqqq_growth_income")

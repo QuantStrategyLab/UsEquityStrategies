@@ -53,19 +53,19 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             dual_drive_cash_reserve_ratio=0.10,
         )
 
-        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX"))
-        self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQ"))
-        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), ("SPYI", "QQQI")))
+        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQM", "SPYI", "QQQI", "BOXX"))
+        self.assertEqual(plan["buy_order_symbols"], ("SPYI", "QQQI", "TQQQ", "QQQM"))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQM", "BOXX"), ("SPYI", "QQQI")))
         self.assertEqual(plan["account_hash"], "acct-1")
         self.assertEqual(plan["allocation_mode"], "fixed_qqq_tqqq_pullback")
         self.assertAlmostEqual(plan["target_values"]["TQQQ"], 150000.0 * 0.45)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 150000.0 * 0.45)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 150000.0 * 0.45)
         self.assertAlmostEqual(plan["reserved"], 150000.0 * 0.10)
         self.assertEqual(plan["real_buying_power"], 20000.0)
         self.assertEqual(plan["investable_buying_power"], 5000.0)
         self.assertEqual(plan["target_values"]["BOXX"], 0.0)
         self.assertEqual(plan["exit_line"], plan["ma200"])
-        self.assertIn("QQQ: $", plan["dashboard"])
+        self.assertIn("QQQM: $", plan["dashboard"])
         self.assertIn("buying_power: $20,000.00", plan["dashboard"])
         self.assertIn("Reserved Cash: $15,000.00", plan["dashboard"])
         self.assertIn("Investable Cash: $5,000.00", plan["dashboard"])
@@ -75,7 +75,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["notification_context"]["benchmark"]["symbol"], "QQQ")
         self.assertEqual(
             plan["notification_context"]["portfolio"]["holdings_order"],
-            ("TQQQ", "QQQ", "BOXX", "SPYI", "QQQI"),
+            ("TQQQ", "QQQM", "BOXX", "SPYI", "QQQI"),
         )
         self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 20000.0)
         self.assertEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 15000.0)
@@ -147,7 +147,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
 
         self.assertIsNone(plan["account_hash"])
-        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQ", "SPYI", "QQQI", "BOXX"))
+        self.assertEqual(plan["sell_order_symbols"], ("TQQQ", "QQQM", "SPYI", "QQQI", "BOXX"))
         self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 20000.0)
 
     def test_tqqq_growth_income_can_trade_qqqm_while_using_qqq_signal(self):
@@ -240,13 +240,13 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
 
         self.assertEqual(plan["income_layer_symbols"], income_symbols)
-        self.assertEqual(plan["strategy_symbols"], ["TQQQ", "QQQ", "BOXX", *income_symbols])
-        self.assertEqual(plan["buy_order_symbols"], (*income_symbols, "TQQQ", "QQQ"))
-        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQ", "BOXX"), income_symbols))
+        self.assertEqual(plan["strategy_symbols"], ["TQQQ", "QQQM", "BOXX", *income_symbols])
+        self.assertEqual(plan["buy_order_symbols"], (*income_symbols, "TQQQ", "QQQM"))
+        self.assertEqual(plan["portfolio_rows"], (("TQQQ", "QQQM", "BOXX"), income_symbols))
         self.assertAlmostEqual(plan["income_layer_ratio"], 0.0790489865839401)
         self.assertAlmostEqual(plan["income_layer_value"], 17786.021981386522)
         self.assertAlmostEqual(plan["target_values"]["TQQQ"], 93246.29010837656)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 93246.29010837656)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 93246.29010837656)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 16577.118241489167)
         self.assertAlmostEqual(plan["target_values"]["SCHD"], 7114.408792554609)
         self.assertAlmostEqual(plan["target_values"]["DGRO"], 3557.2043962773044)
@@ -304,13 +304,13 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
         flat_plan = build_tqqq_plan(qqq_history, flat_snapshot, **common_kwargs)
         self.assertEqual(flat_plan["target_values"]["TQQQ"], 0.0)
-        self.assertEqual(flat_plan["target_values"]["QQQ"], 0.0)
+        self.assertEqual(flat_plan["target_values"]["QQQM"], 0.0)
         self.assertAlmostEqual(flat_plan["target_values"]["BOXX"], 100000.0 * 0.98)
 
         active_snapshot = SimpleNamespace(
             positions=[
                 SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=100),
-                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQM", market_value=45000.0, quantity=100),
                 SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
             ],
             total_equity=100000.0,
@@ -319,7 +319,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
         active_plan = build_tqqq_plan(qqq_history, active_snapshot, **common_kwargs)
         self.assertAlmostEqual(active_plan["target_values"]["TQQQ"], 100000.0 * 0.45)
-        self.assertAlmostEqual(active_plan["target_values"]["QQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(active_plan["target_values"]["QQQM"], 100000.0 * 0.45)
         self.assertAlmostEqual(active_plan["target_values"]["BOXX"], 100000.0 * 0.08)
         self.assertAlmostEqual(active_plan["reserved"], 100000.0 * 0.02)
 
@@ -383,7 +383,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             **common_kwargs,
         )
         self.assertEqual(weak_rebound_plan["target_values"]["TQQQ"], 0.0)
-        self.assertEqual(weak_rebound_plan["target_values"]["QQQ"], 0.0)
+        self.assertEqual(weak_rebound_plan["target_values"]["QQQM"], 0.0)
         self.assertEqual(weak_rebound_plan["pullback_rebound_threshold_mode"], "volatility_scaled")
         self.assertGreater(
             weak_rebound_plan["pullback_rebound_threshold"],
@@ -396,7 +396,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             **common_kwargs,
         )
         self.assertAlmostEqual(strong_rebound_plan["target_values"]["TQQQ"], 100000.0 * 0.45)
-        self.assertAlmostEqual(strong_rebound_plan["target_values"]["QQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(strong_rebound_plan["target_values"]["QQQM"], 100000.0 * 0.45)
         self.assertLess(
             strong_rebound_plan["pullback_rebound_threshold"],
             strong_rebound_plan["pullback_rebound"],
@@ -440,11 +440,123 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertTrue(plan["dual_drive_volatility_delever_applied"])
         self.assertFalse(plan["dual_drive_volatility_delever_vetoed"])
         self.assertGreater(plan["dual_drive_volatility_delever_metric"], 0.10)
-        self.assertEqual(plan["dual_drive_volatility_delever_redirect_symbol"], "QQQ")
+        self.assertTrue(plan["dual_drive_volatility_delever_entry_triggered"])
+        self.assertFalse(plan["dual_drive_volatility_delever_hysteresis_triggered"])
+        self.assertEqual(plan["dual_drive_volatility_delever_trigger_reason"], "entry_threshold")
+        self.assertEqual(plan["dual_drive_volatility_delever_redirect_symbol"], "QQQM")
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.90)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.90)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
         self.assertIn("Vol Delever: applied", plan["dashboard"])
+
+    def test_tqqq_growth_income_volatility_delever_hysteresis_holds_unlevered_sleeve(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [{"close": 100.0, "high": 101.0, "low": 99.0} for _ in range(230)] + [
+            {"close": close, "high": close + 1.0, "low": close - 1.0}
+            for close in (104.0, 99.0, 106.0, 100.0, 108.0, 101.0, 110.0, 103.0, 112.0, 106.0, 115.0)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="QQQM", market_value=90000.0, quantity=100)],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+            dual_drive_volatility_delever_enabled=True,
+            dual_drive_volatility_delever_window=5,
+            dual_drive_volatility_delever_threshold_mode="fixed",
+            dual_drive_volatility_delever_threshold=10.00,
+            dual_drive_volatility_delever_exit_threshold=0.10,
+        )
+
+        self.assertTrue(plan["dual_drive_volatility_delever_triggered"])
+        self.assertTrue(plan["dual_drive_volatility_delever_applied"])
+        self.assertFalse(plan["dual_drive_volatility_delever_entry_triggered"])
+        self.assertTrue(plan["dual_drive_volatility_delever_hysteresis_triggered"])
+        self.assertEqual(plan["dual_drive_volatility_delever_trigger_reason"], "hysteresis_hold")
+        self.assertGreaterEqual(
+            plan["dual_drive_volatility_delever_metric"],
+            plan["dual_drive_volatility_delever_exit_threshold"],
+        )
+        self.assertLess(
+            plan["dual_drive_volatility_delever_metric"],
+            plan["dual_drive_volatility_delever_threshold"],
+        )
+        self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.90)
+
+    def test_tqqq_growth_income_volatility_delever_uses_dynamic_percentile_threshold(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        calm_history = [
+            {"close": 100.0 + index * 0.03, "high": 101.0 + index * 0.03, "low": 99.0 + index * 0.03}
+            for index in range(245)
+        ]
+        volatile_tail = [
+            {"close": close, "high": close + 1.0, "low": close - 1.0}
+            for close in (108.0, 102.0, 111.0, 104.0, 114.0, 106.0, 118.0, 109.0, 121.0, 112.0, 126.0)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=100000.0, quantity=1000)],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={"account_hash": "acct-1"},
+        )
+
+        plan = build_tqqq_plan(
+            [*calm_history, *volatile_tail],
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+            dual_drive_volatility_delever_enabled=True,
+            dual_drive_volatility_delever_window=5,
+            dual_drive_volatility_delever_threshold=0.99,
+            dual_drive_volatility_delever_threshold_mode="rolling_percentile",
+            dual_drive_volatility_delever_dynamic_lookback=60,
+            dual_drive_volatility_delever_dynamic_percentile=0.80,
+            dual_drive_volatility_delever_dynamic_min_periods=30,
+            dual_drive_volatility_delever_dynamic_cap=0.50,
+        )
+
+        self.assertEqual(plan["dual_drive_volatility_delever_threshold_mode"], "rolling_percentile")
+        self.assertIsNotNone(plan["dual_drive_volatility_delever_dynamic_threshold"])
+        self.assertEqual(plan["dual_drive_volatility_delever_dynamic_sample_count"], 60)
+        self.assertLess(plan["dual_drive_volatility_delever_threshold"], 0.99)
+        self.assertLessEqual(plan["dual_drive_volatility_delever_threshold"], 0.50)
+        self.assertGreaterEqual(
+            plan["dual_drive_volatility_delever_metric"],
+            plan["dual_drive_volatility_delever_threshold"],
+        )
+        self.assertTrue(plan["dual_drive_volatility_delever_applied"])
+        self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.90)
+        self.assertIn("mode p80/60d", plan["dashboard"])
 
     def test_tqqq_growth_income_taco_context_vetoes_volatility_delever(self):
         _skip_if_missing_numeric_stack()
@@ -493,7 +605,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertTrue(plan["dual_drive_volatility_delever_taco_rebound_context_active"])
         self.assertFalse(plan["dual_drive_volatility_delever_true_crisis_active"])
         self.assertAlmostEqual(plan["target_values"]["TQQQ"], 100000.0 * 0.45)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.45)
         self.assertIn("Vol Delever: vetoed", plan["dashboard"])
 
     def test_tqqq_growth_income_true_crisis_overrides_taco_volatility_delever_veto(self):
@@ -548,11 +660,11 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertTrue(plan["dual_drive_crisis_defense_triggered"])
         self.assertTrue(plan["dual_drive_crisis_defense_applied"])
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
-        self.assertEqual(plan["target_values"]["QQQ"], 0.0)
+        self.assertEqual(plan["target_values"]["QQQM"], 0.0)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
         self.assertIn("Crisis Defense: applied", plan["dashboard"])
 
-    def test_tqqq_growth_income_macro_risk_governor_delever_redirects_tqqq_to_qqq(self):
+    def test_tqqq_growth_income_macro_risk_governor_delever_redirects_tqqq_to_qqqm(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
             build_rebalance_plan as build_tqqq_plan,
@@ -565,7 +677,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         snapshot = SimpleNamespace(
             positions=[
                 SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
-                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQM", market_value=45000.0, quantity=100),
                 SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
             ],
             total_equity=100000.0,
@@ -602,7 +714,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
         self.assertEqual(plan["dual_drive_macro_risk_governor_route"], "delever")
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.90)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.90)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
         self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_redirected_to_unlevered"], 100000.0 * 0.45)
         self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_removed_value"], 0.0)
@@ -621,7 +733,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         snapshot = SimpleNamespace(
             positions=[
                 SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
-                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQM", market_value=45000.0, quantity=100),
                 SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
             ],
             total_equity=100000.0,
@@ -656,7 +768,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
         self.assertEqual(plan["dual_drive_macro_risk_governor_route"], "crisis")
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
-        self.assertEqual(plan["target_values"]["QQQ"], 0.0)
+        self.assertEqual(plan["target_values"]["QQQM"], 0.0)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
         self.assertAlmostEqual(plan["dual_drive_macro_risk_governor_removed_value"], 100000.0 * 0.90)
         self.assertIn("Macro Risk Governor: applied", plan["dashboard"])
@@ -674,7 +786,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         snapshot = SimpleNamespace(
             positions=[
                 SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
-                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQM", market_value=45000.0, quantity=100),
                 SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
             ],
             total_equity=100000.0,
@@ -726,7 +838,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["market_regime_control_route"], "risk_reduced")
         self.assertTrue(plan["dual_drive_macro_risk_governor_applied"])
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 0.0)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 0.0)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
         self.assertIn("Market Regime Control: applied", plan["dashboard"])
 
@@ -743,7 +855,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         snapshot = SimpleNamespace(
             positions=[
                 SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
-                SimpleNamespace(symbol="QQQ", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="QQQM", market_value=45000.0, quantity=100),
                 SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
             ],
             total_equity=100000.0,
@@ -785,7 +897,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertFalse(plan["dual_drive_macro_risk_governor_found"])
         self.assertFalse(plan["dual_drive_macro_risk_governor_applied"])
         self.assertAlmostEqual(plan["target_values"]["TQQQ"], 100000.0 * 0.45)
-        self.assertAlmostEqual(plan["target_values"]["QQQ"], 100000.0 * 0.45)
+        self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.45)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
         self.assertFalse(plan["notification_context"]["risk_controls"]["market_regime_control"]["enabled"])
 
