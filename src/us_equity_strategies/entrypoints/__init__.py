@@ -378,9 +378,35 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         "pullback_rebound_volatility_multiplier": plan.get("pullback_rebound_volatility_multiplier"),
         "dual_drive_volatility_delever_enabled": plan.get("dual_drive_volatility_delever_enabled"),
         "dual_drive_volatility_delever_window": plan.get("dual_drive_volatility_delever_window"),
+        "dual_drive_volatility_delever_threshold_mode": plan.get("dual_drive_volatility_delever_threshold_mode"),
         "dual_drive_volatility_delever_threshold": plan.get("dual_drive_volatility_delever_threshold"),
+        "dual_drive_volatility_delever_exit_threshold": plan.get("dual_drive_volatility_delever_exit_threshold"),
+        "dual_drive_volatility_delever_dynamic_threshold": plan.get(
+            "dual_drive_volatility_delever_dynamic_threshold"
+        ),
+        "dual_drive_volatility_delever_dynamic_sample_count": plan.get(
+            "dual_drive_volatility_delever_dynamic_sample_count"
+        ),
+        "dual_drive_volatility_delever_dynamic_lookback": plan.get(
+            "dual_drive_volatility_delever_dynamic_lookback"
+        ),
+        "dual_drive_volatility_delever_dynamic_percentile": plan.get(
+            "dual_drive_volatility_delever_dynamic_percentile"
+        ),
+        "dual_drive_volatility_delever_dynamic_min_periods": plan.get(
+            "dual_drive_volatility_delever_dynamic_min_periods"
+        ),
+        "dual_drive_volatility_delever_dynamic_floor": plan.get("dual_drive_volatility_delever_dynamic_floor"),
+        "dual_drive_volatility_delever_dynamic_cap": plan.get("dual_drive_volatility_delever_dynamic_cap"),
         "dual_drive_volatility_delever_metric": plan.get("dual_drive_volatility_delever_metric"),
         "dual_drive_volatility_delever_triggered": plan.get("dual_drive_volatility_delever_triggered"),
+        "dual_drive_volatility_delever_entry_triggered": plan.get(
+            "dual_drive_volatility_delever_entry_triggered"
+        ),
+        "dual_drive_volatility_delever_hysteresis_triggered": plan.get(
+            "dual_drive_volatility_delever_hysteresis_triggered"
+        ),
+        "dual_drive_volatility_delever_trigger_reason": plan.get("dual_drive_volatility_delever_trigger_reason"),
         "dual_drive_volatility_delever_applied": plan.get("dual_drive_volatility_delever_applied"),
         "dual_drive_volatility_delever_vetoed": plan.get("dual_drive_volatility_delever_vetoed"),
         "dual_drive_volatility_delever_veto_reason": plan.get("dual_drive_volatility_delever_veto_reason"),
@@ -439,7 +465,42 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "long_trend_value": plan["ma200"],
             "exit_line": plan["exit_line"],
             "dual_drive_volatility_delever_enabled": plan.get("dual_drive_volatility_delever_enabled"),
+            "dual_drive_volatility_delever_window": plan.get("dual_drive_volatility_delever_window"),
+            "dual_drive_volatility_delever_threshold_mode": plan.get(
+                "dual_drive_volatility_delever_threshold_mode"
+            ),
+            "dual_drive_volatility_delever_threshold": plan.get("dual_drive_volatility_delever_threshold"),
+            "dual_drive_volatility_delever_exit_threshold": plan.get(
+                "dual_drive_volatility_delever_exit_threshold"
+            ),
+            "dual_drive_volatility_delever_dynamic_threshold": plan.get(
+                "dual_drive_volatility_delever_dynamic_threshold"
+            ),
+            "dual_drive_volatility_delever_dynamic_sample_count": plan.get(
+                "dual_drive_volatility_delever_dynamic_sample_count"
+            ),
+            "dual_drive_volatility_delever_dynamic_lookback": plan.get(
+                "dual_drive_volatility_delever_dynamic_lookback"
+            ),
+            "dual_drive_volatility_delever_dynamic_percentile": plan.get(
+                "dual_drive_volatility_delever_dynamic_percentile"
+            ),
+            "dual_drive_volatility_delever_dynamic_min_periods": plan.get(
+                "dual_drive_volatility_delever_dynamic_min_periods"
+            ),
+            "dual_drive_volatility_delever_dynamic_floor": plan.get("dual_drive_volatility_delever_dynamic_floor"),
+            "dual_drive_volatility_delever_dynamic_cap": plan.get("dual_drive_volatility_delever_dynamic_cap"),
+            "dual_drive_volatility_delever_metric": plan.get("dual_drive_volatility_delever_metric"),
             "dual_drive_volatility_delever_triggered": plan.get("dual_drive_volatility_delever_triggered"),
+            "dual_drive_volatility_delever_entry_triggered": plan.get(
+                "dual_drive_volatility_delever_entry_triggered"
+            ),
+            "dual_drive_volatility_delever_hysteresis_triggered": plan.get(
+                "dual_drive_volatility_delever_hysteresis_triggered"
+            ),
+            "dual_drive_volatility_delever_trigger_reason": plan.get(
+                "dual_drive_volatility_delever_trigger_reason"
+            ),
             "dual_drive_volatility_delever_applied": plan.get("dual_drive_volatility_delever_applied"),
             "dual_drive_volatility_delever_vetoed": plan.get("dual_drive_volatility_delever_vetoed"),
             "dual_drive_volatility_delever_veto_reason": plan.get(

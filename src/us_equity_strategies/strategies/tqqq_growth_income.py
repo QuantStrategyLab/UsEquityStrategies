@@ -23,6 +23,12 @@ PULLBACK_REBOUND_THRESHOLD_MODES = {
     PULLBACK_REBOUND_THRESHOLD_MODE_FIXED,
     PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED,
 }
+VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED = "fixed"
+VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE = "rolling_percentile"
+VOLATILITY_DELEVER_THRESHOLD_MODES = {
+    VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED,
+    VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE,
+}
 CORE_ASSETS = ("TQQQ", "BOXX")
 TACO_REBOUND_ROUTES = frozenset({"taco_rebound", "taco_fake_crisis"})
 TRUE_CRISIS_ROUTE = "true_crisis"
@@ -308,6 +314,76 @@ def _resolve_realized_volatility(close: pd.Series, *, window: int) -> float | No
     return float(volatility * np.sqrt(252))
 
 
+def _resolve_volatility_delever_thresholds(
+    close: pd.Series,
+    *,
+    volatility_window: int,
+    mode: str,
+    fixed_entry_threshold: float,
+    fixed_exit_threshold: float | None,
+    percentile_lookback: int,
+    percentile: float,
+    min_periods: int,
+    floor: float | None,
+    cap: float | None,
+) -> dict[str, object]:
+    threshold_mode = str(mode or VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED).strip().lower()
+    if threshold_mode not in VOLATILITY_DELEVER_THRESHOLD_MODES:
+        modes = ", ".join(sorted(VOLATILITY_DELEVER_THRESHOLD_MODES))
+        raise ValueError(f"Unsupported volatility delever threshold mode: {threshold_mode!r}; expected one of {modes}")
+
+    fixed_entry = _as_float_or_none(fixed_entry_threshold)
+    if fixed_entry is None:
+        fixed_entry = 0.28
+    fixed_entry = max(0.0, float(fixed_entry))
+    fixed_exit = _as_float_or_none(fixed_exit_threshold)
+    if fixed_exit is None:
+        fixed_exit = fixed_entry
+    fixed_exit = max(0.0, min(fixed_entry, float(fixed_exit)))
+
+    returns = pd.to_numeric(close, errors="coerce").pct_change(fill_method=None)
+    realized_volatility = returns.rolling(int(volatility_window), min_periods=int(volatility_window)).std() * np.sqrt(252)
+    metric = realized_volatility.iloc[-1]
+    metric_value = None if pd.isna(metric) else float(metric)
+
+    dynamic_threshold = None
+    dynamic_sample_count = 0
+    lookback = _as_positive_int(percentile_lookback, default=252)
+    min_count = max(1, min(lookback, _as_positive_int(min_periods, default=min(126, lookback))))
+    quantile_value = _as_float_or_none(percentile)
+    if quantile_value is None:
+        quantile_value = 0.90
+    quantile = max(0.0, min(1.0, float(quantile_value)))
+    floor_value = _as_float_or_none(floor)
+    cap_value = _as_float_or_none(cap)
+    if threshold_mode == VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE:
+        recent = realized_volatility.dropna().tail(lookback)
+        dynamic_sample_count = int(recent.count())
+        if dynamic_sample_count >= min_count:
+            threshold = float(recent.quantile(quantile))
+            if floor_value is not None:
+                threshold = max(float(floor_value), threshold)
+            if cap_value is not None:
+                threshold = min(float(cap_value), threshold)
+            dynamic_threshold = max(0.0, threshold)
+
+    entry_threshold = dynamic_threshold if dynamic_threshold is not None else fixed_entry
+    exit_threshold = entry_threshold if dynamic_threshold is not None else fixed_exit
+    return {
+        "mode": threshold_mode,
+        "metric": metric_value,
+        "entry_threshold": float(entry_threshold),
+        "exit_threshold": float(max(0.0, min(entry_threshold, exit_threshold))),
+        "dynamic_threshold": dynamic_threshold,
+        "dynamic_sample_count": dynamic_sample_count,
+        "dynamic_lookback": lookback,
+        "dynamic_percentile": quantile,
+        "dynamic_min_periods": min_count,
+        "dynamic_floor": None if floor_value is None else float(floor_value),
+        "dynamic_cap": None if cap_value is None else float(cap_value),
+    }
+
+
 def _resolve_pullback_rebound_threshold(
     close: pd.Series,
     *,
@@ -359,7 +435,7 @@ def build_rebalance_plan(
     attack_allocation_mode="fixed_qqq_tqqq_pullback",
     dual_drive_qqq_weight=0.45,
     dual_drive_tqqq_weight=0.45,
-    dual_drive_unlevered_symbol="QQQ",
+    dual_drive_unlevered_symbol="QQQM",
     dual_drive_cash_reserve_ratio=0.02,
     dual_drive_allow_pullback=True,
     dual_drive_require_ma20_slope=True,
@@ -370,6 +446,13 @@ def build_rebalance_plan(
     dual_drive_volatility_delever_enabled=True,
     dual_drive_volatility_delever_window=5,
     dual_drive_volatility_delever_threshold=0.28,
+    dual_drive_volatility_delever_exit_threshold=None,
+    dual_drive_volatility_delever_threshold_mode=VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE,
+    dual_drive_volatility_delever_dynamic_lookback=252,
+    dual_drive_volatility_delever_dynamic_percentile=0.90,
+    dual_drive_volatility_delever_dynamic_min_periods=126,
+    dual_drive_volatility_delever_dynamic_floor=0.24,
+    dual_drive_volatility_delever_dynamic_cap=0.36,
     dual_drive_volatility_delever_taco_veto_enabled=True,
     dual_drive_macro_risk_governor_enabled=True,
     dual_drive_crisis_defense_enabled=True,
@@ -385,7 +468,7 @@ def build_rebalance_plan(
     if allocation_mode != "fixed_qqq_tqqq_pullback":
         raise ValueError("tqqq_growth_income only supports fixed_qqq_tqqq_pullback")
 
-    unlevered_symbol = str(dual_drive_unlevered_symbol or "QQQ").strip().upper()
+    unlevered_symbol = str(dual_drive_unlevered_symbol or "QQQM").strip().upper()
     if not unlevered_symbol:
         raise ValueError("dual_drive_unlevered_symbol must be a non-empty ticker")
     legacy_qqqi_ratio = as_clamped_ratio(qqqi_income_ratio, default=0.5)
@@ -460,14 +543,29 @@ def build_rebalance_plan(
     )
     volatility_delever_enabled = _as_bool(dual_drive_volatility_delever_enabled, default=True)
     volatility_delever_window = _as_positive_int(dual_drive_volatility_delever_window, default=5)
-    volatility_delever_threshold = _as_float_or_none(dual_drive_volatility_delever_threshold)
-    if volatility_delever_threshold is None:
-        volatility_delever_threshold = 0.28
-    volatility_delever_metric = (
-        _resolve_realized_volatility(df_qqq["close"], window=volatility_delever_window)
-        if volatility_delever_enabled
-        else None
+    volatility_delever_thresholds = _resolve_volatility_delever_thresholds(
+        df_qqq["close"],
+        volatility_window=volatility_delever_window,
+        mode=dual_drive_volatility_delever_threshold_mode,
+        fixed_entry_threshold=dual_drive_volatility_delever_threshold,
+        fixed_exit_threshold=dual_drive_volatility_delever_exit_threshold,
+        percentile_lookback=dual_drive_volatility_delever_dynamic_lookback,
+        percentile=dual_drive_volatility_delever_dynamic_percentile,
+        min_periods=dual_drive_volatility_delever_dynamic_min_periods,
+        floor=dual_drive_volatility_delever_dynamic_floor,
+        cap=dual_drive_volatility_delever_dynamic_cap,
     )
+    volatility_delever_threshold_mode = str(volatility_delever_thresholds["mode"])
+    volatility_delever_threshold = float(volatility_delever_thresholds["entry_threshold"])
+    volatility_delever_exit_threshold = float(volatility_delever_thresholds["exit_threshold"])
+    volatility_delever_dynamic_threshold = volatility_delever_thresholds["dynamic_threshold"]
+    volatility_delever_dynamic_sample_count = int(volatility_delever_thresholds["dynamic_sample_count"])
+    volatility_delever_dynamic_lookback = int(volatility_delever_thresholds["dynamic_lookback"])
+    volatility_delever_dynamic_percentile = float(volatility_delever_thresholds["dynamic_percentile"])
+    volatility_delever_dynamic_min_periods = int(volatility_delever_thresholds["dynamic_min_periods"])
+    volatility_delever_dynamic_floor = volatility_delever_thresholds["dynamic_floor"]
+    volatility_delever_dynamic_cap = volatility_delever_thresholds["dynamic_cap"]
+    volatility_delever_metric = volatility_delever_thresholds["metric"] if volatility_delever_enabled else None
     taco_veto_enabled = _as_bool(dual_drive_volatility_delever_taco_veto_enabled, default=True)
     market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=True)
     market_regime_control_context = (
@@ -561,11 +659,33 @@ def build_rebalance_plan(
         target_unlevered_val = 0.0
         target_boxx_val = max(0.0, strategy_equity - reserved)
         icon = "crisis_defense"
-    volatility_delever_triggered = (
+    currently_volatility_delevered = (
+        current_risk_active
+        and quantities.get("TQQQ", 0) <= 0
+        and quantities.get(unlevered_symbol, 0) > 0
+    )
+    volatility_delever_entry_triggered = (
         volatility_delever_enabled
         and target_tqqq_val > 0.0
         and volatility_delever_metric is not None
         and volatility_delever_metric >= volatility_delever_threshold
+    )
+    volatility_delever_hysteresis_triggered = (
+        volatility_delever_enabled
+        and target_tqqq_val > 0.0
+        and currently_volatility_delevered
+        and volatility_delever_metric is not None
+        and volatility_delever_metric >= volatility_delever_exit_threshold
+    )
+    volatility_delever_triggered = bool(
+        volatility_delever_entry_triggered or volatility_delever_hysteresis_triggered
+    )
+    volatility_delever_trigger_reason = (
+        "entry_threshold"
+        if volatility_delever_entry_triggered
+        else "hysteresis_hold"
+        if volatility_delever_hysteresis_triggered
+        else None
     )
     volatility_delever_vetoed = bool(
         volatility_delever_triggered
@@ -607,9 +727,21 @@ def build_rebalance_plan(
         "dual_drive_volatility_delever": {
             "enabled": volatility_delever_enabled,
             "window": volatility_delever_window,
+            "threshold_mode": volatility_delever_threshold_mode,
             "threshold": float(volatility_delever_threshold),
+            "exit_threshold": float(volatility_delever_exit_threshold),
+            "dynamic_threshold": volatility_delever_dynamic_threshold,
+            "dynamic_sample_count": volatility_delever_dynamic_sample_count,
+            "dynamic_lookback": volatility_delever_dynamic_lookback,
+            "dynamic_percentile": volatility_delever_dynamic_percentile,
+            "dynamic_min_periods": volatility_delever_dynamic_min_periods,
+            "dynamic_floor": volatility_delever_dynamic_floor,
+            "dynamic_cap": volatility_delever_dynamic_cap,
             "metric": volatility_delever_metric,
             "triggered": volatility_delever_triggered,
+            "entry_triggered": volatility_delever_entry_triggered,
+            "hysteresis_triggered": volatility_delever_hysteresis_triggered,
+            "trigger_reason": volatility_delever_trigger_reason,
             "applied": volatility_delever_applied,
             "vetoed": volatility_delever_vetoed,
             "veto_reason": volatility_delever_veto_reason,
@@ -703,8 +835,14 @@ def build_rebalance_plan(
         status = "applied" if volatility_delever_applied else "vetoed" if volatility_delever_vetoed else "watch"
         dashboard += (
             f"\nVol Delever: {status} | QQQ {volatility_delever_window}d vol "
-            f"{volatility_delever_metric * 100:.1f}% / {volatility_delever_threshold * 100:.1f}%"
+            f"{volatility_delever_metric * 100:.1f}% / enter {volatility_delever_threshold * 100:.1f}%"
+            f" / exit {volatility_delever_exit_threshold * 100:.1f}%"
         )
+        if volatility_delever_threshold_mode == VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE:
+            dashboard += (
+                f" | mode p{volatility_delever_dynamic_percentile * 100:.0f}"
+                f"/{volatility_delever_dynamic_lookback}d"
+            )
     if macro_risk_governor_enabled and macro_risk_governor_context["found"]:
         status = "applied" if macro_risk_governor_applied else "watch"
         score = macro_risk_governor_context["actionable_score"]
@@ -762,9 +900,21 @@ def build_rebalance_plan(
         "pullback_rebound_volatility_multiplier": float(dual_drive_pullback_rebound_volatility_multiplier or 0.0),
         "dual_drive_volatility_delever_enabled": volatility_delever_enabled,
         "dual_drive_volatility_delever_window": volatility_delever_window,
+        "dual_drive_volatility_delever_threshold_mode": volatility_delever_threshold_mode,
         "dual_drive_volatility_delever_threshold": float(volatility_delever_threshold),
+        "dual_drive_volatility_delever_exit_threshold": float(volatility_delever_exit_threshold),
+        "dual_drive_volatility_delever_dynamic_threshold": volatility_delever_dynamic_threshold,
+        "dual_drive_volatility_delever_dynamic_sample_count": volatility_delever_dynamic_sample_count,
+        "dual_drive_volatility_delever_dynamic_lookback": volatility_delever_dynamic_lookback,
+        "dual_drive_volatility_delever_dynamic_percentile": volatility_delever_dynamic_percentile,
+        "dual_drive_volatility_delever_dynamic_min_periods": volatility_delever_dynamic_min_periods,
+        "dual_drive_volatility_delever_dynamic_floor": volatility_delever_dynamic_floor,
+        "dual_drive_volatility_delever_dynamic_cap": volatility_delever_dynamic_cap,
         "dual_drive_volatility_delever_metric": volatility_delever_metric,
         "dual_drive_volatility_delever_triggered": volatility_delever_triggered,
+        "dual_drive_volatility_delever_entry_triggered": volatility_delever_entry_triggered,
+        "dual_drive_volatility_delever_hysteresis_triggered": volatility_delever_hysteresis_triggered,
+        "dual_drive_volatility_delever_trigger_reason": volatility_delever_trigger_reason,
         "dual_drive_volatility_delever_applied": volatility_delever_applied,
         "dual_drive_volatility_delever_vetoed": volatility_delever_vetoed,
         "dual_drive_volatility_delever_veto_reason": volatility_delever_veto_reason,
