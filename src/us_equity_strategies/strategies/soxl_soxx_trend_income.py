@@ -40,6 +40,85 @@ def _translate_with_fallback(translator, key, fallback, **kwargs):
     return fallback if rendered == key else rendered
 
 
+def _format_percent(value) -> str:
+    result = _as_float_or_none(value)
+    if result is None:
+        return "n/a"
+    return f"{result * 100:.1f}%"
+
+
+def _format_percentile(value) -> str:
+    result = _as_float_or_none(value)
+    if result is None:
+        return "p?"
+    percentile = result * 100
+    if float(percentile).is_integer():
+        return f"p{int(percentile)}"
+    return f"p{percentile:.1f}"
+
+
+def _format_sample_count(value) -> str:
+    result = _as_float_or_none(value)
+    if result is None:
+        return "n/a"
+    if float(result).is_integer():
+        return str(int(result))
+    return f"{result:.1f}"
+
+
+def _format_volatility_delever_threshold_detail(
+    translator,
+    *,
+    threshold_mode,
+    fixed_threshold,
+    dynamic_threshold,
+    dynamic_sample_count,
+    dynamic_lookback,
+    dynamic_percentile,
+    dynamic_min_periods,
+    dynamic_floor,
+    dynamic_cap,
+) -> str:
+    mode = str(threshold_mode or "").strip().lower()
+    if mode == VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE:
+        base_kwargs = {
+            "percentile": _format_percentile(dynamic_percentile),
+            "lookback": _format_sample_count(dynamic_lookback),
+            "min_periods": _format_sample_count(dynamic_min_periods),
+            "sample_count": _format_sample_count(dynamic_sample_count),
+            "floor": _format_percent(dynamic_floor),
+            "cap": _format_percent(dynamic_cap),
+            "fixed_threshold": _format_percent(fixed_threshold),
+        }
+        if dynamic_threshold is not None:
+            return _translate_with_fallback(
+                translator,
+                "blend_gate_volatility_threshold_detail_dynamic",
+                (
+                    f"dynamic {base_kwargs['percentile']}, {base_kwargs['lookback']}d lookback, "
+                    f"bounded {base_kwargs['floor']}-{base_kwargs['cap']}, "
+                    f"samples {base_kwargs['sample_count']}"
+                ),
+                **base_kwargs,
+            )
+        return _translate_with_fallback(
+            translator,
+            "blend_gate_volatility_threshold_detail_dynamic_fallback",
+            (
+                f"dynamic warm-up, fallback fixed {base_kwargs['fixed_threshold']} "
+                f"(samples {base_kwargs['sample_count']}/{base_kwargs['min_periods']}, "
+                f"{base_kwargs['percentile']})"
+            ),
+            **base_kwargs,
+        )
+    return _translate_with_fallback(
+        translator,
+        "blend_gate_volatility_threshold_detail_fixed",
+        f"fixed threshold {_format_percent(fixed_threshold)}",
+        threshold=_format_percent(fixed_threshold),
+    )
+
+
 def _indicator_value(indicators, symbol: str, key: str, default=None):
     payload = indicators.get(symbol.lower()) or indicators.get(symbol.upper()) or {}
     return payload.get(key, default)
@@ -590,20 +669,34 @@ def build_rebalance_plan(
         else:
             active_risk_asset = "BOXX"
         overlay_trigger_codes.append("blend_gate_reason_volatility_delever")
+        volatility_delever_threshold_detail = _format_volatility_delever_threshold_detail(
+            translator,
+            threshold_mode=volatility_delever_threshold_mode,
+            fixed_threshold=volatility_delever_fixed_threshold,
+            dynamic_threshold=volatility_delever_dynamic_threshold,
+            dynamic_sample_count=volatility_delever_dynamic_sample_count,
+            dynamic_lookback=volatility_delever_dynamic_lookback,
+            dynamic_percentile=volatility_delever_dynamic_percentile,
+            dynamic_min_periods=volatility_delever_dynamic_min_periods,
+            dynamic_floor=volatility_delever_dynamic_floor,
+            dynamic_cap=volatility_delever_dynamic_cap,
+        )
         overlay_trigger_reasons.append(
             _translate_with_fallback(
                 translator,
-                "blend_gate_reason_volatility_delever",
+                "blend_gate_reason_volatility_delever_dynamic",
                 (
                     f"{volatility_delever_symbol} {volatility_delever_window}d volatility "
                     f"{volatility_delever_metric * 100:.1f}% >= "
-                    f"{volatility_delever_threshold * 100:.1f}%, redirect SOXL to "
+                    f"effective threshold {volatility_delever_threshold * 100:.1f}% "
+                    f"({volatility_delever_threshold_detail}), redirect SOXL to "
                     f"{volatility_delever_redirect_symbol}"
                 ),
                 symbol=volatility_delever_symbol,
                 window=volatility_delever_window,
                 volatility=f"{volatility_delever_metric * 100:.1f}%",
                 threshold=f"{volatility_delever_threshold * 100:.1f}%",
+                threshold_detail=volatility_delever_threshold_detail,
                 redirect_symbol=volatility_delever_redirect_symbol,
             )
         )
