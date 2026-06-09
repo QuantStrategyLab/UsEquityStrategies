@@ -556,7 +556,13 @@ class StrategyEntrypointTests(unittest.TestCase):
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
         indicators = {
             "soxl": {"price": 80.0, "ma_trend": 75.0},
-            "soxx": {"price": 80.0, "ma_trend": 75.0, "realized_volatility_10": 0.20},
+            "soxx": {
+                "price": 80.0,
+                "ma_trend": 75.0,
+                "realized_volatility_10": 0.20,
+                "realized_volatility_10_dynamic_threshold": 0.50,
+                "realized_volatility_10_dynamic_sample_count": 252.0,
+            },
         }
         account_state = {
             "available_cash": 10000.0,
@@ -654,6 +660,14 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(
             decision.diagnostics["execution_annotations"]["investable_cash"],
             legacy_plan["investable_cash"],
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["blend_gate_volatility_delever_threshold_mode"],
+            "rolling_percentile",
+        )
+        self.assertEqual(
+            decision.diagnostics["execution_annotations"]["blend_gate_volatility_delever_dynamic_threshold"],
+            0.50,
         )
         self.assertIn(
             f"Buying power: ${legacy_plan['available_cash']:,.2f}",

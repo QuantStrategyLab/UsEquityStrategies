@@ -108,6 +108,14 @@ class CatalogTest(unittest.TestCase):
         self.assertTrue(longbridge_definition.default_config["blend_gate_volatility_delever_enabled"])
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_window"], 10)
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_threshold"], 0.55)
+        self.assertEqual(
+            longbridge_definition.default_config["blend_gate_volatility_delever_threshold_mode"],
+            "rolling_percentile",
+        )
+        self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_dynamic_lookback"], 252)
+        self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_dynamic_percentile"], 0.95)
+        self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_dynamic_floor"], 0.50)
+        self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_dynamic_cap"], 0.75)
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_redirect_symbol"], "SOXX")
         longbridge_module = get_strategy_component_map(longbridge_definition)["allocation"]
         self.assertEqual(

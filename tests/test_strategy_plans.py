@@ -1352,6 +1352,73 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "signal_blend_gate_overlay_capped",
         )
 
+    def test_soxl_soxx_trend_income_uses_dynamic_volatility_delever_threshold(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 100000.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 100000.0,
+        }
+
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {
+                    "price": 109.0,
+                    "ma_trend": 100.0,
+                    "realized_volatility_10": 0.61,
+                    "realized_volatility_10_dynamic_threshold": 0.60,
+                    "realized_volatility_10_dynamic_sample_count": 252.0,
+                },
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+            blend_gate_volatility_delever_enabled=True,
+            blend_gate_volatility_delever_symbol="SOXX",
+            blend_gate_volatility_delever_window=10,
+            blend_gate_volatility_delever_threshold=0.55,
+            blend_gate_volatility_delever_threshold_mode=VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE,
+            blend_gate_volatility_delever_dynamic_min_periods=126,
+            blend_gate_volatility_delever_retention_ratio=0.0,
+            blend_gate_volatility_delever_redirect_symbol="SOXX",
+        )
+
+        self.assertTrue(plan["blend_gate_volatility_delever_triggered"])
+        self.assertEqual(
+            plan["blend_gate_volatility_delever_threshold_mode"],
+            VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE,
+        )
+        self.assertAlmostEqual(plan["blend_gate_volatility_delever_threshold"], 0.60)
+        self.assertAlmostEqual(plan["blend_gate_volatility_delever_dynamic_threshold"], 0.60)
+        self.assertAlmostEqual(plan["blend_gate_volatility_delever_dynamic_sample_count"], 252.0)
+        self.assertEqual(plan["overlay_trigger_codes"], ("blend_gate_reason_volatility_delever",))
+
     def test_soxl_soxx_trend_income_market_regime_control_delever_moves_risk_to_boxx(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (

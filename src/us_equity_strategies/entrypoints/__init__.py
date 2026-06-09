@@ -653,6 +653,24 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "blend_gate_volatility_delever_symbol": plan.get("blend_gate_volatility_delever_symbol"),
         "blend_gate_volatility_delever_window": plan.get("blend_gate_volatility_delever_window"),
         "blend_gate_volatility_delever_threshold": plan.get("blend_gate_volatility_delever_threshold"),
+        "blend_gate_volatility_delever_threshold_mode": plan.get("blend_gate_volatility_delever_threshold_mode"),
+        "blend_gate_volatility_delever_dynamic_threshold": plan.get(
+            "blend_gate_volatility_delever_dynamic_threshold"
+        ),
+        "blend_gate_volatility_delever_dynamic_sample_count": plan.get(
+            "blend_gate_volatility_delever_dynamic_sample_count"
+        ),
+        "blend_gate_volatility_delever_dynamic_lookback": plan.get(
+            "blend_gate_volatility_delever_dynamic_lookback"
+        ),
+        "blend_gate_volatility_delever_dynamic_percentile": plan.get(
+            "blend_gate_volatility_delever_dynamic_percentile"
+        ),
+        "blend_gate_volatility_delever_dynamic_min_periods": plan.get(
+            "blend_gate_volatility_delever_dynamic_min_periods"
+        ),
+        "blend_gate_volatility_delever_dynamic_floor": plan.get("blend_gate_volatility_delever_dynamic_floor"),
+        "blend_gate_volatility_delever_dynamic_cap": plan.get("blend_gate_volatility_delever_dynamic_cap"),
         "blend_gate_volatility_delever_metric": plan.get("blend_gate_volatility_delever_metric"),
         "blend_gate_volatility_delever_triggered": plan.get("blend_gate_volatility_delever_triggered"),
         "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
@@ -716,6 +734,24 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "blend_gate_volatility_delever_symbol": plan.get("blend_gate_volatility_delever_symbol"),
             "blend_gate_volatility_delever_window": plan.get("blend_gate_volatility_delever_window"),
             "blend_gate_volatility_delever_threshold": plan.get("blend_gate_volatility_delever_threshold"),
+            "blend_gate_volatility_delever_threshold_mode": plan.get("blend_gate_volatility_delever_threshold_mode"),
+            "blend_gate_volatility_delever_dynamic_threshold": plan.get(
+                "blend_gate_volatility_delever_dynamic_threshold"
+            ),
+            "blend_gate_volatility_delever_dynamic_sample_count": plan.get(
+                "blend_gate_volatility_delever_dynamic_sample_count"
+            ),
+            "blend_gate_volatility_delever_dynamic_lookback": plan.get(
+                "blend_gate_volatility_delever_dynamic_lookback"
+            ),
+            "blend_gate_volatility_delever_dynamic_percentile": plan.get(
+                "blend_gate_volatility_delever_dynamic_percentile"
+            ),
+            "blend_gate_volatility_delever_dynamic_min_periods": plan.get(
+                "blend_gate_volatility_delever_dynamic_min_periods"
+            ),
+            "blend_gate_volatility_delever_dynamic_floor": plan.get("blend_gate_volatility_delever_dynamic_floor"),
+            "blend_gate_volatility_delever_dynamic_cap": plan.get("blend_gate_volatility_delever_dynamic_cap"),
             "blend_gate_volatility_delever_metric": plan.get("blend_gate_volatility_delever_metric"),
             "blend_gate_volatility_delever_triggered": plan.get("blend_gate_volatility_delever_triggered"),
             "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
