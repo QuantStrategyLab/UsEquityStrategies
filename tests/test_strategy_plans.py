@@ -1418,6 +1418,14 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["blend_gate_volatility_delever_dynamic_threshold"], 0.60)
         self.assertAlmostEqual(plan["blend_gate_volatility_delever_dynamic_sample_count"], 252.0)
         self.assertEqual(plan["overlay_trigger_codes"], ("blend_gate_reason_volatility_delever",))
+        self.assertIn(
+            "blend_gate_reason_volatility_delever_dynamic",
+            plan["overlay_trigger_reasons"][0],
+        )
+        self.assertIn(
+            "threshold_detail=blend_gate_volatility_threshold_detail_dynamic",
+            plan["overlay_trigger_reasons"][0],
+        )
 
     def test_soxl_soxx_trend_income_market_regime_control_delever_moves_risk_to_boxx(self):
         _skip_if_missing_numeric_stack()
