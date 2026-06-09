@@ -77,11 +77,11 @@ SOXL core overlay review:
 
 | Core version | CAGR | Max drawdown | Note |
 | --- | ---: | ---: | --- |
-| current manifest: `SOXX 10d vol >= 55%, SOXL -> SOXX` | `49.74%` | `-42.31%` | kept; best combined result after income layer |
+| May 2026 manifest: `SOXX 10d vol >= 55%, SOXL -> SOXX` | `49.74%` | `-42.31%` | kept in this income-layer study; best combined result after income layer |
 | `SOXX 10d vol >= 55%, SOXL -> BOXX` | `49.84%` | `-42.31%` | core-only CAGR is slightly higher, but combined income-layer result is worse |
 | `SOXX 10d vol >= 50%, SOXL -> SOXX` | `48.48%` | `-42.31%` | more frequent de-levering lowers return |
 
-Therefore the SOXL core `blend_gate_volatility_delever_*` defaults stay unchanged; only the income-layer defaults changed.
+Therefore this income-layer study left the SOXL core `blend_gate_volatility_delever_*` defaults unchanged; a later June 2026 volatility-threshold recheck promoted a bounded dynamic threshold separately.
 
 A lightweight 2026-06-04 refresh using Nasdaq real history and official yield proxies moved the SOXL income layer to the earlier, more SGOV-heavy `start=150000, max=95%, log_factor=0.50` version. In that sample it produced about `38.73%` CAGR and `-9.28%` max drawdown while still passing the SPY drawdown-window constraint.
 

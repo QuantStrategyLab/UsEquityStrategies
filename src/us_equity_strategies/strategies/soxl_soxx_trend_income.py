@@ -15,6 +15,11 @@ from us_equity_strategies.income_layer import (
 
 SOXX_GATE_TIERED_BLEND_MODE = "soxx_gate_tiered_blend"
 CORE_ASSETS = ("SOXL", "SOXX", "BOXX")
+VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED = "fixed"
+VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE = "rolling_percentile"
+VOLATILITY_DELEVER_THRESHOLD_MODES = frozenset(
+    {VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED, VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE}
+)
 MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
 MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
 LEGACY_CRISIS_RESPONSE_PROFILE = "crisis_response_shadow"
@@ -23,6 +28,8 @@ __all__ = [
     "INCOME_LAYER_RATIO_MODE_LOG_TOTAL_DRAWDOWN_BUDGET",
     "INCOME_LAYER_RATIO_MODES",
     "SOXX_GATE_TIERED_BLEND_MODE",
+    "VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED",
+    "VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE",
     "build_rebalance_plan",
     "get_income_layer_ratio",
 ]
@@ -78,6 +85,21 @@ def _as_positive_int(value, *, default: int) -> int:
     except (TypeError, ValueError):
         result = int(default)
     return max(1, result)
+
+
+def _as_unit_interval(value, *, default: float) -> float:
+    result = _as_float_or_none(value)
+    if result is None or result <= 0.0 or result >= 1.0:
+        return float(default)
+    return float(result)
+
+
+def _indicator_first_float(indicators, symbol: str, keys: Sequence[str]) -> float | None:
+    for key in keys:
+        value = _as_float_or_none(_indicator_value(indicators, symbol, key))
+        if value is not None:
+            return value
+    return None
 
 
 def _iter_mapping_payloads(value, *, _depth: int = 0):
@@ -298,6 +320,12 @@ def build_rebalance_plan(
     blend_gate_volatility_delever_symbol="SOXX",
     blend_gate_volatility_delever_window=10,
     blend_gate_volatility_delever_threshold=0.55,
+    blend_gate_volatility_delever_threshold_mode=VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED,
+    blend_gate_volatility_delever_dynamic_lookback=252,
+    blend_gate_volatility_delever_dynamic_percentile=0.95,
+    blend_gate_volatility_delever_dynamic_min_periods=126,
+    blend_gate_volatility_delever_dynamic_floor=0.50,
+    blend_gate_volatility_delever_dynamic_cap=0.75,
     blend_gate_volatility_delever_retention_ratio=0.0,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
     market_regime_control_enabled=False,
@@ -412,9 +440,36 @@ def build_rebalance_plan(
     if not volatility_delever_symbol:
         volatility_delever_symbol = trend_symbol
     volatility_delever_window = _as_positive_int(blend_gate_volatility_delever_window, default=10)
-    volatility_delever_threshold = _as_float_or_none(blend_gate_volatility_delever_threshold)
-    if volatility_delever_threshold is None:
-        volatility_delever_threshold = 0.55
+    volatility_delever_fixed_threshold = _as_float_or_none(blend_gate_volatility_delever_threshold)
+    if volatility_delever_fixed_threshold is None:
+        volatility_delever_fixed_threshold = 0.55
+    volatility_delever_threshold_mode = str(
+        blend_gate_volatility_delever_threshold_mode or VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED
+    ).strip().lower()
+    if volatility_delever_threshold_mode not in VOLATILITY_DELEVER_THRESHOLD_MODES:
+        volatility_delever_threshold_mode = VOLATILITY_DELEVER_THRESHOLD_MODE_FIXED
+    volatility_delever_dynamic_lookback = _as_positive_int(
+        blend_gate_volatility_delever_dynamic_lookback,
+        default=252,
+    )
+    volatility_delever_dynamic_percentile = _as_unit_interval(
+        blend_gate_volatility_delever_dynamic_percentile,
+        default=0.95,
+    )
+    volatility_delever_dynamic_min_periods = min(
+        volatility_delever_dynamic_lookback,
+        _as_positive_int(blend_gate_volatility_delever_dynamic_min_periods, default=126),
+    )
+    volatility_delever_dynamic_floor = _as_clamped_ratio(
+        blend_gate_volatility_delever_dynamic_floor,
+        default=0.50,
+    )
+    volatility_delever_dynamic_cap = _as_clamped_ratio(
+        blend_gate_volatility_delever_dynamic_cap,
+        default=0.75,
+    )
+    if volatility_delever_dynamic_cap < volatility_delever_dynamic_floor:
+        volatility_delever_dynamic_cap = volatility_delever_dynamic_floor
     volatility_delever_retention_ratio = _as_clamped_ratio(
         blend_gate_volatility_delever_retention_ratio,
         default=0.0,
@@ -435,6 +490,38 @@ def build_rebalance_plan(
         volatility_delever_metric = _as_float_or_none(
             _indicator_value(indicators, volatility_delever_symbol, "realized_volatility")
         )
+    volatility_delever_dynamic_threshold = _indicator_first_float(
+        indicators,
+        volatility_delever_symbol,
+        (
+            f"realized_volatility_{volatility_delever_window}_dynamic_threshold",
+            "realized_volatility_dynamic_threshold",
+        ),
+    )
+    volatility_delever_dynamic_sample_count = _indicator_first_float(
+        indicators,
+        volatility_delever_symbol,
+        (
+            f"realized_volatility_{volatility_delever_window}_dynamic_sample_count",
+            "realized_volatility_dynamic_sample_count",
+        ),
+    )
+    if volatility_delever_dynamic_threshold is not None:
+        volatility_delever_dynamic_threshold = max(
+            volatility_delever_dynamic_floor,
+            min(volatility_delever_dynamic_cap, volatility_delever_dynamic_threshold),
+        )
+    if (
+        volatility_delever_dynamic_sample_count is not None
+        and volatility_delever_dynamic_sample_count < volatility_delever_dynamic_min_periods
+    ):
+        volatility_delever_dynamic_threshold = None
+    volatility_delever_threshold = volatility_delever_fixed_threshold
+    if (
+        volatility_delever_threshold_mode == VOLATILITY_DELEVER_THRESHOLD_MODE_ROLLING_PERCENTILE
+        and volatility_delever_dynamic_threshold is not None
+    ):
+        volatility_delever_threshold = volatility_delever_dynamic_threshold
     rsi_threshold = _as_float_or_none(blend_gate_rsi_threshold)
     if rsi_threshold is None:
         rsi_threshold = 70.0
@@ -668,6 +755,14 @@ def build_rebalance_plan(
         "volatility_delever_symbol": volatility_delever_symbol,
         "volatility_delever_window": volatility_delever_window,
         "volatility_delever_threshold": volatility_delever_threshold,
+        "volatility_delever_threshold_mode": volatility_delever_threshold_mode,
+        "volatility_delever_dynamic_threshold": volatility_delever_dynamic_threshold,
+        "volatility_delever_dynamic_sample_count": volatility_delever_dynamic_sample_count,
+        "volatility_delever_dynamic_lookback": volatility_delever_dynamic_lookback,
+        "volatility_delever_dynamic_percentile": volatility_delever_dynamic_percentile,
+        "volatility_delever_dynamic_min_periods": volatility_delever_dynamic_min_periods,
+        "volatility_delever_dynamic_floor": volatility_delever_dynamic_floor,
+        "volatility_delever_dynamic_cap": volatility_delever_dynamic_cap,
         "volatility_delever_metric": volatility_delever_metric,
         "volatility_delever_triggered": volatility_delever_triggered,
         "volatility_delever_retention_ratio": volatility_delever_retention_ratio,
@@ -783,6 +878,14 @@ def build_rebalance_plan(
         "blend_gate_volatility_delever_symbol": volatility_delever_symbol,
         "blend_gate_volatility_delever_window": volatility_delever_window,
         "blend_gate_volatility_delever_threshold": volatility_delever_threshold,
+        "blend_gate_volatility_delever_threshold_mode": volatility_delever_threshold_mode,
+        "blend_gate_volatility_delever_dynamic_threshold": volatility_delever_dynamic_threshold,
+        "blend_gate_volatility_delever_dynamic_sample_count": volatility_delever_dynamic_sample_count,
+        "blend_gate_volatility_delever_dynamic_lookback": volatility_delever_dynamic_lookback,
+        "blend_gate_volatility_delever_dynamic_percentile": volatility_delever_dynamic_percentile,
+        "blend_gate_volatility_delever_dynamic_min_periods": volatility_delever_dynamic_min_periods,
+        "blend_gate_volatility_delever_dynamic_floor": volatility_delever_dynamic_floor,
+        "blend_gate_volatility_delever_dynamic_cap": volatility_delever_dynamic_cap,
         "blend_gate_volatility_delever_metric": volatility_delever_metric,
         "blend_gate_volatility_delever_triggered": volatility_delever_triggered,
         "blend_gate_volatility_delever_retention_ratio": volatility_delever_retention_ratio,

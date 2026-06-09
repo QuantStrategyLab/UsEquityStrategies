@@ -75,11 +75,11 @@ SOXL 核心 overlay 也做了窄候选复核：
 
 | Core version | CAGR | Max drawdown | Note |
 | --- | ---: | ---: | --- |
-| current manifest：`SOXX 10d vol >= 55%, SOXL -> SOXX` | `49.74%` | `-42.31%` | 保留；与收入层组合后的 CAGR 最高 |
+| 2026-05 manifest：`SOXX 10d vol >= 55%, SOXL -> SOXX` | `49.74%` | `-42.31%` | 本次收入层研究中保留；与收入层组合后的 CAGR 最高 |
 | `SOXX 10d vol >= 55%, SOXL -> BOXX` | `49.84%` | `-42.31%` | 核心略高，但加入收入层后不如当前 manifest |
 | `SOXX 10d vol >= 50%, SOXL -> SOXX` | `48.48%` | `-42.31%` | 更频繁降档，收益低于当前 manifest |
 
-因此 SOXL 本次只调整收入层，不改核心 `blend_gate_volatility_delever_*` 默认值。
+因此本次收入层研究没有调整 SOXL 核心 `blend_gate_volatility_delever_*` 默认值；后续 2026-06 波动率阈值复核已单独推广有边界的动态阈值。
 
 2026-06-04 使用 Nasdaq 真实历史和官方收益率代理做轻量复核后，SOXL 默认收入层进一步切到更早启动、更偏 SGOV 的 `start=150000, max=95%, log_factor=0.50` 版本；样本内 CAGR 约 `38.73%`、最大回撤约 `-9.28%`，仍通过 SPY 窗口回撤约束。
 
