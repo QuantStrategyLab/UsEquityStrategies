@@ -16,6 +16,11 @@ from us_equity_strategies.income_layer import (
     get_income_layer_ratio,
     normalize_income_layer_allocations,
 )
+from us_equity_strategies.volatility_delever_retention import (
+    POLICY_TQQQ_STEP_SOFTZERO_025_050,
+    RETENTION_MODE_NONE,
+    resolve_volatility_delever_retention,
+)
 
 PULLBACK_REBOUND_THRESHOLD_MODE_FIXED = "fixed"
 PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED = "volatility_scaled"
@@ -237,6 +242,11 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         macro_component = {}
         if isinstance(component_signals, Mapping) and isinstance(component_signals.get("macro"), Mapping):
             macro_component = component_signals["macro"]
+        volatility_delever_context = position_control.get("volatility_delever_context")
+        if not isinstance(volatility_delever_context, Mapping):
+            volatility_delever_context = payload.get("volatility_delever_context")
+        if not isinstance(volatility_delever_context, Mapping):
+            volatility_delever_context = {}
         return {
             "found": True,
             "schema_version": str(payload.get("schema_version") or "").strip(),
@@ -261,6 +271,7 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
             "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
             "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
             "blocked": blocked,
+            "volatility_delever_context": volatility_delever_context,
         }
     return {
         "found": False,
@@ -284,6 +295,7 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         "log_record": {},
         "notification": {},
         "blocked": False,
+        "volatility_delever_context": {},
     }
 
 
@@ -454,6 +466,11 @@ def build_rebalance_plan(
     dual_drive_volatility_delever_dynamic_floor=0.24,
     dual_drive_volatility_delever_dynamic_cap=0.36,
     dual_drive_volatility_delever_taco_veto_enabled=True,
+    dual_drive_volatility_delever_retention_mode=RETENTION_MODE_NONE,
+    dual_drive_volatility_delever_retention_ratio=0.0,
+    dual_drive_volatility_delever_retention_policy=POLICY_TQQQ_STEP_SOFTZERO_025_050,
+    dual_drive_volatility_delever_retention_context_required=True,
+    dual_drive_volatility_delever_max_retention_ratio=0.50,
     dual_drive_macro_risk_governor_enabled=True,
     dual_drive_crisis_defense_enabled=True,
     market_regime_control_enabled=True,
@@ -589,6 +606,14 @@ def build_rebalance_plan(
         else _resolve_macro_risk_governor_context(snapshot_metadata)
     )
     macro_risk_governor_active = bool(macro_risk_governor_enabled and macro_risk_governor_context["active"])
+    retention_decision = resolve_volatility_delever_retention(
+        mode=dual_drive_volatility_delever_retention_mode,
+        fixed_ratio=dual_drive_volatility_delever_retention_ratio,
+        policy=dual_drive_volatility_delever_retention_policy,
+        max_ratio=dual_drive_volatility_delever_max_retention_ratio,
+        context_required=dual_drive_volatility_delever_retention_context_required,
+        market_regime_context=market_regime_control_context,
+    )
     crisis_defense_enabled = _as_bool(dual_drive_crisis_defense_enabled, default=True)
     above_ma200 = qqq_p > ma200
     positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
@@ -692,6 +717,7 @@ def build_rebalance_plan(
         and taco_veto_enabled
         and taco_rebound_context_active
         and not true_crisis_active
+        and str(retention_decision.get("mode") or "").strip().lower() != "environment"
     )
     volatility_delever_applied = bool(volatility_delever_triggered and not volatility_delever_vetoed)
     volatility_delever_removed_value = 0.0
@@ -699,9 +725,11 @@ def build_rebalance_plan(
     if volatility_delever_vetoed:
         volatility_delever_veto_reason = "taco_rebound_context"
     if volatility_delever_applied:
-        volatility_delever_removed_value = float(target_tqqq_val)
+        retention_ratio = float(retention_decision.get("retention_ratio") or 0.0)
+        retained_value = float(target_tqqq_val) * retention_ratio
+        volatility_delever_removed_value = max(0.0, float(target_tqqq_val) - retained_value)
         target_unlevered_val += volatility_delever_removed_value
-        target_tqqq_val = 0.0
+        target_tqqq_val = retained_value
     threshold = total_equity * rebalance_threshold_ratio
 
     ma20_slope_text = "n/a" if pd.isna(ma20_slope) else f"{ma20_slope:+.2f}"
@@ -747,6 +775,12 @@ def build_rebalance_plan(
             "veto_reason": volatility_delever_veto_reason,
             "taco_rebound_context_active": taco_rebound_context_active,
             "true_crisis_active": true_crisis_active,
+            "retention_mode": retention_decision["mode"],
+            "retention_policy": retention_decision["policy"],
+            "retention_ratio": retention_decision["retention_ratio"],
+            "retention_source": retention_decision["source"],
+            "retention_context_found": retention_decision["context_found"],
+            "retention_reason_codes": retention_decision["reason_codes"],
             "redirect_symbol": unlevered_symbol,
             "removed_value": volatility_delever_removed_value,
         },
@@ -921,6 +955,12 @@ def build_rebalance_plan(
         "dual_drive_volatility_delever_taco_veto_enabled": taco_veto_enabled,
         "dual_drive_volatility_delever_taco_rebound_context_active": taco_rebound_context_active,
         "dual_drive_volatility_delever_true_crisis_active": true_crisis_active,
+        "dual_drive_volatility_delever_retention_mode": retention_decision["mode"],
+        "dual_drive_volatility_delever_retention_policy": retention_decision["policy"],
+        "dual_drive_volatility_delever_retention_ratio": retention_decision["retention_ratio"],
+        "dual_drive_volatility_delever_retention_source": retention_decision["source"],
+        "dual_drive_volatility_delever_retention_context_found": retention_decision["context_found"],
+        "dual_drive_volatility_delever_retention_reason_codes": retention_decision["reason_codes"],
         "dual_drive_volatility_delever_redirect_symbol": unlevered_symbol,
         "dual_drive_volatility_delever_removed_value": volatility_delever_removed_value,
         "dual_drive_macro_risk_governor_enabled": macro_risk_governor_enabled,
