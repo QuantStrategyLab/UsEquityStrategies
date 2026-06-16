@@ -134,6 +134,17 @@ such as `canonical_route`, `position_control`, and
 context only. SOXL/SOXX enables `market_regime_control` by default for
 `risk_off` and deterministic volatility-delever retention context, while
 `risk_reduced` position impact remains disabled in the default strategy config.
+The SOXL aggressive retention policy is `soxl_step_rebound_0.25_0.50`; the
+conservative switch is `soxl_step_softzero_rebound_0.25_0.50`. Both policies
+must be driven by deterministic `price_rebound_context` evidence, not localized
+messages or manual-review opportunity text.
+Strategy consumers must also require
+`execution_controls.position_control_allowed = true` and
+`consumption_evidence_status = automation_approved` before applying plugin
+position-control fields. Without those fields, the artifact is display and
+evidence context only. When `execution_controls` exists, it is the authoritative
+authorization contract; legacy `consumption_policy` is only a compatibility
+fallback for older artifacts that do not have `execution_controls`.
 
 ## Current Coverage
 

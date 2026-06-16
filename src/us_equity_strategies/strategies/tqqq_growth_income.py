@@ -16,6 +16,9 @@ from us_equity_strategies.income_layer import (
     get_income_layer_ratio,
     normalize_income_layer_allocations,
 )
+from us_equity_strategies.market_regime_control_contract import (
+    resolve_market_regime_position_control_authorization,
+)
 from us_equity_strategies.volatility_delever_retention import (
     POLICY_TQQQ_STEP_SOFTZERO_025_050,
     RETENTION_MODE_NONE,
@@ -213,6 +216,10 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
         if plugin != MARKET_REGIME_CONTROL_PROFILE:
             continue
+        authorization = resolve_market_regime_position_control_authorization(payload)
+        position_control_allowed = bool(authorization["position_control_allowed"])
+        position_control_authorized = bool(authorization["position_control_authorized"])
+        evidence_status = str(authorization["consumption_evidence_status"])
         position_control = payload.get("position_control")
         if not isinstance(position_control, Mapping):
             position_control = {}
@@ -250,16 +257,22 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         return {
             "found": True,
             "schema_version": str(payload.get("schema_version") or "").strip(),
-            "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked,
+            "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked and position_control_authorized,
             "route": route,
             "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
             "suggested_action": suggested_action,
+            "position_control_allowed": position_control_allowed,
+            "position_control_authorized": position_control_authorized,
+            "consumption_evidence_status": evidence_status,
             "risk_budget_scalar": _clamped_ratio_or_default(position_control.get("risk_budget_scalar"), default=1.0),
             "leverage_scalar": _clamped_ratio_or_default(position_control.get("leverage_scalar"), default=1.0),
             "risk_asset_scalar": _clamped_ratio_or_default(position_control.get("risk_asset_scalar"), default=1.0),
-            "taco_allowed": _as_bool(position_control.get("taco_allowed"), default=False),
-            "local_delever_veto_allowed": _as_bool(position_control.get("local_delever_veto_allowed"), default=False),
-            "crisis_defense_required": _as_bool(position_control.get("crisis_defense_required"), default=False),
+            "taco_allowed": position_control_authorized
+            and _as_bool(position_control.get("taco_allowed"), default=False),
+            "local_delever_veto_allowed": position_control_authorized
+            and _as_bool(position_control.get("local_delever_veto_allowed"), default=False),
+            "crisis_defense_required": position_control_authorized
+            and _as_bool(position_control.get("crisis_defense_required"), default=False),
             "blocked_actions": _normalized_text_tuple(position_control.get("blocked_actions")),
             "vetoes": vetoes,
             "actionable_score": _as_float_or_none(macro_component.get("actionable_score")),
@@ -271,7 +284,7 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
             "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
             "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
             "blocked": blocked,
-            "volatility_delever_context": volatility_delever_context,
+            "volatility_delever_context": volatility_delever_context if position_control_authorized else {},
         }
     return {
         "found": False,
@@ -280,6 +293,9 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
         "route": "",
         "route_source": "",
         "suggested_action": "",
+        "position_control_allowed": False,
+        "position_control_authorized": False,
+        "consumption_evidence_status": "",
         "risk_budget_scalar": 1.0,
         "leverage_scalar": 1.0,
         "risk_asset_scalar": 1.0,
@@ -978,6 +994,15 @@ def build_rebalance_plan(
         "market_regime_control_route": market_regime_control_context["route"],
         "market_regime_control_route_source": market_regime_control_context["route_source"],
         "market_regime_control_active": bool(market_regime_control_context["active"]),
+        "market_regime_control_position_control_allowed": market_regime_control_context[
+            "position_control_allowed"
+        ],
+        "market_regime_control_position_control_authorized": market_regime_control_context[
+            "position_control_authorized"
+        ],
+        "market_regime_control_consumption_evidence_status": market_regime_control_context[
+            "consumption_evidence_status"
+        ],
         "market_regime_control_risk_budget_scalar": market_regime_control_context["risk_budget_scalar"],
         "market_regime_control_leverage_scalar": market_regime_control_context["leverage_scalar"],
         "market_regime_control_risk_asset_scalar": market_regime_control_context["risk_asset_scalar"],

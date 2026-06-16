@@ -12,6 +12,7 @@ RETENTION_MODES = frozenset({RETENTION_MODE_NONE, RETENTION_MODE_FIXED, RETENTIO
 POLICY_TQQQ_STEP_SOFTZERO_025_050 = "tqqq_step_softzero_0.25_0.50"
 POLICY_TQQQ_STEP_SOFTZERO_035_050 = "tqqq_step_softzero_0.35_0.50"
 POLICY_SOXL_STEP_REBOUND_025_050 = "soxl_step_rebound_0.25_0.50"
+POLICY_SOXL_STEP_SOFTZERO_REBOUND_025_050 = "soxl_step_softzero_rebound_0.25_0.50"
 
 
 def _as_bool(value: object, *, default: bool = False) -> bool:
@@ -71,6 +72,32 @@ def _profile_ratio(context: Mapping[str, object], policy: str) -> tuple[float | 
     return float(ratio), _normalized_text_tuple(profile.get("reason_codes"))
 
 
+def _soxl_price_rebound_candidate(context: Mapping[str, object]) -> bool | None:
+    price_context = context.get("price_rebound_context")
+    if not isinstance(price_context, Mapping):
+        return None
+    return bool(
+        _as_bool(price_context.get("volatility_triggered"), default=False)
+        and _as_bool(price_context.get("trend_ok"), default=False)
+        and (
+            _as_bool(price_context.get("rebound_1d"), default=False)
+            or _as_bool(price_context.get("rebound_nd"), default=False)
+            or _as_bool(price_context.get("confirmed"), default=False)
+        )
+        and not _as_bool(price_context.get("hard_filter"), default=False)
+    )
+
+
+def _soxl_rebound_available(context: Mapping[str, object], rebound: bool) -> bool:
+    price_candidate = _soxl_price_rebound_candidate(context)
+    if price_candidate is not None:
+        return price_candidate
+    rebound_sources = _normalized_text_tuple(context.get("rebound_sources"))
+    if rebound_sources:
+        return bool(rebound and "price_rebound" in rebound_sources)
+    return rebound
+
+
 def _policy_ratio(context: Mapping[str, object], policy: str) -> tuple[float, tuple[str, ...]]:
     hard = _as_bool(context.get("hard_risk"), default=False)
     soft = _as_bool(context.get("soft_risk"), default=False)
@@ -91,7 +118,15 @@ def _policy_ratio(context: Mapping[str, object], policy: str) -> tuple[float, tu
             return 0.50, ("constructive", "rebound_confirm")
         return 0.35, ("non_soft_risk",)
     if policy == POLICY_SOXL_STEP_REBOUND_025_050:
-        if not rebound:
+        if not _soxl_rebound_available(context, rebound):
+            return 0.0, ("rebound_not_confirmed",)
+        if constructive:
+            return 0.50, ("constructive", "rebound_confirm")
+        return 0.25, ("rebound_confirm",)
+    if policy == POLICY_SOXL_STEP_SOFTZERO_REBOUND_025_050:
+        if soft:
+            return 0.0, ("soft_risk",)
+        if not _soxl_rebound_available(context, rebound):
             return 0.0, ("rebound_not_confirmed",)
         if constructive:
             return 0.50, ("constructive", "rebound_confirm")
@@ -191,6 +226,7 @@ def resolve_volatility_delever_retention(
 
 __all__ = [
     "POLICY_SOXL_STEP_REBOUND_025_050",
+    "POLICY_SOXL_STEP_SOFTZERO_REBOUND_025_050",
     "POLICY_TQQQ_STEP_SOFTZERO_025_050",
     "POLICY_TQQQ_STEP_SOFTZERO_035_050",
     "RETENTION_MODE_ENVIRONMENT",

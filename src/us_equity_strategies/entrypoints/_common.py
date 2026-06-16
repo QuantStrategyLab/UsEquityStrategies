@@ -8,6 +8,9 @@ from us_equity_strategies.income_layer import (
     build_income_layer_plan,
     normalize_income_layer_allocations,
 )
+from us_equity_strategies.market_regime_control_contract import (
+    resolve_market_regime_position_control_authorization,
+)
 
 
 SAFE_HAVENS = {"BIL", "BOXX"}
@@ -181,6 +184,9 @@ def _market_regime_control_not_found() -> dict[str, object]:
         "route": "",
         "route_source": "",
         "suggested_action": "",
+        "position_control_allowed": False,
+        "position_control_authorized": False,
+        "consumption_evidence_status": "",
         "risk_budget_scalar": 1.0,
         "leverage_scalar": 1.0,
         "risk_asset_scalar": 1.0,
@@ -201,6 +207,10 @@ def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, 
             plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
             if plugin != MARKET_REGIME_CONTROL_PROFILE:
                 continue
+            authorization = resolve_market_regime_position_control_authorization(payload)
+            position_control_allowed = bool(authorization["position_control_allowed"])
+            position_control_authorized = bool(authorization["position_control_authorized"])
+            evidence_status = str(authorization["consumption_evidence_status"])
             position_control = payload.get("position_control")
             if not isinstance(position_control, Mapping):
                 position_control = {}
@@ -223,10 +233,13 @@ def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, 
             return {
                 "found": True,
                 "schema_version": str(payload.get("schema_version") or "").strip(),
-                "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked,
+                "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked and position_control_authorized,
                 "route": route,
                 "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
                 "suggested_action": suggested_action,
+                "position_control_allowed": position_control_allowed,
+                "position_control_authorized": position_control_authorized,
+                "consumption_evidence_status": evidence_status,
                 "risk_budget_scalar": _clamped_ratio(position_control.get("risk_budget_scalar"), default=1.0, upper=1.0),
                 "leverage_scalar": _clamped_ratio(position_control.get("leverage_scalar"), default=1.0, upper=1.0),
                 "risk_asset_scalar": _clamped_ratio(position_control.get("risk_asset_scalar"), default=1.0, upper=1.0),
@@ -968,6 +981,9 @@ def apply_market_regime_control_to_weights(
         "market_regime_control_active": bool(context.get("active")),
         "market_regime_control_applied": applied,
         "market_regime_control_route_allowed": route_allowed,
+        "market_regime_control_position_control_allowed": context.get("position_control_allowed"),
+        "market_regime_control_position_control_authorized": context.get("position_control_authorized"),
+        "market_regime_control_consumption_evidence_status": context.get("consumption_evidence_status"),
         "market_regime_control_risk_scalar": scalar,
         "market_regime_control_removed_weight": removed_weight,
         "market_regime_control_safe_haven": safe_haven_symbol,

@@ -91,6 +91,72 @@ def test_soxl_rebound_policy_requires_rebound_confirmation() -> None:
     assert decision["reason_codes"] == ("rebound_not_confirmed",)
 
 
+def test_soxl_rebound_policy_uses_price_rebound_candidate_during_soft_risk() -> None:
+    decision = resolve_volatility_delever_retention(
+        mode="environment",
+        fixed_ratio=0.0,
+        policy="soxl_step_rebound_0.25_0.50",
+        max_ratio=0.50,
+        context_required=True,
+        market_regime_context=_context(
+            soft_risk=True,
+            constructive=False,
+            rebound_confirm=False,
+            price_rebound_context={
+                "volatility_triggered": True,
+                "trend_ok": True,
+                "rebound_nd": True,
+                "hard_filter": False,
+            },
+        ),
+    )
+
+    assert decision["retention_ratio"] == 0.25
+    assert decision["source"] == "local_policy"
+
+
+def test_soxl_softzero_rebound_policy_clears_retention_for_soft_risk() -> None:
+    decision = resolve_volatility_delever_retention(
+        mode="environment",
+        fixed_ratio=0.0,
+        policy="soxl_step_softzero_rebound_0.25_0.50",
+        max_ratio=0.50,
+        context_required=True,
+        market_regime_context=_context(
+            soft_risk=True,
+            constructive=False,
+            rebound_confirm=False,
+            price_rebound_context={
+                "volatility_triggered": True,
+                "trend_ok": True,
+                "rebound_nd": True,
+                "hard_filter": False,
+            },
+        ),
+    )
+
+    assert decision["retention_ratio"] == 0.0
+    assert decision["reason_codes"] == ("soft_risk",)
+
+
+def test_soxl_rebound_policy_ignores_manual_opportunity_rebound_sources() -> None:
+    decision = resolve_volatility_delever_retention(
+        mode="environment",
+        fixed_ratio=0.0,
+        policy="soxl_step_rebound_0.25_0.50",
+        max_ratio=0.50,
+        context_required=True,
+        market_regime_context=_context(
+            constructive=True,
+            rebound_confirm=True,
+            rebound_sources=["taco"],
+        ),
+    )
+
+    assert decision["retention_ratio"] == 0.0
+    assert decision["reason_codes"] == ("rebound_not_confirmed",)
+
+
 def test_context_profile_ratio_is_capped_and_used_when_present() -> None:
     decision = resolve_volatility_delever_retention(
         mode="environment",

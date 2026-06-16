@@ -21,6 +21,20 @@ def _skip_if_missing_numeric_stack() -> None:
         raise unittest.SkipTest(f"numeric stack unavailable: {exc}") from exc
 
 
+def _market_regime_authorization(*, approved: bool = True) -> dict[str, object]:
+    evidence_status = "automation_approved" if approved else "notification_only"
+    return {
+        "execution_controls": {
+            "position_control_allowed": approved,
+            "consumption_evidence_status": evidence_status,
+        },
+        "consumption_policy": {
+            "position_control_allowed": approved,
+            "evidence_status": evidence_status,
+        },
+    }
+
+
 class StrategyPlanMetadataTest(unittest.TestCase):
     def test_tqqq_growth_income_exposes_live_dual_drive_metadata(self):
         _skip_if_missing_numeric_stack()
@@ -797,6 +811,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                     "schema_version": "market_regime_control.v1",
                     "canonical_route": "risk_reduced",
                     "suggested_action": "delever",
+                    **_market_regime_authorization(),
                     "position_control": {
                         "final_route": "risk_reduced",
                         "suggested_action": "delever",
@@ -842,6 +857,66 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.98)
         self.assertIn("Market Regime Control: applied", plan["dashboard"])
 
+    def test_tqqq_growth_income_ignores_unapproved_market_regime_position_control(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[
+                SimpleNamespace(symbol="TQQQ", market_value=45000.0, quantity=1000),
+                SimpleNamespace(symbol="QQQM", market_value=45000.0, quantity=100),
+                SimpleNamespace(symbol="BOXX", market_value=8000.0, quantity=80),
+            ],
+            total_equity=100000.0,
+            buying_power=2000.0,
+            metadata={
+                "market_regime_control": {
+                    "plugin": "market_regime_control",
+                    "schema_version": "market_regime_control.v1",
+                    "canonical_route": "risk_reduced",
+                    "suggested_action": "delever",
+                    **_market_regime_authorization(approved=False),
+                    "position_control": {
+                        "final_route": "risk_reduced",
+                        "suggested_action": "delever",
+                        "route_source": "macro",
+                        "leverage_scalar": 0.0,
+                        "risk_asset_scalar": 0.0,
+                        "risk_budget_scalar": 1.0,
+                    },
+                }
+            },
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.02,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+            dual_drive_cash_reserve_ratio=0.02,
+        )
+
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertFalse(plan["market_regime_control_active"])
+        self.assertFalse(plan["market_regime_control_position_control_authorized"])
+        self.assertEqual(plan["market_regime_control_consumption_evidence_status"], "notification_only")
+        self.assertFalse(plan["dual_drive_macro_risk_governor_active"])
+        self.assertFalse(plan["dual_drive_macro_risk_governor_applied"])
+        self.assertGreater(plan["target_values"]["TQQQ"], 0.0)
+        self.assertGreater(plan["target_values"]["QQQM"], 0.0)
+
     def test_tqqq_growth_income_can_disable_market_regime_control_position_effect(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
@@ -866,6 +941,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                     "schema_version": "market_regime_control.v1",
                     "canonical_route": "risk_reduced",
                     "suggested_action": "delever",
+                    **_market_regime_authorization(),
                     "position_control": {
                         "final_route": "risk_reduced",
                         "suggested_action": "delever",
@@ -920,6 +996,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                     "plugin": "market_regime_control",
                     "canonical_route": "opportunity_watch",
                     "suggested_action": "notify_manual_review",
+                    **_market_regime_authorization(),
                     "position_control": {
                         "final_route": "opportunity_watch",
                         "suggested_action": "notify_manual_review",
@@ -1446,6 +1523,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                     "schema_version": "market_regime_control.v1",
                     "canonical_route": "risk_reduced",
                     "suggested_action": "delever",
+                    **_market_regime_authorization(),
                     "position_control": {
                         "final_route": "risk_reduced",
                         "suggested_action": "delever",
@@ -1504,6 +1582,77 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "risk_reduced",
         )
 
+    def test_soxl_soxx_trend_income_ignores_unapproved_market_regime_position_control(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 100000.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 100000.0,
+            "metadata": {
+                "market_regime_control": {
+                    "plugin": "market_regime_control",
+                    "schema_version": "market_regime_control.v1",
+                    "canonical_route": "risk_reduced",
+                    "suggested_action": "delever",
+                    **_market_regime_authorization(approved=False),
+                    "position_control": {
+                        "final_route": "risk_reduced",
+                        "suggested_action": "delever",
+                        "route_source": "macro",
+                        "leverage_scalar": 0.0,
+                        "risk_asset_scalar": 0.0,
+                        "risk_budget_scalar": 1.0,
+                    },
+                }
+            },
+        }
+
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0},
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+            market_regime_control_enabled=True,
+            market_regime_control_apply_risk_reduced=True,
+        )
+
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertFalse(plan["market_regime_control_active"])
+        self.assertFalse(plan["market_regime_control_applied"])
+        self.assertFalse(plan["market_regime_control_position_control_authorized"])
+        self.assertEqual(plan["market_regime_control_consumption_evidence_status"], "notification_only")
+        self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+
     def test_soxl_soxx_trend_income_default_does_not_consume_market_regime_control(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.soxl_soxx_trend_income import (
@@ -1523,6 +1672,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                     "schema_version": "market_regime_control.v1",
                     "canonical_route": "risk_reduced",
                     "suggested_action": "delever",
+                    **_market_regime_authorization(),
                     "position_control": {
                         "final_route": "risk_reduced",
                         "suggested_action": "delever",
@@ -1591,6 +1741,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
                     "schema_version": "market_regime_control.v1",
                     "canonical_route": "risk_reduced",
                     "suggested_action": "delever",
+                    **_market_regime_authorization(),
                     "position_control": {
                         "final_route": "risk_reduced",
                         "suggested_action": "delever",

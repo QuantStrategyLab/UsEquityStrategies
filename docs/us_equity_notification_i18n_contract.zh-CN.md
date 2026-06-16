@@ -125,6 +125,13 @@ notification_context = {
 `canonical_route`、`position_control` 和
 `position_control.volatility_delever_context` 等机器字段；本地化文案只用于展示。SOXL/SOXX 默认启用
 `market_regime_control` 的 `risk_off` 和确定性波动率降杠杆 retention context；`risk_reduced` 仓位影响在默认策略配置中仍关闭。
+SOXL 偏进攻 retention policy 是 `soxl_step_rebound_0.25_0.50`，保守切换是
+`soxl_step_softzero_rebound_0.25_0.50`。两者都必须由确定性的
+`price_rebound_context` 证据驱动，不能由本地化文案或人工复核机会文本驱动。
+策略消费端还必须同时要求 `execution_controls.position_control_allowed = true`
+和 `consumption_evidence_status = automation_approved`，才会应用插件仓位控制字段。缺少这些字段时，artifact 只作为展示和证据上下文。只要
+`execution_controls` 存在，它就是权威授权契约；旧 `consumption_policy`
+只作为没有 `execution_controls` 的历史 artifact 兼容 fallback。
 
 ## 当前覆盖
 
