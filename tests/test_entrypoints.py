@@ -695,9 +695,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertEqual(entrypoint.manifest.default_config["income_layer_base_drawdown_budget_ratio"], 0.45)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_min_drawdown_budget_ratio"], 0.25)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_drawdown_budget_decay_per_double"], 0.05)
-        self.assertNotIn("market_regime_control_enabled", entrypoint.manifest.default_config)
-        self.assertNotIn("market_regime_control_apply_risk_reduced", entrypoint.manifest.default_config)
-        self.assertNotIn("market_regime_control_apply_risk_off", entrypoint.manifest.default_config)
+        self.assertIs(entrypoint.manifest.default_config["market_regime_control_enabled"], True)
+        self.assertIs(entrypoint.manifest.default_config["market_regime_control_apply_risk_reduced"], False)
+        self.assertIs(entrypoint.manifest.default_config["market_regime_control_apply_risk_off"], True)
         self.assertEqual(
             entrypoint.manifest.default_config["income_layer_allocations"],
             {"SCHD": 0.15, "DGRO": 0.10, "SGOV": 0.70, "SPYI": 0.04, "QQQI": 0.01},
