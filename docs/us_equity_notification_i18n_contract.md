@@ -128,9 +128,12 @@ these fields under
 
 These fields let platform repositories render consistent English and Chinese
 notifications/logs without duplicating route/action translation tables. They
-are not trading inputs. SOXL/SOXX does not enable `market_regime_control` by
-default; it can still receive the general market-regime notification artifact
-outside the strategy runtime for manual review.
+are not trading inputs. TQQQ and SOXL/SOXX trading logic reads machine fields
+such as `canonical_route`, `position_control`, and
+`position_control.volatility_delever_context`; localized text remains display
+context only. SOXL/SOXX enables `market_regime_control` by default for
+`risk_off` and deterministic volatility-delever retention context, while
+`risk_reduced` position impact remains disabled in the default strategy config.
 
 ## Current Coverage
 

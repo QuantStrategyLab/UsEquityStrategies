@@ -121,8 +121,10 @@ notification_context = {
 - `log_record`
 - `notification`
 
-这些字段让平台仓库可以统一渲染英文和中文通知 / 日志，不需要重复维护 route/action 翻译表。它们不是交易输入。SOXL/SOXX 默认不启用
-`market_regime_control`；它仍可在策略运行时之外接收通用市场状态通知 artifact，由人工复核。
+这些字段让平台仓库可以统一渲染英文和中文通知 / 日志，不需要重复维护 route/action 翻译表。它们不是交易输入。TQQQ 和 SOXL/SOXX 的交易逻辑读取
+`canonical_route`、`position_control` 和
+`position_control.volatility_delever_context` 等机器字段；本地化文案只用于展示。SOXL/SOXX 默认启用
+`market_regime_control` 的 `risk_off` 和确定性波动率降杠杆 retention context；`risk_reduced` 仓位影响在默认策略配置中仍关闭。
 
 ## 当前覆盖
 
