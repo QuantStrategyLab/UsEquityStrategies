@@ -234,16 +234,16 @@ class CatalogTest(unittest.TestCase):
         self.assertIs(soxl["market_regime_control_apply_risk_reduced"], False)
         self.assertIs(soxl["market_regime_control_apply_risk_off"], True)
 
-        weight_scaled_profiles = (
+        promotion_pending_profiles = (
             GLOBAL_ETF_ROTATION_PROFILE,
             RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
             MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
         )
-        for profile in weight_scaled_profiles:
+        for profile in promotion_pending_profiles:
             config = get_strategy_definition(profile).default_config
             self.assertIs(config["market_regime_control_enabled"], True)
-            self.assertIs(config["market_regime_control_apply_risk_reduced"], True)
-            self.assertIs(config["market_regime_control_apply_risk_off"], True)
+            self.assertIs(config["market_regime_control_apply_risk_reduced"], False)
+            self.assertIs(config["market_regime_control_apply_risk_off"], False)
             self.assertEqual(config["market_regime_control_risk_reduced_scalar"], 0.50)
             self.assertEqual(config["market_regime_control_risk_off_scalar"], 0.0)
 

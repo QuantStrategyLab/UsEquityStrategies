@@ -5,12 +5,20 @@ from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies.entrypoints._common import apply_market_regime_control_to_weights
 
 
-def _market_regime_payload(route: str, scalar: float) -> dict[str, object]:
+def _market_regime_payload(route: str, scalar: float, *, authorized: bool = True) -> dict[str, object]:
     return {
         "plugin": "market_regime_control",
         "schema_version": "market_regime_control.v1",
         "canonical_route": route,
         "suggested_action": "delever" if route == "risk_reduced" else "defend",
+        "execution_controls": {
+            "position_control_allowed": authorized,
+            "consumption_evidence_status": "automation_approved" if authorized else "notification_only",
+        },
+        "consumption_policy": {
+            "position_control_allowed": authorized,
+            "evidence_status": "automation_approved" if authorized else "notification_only",
+        },
         "position_control": {
             "final_route": route,
             "suggested_action": "delever" if route == "risk_reduced" else "defend",
@@ -60,6 +68,7 @@ def test_market_regime_control_weight_consumer_scales_risk_weight_to_safe_haven(
     assert weights["AAPL"] == 0.40
     assert round(weights["BOXX"], 10) == 0.60
     assert diagnostics["market_regime_control_applied"] is True
+    assert diagnostics["market_regime_control_position_control_authorized"] is True
     assert diagnostics["market_regime_control_removed_weight"] == 0.40
     assert diagnostics["market_regime_control_risk_symbols"] == ("AAPL",)
     market_regime_notice = diagnostics["market_regime_control_notification_context"]["risk_controls"][
@@ -87,4 +96,27 @@ def test_market_regime_control_weight_consumer_can_leave_risk_reduced_notificati
     assert weights == {"AAPL": 0.80, "BOXX": 0.20}
     assert diagnostics["market_regime_control_active"] is True
     assert diagnostics["market_regime_control_route_allowed"] is False
+    assert diagnostics["market_regime_control_applied"] is False
+
+
+def test_market_regime_control_weight_consumer_does_not_apply_unapproved_position_control() -> None:
+    weights, diagnostics = apply_market_regime_control_to_weights(
+        {"AAPL": 0.80, "BOXX": 0.20},
+        market_regime_control_config={
+            "market_regime_control_enabled": True,
+            "market_regime_control_risk_reduced_scalar": 0.50,
+        },
+        ctx=StrategyContext(
+            as_of="2026-05-28",
+            artifacts={"market_regime_control": _market_regime_payload("risk_reduced", 0.0, authorized=False)},
+        ),
+        safe_haven="BOXX",
+    )
+
+    assert weights == {"AAPL": 0.80, "BOXX": 0.20}
+    assert diagnostics["market_regime_control_found"] is True
+    assert diagnostics["market_regime_control_active"] is False
+    assert diagnostics["market_regime_control_position_control_allowed"] is False
+    assert diagnostics["market_regime_control_position_control_authorized"] is False
+    assert diagnostics["market_regime_control_consumption_evidence_status"] == "notification_only"
     assert diagnostics["market_regime_control_applied"] is False
