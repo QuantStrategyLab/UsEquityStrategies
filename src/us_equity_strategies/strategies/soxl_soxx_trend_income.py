@@ -11,6 +11,11 @@ from us_equity_strategies.income_layer import (
     get_income_layer_ratio,
     normalize_income_layer_allocations,
 )
+from us_equity_strategies.volatility_delever_retention import (
+    POLICY_SOXL_STEP_REBOUND_025_050,
+    RETENTION_MODE_FIXED,
+    resolve_volatility_delever_retention,
+)
 
 
 SOXX_GATE_TIERED_BLEND_MODE = "soxx_gate_tiered_blend"
@@ -227,6 +232,7 @@ def _market_regime_context_not_found() -> dict[str, object]:
         "log_record": {},
         "notification": {},
         "blocked": False,
+        "volatility_delever_context": {},
     }
 
 
@@ -254,6 +260,11 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
             or ""
         ).strip().lower()
         blocked = suggested_action == "blocked"
+        volatility_delever_context = position_control.get("volatility_delever_context")
+        if not isinstance(volatility_delever_context, Mapping):
+            volatility_delever_context = payload.get("volatility_delever_context")
+        if not isinstance(volatility_delever_context, Mapping):
+            volatility_delever_context = {}
         return {
             "found": True,
             "source": MARKET_REGIME_CONTROL_PROFILE,
@@ -281,6 +292,7 @@ def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, objec
             "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
             "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
             "blocked": blocked,
+            "volatility_delever_context": volatility_delever_context,
         }
     return _market_regime_context_not_found()
 
@@ -406,6 +418,10 @@ def build_rebalance_plan(
     blend_gate_volatility_delever_dynamic_floor=0.50,
     blend_gate_volatility_delever_dynamic_cap=0.75,
     blend_gate_volatility_delever_retention_ratio=0.0,
+    blend_gate_volatility_delever_retention_mode=RETENTION_MODE_FIXED,
+    blend_gate_volatility_delever_retention_policy=POLICY_SOXL_STEP_REBOUND_025_050,
+    blend_gate_volatility_delever_retention_context_required=True,
+    blend_gate_volatility_delever_max_retention_ratio=0.50,
     blend_gate_volatility_delever_redirect_symbol="SOXX",
     market_regime_control_enabled=False,
     market_regime_control_apply_risk_reduced=False,
@@ -553,6 +569,14 @@ def build_rebalance_plan(
         blend_gate_volatility_delever_retention_ratio,
         default=0.0,
     )
+    volatility_delever_retention_decision = resolve_volatility_delever_retention(
+        mode=blend_gate_volatility_delever_retention_mode,
+        fixed_ratio=volatility_delever_retention_ratio,
+        policy=blend_gate_volatility_delever_retention_policy,
+        max_ratio=blend_gate_volatility_delever_max_retention_ratio,
+        context_required=blend_gate_volatility_delever_retention_context_required,
+        market_regime_context=market_regime_control_context,
+    )
     volatility_delever_redirect_symbol = str(
         blend_gate_volatility_delever_redirect_symbol or "SOXX"
     ).strip().upper()
@@ -653,7 +677,8 @@ def build_rebalance_plan(
     )
     volatility_delever_removed_ratio = 0.0
     if volatility_delever_triggered:
-        retained_soxl_ratio = selected_soxl_ratio * volatility_delever_retention_ratio
+        effective_retention_ratio = float(volatility_delever_retention_decision.get("retention_ratio") or 0.0)
+        retained_soxl_ratio = selected_soxl_ratio * effective_retention_ratio
         volatility_delever_removed_ratio = max(0.0, selected_soxl_ratio - retained_soxl_ratio)
         selected_soxl_ratio = retained_soxl_ratio
         if volatility_delever_redirect_symbol == "BOXX":
@@ -859,6 +884,12 @@ def build_rebalance_plan(
         "volatility_delever_metric": volatility_delever_metric,
         "volatility_delever_triggered": volatility_delever_triggered,
         "volatility_delever_retention_ratio": volatility_delever_retention_ratio,
+        "volatility_delever_retention_mode": volatility_delever_retention_decision["mode"],
+        "volatility_delever_retention_policy": volatility_delever_retention_decision["policy"],
+        "volatility_delever_effective_retention_ratio": volatility_delever_retention_decision["retention_ratio"],
+        "volatility_delever_retention_source": volatility_delever_retention_decision["source"],
+        "volatility_delever_retention_context_found": volatility_delever_retention_decision["context_found"],
+        "volatility_delever_retention_reason_codes": volatility_delever_retention_decision["reason_codes"],
         "volatility_delever_redirect_symbol": volatility_delever_redirect_symbol,
     }
     portfolio_context = {
@@ -982,6 +1013,18 @@ def build_rebalance_plan(
         "blend_gate_volatility_delever_metric": volatility_delever_metric,
         "blend_gate_volatility_delever_triggered": volatility_delever_triggered,
         "blend_gate_volatility_delever_retention_ratio": volatility_delever_retention_ratio,
+        "blend_gate_volatility_delever_retention_mode": volatility_delever_retention_decision["mode"],
+        "blend_gate_volatility_delever_retention_policy": volatility_delever_retention_decision["policy"],
+        "blend_gate_volatility_delever_effective_retention_ratio": volatility_delever_retention_decision[
+            "retention_ratio"
+        ],
+        "blend_gate_volatility_delever_retention_source": volatility_delever_retention_decision["source"],
+        "blend_gate_volatility_delever_retention_context_found": volatility_delever_retention_decision[
+            "context_found"
+        ],
+        "blend_gate_volatility_delever_retention_reason_codes": volatility_delever_retention_decision[
+            "reason_codes"
+        ],
         "blend_gate_volatility_delever_redirect_symbol": volatility_delever_redirect_symbol,
         "blend_gate_volatility_delever_removed_ratio": volatility_delever_removed_ratio,
         "market_regime_control_enabled": market_regime_control_enabled,
