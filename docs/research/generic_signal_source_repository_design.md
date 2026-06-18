@@ -261,6 +261,20 @@ StrategyContext(
 平台不应把 bundle 的 provenance 直接塞进策略算法输入；如果需要审计，可放在平台日志或
 `runtime_config` 的执行审计字段中，但不要让策略公式依赖它。
 
+当前 `UsEquityStrategies` 只保留消费者侧最小 contract：
+`us_equity_strategies.signals.signal_bundle_contract` 可以校验
+`market_signal_bundle.v1` 的 `derived_indicators` bundle，并提取可直接注入
+`StrategyContext.market_data` 的 canonical input；平台侧最小接入可以用
+`extract_canonical_input_from_manifest` 从本地 manifest 读取，并校验 bundle sha256、
+`bundle_id`、`as_of`、schema version、freshness status 和 canonical input 一致性。示例 fixture 位于
+`examples/signal_bundles/crypto/btc/derived_indicators/2026-06-19/manifest.json`。
+manifest 里的 `bundle_path` 必须是 artifact 目录内的相对路径，不能是绝对路径或跳出目录。
+消费者 contract 也会拒绝包含 token、signed URL、cookie、secret 等敏感字段的 bundle。
+平台日志可使用 `signal_bundle_audit_summary_from_manifest` 记录 bundle id、schema、freshness、
+provider timestamp、source version 和 transform，不需要把完整 bundle 或供应商密钥写进日志。
+这不是 vendor adapter，也不拥有密钥、缓存或 artifact 发布职责；这些仍属于后续
+`MarketSignalSources` / pipeline 环境。
+
 ### 扩展路线
 
 Phase 1：IBIT / BTC cycle MVP

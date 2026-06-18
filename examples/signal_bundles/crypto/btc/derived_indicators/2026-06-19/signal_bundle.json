@@ -1,0 +1,46 @@
+{
+  "schema_version": "market_signal_bundle.v1",
+  "bundle_id": "crypto.btc.derived_indicators.2026-06-19",
+  "bundle_type": "derived_indicators",
+  "domain": "crypto",
+  "consumer_contract": {
+    "canonical_input": "derived_indicators",
+    "compatible_profiles": ["us_equity:ibit_smart_dca"],
+    "min_strategy_contract": "derived_indicators+portfolio_snapshot"
+  },
+  "as_of": "2026-06-19",
+  "generated_at": "2026-06-19T00:15:00Z",
+  "symbols": ["BTC-USD"],
+  "derived_indicators": {
+    "BTC-USD": {
+      "close": 64000.0,
+      "sma200": 59000.0,
+      "high252": 73000.0,
+      "drawdown_252d": 0.1232876712,
+      "sma200_gap": 0.0847457627,
+      "rsi14": 54.2,
+      "ahr999": 0.72,
+      "ahr999_sma": 0.75,
+      "mayer_multiple": 1.0847457627,
+      "ahr999_estimate_price": 78000.0,
+      "provider_timestamp": "2026-06-19T00:00:00Z"
+    }
+  },
+  "freshness": {
+    "policy": "crypto_daily_close_t_plus_1",
+    "max_age_hours": 36,
+    "provider_timestamp": "2026-06-19T00:00:00Z",
+    "status": "fresh"
+  },
+  "provenance": {
+    "source_repo": "QuantStrategyLab/MarketSignalSources",
+    "source_version": "0.1.0",
+    "code_commit": "0000000000000000000000000000000000000000",
+    "provider": "selected_btc_daily_provider",
+    "provider_dataset": "btc_usd_daily_ohlcv",
+    "raw_artifact_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "transform": "crypto.btc.ahr999.v1",
+    "license_scope": "internal_runtime",
+    "generated_by": "scheduled_pipeline"
+  }
+}
