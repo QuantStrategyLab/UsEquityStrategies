@@ -86,6 +86,12 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertIn("MA200 Exit:", plan["dashboard"])
         self.assertIn("MA20Δ:", plan["dashboard"])
         self.assertEqual(plan["notification_context"]["signal"]["state"], "entry")
+        self.assertIn(
+            plan["notification_context"]["signal"]["reason_code"],
+            {"tqqq_signal_reason_entry_trend", "tqqq_signal_reason_entry_pullback"},
+        )
+        self.assertIn("reason:", plan["notification_context"]["signal"]["reason"])
+        self.assertIn(" | reason:", plan["sig_display"])
         self.assertEqual(plan["notification_context"]["benchmark"]["symbol"], "QQQ")
         self.assertEqual(
             plan["notification_context"]["portfolio"]["holdings_order"],
@@ -458,6 +464,12 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertFalse(plan["dual_drive_volatility_delever_hysteresis_triggered"])
         self.assertEqual(plan["dual_drive_volatility_delever_trigger_reason"], "entry_threshold")
         self.assertEqual(plan["dual_drive_volatility_delever_redirect_symbol"], "QQQM")
+        self.assertEqual(plan["dual_drive_volatility_delever_retained_ratio"], 0.0)
+        self.assertEqual(plan["dual_drive_volatility_delever_redirected_ratio"], 1.0)
+        self.assertEqual(
+            plan["notification_context"]["risk_controls"]["dual_drive_volatility_delever"]["allocation_detail"],
+            "TQQQ sleeve retained 0.0%, redirected to QQQM 100.0%",
+        )
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
         self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.90)
         self.assertAlmostEqual(plan["target_values"]["BOXX"], 100000.0 * 0.08)
@@ -513,6 +525,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             plan["dual_drive_volatility_delever_threshold"],
         )
         self.assertEqual(plan["target_values"]["TQQQ"], 0.0)
+        self.assertEqual(plan["dual_drive_volatility_delever_retained_ratio"], 0.0)
+        self.assertEqual(plan["dual_drive_volatility_delever_redirected_ratio"], 1.0)
         self.assertAlmostEqual(plan["target_values"]["QQQM"], 100000.0 * 0.90)
 
     def test_tqqq_growth_income_volatility_delever_uses_dynamic_percentile_threshold(self):

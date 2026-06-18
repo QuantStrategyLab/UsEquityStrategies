@@ -338,11 +338,13 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     notification_context = dict(plan.get("notification_context") or {})
     signal_context = notification_context.get("signal")
     signal_state = str(signal_context.get("state") or "").strip() if isinstance(signal_context, Mapping) else ""
-    raw_signal_display = (
-        str(signal_text_fn(signal_state))
-        if signal_state
-        else str(plan["sig_display"])
-    )
+    raw_signal_display = str(plan.get("sig_display") or "").strip()
+    if not raw_signal_display:
+        raw_signal_display = (
+            str(signal_text_fn(signal_state))
+            if signal_state
+            else str(plan["sig_display"])
+        )
     signal_display = append_account_size_warning(
         raw_signal_display,
         account_size_diagnostics,
