@@ -47,7 +47,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
             "--output-dir",
             str(output_dir),
             "--candidate-set",
-            "nasdaq_sp500_price",
+            "nasdaq_sp500_price_variants",
             "--execution-days",
             "1,25",
             "--monthly-contribution-usd",
@@ -64,11 +64,11 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
 
     assert result == 0
     summary = json.loads(capsys.readouterr().out)
-    assert summary["candidate_set"] == "nasdaq_sp500_price"
+    assert summary["candidate_set"] == "nasdaq_sp500_price_variants"
     assert summary["monthly_contribution_usd_values"] == [500.0, 1000.0]
     assert summary["cadences"] == ["weekly", "monthly", "quarterly"]
     assert summary["start_dates"] == ["2025-01-02", "2025-04-01"]
-    assert summary["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price"
+    assert summary["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price_variants"
     assert summary["metadata"]["research_config"]["cadences"] == [
         "weekly",
         "monthly",
@@ -124,6 +124,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     )
     scenario_manifest = json.loads((output_dir / "scenario_manifest.json").read_text(encoding="utf-8"))
     assert "nasdaq_sp500_price_defensive" in scenario_index
+    assert "nasdaq_sp500_price_no_skip" in scenario_index
     assert "pass_rate" in robustness_summary
     assert "review_status" in robustness_summary
     assert "weakest_scenario" in robustness_summary
@@ -156,6 +157,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
         / "candidate_summary.csv"
     ).read_text(encoding="utf-8")
     assert "nasdaq_sp500_price_defensive" in candidate_specs
+    assert "nasdaq_sp500_price_no_skip" in candidate_specs
     assert "base_multiplier" in candidate_specs
     assert "open_parameter_search" in candidate_summary
     assert "unique_multiplier_count" in candidate_summary

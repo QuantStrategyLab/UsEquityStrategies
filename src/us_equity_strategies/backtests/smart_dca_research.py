@@ -78,6 +78,28 @@ IBIT_AHR999_MAYER_NO_SKIP_PARAMETERS: dict[str, float] = {
     **IBIT_AHR999_MAYER_PARAMETERS,
     "ahr999_expensive_multiplier": 1.0,
 }
+NASDAQ_SP500_PRICE_PARAMETERS: dict[str, float] = {
+    "mild_drawdown_threshold": 0.08,
+    "deep_drawdown_threshold": 0.15,
+    "severe_drawdown_threshold": 0.25,
+    "mild_discount_gap": 0.05,
+    "deep_discount_gap": 0.10,
+    "expensive_gap": 0.12,
+    "very_expensive_gap": 0.20,
+    "shallow_drawdown_threshold": 0.03,
+    "overbought_rsi": 70.0,
+    "base_multiplier": 1.0,
+    "mild_pullback_multiplier": 1.10,
+    "deep_pullback_multiplier": 1.25,
+    "severe_pullback_multiplier": 1.50,
+    "expensive_multiplier": 0.75,
+    "very_expensive_multiplier": 0.0,
+}
+NASDAQ_SP500_PRICE_NO_SKIP_PARAMETERS: dict[str, float] = {
+    **NASDAQ_SP500_PRICE_PARAMETERS,
+    "expensive_multiplier": 1.0,
+    "very_expensive_multiplier": 1.0,
+}
 
 
 PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
@@ -87,23 +109,15 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         rule_type="trend_drawdown",
         signal_symbols=("QQQ", "SPY"),
         min_history=252,
-        parameters={
-            "mild_drawdown_threshold": 0.08,
-            "deep_drawdown_threshold": 0.15,
-            "severe_drawdown_threshold": 0.25,
-            "mild_discount_gap": 0.05,
-            "deep_discount_gap": 0.10,
-            "expensive_gap": 0.12,
-            "very_expensive_gap": 0.20,
-            "shallow_drawdown_threshold": 0.03,
-            "overbought_rsi": 70.0,
-            "base_multiplier": 1.0,
-            "mild_pullback_multiplier": 1.10,
-            "deep_pullback_multiplier": 1.25,
-            "severe_pullback_multiplier": 1.50,
-            "expensive_multiplier": 0.75,
-            "very_expensive_multiplier": 0.0,
-        },
+        parameters=NASDAQ_SP500_PRICE_PARAMETERS,
+    ),
+    "nasdaq_sp500_price_no_skip": SmartDcaCandidate(
+        name="nasdaq_sp500_price_no_skip",
+        family="nasdaq_sp500_price_variant",
+        rule_type="trend_drawdown",
+        signal_symbols=("QQQ", "SPY"),
+        min_history=252,
+        parameters=NASDAQ_SP500_PRICE_NO_SKIP_PARAMETERS,
     ),
     "ibit_btc_ahr999_mayer_cycle": SmartDcaCandidate(
         name="ibit_btc_ahr999_mayer_cycle",
@@ -157,6 +171,10 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
 
 CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
     "nasdaq_sp500_price": ("nasdaq_sp500_price_defensive",),
+    "nasdaq_sp500_price_variants": (
+        "nasdaq_sp500_price_defensive",
+        "nasdaq_sp500_price_no_skip",
+    ),
     "ibit_btc_ahr999_mayer_price": ("ibit_btc_ahr999_mayer_cycle",),
     "ibit_btc_ahr999_mayer_price_variants": (
         "ibit_btc_ahr999_mayer_cycle",

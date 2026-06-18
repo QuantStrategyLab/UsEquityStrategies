@@ -141,6 +141,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="nasdaq_sp500_price",
         help=(
             "Candidate set or preset name. Known sets include nasdaq_sp500_price, "
+            "nasdaq_sp500_price_variants, "
             "ibit_btc_ahr999_mayer_price, ibit_btc_ahr999_mayer_price_variants, "
             "ibit_btc_ahr999_mayer_precomputed, "
             "ibit_btc_ahr999_mayer_precomputed_variants, and all."

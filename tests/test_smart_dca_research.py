@@ -152,6 +152,35 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     }
 
 
+def test_nasdaq_sp500_variants_compare_defensive_and_no_skip() -> None:
+    prices = _series([100.0 + i * 0.65 for i in range(360)])
+    signals = pd.DataFrame({"QQQ": prices, "SPY": prices * 0.92})
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=prices,
+        candidate_set="nasdaq_sp500_price_variants",
+        monthly_contribution_usd=1000.0,
+    )
+
+    assert set(result) == {
+        "fixed",
+        "nasdaq_sp500_price_defensive",
+        "nasdaq_sp500_price_no_skip",
+    }
+    defensive = result["nasdaq_sp500_price_defensive"]
+    no_skip = result["nasdaq_sp500_price_no_skip"]
+    assert defensive.skipped_count > 0
+    assert no_skip.skipped_count == 0
+    assert no_skip.deployment_rate >= defensive.deployment_rate
+    assert no_skip.trades[0]["regime"] == "very_expensive_overbought"
+    assert no_skip.trades[0]["multiplier"] == 1.0
+
+    summary_rows = candidate_summaries_to_rows(("nasdaq_sp500_price_no_skip",))
+    assert summary_rows[0]["zero_multiplier_allowed"] is False
+    assert summary_rows[0]["unique_multiplier_count"] == 4
+
+
 def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     prices = _series([100.0 + i * 0.12 for i in range(360)])
     signals = pd.DataFrame({"QQQ": prices, "SPY": prices * 0.95})
@@ -412,6 +441,7 @@ def test_ibit_btc_precomputed_variants_use_exported_ahr999_sma() -> None:
 def test_candidate_universe_is_named_and_bounded() -> None:
     assert available_candidate_names() == (
         "nasdaq_sp500_price_defensive",
+        "nasdaq_sp500_price_no_skip",
         "ibit_btc_ahr999_mayer_cycle",
         "ibit_btc_ahr999_mayer_no_skip_cycle",
         "ibit_btc_ahr999_sma_mayer_cycle",
