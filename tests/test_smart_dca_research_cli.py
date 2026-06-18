@@ -77,6 +77,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     ]
     assert summary["metadata"]["input_artifacts"]["signal_csv"]["sha256"]
     assert summary["scenario_index"] == str(output_dir / "scenario_index.csv")
+    assert summary["review_decision"] == str(output_dir / "review_decision.json")
     assert summary["scenario_manifest"] == str(output_dir / "scenario_manifest.json")
     assert summary["artifacts"]["robustness_summary"] == str(
         output_dir / "robustness_summary.csv"
@@ -98,6 +99,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     ).exists()
     assert (output_dir / "selection_summary.csv").exists()
     assert (output_dir / "scenario_coverage.csv").exists()
+    assert (output_dir / "review_decision.json").exists()
     assert (
         output_dir
         / "monthly_day_25_contribution_usd_1000_start_2025_04_01"
@@ -132,6 +134,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
         encoding="utf-8"
     )
     scenario_manifest = json.loads((output_dir / "scenario_manifest.json").read_text(encoding="utf-8"))
+    review_decision = json.loads((output_dir / "review_decision.json").read_text(encoding="utf-8"))
     assert "nasdaq_sp500_price_defensive" in scenario_index
     assert "nasdaq_sp500_price_no_skip" in scenario_index
     assert "pass_rate" in robustness_summary
@@ -146,6 +149,10 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "matrix_candidate_set_consistent" in selection_summary
     assert "coverage_gate_passed" in scenario_coverage
     assert "ready_for_selection_review" in scenario_coverage
+    assert review_decision["artifact_type"] == "smart_dca_review_decision"
+    assert review_decision["matrix_coverage_gate_passed"] is True
+    assert review_decision["selection_count"] == 1
+    assert review_decision["selections"][0]["selected_candidate_definition_sha256"]
     assert "review_status" in robustness_summary
     assert "weakest_scenario" in robustness_summary
     assert "max_terminal_cash_ratio_pct" in robustness_summary
@@ -161,6 +168,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
         1000.0,
     ]
     assert scenario_manifest["metadata"]["input_artifacts"]["trade_csv"]["size_bytes"] > 0
+    assert "review_decision.json" in {item["path"] for item in scenario_manifest["files"]}
     metrics = (
         output_dir / "monthly_day_1_contribution_usd_500_start_2025_01_02" / "metrics.csv"
     ).read_text(encoding="utf-8")

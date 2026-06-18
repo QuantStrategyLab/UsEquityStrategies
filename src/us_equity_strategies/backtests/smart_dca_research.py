@@ -1387,6 +1387,83 @@ def scenario_results_to_selection_rows(
     return tuple(selection_rows)
 
 
+def scenario_results_to_review_decision(
+    scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
+    *,
+    fixed_name: str = "fixed",
+    min_review_scenarios: int = 3,
+) -> dict[str, object]:
+    """Return a single JSON-safe decision summary for scenario review gates."""
+
+    coverage_row = scenario_results_to_coverage_rows(
+        scenarios,
+        fixed_name=fixed_name,
+        min_review_scenarios=min_review_scenarios,
+    )[0]
+    selection_rows = scenario_results_to_selection_rows(
+        scenarios,
+        fixed_name=fixed_name,
+        min_review_scenarios=min_review_scenarios,
+    )
+    blocking_reasons = _review_decision_blocking_reasons(
+        coverage_row=coverage_row,
+        selection_rows=selection_rows,
+    )
+    manual_review_ready = not blocking_reasons
+    return {
+        "schema_version": SMART_DCA_RESEARCH_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "smart_dca_review_decision",
+        "fixed_name": fixed_name,
+        "min_review_scenarios": min_review_scenarios,
+        "manual_review_gate_passed": manual_review_ready,
+        "overall_recommendation_status": (
+            "promote_to_manual_review"
+            if manual_review_ready
+            else "hold_default_fixed_dca"
+        ),
+        "overall_recommendation_reason": (
+            "all_selection_groups_ready_for_manual_review"
+            if manual_review_ready
+            else ",".join(blocking_reasons)
+        ),
+        "blocking_reasons": blocking_reasons,
+        "matrix_coverage_gate_passed": coverage_row["coverage_gate_passed"],
+        "matrix_coverage": coverage_row,
+        "selection_count": len(selection_rows),
+        "selection_groups": tuple(
+            str(row["selection_group"])
+            for row in selection_rows
+        ),
+        "selections": selection_rows,
+    }
+
+
+def _review_decision_blocking_reasons(
+    *,
+    coverage_row: Mapping[str, object],
+    selection_rows: tuple[dict[str, object], ...],
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if not bool(coverage_row["coverage_gate_passed"]):
+        coverage_reasons = tuple(
+            item
+            for item in str(coverage_row["failure_reasons"]).split(",")
+            if item
+        )
+        if coverage_reasons:
+            reasons.extend(coverage_reasons)
+        else:
+            reasons.append("insufficient_scenario_matrix_coverage")
+    if not selection_rows:
+        reasons.append("no_candidate_selection_rows")
+    for row in selection_rows:
+        if row["recommendation_status"] != "promote_to_manual_review":
+            reason = str(row["recommendation_reason"])
+            if reason:
+                reasons.append(reason)
+    return tuple(dict.fromkeys(reasons))
+
+
 def scenario_results_to_coverage_rows(
     scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
     *,
@@ -1777,6 +1854,7 @@ def write_scenario_research_artifacts(
     robustness_summary_path = output_path / "robustness_summary.csv"
     selection_summary_path = output_path / "selection_summary.csv"
     scenario_coverage_path = output_path / "scenario_coverage.csv"
+    review_decision_path = output_path / "review_decision.json"
     scenario_manifest_path = output_path / "scenario_manifest.json"
     pd.DataFrame(index_rows).to_csv(scenario_index_path, index=False)
     pd.DataFrame(
@@ -1796,10 +1874,20 @@ def write_scenario_research_artifacts(
             min_review_scenarios=min_review_scenarios,
         )
     ).to_csv(scenario_coverage_path, index=False)
+    review_decision = scenario_results_to_review_decision(
+        scenarios,
+        fixed_name=fixed_name,
+        min_review_scenarios=min_review_scenarios,
+    )
+    review_decision_path.write_text(
+        json.dumps(review_decision, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     artifact_paths["scenario_index"] = scenario_index_path
     artifact_paths["robustness_summary"] = robustness_summary_path
     artifact_paths["selection_summary"] = selection_summary_path
     artifact_paths["scenario_coverage"] = scenario_coverage_path
+    artifact_paths["review_decision"] = review_decision_path
     _write_artifact_manifest(
         scenario_manifest_path,
         artifact_type="smart_dca_research_scenario_matrix",

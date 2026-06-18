@@ -356,6 +356,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 `selection_summary.csv` 同时复制矩阵级覆盖字段，例如 `matrix_scenario_count`、
 `matrix_candidate_set_consistent`、`matrix_fixed_benchmark_present_all` 和
 `matrix_candidate_names`，便于人工评审时只看 selection summary 也能识别覆盖缺口。
+顶层 `review_decision.json` 是给平台 CI 或研究看板读取的单一机器可读结论，会汇总
+`scenario_coverage.csv` 和 `selection_summary.csv` 的 gate 状态、阻塞原因、selection group
+以及被选候选的定义 hash；它只决定是否进入人工评审，不会绕过人工评审直接启用智能定投。
 即使候选在已有场景内全部通过，也必须达到 `--min-review-scenarios`（默认 3）后才会进入
 `promote_to_manual_review`；否则 `recommendation_reason` 会记录为
 `insufficient_robustness_scenarios`。这个 gate 不是统计显著性证明，只是防止单一窗口或单一

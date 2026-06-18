@@ -107,6 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "metadata": metadata,
         "output_dir": str(output_dir),
         "scenario_index": str(artifact_paths["scenario_index"]),
+        "review_decision": str(artifact_paths["review_decision"]),
         "scenario_manifest": str(artifact_paths["scenario_manifest"]),
         "artifacts": {
             name: str(path)
