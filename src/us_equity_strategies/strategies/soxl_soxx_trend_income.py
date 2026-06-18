@@ -393,6 +393,7 @@ def build_rebalance_plan(
     trend_ma_window,
     translator,
     cash_reserve_ratio,
+    cash_reserve_floor_usd=0.0,
     min_trade_ratio,
     min_trade_floor,
     rebalance_threshold_ratio,
@@ -867,7 +868,10 @@ def build_rebalance_plan(
         "BOXX": max(0.0, core_equity * boxx_ratio),
     }
     targets.update(income_layer_plan.target_values)
-    reserved_cash = max(0.0, total_strategy_equity * cash_reserve_ratio)
+    reserved_cash = max(
+        max(0.0, total_strategy_equity * cash_reserve_ratio),
+        max(0.0, float(cash_reserve_floor_usd or 0.0)),
+    )
     investable_cash = max(0.0, available_cash - reserved_cash)
     benchmark_context = {
         "symbol": trend_symbol,

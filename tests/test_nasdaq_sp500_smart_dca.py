@@ -239,3 +239,29 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
     )
     assert expensive_decision.positions == ()
     assert expensive_decision.risk_flags == ("no_execute",)
+
+
+def test_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
+    entrypoint = get_strategy_entrypoint("nasdaq_sp500_smart_dca")
+    decision = entrypoint.evaluate(
+        StrategyContext(
+            as_of="2026-05-26",
+            market_data={"market_history": lambda _client, symbol: _normal_history()},
+            portfolio=_portfolio(),
+            runtime_config={
+                "translator": _zh_translator,
+                "investment_amount_mode": "fixed",
+                "reserved_cash_floor_usd": 4500.0,
+                "reserved_cash_ratio": 0.03,
+            },
+        )
+    )
+
+    targets = {position.symbol: position.target_value for position in decision.positions}
+    assert decision.risk_flags == ("no_execute",)
+    assert decision.diagnostics["reserved_cash"] == 4500.0
+    assert decision.diagnostics["investable_cash"] == 500.0
+    assert decision.diagnostics["requested_investment_usd"] == 1000.0
+    assert decision.diagnostics["planned_investment_usd"] == 0.0
+    assert decision.diagnostics["skip_reason"] == "insufficient_cash"
+    assert targets == {}
