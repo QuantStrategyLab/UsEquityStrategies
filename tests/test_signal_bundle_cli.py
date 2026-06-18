@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -120,6 +121,100 @@ def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys
     assert summary["consumers"] == ["us_equity:ibit_smart_dca"]
     assert summary["all_known_consumers_present"] is False
     assert summary["path"] == str(registry_path.resolve())
+
+
+def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
+    tmp_path,
+    capsys,
+) -> None:
+    registry_path = tmp_path / "market_signal_consumers.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "contracts": [
+                    {
+                        "consumer": "us_equity:ibit_smart_dca",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                        },
+                    },
+                    {
+                        "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                        },
+                    },
+                    {
+                        "consumer": (
+                            "research:ibit_btc_ahr999_mayer_precomputed_variants"
+                        ),
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": [
+                                "ahr999",
+                                "ahr999_sma",
+                                "mayer_multiple",
+                            ],
+                        },
+                    },
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "market_signal_consumers.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contract_manifest.v1",
+                "artifact_type": "market_signal_consumer_contract_registry",
+                "registry_path": "market_signal_consumers.json",
+                "registry_sha256": hashlib.sha256(
+                    registry_path.read_bytes()
+                ).hexdigest(),
+                "registry_size_bytes": registry_path.stat().st_size,
+                "registry_schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "consumer_count": 3,
+                "known_consumer_count": 3,
+                "missing_known_consumers": [],
+                "all_known_consumers_present": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--consumer-contract-registry-manifest",
+            str(manifest_path),
+            "--require-all-known-consumers",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["manifest_path"] == str(manifest_path.resolve())
+    assert summary["manifest_schema_version"] == (
+        "market_signal_consumer_contract_manifest.v1"
+    )
+    assert summary["registry_path"] == str(registry_path.resolve())
+    assert summary["registry_sha256"] == hashlib.sha256(
+        registry_path.read_bytes()
+    ).hexdigest()
+    assert summary["consumer_count"] == 3
+    assert summary["all_known_consumers_present"] is True
 
 
 def test_signal_bundle_cli_can_require_complete_consumer_contract_registry(tmp_path, capsys) -> None:

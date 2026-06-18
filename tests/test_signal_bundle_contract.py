@@ -23,6 +23,7 @@ from us_equity_strategies.signals import (
     required_indicator_fields_for_consumer,
     signal_consumer_contract_registry_audit_summary,
     signal_consumer_contract_registry_audit_summary_from_file,
+    signal_consumer_contract_registry_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary,
     signal_bundle_consumer_audit_summary_from_index,
     signal_bundle_consumer_audit_summary_from_manifest,
@@ -97,6 +98,53 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     return registry
+
+
+def _write_consumer_contract_registry_manifest(
+    tmp_path: Path,
+    registry: dict[str, object],
+) -> tuple[Path, Path]:
+    registry_path = tmp_path / "market_signal_consumers.json"
+    registry_path.write_text(
+        json.dumps(registry, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    contracts = registry["contracts"]
+    assert isinstance(contracts, list)
+    consumers = [str(contract["consumer"]) for contract in contracts]
+    missing_consumers = sorted(
+        {
+            "us_equity:ibit_smart_dca",
+            "research:ibit_btc_ahr999_mayer_precomputed",
+            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+        }
+        - set(consumers)
+    )
+    manifest_path = tmp_path / "market_signal_consumers.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contract_manifest.v1",
+                "artifact_type": "market_signal_consumer_contract_registry",
+                "registry_path": "market_signal_consumers.json",
+                "registry_sha256": hashlib.sha256(
+                    registry_path.read_bytes()
+                ).hexdigest(),
+                "registry_size_bytes": registry_path.stat().st_size,
+                "registry_schema_version": registry["schema_version"],
+                "canonical_input": registry["canonical_input"],
+                "consumer_count": len(contracts),
+                "known_consumer_count": 3,
+                "missing_known_consumers": missing_consumers,
+                "all_known_consumers_present": not missing_consumers,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return registry_path, manifest_path
 
 
 def test_fresh_signal_bundle_is_accepted() -> None:
@@ -270,6 +318,42 @@ def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -
         registry_path.read_bytes()
     ).hexdigest()
     assert file_summary["size_bytes"] == registry_path.stat().st_size
+
+
+def test_external_consumer_contract_registry_manifest_matches_local_contracts(
+    tmp_path,
+) -> None:
+    registry_path, manifest_path = _write_consumer_contract_registry_manifest(
+        tmp_path,
+        _complete_consumer_contract_registry(),
+    )
+
+    summary = signal_consumer_contract_registry_audit_summary_from_manifest(
+        manifest_path,
+        require_all_known_consumers=True,
+    )
+
+    assert summary["manifest_path"] == str(manifest_path.resolve())
+    assert summary["manifest_schema_version"] == (
+        "market_signal_consumer_contract_manifest.v1"
+    )
+    assert summary["manifest_sha256"] == hashlib.sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+    assert summary["registry_path"] == str(registry_path.resolve())
+    assert summary["registry_sha256"] == hashlib.sha256(
+        registry_path.read_bytes()
+    ).hexdigest()
+    assert summary["registry_schema_version"] == "market_signal_consumer_contracts.v1"
+    assert summary["consumer_count"] == 3
+    assert summary["all_known_consumers_present"] is True
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["registry_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(SignalBundleContractError, match="registry_sha256 mismatch"):
+        signal_consumer_contract_registry_audit_summary_from_manifest(manifest_path)
 
 
 def test_external_consumer_contract_registry_can_require_all_known_consumers() -> None:

@@ -143,6 +143,17 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --pretty
 ```
 
+若 `MarketSignalSources` 同时发布了 registry manifest，平台或策略仓 CI 应优先校验 manifest
+和其指向的 registry，以确认 registry 文件路径、sha256、schema、大小和 consumer coverage
+没有漂移：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --consumer-contract-registry-manifest ./data/output/contracts/market_signal_consumers.manifest.json \
+  --require-all-known-consumers \
+  --pretty
+```
+
 该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
 unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
 secret / signed URL key。

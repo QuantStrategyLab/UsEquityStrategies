@@ -10,6 +10,7 @@ from .signal_bundle_contract import (
     CANONICAL_INPUT_DERIVED_INDICATORS,
     SignalBundleContractError,
     signal_consumer_contract_registry_audit_summary_from_file,
+    signal_consumer_contract_registry_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary_from_index,
     signal_bundle_consumer_audit_summary_from_manifest,
     signal_bundle_audit_summary_from_index,
@@ -22,7 +23,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if args.consumer_contract_registry is not None:
+        if args.consumer_contract_registry_manifest is not None:
+            if (
+                args.consumer_contract_registry is not None
+                or args.index is not None
+                or args.manifest is not None
+                or args.consumer
+            ):
+                raise SignalBundleContractError(
+                    "provide --consumer-contract-registry-manifest without "
+                    "--consumer-contract-registry, manifest, --index, or --consumer"
+                )
+            summary = signal_consumer_contract_registry_audit_summary_from_manifest(
+                args.consumer_contract_registry_manifest,
+                expected_canonical_input=args.canonical_input,
+                require_all_known_consumers=args.require_all_known_consumers,
+            )
+        elif args.consumer_contract_registry is not None:
             if args.index is not None or args.manifest is not None or args.consumer:
                 raise SignalBundleContractError(
                     "provide --consumer-contract-registry without manifest, --index, or --consumer"
@@ -36,7 +53,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SignalBundleContractError("provide either manifest or --index, not both")
         elif args.require_all_known_consumers:
             raise SignalBundleContractError(
-                "--require-all-known-consumers is only valid with --consumer-contract-registry"
+                "--require-all-known-consumers is only valid with "
+                "--consumer-contract-registry or --consumer-contract-registry-manifest"
             )
         elif args.index is not None:
             if args.consumer:
@@ -87,6 +105,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--consumer-contract-registry",
         type=Path,
         help="Validate an external consumer contract registry JSON artifact.",
+    )
+    parser.add_argument(
+        "--consumer-contract-registry-manifest",
+        type=Path,
+        help=(
+            "Validate an external consumer contract registry manifest and its "
+            "linked registry JSON artifact."
+        ),
     )
     parser.add_argument("--as-of", help="Select the latest index entry at or before this as_of date.")
     parser.add_argument("--bundle-id", help="Require a specific bundle_id from the index.")

@@ -296,6 +296,12 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 version、transform、bundle sha256、指标字段清单等字段；它不拉取 vendor 数据，也不输出
 token、signed URL、cookie、secret 或指标具体数值。
 
+`MarketSignalSources` 发布 consumer contract registry 时，应同时发布
+`market_signal_consumers.manifest.json`。策略仓 CI 可用
+`--consumer-contract-registry-manifest` 校验 manifest 指向的 registry hash、schema、consumer
+coverage 和本地契约一致性；这保持运行时无 `MarketSignalSources` 依赖，同时防止平台消费到被替换
+或不完整的 registry 文件。
+
 后续独立仓库的 Phase 1 模块划分、crypto 侧可复用指标目录、artifact families 和验证门槛，
 记录在 `docs/research/market_signal_sources_bootstrap_plan.md`。
 

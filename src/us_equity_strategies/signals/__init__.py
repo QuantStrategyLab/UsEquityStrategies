@@ -3,6 +3,7 @@ from __future__ import annotations
 from .signal_bundle_contract import (
     CANONICAL_INPUT_DERIVED_INDICATORS,
     MARKET_SIGNAL_BUNDLE_SCHEMA_VERSION,
+    MARKET_SIGNAL_CONSUMER_CONTRACT_MANIFEST_SCHEMA_VERSION,
     MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION,
     MARKET_SIGNAL_INDEX_SCHEMA_VERSION,
     MARKET_SIGNAL_MANIFEST_SCHEMA_VERSION,
@@ -22,6 +23,7 @@ from .signal_bundle_contract import (
     required_indicator_fields_for_consumer,
     signal_consumer_contract_registry_audit_summary,
     signal_consumer_contract_registry_audit_summary_from_file,
+    signal_consumer_contract_registry_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary,
     signal_bundle_consumer_audit_summary_from_index,
     signal_bundle_consumer_audit_summary_from_manifest,
@@ -37,6 +39,7 @@ from .signal_bundle_contract import (
 __all__ = [
     "CANONICAL_INPUT_DERIVED_INDICATORS",
     "MARKET_SIGNAL_BUNDLE_SCHEMA_VERSION",
+    "MARKET_SIGNAL_CONSUMER_CONTRACT_MANIFEST_SCHEMA_VERSION",
     "MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION",
     "MARKET_SIGNAL_INDEX_SCHEMA_VERSION",
     "MARKET_SIGNAL_MANIFEST_SCHEMA_VERSION",
@@ -56,6 +59,7 @@ __all__ = [
     "required_indicator_fields_for_consumer",
     "signal_consumer_contract_registry_audit_summary",
     "signal_consumer_contract_registry_audit_summary_from_file",
+    "signal_consumer_contract_registry_audit_summary_from_manifest",
     "signal_bundle_consumer_audit_summary",
     "signal_bundle_consumer_audit_summary_from_index",
     "signal_bundle_consumer_audit_summary_from_manifest",

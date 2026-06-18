@@ -12,6 +12,9 @@ MARKET_SIGNAL_BUNDLE_SCHEMA_VERSION = "market_signal_bundle.v1"
 MARKET_SIGNAL_MANIFEST_SCHEMA_VERSION = "market_signal_manifest.v1"
 MARKET_SIGNAL_INDEX_SCHEMA_VERSION = "market_signal_index.v1"
 MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION = "market_signal_consumer_contracts.v1"
+MARKET_SIGNAL_CONSUMER_CONTRACT_MANIFEST_SCHEMA_VERSION = (
+    "market_signal_consumer_contract_manifest.v1"
+)
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
 
@@ -262,6 +265,50 @@ def signal_consumer_contract_registry_audit_summary_from_file(
         }
     )
     return summary
+
+
+def signal_consumer_contract_registry_audit_summary_from_manifest(
+    path: str | PathLike[str],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    require_all_known_consumers: bool = False,
+) -> dict[str, Any]:
+    """Validate a registry manifest and return non-sensitive audit metadata."""
+
+    manifest_path = Path(path)
+    manifest = _load_signal_consumer_contract_registry_manifest(manifest_path)
+    registry_path = _resolve_relative_artifact_path(
+        manifest_path.parent.resolve(),
+        manifest["registry_path"],
+        owner="consumer contract manifest",
+        field="registry_path",
+    )
+    registry_summary = signal_consumer_contract_registry_audit_summary_from_file(
+        registry_path,
+        expected_canonical_input=expected_canonical_input,
+        require_all_known_consumers=require_all_known_consumers,
+    )
+    _validate_signal_consumer_contract_registry_manifest_consistency(
+        manifest,
+        registry_summary=registry_summary,
+    )
+    return {
+        "manifest_path": str(manifest_path.resolve()),
+        "manifest_schema_version": str(manifest["schema_version"]),
+        "manifest_sha256": _sha256_file(manifest_path),
+        "manifest_size_bytes": manifest_path.stat().st_size,
+        "artifact_type": str(manifest["artifact_type"]),
+        "registry_path": registry_summary["path"],
+        "registry_sha256": registry_summary["sha256"],
+        "registry_size_bytes": registry_summary["size_bytes"],
+        "registry_schema_version": registry_summary["schema_version"],
+        "canonical_input": registry_summary["canonical_input"],
+        "consumer_count": registry_summary["consumer_count"],
+        "consumers": registry_summary["consumers"],
+        "known_consumer_count": registry_summary["known_consumer_count"],
+        "missing_known_consumers": registry_summary["missing_known_consumers"],
+        "all_known_consumers_present": registry_summary["all_known_consumers_present"],
+    }
 
 
 def validate_signal_bundle_indicator_fields(
@@ -698,6 +745,87 @@ def _indicator_fields_by_symbol(bundle: Mapping[str, Any]) -> dict[str, tuple[st
             )
         fields_by_symbol[str(symbol)] = tuple(sorted(str(field) for field in payload))
     return fields_by_symbol
+
+
+def _load_signal_consumer_contract_registry_manifest(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        manifest = json.load(file_obj)
+    if not isinstance(manifest, Mapping):
+        raise SignalBundleContractError(
+            "consumer contract manifest JSON root must be a mapping"
+        )
+    manifest_dict = dict(manifest)
+    _validate_no_sensitive_fields(
+        manifest_dict,
+        path="consumer_contract_manifest",
+    )
+    if (
+        manifest_dict.get("schema_version")
+        != MARKET_SIGNAL_CONSUMER_CONTRACT_MANIFEST_SCHEMA_VERSION
+    ):
+        raise SignalBundleContractError(
+            "unsupported consumer contract manifest schema_version: "
+            f"{manifest_dict.get('schema_version')!r}"
+        )
+    if manifest_dict.get("artifact_type") != "market_signal_consumer_contract_registry":
+        raise SignalBundleContractError(
+            "consumer contract manifest artifact_type mismatch: "
+            f"{manifest_dict.get('artifact_type')!r}"
+        )
+    for field in (
+        "registry_path",
+        "registry_sha256",
+        "registry_size_bytes",
+        "registry_schema_version",
+        "canonical_input",
+        "consumer_count",
+        "known_consumer_count",
+        "missing_known_consumers",
+        "all_known_consumers_present",
+    ):
+        if not _has_non_empty_value(manifest_dict, field):
+            raise SignalBundleContractError(
+                f"consumer contract manifest missing field: {field}"
+            )
+    if not _is_string_sequence(manifest_dict["missing_known_consumers"]):
+        raise SignalBundleContractError(
+            "consumer contract manifest missing_known_consumers must be strings"
+        )
+    if not isinstance(manifest_dict["all_known_consumers_present"], bool):
+        raise SignalBundleContractError(
+            "consumer contract manifest all_known_consumers_present must be a bool"
+        )
+    return manifest_dict
+
+
+def _validate_signal_consumer_contract_registry_manifest_consistency(
+    manifest: Mapping[str, Any],
+    *,
+    registry_summary: Mapping[str, Any],
+) -> None:
+    expected_values = {
+        "registry_sha256": registry_summary["sha256"],
+        "registry_size_bytes": registry_summary["size_bytes"],
+        "registry_schema_version": registry_summary["schema_version"],
+        "canonical_input": registry_summary["canonical_input"],
+        "consumer_count": registry_summary["consumer_count"],
+        "known_consumer_count": registry_summary["known_consumer_count"],
+        "all_known_consumers_present": registry_summary["all_known_consumers_present"],
+    }
+    for field, expected in expected_values.items():
+        if manifest[field] != expected:
+            raise SignalBundleContractError(
+                f"consumer contract manifest {field} mismatch: "
+                f"{manifest[field]!r} != {expected!r}"
+            )
+    if tuple(manifest["missing_known_consumers"]) != tuple(
+        registry_summary["missing_known_consumers"]
+    ):
+        raise SignalBundleContractError(
+            "consumer contract manifest missing_known_consumers mismatch: "
+            f"{manifest['missing_known_consumers']!r} != "
+            f"{registry_summary['missing_known_consumers']!r}"
+        )
 
 
 def _validate_signal_consumer_contract_record(
