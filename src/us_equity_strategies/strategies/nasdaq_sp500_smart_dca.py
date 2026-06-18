@@ -57,6 +57,7 @@ def _translate_with_fallback(
 
 def _localized_regime(regime: str, translator) -> str:
     labels = {
+        "ordinary_dca": ("ordinary DCA", "普通定投"),
         "normal": ("normal", "正常"),
         "expensive": ("expensive", "偏贵"),
         "very_expensive_overbought": ("very expensive and overbought", "极贵且超买"),
@@ -90,13 +91,14 @@ def _localized_skip_reason(skip_reason: str, translator) -> str:
 
 def _localized_execution_window(window_text: str, translator) -> str:
     if window_text.startswith("weekly_day="):
-        day = window_text.split("=", 1)[1]
+        pieces = dict(part.split("=", 1) for part in window_text.split() if "=" in part)
         return _translate_with_fallback(
             translator,
             "smart_dca_execution_window_weekly",
-            fallback_en="weekly_day={day}",
-            fallback_zh="每周执行日={day}",
-            day=day,
+            fallback_en="weekly_day={weekly_day} window_calendar_days={window}",
+            fallback_zh="每周执行日={weekly_day}，窗口 {window} 个自然日",
+            weekly_day=pieces.get("weekly_day", ""),
+            window=pieces.get("window_calendar_days", ""),
         )
     if window_text.startswith("monthly_day="):
         pieces = dict(part.split("=", 1) for part in window_text.split() if "=" in part)
@@ -106,6 +108,17 @@ def _localized_execution_window(window_text: str, translator) -> str:
             fallback_en="monthly_day={monthly_day} window_calendar_days={window}",
             fallback_zh="每月第 {monthly_day} 日起，窗口 {window} 个自然日",
             monthly_day=pieces.get("monthly_day", ""),
+            window=pieces.get("window_calendar_days", ""),
+        )
+    if window_text.startswith("quarterly_months="):
+        pieces = dict(part.split("=", 1) for part in window_text.split() if "=" in part)
+        return _translate_with_fallback(
+            translator,
+            "smart_dca_execution_window_quarterly",
+            fallback_en="quarterly_months={months} quarterly_day={day} window_calendar_days={window}",
+            fallback_zh="季度月份={months}，每季第 {day} 日起，窗口 {window} 个自然日",
+            months=pieces.get("quarterly_months", ""),
+            day=pieces.get("quarterly_day", ""),
             window=pieces.get("window_calendar_days", ""),
         )
     return window_text
@@ -119,6 +132,20 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
     if pd.isna(numeric):
         return default
     return numeric
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    return bool(value)
 
 
 def _normalize_symbol(symbol: object) -> str:
@@ -259,6 +286,29 @@ def _as_timestamp(value: object) -> pd.Timestamp:
     return timestamp.normalize()
 
 
+def _normalize_quarterly_months(raw_months: object) -> tuple[int, ...]:
+    if raw_months is None:
+        candidates: object = (1, 4, 7, 10)
+    elif isinstance(raw_months, str):
+        candidates = raw_months.replace(";", ",").split(",")
+    else:
+        candidates = raw_months
+
+    months: list[int] = []
+    try:
+        iterator = iter(candidates)  # type: ignore[arg-type]
+    except TypeError:
+        iterator = iter((candidates,))
+    for item in iterator:
+        try:
+            month = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= month <= 12 and month not in months:
+            months.append(month)
+    return tuple(months) or (1, 4, 7, 10)
+
+
 def _is_in_execution_window(
     as_of: object,
     *,
@@ -266,20 +316,54 @@ def _is_in_execution_window(
     monthly_day: int,
     monthly_window_calendar_days: int,
     weekly_day: int,
+    weekly_window_calendar_days: int,
+    quarterly_months: object,
+    quarterly_day: int,
+    quarterly_window_calendar_days: int,
 ) -> tuple[bool, str]:
     timestamp = _as_timestamp(as_of)
     cadence_key = str(cadence or "monthly").strip().lower()
     if cadence_key == "weekly":
         day = int(max(0, min(6, weekly_day)))
-        return timestamp.weekday() == day, f"weekly_day={day}"
+        window = int(max(1, min(7, weekly_window_calendar_days)))
+        days_since_start = (int(timestamp.weekday()) - day) % 7
+        return days_since_start < window, f"weekly_day={day} window_calendar_days={window}"
+    if cadence_key == "quarterly":
+        months = _normalize_quarterly_months(quarterly_months)
+        start_day = int(max(1, min(31, quarterly_day)))
+        window = int(max(1, quarterly_window_calendar_days))
+        day = int(timestamp.day)
+        months_text = ",".join(str(month) for month in months)
+        return timestamp.month in months and start_day <= day < start_day + window, (
+            f"quarterly_months={months_text} quarterly_day={start_day} "
+            f"window_calendar_days={window}"
+        )
     if cadence_key != "monthly":
-        raise ValueError("cadence must be 'monthly' or 'weekly'")
+        raise ValueError("cadence must be 'monthly', 'weekly', or 'quarterly'")
     start_day = int(max(1, min(31, monthly_day)))
     window = int(max(1, monthly_window_calendar_days))
     day = int(timestamp.day)
     return start_day <= day < start_day + window, (
         f"monthly_day={start_day} window_calendar_days={window}"
     )
+
+
+def _resolve_base_investment_budget(
+    *,
+    investment_amount_mode: str,
+    base_investment_usd: float,
+) -> float:
+    mode = _normalize_investment_amount_mode(investment_amount_mode)
+    if mode == "fixed":
+        return max(0.0, float(base_investment_usd))
+    raise ValueError("investment_amount_mode must be 'fixed'")
+
+
+def _normalize_investment_amount_mode(value: object) -> str:
+    mode = str(value or "fixed").strip().lower()
+    if mode in {"fixed", "fixed_amount", "base_investment"}:
+        return "fixed"
+    raise ValueError("investment_amount_mode must be 'fixed'")
 
 
 def _determine_multiplier(
@@ -338,12 +422,19 @@ def build_rebalance_plan(
     managed_symbols=DEFAULT_MANAGED_SYMBOLS,
     base_investment_usd: float = 1000.0,
     max_investment_usd: float | None = None,
-    cash_reserve_usd: float = 50.0,
-    min_investment_usd: float = 200.0,
+    cash_reserve_usd: float = 0.0,
+    min_investment_usd: float = 5.0,
+    investment_amount_mode: str = "fixed",
+    available_cash_investment_ratio: float = 1.0,
+    smart_multiplier_enabled: bool = False,
     cadence: str = "monthly",
     monthly_day: int = 25,
     monthly_window_calendar_days: int = 5,
     weekly_day: int = 4,
+    weekly_window_calendar_days: int = 4,
+    quarterly_months: object = (1, 4, 7, 10),
+    quarterly_day: int = 25,
+    quarterly_window_calendar_days: int = 5,
     mild_drawdown_threshold: float = 0.08,
     deep_drawdown_threshold: float = 0.15,
     severe_drawdown_threshold: float = 0.25,
@@ -370,47 +461,70 @@ def build_rebalance_plan(
         monthly_day=monthly_day,
         monthly_window_calendar_days=monthly_window_calendar_days,
         weekly_day=weekly_day,
+        weekly_window_calendar_days=weekly_window_calendar_days,
+        quarterly_months=quarterly_months,
+        quarterly_day=quarterly_day,
+        quarterly_window_calendar_days=quarterly_window_calendar_days,
     )
 
     current_values = _portfolio_market_values(portfolio, strategy_symbols)
     available_cash = _portfolio_cash(portfolio)
     reserved_cash = max(0.0, _coerce_float(cash_reserve_usd))
     investable_cash = max(0.0, available_cash - reserved_cash)
+    smart_enabled = _coerce_bool(smart_multiplier_enabled, default=False)
 
     indicators: list[SymbolIndicator] = []
+    resolved_signal_symbols: list[str] = []
     for raw_symbol in signal_symbols or ():
         symbol = _normalize_symbol(raw_symbol)
         if not symbol:
             continue
-        history = market_history(broker_client, symbol)
-        indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
-    if not indicators:
-        raise ValueError("signal_symbols must contain at least one valid symbol")
+        resolved_signal_symbols.append(symbol)
+        if smart_enabled:
+            history = market_history(broker_client, symbol)
+            indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
 
-    multiplier, regime, aggregate_metrics = _determine_multiplier(
-        tuple(indicators),
-        mild_drawdown_threshold=float(mild_drawdown_threshold),
-        deep_drawdown_threshold=float(deep_drawdown_threshold),
-        severe_drawdown_threshold=float(severe_drawdown_threshold),
-        mild_discount_gap=float(mild_discount_gap),
-        deep_discount_gap=float(deep_discount_gap),
-        expensive_gap=float(expensive_gap),
-        very_expensive_gap=float(very_expensive_gap),
-        shallow_drawdown_threshold=float(shallow_drawdown_threshold),
-        overbought_rsi=float(overbought_rsi),
-        mild_pullback_multiplier=float(mild_pullback_multiplier),
-        deep_pullback_multiplier=float(deep_pullback_multiplier),
-        severe_pullback_multiplier=float(severe_pullback_multiplier),
-        expensive_multiplier=float(expensive_multiplier),
-        very_expensive_multiplier=float(very_expensive_multiplier),
-        base_multiplier=float(base_multiplier),
+    if smart_enabled:
+        if not indicators:
+            raise ValueError("signal_symbols must contain at least one valid symbol")
+        regime_multiplier, regime, aggregate_metrics = _determine_multiplier(
+            tuple(indicators),
+            mild_drawdown_threshold=float(mild_drawdown_threshold),
+            deep_drawdown_threshold=float(deep_drawdown_threshold),
+            severe_drawdown_threshold=float(severe_drawdown_threshold),
+            mild_discount_gap=float(mild_discount_gap),
+            deep_discount_gap=float(deep_discount_gap),
+            expensive_gap=float(expensive_gap),
+            very_expensive_gap=float(very_expensive_gap),
+            shallow_drawdown_threshold=float(shallow_drawdown_threshold),
+            overbought_rsi=float(overbought_rsi),
+            mild_pullback_multiplier=float(mild_pullback_multiplier),
+            deep_pullback_multiplier=float(deep_pullback_multiplier),
+            severe_pullback_multiplier=float(severe_pullback_multiplier),
+            expensive_multiplier=float(expensive_multiplier),
+            very_expensive_multiplier=float(very_expensive_multiplier),
+            base_multiplier=float(base_multiplier),
+        )
+    else:
+        regime_multiplier = 1.0
+        regime = "ordinary_dca"
+        aggregate_metrics = {
+            "avg_drawdown_252d": float("nan"),
+            "avg_sma200_gap": float("nan"),
+            "avg_rsi14": float("nan"),
+        }
+    normalized_investment_amount_mode = _normalize_investment_amount_mode(investment_amount_mode)
+    base_budget = _resolve_base_investment_budget(
+        investment_amount_mode=normalized_investment_amount_mode,
+        base_investment_usd=float(base_investment_usd),
     )
-    requested_investment = max(0.0, float(base_investment_usd) * max(0.0, multiplier))
+    multiplier = float(regime_multiplier if smart_enabled else 1.0)
+    requested_investment = max(0.0, float(base_budget) * max(0.0, multiplier))
     if max_investment_usd is not None:
         requested_investment = min(requested_investment, max(0.0, float(max_investment_usd)))
-    planned_investment = min(requested_investment, investable_cash)
-    cash_capped = planned_investment < requested_investment
-    cash_shortfall = max(0.0, requested_investment - planned_investment)
+    cash_capped = investable_cash < requested_investment
+    cash_shortfall = max(0.0, requested_investment - investable_cash)
+    planned_investment = requested_investment if not cash_capped else 0.0
 
     skip_reason = None
     actionable = True
@@ -420,7 +534,7 @@ def build_rebalance_plan(
     elif multiplier <= 0.0 or requested_investment <= 0.0:
         skip_reason = "valuation_too_expensive"
         actionable = False
-    elif planned_investment < float(min_investment_usd):
+    elif cash_capped or planned_investment < float(min_investment_usd):
         skip_reason = "insufficient_cash"
         actionable = False
 
@@ -444,22 +558,32 @@ def build_rebalance_plan(
         for item in indicators
     )
     localized_regime = _localized_regime(regime, translator)
-    signal_desc = _translate_with_fallback(
-        translator,
-        "smart_dca_signal",
-        fallback_en=(
-            "Smart DCA {regime}: multiplier {multiplier}, "
-            "planned buy ${planned_investment} from cash ${available_cash}"
-        ),
-        fallback_zh=(
-            "智能定投 {regime}: 倍数 {multiplier}，计划买入 ${planned_investment}，"
-            "现金 ${available_cash}"
-        ),
-        regime=localized_regime,
-        multiplier=f"{multiplier:.2f}x",
-        planned_investment=f"{planned_investment:,.2f}",
-        available_cash=f"{available_cash:,.2f}",
-    )
+    if smart_enabled:
+        signal_desc = _translate_with_fallback(
+            translator,
+            "smart_dca_signal",
+            fallback_en=(
+                "Smart DCA {regime}: multiplier {multiplier}, "
+                "planned buy ${planned_investment} from cash ${available_cash}"
+            ),
+            fallback_zh=(
+                "智能定投 {regime}: 倍数 {multiplier}，计划买入 ${planned_investment}，"
+                "现金 ${available_cash}"
+            ),
+            regime=localized_regime,
+            multiplier=f"{multiplier:.2f}x",
+            planned_investment=f"{planned_investment:,.2f}",
+            available_cash=f"{available_cash:,.2f}",
+        )
+    else:
+        signal_desc = _translate_with_fallback(
+            translator,
+            "smart_dca_signal_ordinary",
+            fallback_en="Ordinary DCA: planned buy ${planned_investment} from cash ${available_cash}",
+            fallback_zh="普通定投：计划买入 ${planned_investment}，现金 ${available_cash}",
+            planned_investment=f"{planned_investment:,.2f}",
+            available_cash=f"{available_cash:,.2f}",
+        )
     if cash_capped and planned_investment > 0.0:
         signal_desc = _translate_with_fallback(
             translator,
@@ -469,15 +593,24 @@ def build_rebalance_plan(
             signal=signal_desc,
             requested_investment=f"{requested_investment:,.2f}",
         )
-    status_desc = _translate_with_fallback(
-        translator,
-        "smart_dca_status",
-        fallback_en="{window} | avg drawdown {avg_drawdown}, avg gap vs SMA200 {avg_sma200_gap}",
-        fallback_zh="{window} | 平均回撤 {avg_drawdown}，相对 SMA200 均值 {avg_sma200_gap}",
-        window=_localized_execution_window(window_text, translator),
-        avg_drawdown=f"{aggregate_metrics['avg_drawdown_252d']:.1%}",
-        avg_sma200_gap=f"{aggregate_metrics['avg_sma200_gap']:.1%}",
-    )
+    if smart_enabled:
+        status_desc = _translate_with_fallback(
+            translator,
+            "smart_dca_status",
+            fallback_en="{window} | avg drawdown {avg_drawdown}, avg gap vs SMA200 {avg_sma200_gap}",
+            fallback_zh="{window} | 平均回撤 {avg_drawdown}，相对 SMA200 均值 {avg_sma200_gap}",
+            window=_localized_execution_window(window_text, translator),
+            avg_drawdown=f"{aggregate_metrics['avg_drawdown_252d']:.1%}",
+            avg_sma200_gap=f"{aggregate_metrics['avg_sma200_gap']:.1%}",
+        )
+    else:
+        status_desc = _translate_with_fallback(
+            translator,
+            "smart_dca_status_ordinary",
+            fallback_en="{window} | ordinary DCA without valuation multiplier",
+            fallback_zh="{window} | 普通定投，不使用估值倍数",
+            window=_localized_execution_window(window_text, translator),
+        )
     if skip_reason:
         signal_desc = _translate_with_fallback(
             translator,
@@ -495,12 +628,16 @@ def build_rebalance_plan(
         "strategy_symbols": strategy_symbols,
         "managed_symbols": strategy_symbols,
         "trade_allocations": allocations,
-        "signal_symbols": tuple(item.symbol for item in indicators),
+        "signal_symbols": tuple(item.symbol for item in indicators) or tuple(resolved_signal_symbols),
         "signal_description": signal_desc,
         "status_description": status_desc,
         "regime": regime,
         "multiplier": float(multiplier),
+        "regime_multiplier": float(regime_multiplier),
+        "smart_multiplier_enabled": bool(smart_enabled),
+        "investment_amount_mode": normalized_investment_amount_mode,
         "base_investment_usd": float(base_investment_usd),
+        "base_investment_budget_usd": float(base_budget),
         "requested_investment_usd": float(requested_investment),
         "planned_investment_usd": float(planned_investment if actionable else 0.0),
         "cash_capped": bool(cash_capped),

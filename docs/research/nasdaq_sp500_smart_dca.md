@@ -3,13 +3,14 @@
 ## Purpose
 
 `nasdaq_sp500_smart_dca` is a buy-only accumulation profile for cash-funded
-accounts. It does not rebalance by selling existing ETF positions. Each
-execution window decides how much new cash to deploy into Nasdaq 100 and S&P
-500 ETF sleeves.
+accounts on platforms without native recurring investment support. It defaults
+to fixed DCA and can optionally enable smart sizing. It does not rebalance by
+selling existing ETF positions. Each execution window decides how much new cash
+to deploy into Nasdaq 100 and S&P 500 ETF sleeves.
 
 ## Research Basis
 
-The default design combines three common ideas:
+The optional smart sizing mode combines three common ideas:
 
 - Long-term trend filter: 200-day / 10-month moving-average rules are widely
   used as simple tactical allocation gates. Faber's tactical allocation paper
@@ -54,22 +55,62 @@ Default cadence is monthly:
 
 - `monthly_day = 25`
 - `monthly_window_calendar_days = 5`
+- `weekly_day = 4`
+- `weekly_window_calendar_days = 4`
+- `quarterly_months = (1, 4, 7, 10)`
+- `quarterly_day = 25`
+- `quarterly_window_calendar_days = 5`
 - `base_investment_usd = 1000`
-- `max_investment_usd = 2000`
-- `min_investment_usd = 200`
-- `cash_reserve_usd = 50`
+- `max_investment_usd = null`
+- `min_investment_usd = 5`
+- `cash_reserve_usd = 0`
+- `investment_amount_mode = "fixed"`
+- `smart_multiplier_enabled = false`
 
 The intended runtime schedule is daily near the US close during the 25th to
 29th calendar-day window. If cash is not available, the strategy emits
 `no_execute`; a later run in the same window can still buy if cash arrives.
 
-For weekly accumulation, deployments may set:
+The default cadence remains monthly. Deployments can switch the same fixed
+amount semantics to weekly or quarterly accumulation:
 
 - `cadence = "weekly"`
 - `weekly_day = 4`
 - a lower `base_investment_usd`
 
+or:
+
+- `cadence = "quarterly"`
+- `quarterly_months = (1, 4, 7, 10)`
+- `quarterly_day = 25`
+- a higher `base_investment_usd`
+
+The `*_window_calendar_days` settings define how many calendar days remain
+eligible after the scheduled day. They are intended for platform retries after
+non-cash execution failures. Successful-order suppression and broker failure
+classification belong to the platform runtime.
+
+This platform DCA profile assumes fractional-share / dollar-order execution.
+`min_investment_usd` is only a small-order guardrail, not an integer-share
+constraint.
+
+Funding semantics are simple: the strategy does not maintain a separate cash
+pool for future dip buys. By default, each scheduled run requests
+`base_investment_usd`. If smart sizing is enabled, the requested amount is
+`base_investment_usd * multiplier`, optionally capped by `max_investment_usd`.
+If available cash is below the requested amount, the strategy emits
+`no_execute` rather than placing a partial DCA order; a later run in the same
+window can still buy if cash arrives. Dedicated DCA accounts default to no cash
+reserve and no single-run cap. Deployments that want a small cash buffer or
+maximum order amount can set `cash_reserve_usd` or `max_investment_usd`.
+
+The default is ordinary DCA without valuation multipliers. In that mode, the run
+does not need the 252-day signal indicators before it can place the scheduled
+buy. To enable smart sizing, set `smart_multiplier_enabled = true`.
+
 ## Sizing Rules
+
+These rules apply only when `smart_multiplier_enabled = true`.
 
 For each signal ETF, the strategy computes:
 
@@ -91,9 +132,9 @@ It averages QQQ and SPY drawdown / SMA gap and maps the state to a multiplier:
 | `expensive` | average gap >= 12% and drawdown <= 3% | 0.50x |
 | `very_expensive_overbought` | average gap >= 20%, drawdown <= 3%, both RSI >= 70 | 0.00x |
 
-The actual buy is capped by available cash after `cash_reserve_usd`. If the
-result is below `min_investment_usd`, the strategy waits/skips instead of
-creating a tiny order.
+The actual buy is capped by available cash after any configured
+`cash_reserve_usd`. If the result is below `min_investment_usd`, the strategy
+waits/skips instead of creating a tiny order.
 
 ## Execution Contract
 
