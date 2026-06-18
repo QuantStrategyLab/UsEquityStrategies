@@ -1,0 +1,139 @@
+# Market Signal Bundle Artifact Contract
+
+研究日期：2026-06-19。
+
+本文把后续 `MarketSignalSources` 仓库需要发布的最小 artifact 契约固化下来。
+它是平台消费契约，不是 vendor adapter 设计；策略仓库只负责校验和提取 canonical input。
+
+## Boundary
+
+`MarketSignalSources` 应产出可缓存、可审计、可重放的信号 bundle。各策略平台只读取已发布
+artifact 并注入 `StrategyContext.market_data`，不得在策略运行过程中调用 vendor API。
+
+| 层 | 允许 | 不允许 |
+| --- | --- | --- |
+| Signal source repo | provider adapter、raw cache、derived transform、bundle/manifest 发布 | broker 账户、下单、策略启停 |
+| Strategy repo | bundle schema 校验、canonical input 提取、非敏感 audit summary | vendor SDK、密钥、网络下载、artifact 写权限 |
+| Platform repo | manifest 读取、hash/freshness 校验、market_data 注入、执行日志 | 重算指标、持有 vendor 密钥、改变策略公式 |
+
+## Directory Layout
+
+MVP 目录必须稳定，便于平台按 `domain/signal_family/canonical_input/as_of` 定位：
+
+```text
+signal_bundles/
+  index.json
+  crypto/
+    btc/
+      derived_indicators/
+        2026-06-19/
+          signal_bundle.json
+          manifest.json
+```
+
+后续可以增加 `raw/`、`checksums.sha256`、Parquet 或 Arrow 文件，但 `signal_bundle.json`
+和 `manifest.json` 必须保持可用。
+`index.json` 是平台运行入口，用来按 canonical input、as_of 和 freshness 选择具体
+manifest；平台仍必须对选中的 manifest 和 bundle 做完整校验。
+
+## signal_bundle.json
+
+必填字段：
+
+| Field | Rule |
+| --- | --- |
+| `schema_version` | 固定为 `market_signal_bundle.v1`，破坏性变更才升级 |
+| `bundle_id` | 由 domain、symbol family、canonical input、as_of 稳定推导 |
+| `bundle_type` | MVP 只接受 `derived_indicators` |
+| `consumer_contract.canonical_input` | 必须等于平台要注入的 canonical input，例如 `derived_indicators` |
+| `as_of` | 信号生效日期，不是生成时间 |
+| `generated_at` | bundle 生成时间 |
+| `symbols` | bundle 覆盖的 canonical symbols |
+| `derived_indicators` | 策略实际消费 payload，按 symbol 分组 |
+| `freshness.status` | `fresh` 才允许注入智能定投 runtime |
+| `freshness.provider_timestamp` | provider 数据时间戳 |
+| `provenance` | source repo、version、commit、provider、dataset、raw hash、transform、license |
+
+`provenance` 禁止包含 `token`、`secret`、`cookie`、`signed_url`、`authorization`、
+账户号或 broker payload。平台日志只记录 audit summary，不写完整 bundle。
+
+## manifest.json
+
+必填字段：
+
+| Field | Rule |
+| --- | --- |
+| `schema_version` | 固定为 `market_signal_manifest.v1` |
+| `bundle_path` | artifact 目录内的相对路径，通常是 `signal_bundle.json` |
+| `bundle_sha256` | `signal_bundle.json` 的 SHA-256 |
+| `bundle_id` | 必须与 bundle 内字段一致 |
+| `as_of` | 必须与 bundle 内字段一致 |
+| `canonical_input` | 必须与 `consumer_contract.canonical_input` 一致 |
+| `bundle_schema_version` | 可选；如存在，必须与 bundle `schema_version` 一致 |
+| `freshness_status` | 可选；如存在，必须与 bundle `freshness.status` 一致 |
+
+消费者必须拒绝绝对路径、跳出 artifact 目录的路径、hash mismatch、schema mismatch、
+freshness mismatch，以及任何包含敏感字段名的 manifest。
+
+## index.json
+
+必填字段：
+
+| Field | Rule |
+| --- | --- |
+| `schema_version` | 固定为 `market_signal_index.v1` |
+| `generated_at` | index 生成时间 |
+| `bundles[].manifest_path` | 相对 `index.json` 所在目录的 manifest 路径 |
+| `bundles[].manifest_sha256` | manifest 文件的 SHA-256 |
+| `bundles[].bundle_id` | 必须与 manifest 一致 |
+| `bundles[].as_of` | 必须与 manifest 一致 |
+| `bundles[].canonical_input` | 必须与 manifest 一致 |
+| `bundles[].freshness_status` | 平台默认只选择 `fresh` |
+
+平台选择规则：
+
+- 如果指定 `bundle_id`，只允许匹配该 bundle。
+- 如果指定 `as_of`，选择 `as_of <= requested_as_of` 的最新 fresh entry。
+- 如果未指定 `as_of`，选择 index 中最新 fresh entry。
+- index 先用 `manifest_sha256` 锁定 manifest 文件；选中后仍要校验 manifest 内容、bundle schema、
+  freshness、provenance 和 canonical input。
+- index 和 manifest 一样禁止绝对路径、目录逃逸和敏感字段。
+
+## Platform Validation Gate
+
+平台在调用策略前应按顺序执行：
+
+1. 读取 `index.json`，或读取平台已明确指定的 `manifest.json`。
+2. 如果从 index 选择，按 canonical input、as_of、freshness 和可选 bundle id 定位
+   manifest，先校验 `manifest_sha256`，再校验 index entry 与 manifest 一致。
+3. 校验 manifest schema、相对路径和敏感字段。
+4. 读取 `signal_bundle.json` 并校验 SHA-256。
+5. 校验 bundle schema、canonical input、symbols、freshness、provenance。
+6. 对 `smart_multiplier_enabled=True` 的策略，只允许 `fresh` bundle 注入。
+7. 把 `bundle["derived_indicators"]` 注入
+   `StrategyContext.market_data["derived_indicators"]`。
+8. 日志只写 `bundle_id`、`schema_version`、`provider_timestamp`、`source_version`、
+   `code_commit`、`transform`、`bundle_sha256`。
+
+本仓库当前的消费者侧校验入口是：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  examples/signal_bundles/crypto/btc/derived_indicators/2026-06-19/manifest.json \
+  --pretty
+```
+
+也可以从 index 选择最新可用 manifest：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --index examples/signal_bundles/index.json \
+  --as-of 2026-06-20 \
+  --pretty
+```
+
+## Research Compatibility
+
+研究回测不直接依赖 vendor。`MarketSignalSources` 或人工下载流程应先把历史价格/指标
+导出为本地 CSV，再由智能定投研究 CLI 读取。这样可以把 provider 可用性、指标公式和
+策略 ranking 分开审计，避免在回测脚本里隐藏数据选择和参数搜索。
