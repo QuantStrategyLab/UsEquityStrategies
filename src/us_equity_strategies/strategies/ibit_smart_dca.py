@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
-from typing import Any
 
 import pandas as pd
 
@@ -14,75 +12,27 @@ from us_equity_strategies.strategies.nasdaq_sp500_smart_dca import (
     _is_in_execution_window,
     _localized_execution_window,
     _normalize_allocations,
+    _normalize_investment_amount_mode,
     _normalize_symbol,
     _portfolio_cash,
     _portfolio_market_values,
+    _coerce_bool,
+    _resolve_base_investment_budget,
     _translate_with_fallback,
 )
 
 
 STATUS_ICON = "₿"
 SIGNAL_SOURCE = "market_history+portfolio_snapshot"
-DEFAULT_SIGNAL_SYMBOLS = ("IBIT",)
+DEFAULT_SIGNAL_SYMBOLS = ("BTC-USD",)
 DEFAULT_TRADE_ALLOCATIONS = {"IBIT": 1.0}
 DEFAULT_MANAGED_SYMBOLS = tuple(DEFAULT_TRADE_ALLOCATIONS)
 
 
-def _portfolio_total_equity(portfolio: Any, *, current_values: Mapping[str, float], cash: float) -> float:
-    value = getattr(portfolio, "total_equity", None)
-    if value is None:
-        metadata = getattr(portfolio, "metadata", {}) or {}
-        if isinstance(metadata, Mapping):
-            value = metadata.get("total_equity")
-    total = _coerce_float(value, default=0.0)
-    if total > 0.0:
-        return total
-    return max(0.0, sum(float(item) for item in current_values.values()) + float(cash))
-
-
-def _clamp_ratio(value: object, *, default: float = 0.0, upper: float = 1.0) -> float:
-    return max(0.0, min(float(upper), _coerce_float(value, default=default)))
-
-
-def _dynamic_target_allocation_ratio(
-    total_equity: float,
-    *,
-    base_ratio: float,
-    growth_per_log10k: float,
-    max_ratio: float,
-) -> float:
-    safe_equity = max(float(total_equity), 1.0)
-    ratio = float(base_ratio) + float(growth_per_log10k) * math.log1p(safe_equity / 10000.0)
-    return _clamp_ratio(ratio, upper=float(max_ratio))
-
-
-def _resolve_target_allocation_ratio(
-    total_equity: float,
-    *,
-    target_allocation_mode: str,
-    target_allocation_ratio: float,
-    target_allocation_base_ratio: float,
-    target_allocation_growth_per_log10k: float,
-    max_target_allocation_ratio: float,
-) -> float:
-    max_ratio = _clamp_ratio(max_target_allocation_ratio, default=0.10, upper=1.0)
-    mode = str(target_allocation_mode or "dynamic").strip().lower()
-    if mode == "fixed":
-        return _clamp_ratio(target_allocation_ratio, default=0.05, upper=max_ratio)
-    if mode != "dynamic":
-        raise ValueError("target_allocation_mode must be 'dynamic' or 'fixed'")
-    return _dynamic_target_allocation_ratio(
-        total_equity,
-        base_ratio=_clamp_ratio(target_allocation_base_ratio, default=0.03, upper=max_ratio),
-        growth_per_log10k=max(0.0, float(target_allocation_growth_per_log10k)),
-        max_ratio=max_ratio,
-    )
-
-
 def _localized_regime(regime: str, translator) -> str:
     labels = {
+        "ordinary_dca": ("ordinary DCA", "普通定投"),
         "normal": ("normal", "正常"),
-        "weak_trend": ("weak trend", "弱趋势"),
         "expensive": ("expensive", "偏贵"),
         "very_expensive_overbought": ("very expensive and overbought", "极贵且超买"),
         "mild_pullback": ("mild pullback", "温和回撤"),
@@ -102,7 +52,6 @@ def _localized_skip_reason(skip_reason: str, translator) -> str:
     labels = {
         "outside_execution_window": ("outside execution window", "不在执行窗口"),
         "valuation_too_expensive": ("valuation too expensive", "估值过贵"),
-        "target_allocation_reached": ("target allocation reached", "目标仓位已满"),
         "insufficient_cash": ("insufficient cash", "可投资现金不足"),
     }
     fallback_en, fallback_zh = labels.get(skip_reason, (skip_reason, skip_reason))
@@ -126,7 +75,6 @@ def _determine_multiplier(
     very_expensive_gap: float,
     shallow_drawdown_threshold: float,
     overbought_rsi: float,
-    weak_trend_multiplier: float,
     mild_pullback_multiplier: float,
     deep_pullback_multiplier: float,
     severe_pullback_multiplier: float,
@@ -138,7 +86,6 @@ def _determine_multiplier(
         raise ValueError("at least one signal indicator is required")
     avg_drawdown = sum(item.drawdown_252d for item in indicators) / len(indicators)
     avg_gap = sum(item.sma200_gap for item in indicators) / len(indicators)
-    trend_positive_ratio = sum(1.0 for item in indicators if item.trend_positive) / len(indicators)
     rsi_values = [item.rsi14 for item in indicators if item.rsi14 is not None]
     avg_rsi = sum(rsi_values) / len(rsi_values) if rsi_values else float("nan")
     all_overbought = bool(rsi_values) and all(value >= overbought_rsi for value in rsi_values)
@@ -147,7 +94,6 @@ def _determine_multiplier(
         "avg_drawdown_252d": float(avg_drawdown),
         "avg_sma200_gap": float(avg_gap),
         "avg_rsi14": float(avg_rsi) if not pd.isna(avg_rsi) else float("nan"),
-        "trend_positive_ratio": float(trend_positive_ratio),
     }
 
     if avg_drawdown >= severe_drawdown_threshold:
@@ -160,8 +106,6 @@ def _determine_multiplier(
         return float(very_expensive_multiplier), "very_expensive_overbought", metrics
     if avg_gap >= expensive_gap and avg_drawdown <= shallow_drawdown_threshold:
         return float(expensive_multiplier), "expensive", metrics
-    if trend_positive_ratio < 1.0:
-        return float(weak_trend_multiplier), "weak_trend", metrics
     return float(base_multiplier), "normal", metrics
 
 
@@ -173,19 +117,21 @@ def build_rebalance_plan(
     signal_symbols=DEFAULT_SIGNAL_SYMBOLS,
     trade_allocations: Mapping[str, object] | None = None,
     managed_symbols=DEFAULT_MANAGED_SYMBOLS,
-    base_investment_usd: float = 250.0,
-    max_investment_usd: float | None = 750.0,
-    cash_reserve_usd: float = 50.0,
-    min_investment_usd: float = 50.0,
+    base_investment_usd: float = 1000.0,
+    max_investment_usd: float | None = None,
+    cash_reserve_usd: float = 0.0,
+    min_investment_usd: float = 5.0,
+    investment_amount_mode: str = "fixed",
+    available_cash_investment_ratio: float = 1.0,
+    smart_multiplier_enabled: bool = False,
     cadence: str = "monthly",
     monthly_day: int = 25,
     monthly_window_calendar_days: int = 5,
     weekly_day: int = 4,
-    target_allocation_mode: str = "dynamic",
-    target_allocation_ratio: float = 0.05,
-    target_allocation_base_ratio: float = 0.03,
-    target_allocation_growth_per_log10k: float = 0.02,
-    max_target_allocation_ratio: float = 0.10,
+    weekly_window_calendar_days: int = 4,
+    quarterly_months: object = (1, 4, 7, 10),
+    quarterly_day: int = 25,
+    quarterly_window_calendar_days: int = 5,
     mild_drawdown_threshold: float = 0.12,
     deep_drawdown_threshold: float = 0.25,
     severe_drawdown_threshold: float = 0.40,
@@ -196,7 +142,6 @@ def build_rebalance_plan(
     shallow_drawdown_threshold: float = 0.05,
     overbought_rsi: float = 75.0,
     base_multiplier: float = 1.0,
-    weak_trend_multiplier: float = 0.50,
     mild_pullback_multiplier: float = 1.25,
     deep_pullback_multiplier: float = 1.75,
     severe_pullback_multiplier: float = 2.50,
@@ -213,64 +158,70 @@ def build_rebalance_plan(
         monthly_day=monthly_day,
         monthly_window_calendar_days=monthly_window_calendar_days,
         weekly_day=weekly_day,
+        weekly_window_calendar_days=weekly_window_calendar_days,
+        quarterly_months=quarterly_months,
+        quarterly_day=quarterly_day,
+        quarterly_window_calendar_days=quarterly_window_calendar_days,
     )
 
     current_values = _portfolio_market_values(portfolio, strategy_symbols)
     available_cash = _portfolio_cash(portfolio)
-    total_equity = _portfolio_total_equity(portfolio, current_values=current_values, cash=available_cash)
-    target_allocation = _resolve_target_allocation_ratio(
-        total_equity,
-        target_allocation_mode=target_allocation_mode,
-        target_allocation_ratio=float(target_allocation_ratio),
-        target_allocation_base_ratio=float(target_allocation_base_ratio),
-        target_allocation_growth_per_log10k=float(target_allocation_growth_per_log10k),
-        max_target_allocation_ratio=float(max_target_allocation_ratio),
-    )
-    target_allocation_value = max(0.0, total_equity * target_allocation)
-    current_strategy_value = sum(float(current_values.get(symbol, 0.0)) for symbol in strategy_symbols)
-    remaining_capacity = max(0.0, target_allocation_value - current_strategy_value)
-
     reserved_cash = max(0.0, _coerce_float(cash_reserve_usd))
     investable_cash = max(0.0, available_cash - reserved_cash)
+    smart_enabled = _coerce_bool(smart_multiplier_enabled, default=False)
 
     indicators: list[SymbolIndicator] = []
+    resolved_signal_symbols: list[str] = []
     for raw_symbol in signal_symbols or ():
         symbol = _normalize_symbol(raw_symbol)
         if not symbol:
             continue
-        history = market_history(broker_client, symbol)
-        indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
-    if not indicators:
-        raise ValueError("signal_symbols must contain at least one valid symbol")
+        resolved_signal_symbols.append(symbol)
+        if smart_enabled:
+            history = market_history(broker_client, symbol)
+            indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
 
-    multiplier, regime, aggregate_metrics = _determine_multiplier(
-        tuple(indicators),
-        mild_drawdown_threshold=float(mild_drawdown_threshold),
-        deep_drawdown_threshold=float(deep_drawdown_threshold),
-        severe_drawdown_threshold=float(severe_drawdown_threshold),
-        mild_discount_gap=float(mild_discount_gap),
-        deep_discount_gap=float(deep_discount_gap),
-        expensive_gap=float(expensive_gap),
-        very_expensive_gap=float(very_expensive_gap),
-        shallow_drawdown_threshold=float(shallow_drawdown_threshold),
-        overbought_rsi=float(overbought_rsi),
-        weak_trend_multiplier=float(weak_trend_multiplier),
-        mild_pullback_multiplier=float(mild_pullback_multiplier),
-        deep_pullback_multiplier=float(deep_pullback_multiplier),
-        severe_pullback_multiplier=float(severe_pullback_multiplier),
-        expensive_multiplier=float(expensive_multiplier),
-        very_expensive_multiplier=float(very_expensive_multiplier),
-        base_multiplier=float(base_multiplier),
+    if smart_enabled:
+        if not indicators:
+            raise ValueError("signal_symbols must contain at least one valid symbol")
+        regime_multiplier, regime, aggregate_metrics = _determine_multiplier(
+            tuple(indicators),
+            mild_drawdown_threshold=float(mild_drawdown_threshold),
+            deep_drawdown_threshold=float(deep_drawdown_threshold),
+            severe_drawdown_threshold=float(severe_drawdown_threshold),
+            mild_discount_gap=float(mild_discount_gap),
+            deep_discount_gap=float(deep_discount_gap),
+            expensive_gap=float(expensive_gap),
+            very_expensive_gap=float(very_expensive_gap),
+            shallow_drawdown_threshold=float(shallow_drawdown_threshold),
+            overbought_rsi=float(overbought_rsi),
+            mild_pullback_multiplier=float(mild_pullback_multiplier),
+            deep_pullback_multiplier=float(deep_pullback_multiplier),
+            severe_pullback_multiplier=float(severe_pullback_multiplier),
+            expensive_multiplier=float(expensive_multiplier),
+            very_expensive_multiplier=float(very_expensive_multiplier),
+            base_multiplier=float(base_multiplier),
+        )
+    else:
+        regime_multiplier = 1.0
+        regime = "ordinary_dca"
+        aggregate_metrics = {
+            "avg_drawdown_252d": float("nan"),
+            "avg_sma200_gap": float("nan"),
+            "avg_rsi14": float("nan"),
+        }
+    normalized_investment_amount_mode = _normalize_investment_amount_mode(investment_amount_mode)
+    base_budget = _resolve_base_investment_budget(
+        investment_amount_mode=normalized_investment_amount_mode,
+        base_investment_usd=float(base_investment_usd),
     )
-    requested_investment = max(0.0, float(base_investment_usd) * max(0.0, multiplier))
+    multiplier = float(regime_multiplier if smart_enabled else 1.0)
+    requested_investment = max(0.0, float(base_budget) * max(0.0, multiplier))
     if max_investment_usd is not None:
         requested_investment = min(requested_investment, max(0.0, float(max_investment_usd)))
-    cash_limited_investment = min(requested_investment, investable_cash)
-    planned_investment = min(cash_limited_investment, remaining_capacity)
-    cash_capped = cash_limited_investment < requested_investment
-    target_capped = planned_investment < cash_limited_investment
-    cash_shortfall = max(0.0, min(requested_investment, remaining_capacity) - planned_investment)
-    target_shortfall = max(0.0, requested_investment - min(requested_investment, remaining_capacity))
+    cash_capped = investable_cash < requested_investment
+    cash_shortfall = max(0.0, requested_investment - investable_cash)
+    planned_investment = requested_investment if not cash_capped else 0.0
 
     skip_reason = None
     actionable = True
@@ -280,10 +231,7 @@ def build_rebalance_plan(
     elif multiplier <= 0.0 or requested_investment <= 0.0:
         skip_reason = "valuation_too_expensive"
         actionable = False
-    elif remaining_capacity < float(min_investment_usd):
-        skip_reason = "target_allocation_reached"
-        actionable = False
-    elif planned_investment < float(min_investment_usd):
+    elif cash_capped or planned_investment < float(min_investment_usd):
         skip_reason = "insufficient_cash"
         actionable = False
 
@@ -307,22 +255,32 @@ def build_rebalance_plan(
         for item in indicators
     )
     localized_regime = _localized_regime(regime, translator)
-    signal_desc = _translate_with_fallback(
-        translator,
-        "ibit_smart_dca_signal",
-        fallback_en=(
-            "IBIT Smart DCA {regime}: multiplier {multiplier}, "
-            "planned buy ${planned_investment}, target sleeve {target_allocation}"
-        ),
-        fallback_zh=(
-            "IBIT 智能定投 {regime}: 倍数 {multiplier}，计划买入 ${planned_investment}，"
-            "目标仓位 {target_allocation}"
-        ),
-        regime=localized_regime,
-        multiplier=f"{multiplier:.2f}x",
-        planned_investment=f"{planned_investment:,.2f}",
-        target_allocation=f"{target_allocation:.1%}",
-    )
+    if smart_enabled:
+        signal_desc = _translate_with_fallback(
+            translator,
+            "ibit_smart_dca_signal",
+            fallback_en=(
+                "IBIT Smart DCA {regime}: multiplier {multiplier}, "
+                "planned buy ${planned_investment} from cash ${available_cash}"
+            ),
+            fallback_zh=(
+                "IBIT 智能定投 {regime}: 倍数 {multiplier}，计划买入 ${planned_investment}，"
+                "现金 ${available_cash}"
+            ),
+            regime=localized_regime,
+            multiplier=f"{multiplier:.2f}x",
+            planned_investment=f"{planned_investment:,.2f}",
+            available_cash=f"{available_cash:,.2f}",
+        )
+    else:
+        signal_desc = _translate_with_fallback(
+            translator,
+            "ibit_smart_dca_signal_ordinary",
+            fallback_en="IBIT ordinary DCA: planned buy ${planned_investment} from cash ${available_cash}",
+            fallback_zh="IBIT 普通定投：计划买入 ${planned_investment}，现金 ${available_cash}",
+            planned_investment=f"{planned_investment:,.2f}",
+            available_cash=f"{available_cash:,.2f}",
+        )
     if cash_capped and planned_investment > 0.0:
         signal_desc = _translate_with_fallback(
             translator,
@@ -332,32 +290,24 @@ def build_rebalance_plan(
             signal=signal_desc,
             requested_investment=f"{requested_investment:,.2f}",
         )
-    if target_capped and planned_investment > 0.0:
-        signal_desc = _translate_with_fallback(
+    if smart_enabled:
+        status_desc = _translate_with_fallback(
             translator,
-            "ibit_smart_dca_target_capped",
-            fallback_en="{signal} | target capped by remaining sleeve capacity ${remaining_capacity}",
-            fallback_zh="{signal} | 因目标仓位上限，剩余容量 ${remaining_capacity}",
-            signal=signal_desc,
-            remaining_capacity=f"{remaining_capacity:,.2f}",
+            "ibit_smart_dca_status",
+            fallback_en="{window} | avg drawdown {avg_drawdown}, avg gap vs SMA200 {avg_sma200_gap}",
+            fallback_zh="{window} | 平均回撤 {avg_drawdown}，相对 SMA200 均值 {avg_sma200_gap}",
+            window=_localized_execution_window(window_text, translator),
+            avg_drawdown=f"{aggregate_metrics['avg_drawdown_252d']:.1%}",
+            avg_sma200_gap=f"{aggregate_metrics['avg_sma200_gap']:.1%}",
         )
-    status_desc = _translate_with_fallback(
-        translator,
-        "ibit_smart_dca_status",
-        fallback_en=(
-            "{window} | avg drawdown {avg_drawdown}, avg gap vs SMA200 {avg_sma200_gap}, "
-            "IBIT sleeve {current_value}/{target_value}"
-        ),
-        fallback_zh=(
-            "{window} | 平均回撤 {avg_drawdown}，相对 SMA200 均值 {avg_sma200_gap}，"
-            "IBIT 仓位 {current_value}/{target_value}"
-        ),
-        window=_localized_execution_window(window_text, translator),
-        avg_drawdown=f"{aggregate_metrics['avg_drawdown_252d']:.1%}",
-        avg_sma200_gap=f"{aggregate_metrics['avg_sma200_gap']:.1%}",
-        current_value=f"${current_strategy_value:,.2f}",
-        target_value=f"${target_allocation_value:,.2f}",
-    )
+    else:
+        status_desc = _translate_with_fallback(
+            translator,
+            "ibit_smart_dca_status_ordinary",
+            fallback_en="{window} | ordinary DCA without valuation multiplier",
+            fallback_zh="{window} | 普通定投，不使用估值倍数",
+            window=_localized_execution_window(window_text, translator),
+        )
     if skip_reason:
         signal_desc = _translate_with_fallback(
             translator,
@@ -375,28 +325,24 @@ def build_rebalance_plan(
         "strategy_symbols": strategy_symbols,
         "managed_symbols": strategy_symbols,
         "trade_allocations": allocations,
-        "signal_symbols": tuple(item.symbol for item in indicators),
+        "signal_symbols": tuple(item.symbol for item in indicators) or tuple(resolved_signal_symbols),
         "signal_description": signal_desc,
         "status_description": status_desc,
         "regime": regime,
         "multiplier": float(multiplier),
+        "regime_multiplier": float(regime_multiplier),
+        "smart_multiplier_enabled": bool(smart_enabled),
+        "investment_amount_mode": normalized_investment_amount_mode,
         "base_investment_usd": float(base_investment_usd),
+        "base_investment_budget_usd": float(base_budget),
         "requested_investment_usd": float(requested_investment),
         "planned_investment_usd": float(planned_investment if actionable else 0.0),
         "cash_capped": bool(cash_capped),
-        "target_capped": bool(target_capped),
         "cash_shortfall_usd": float(cash_shortfall),
-        "target_shortfall_usd": float(target_shortfall),
         "available_cash": float(available_cash),
         "reserved_cash": float(reserved_cash),
         "investable_cash": float(investable_cash),
         "min_investment_usd": float(min_investment_usd),
-        "total_equity": float(total_equity),
-        "target_allocation_mode": str(target_allocation_mode or "dynamic").strip().lower(),
-        "target_allocation_ratio": float(target_allocation),
-        "target_allocation_value_usd": float(target_allocation_value),
-        "current_strategy_value_usd": float(current_strategy_value),
-        "remaining_capacity_usd": float(remaining_capacity),
         "execution_window": window_text,
         "in_execution_window": bool(is_window),
         "indicator_rows": indicator_rows,

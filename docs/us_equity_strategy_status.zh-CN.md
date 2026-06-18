@@ -1,6 +1,6 @@
 # 美股策略状态与研究手册
 
-_更新日期：2026-06-18_
+_更新日期：2026-06-19_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
 
@@ -17,8 +17,8 @@ _更新日期：2026-06-18_
 | `global_etf_rotation` | 全球 ETF 防守轮动 | 直接运行输入 | 季度 Top2 ETF 轮动，默认启用 SMA250 置信度 + 相对波动门控；每日 canary 防守，弱市切 `BIL`。 | 默认保留；当前推荐档。`market_regime_control` 可接收通知/证据 artifact，但本地 apply 开关默认关闭，自动仓位影响等待长周期推广包。 |
 | `tqqq_growth_income` | TQQQ 增长收益 | 直接运行输入 | `QQQ` / `TQQQ` 双轮增长，默认 `45% / 45% / 8% BOXX / 2% cash`；`QQQM` 可作为低单价交易代理；高波动降杠杆触发时默认读取 `market_regime_control` 的确定性 retention context，采用 `tqqq_step_softzero_0.25_0.50`。 | 小账户最容易落地；需要策略级 `market_regime_control` artifact。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | 直接运行输入 | 以 `SOXX` 140 日趋势闸门控制 `SOXL` / `SOXX` / `BOXX`；默认用 `SOXX` 10 日年化实际波动率的 252 日滚动 95 分位阈值，边界 `50%`-`75%`，样本不足时回退固定 `55%`；触发后读取确定性 `soxl_step_rebound_0.25_0.50` retention context，剩余 `SOXL` 转向 `SOXX`；插件也支持 `soxl_step_softzero_rebound_0.25_0.50` 保守切换；并叠加收入层。 | 半导体高弹性直接输入策略；默认启用策略级 `market_regime_control`，但 `risk_reduced` 仓位影响默认关闭。 |
-| `nasdaq_sp500_smart_dca` | 纳指100 / 标普500 智能定投 | 直接运行输入 | 只买不卖；用 `QQQ/SPY` 的 200 日均线距离、252 日回撤和 RSI 过热状态决定本期定投金额倍数，默认买入 `QQQM/SPLG`。 | 适合现金账户长期积累；建议月度窗口运行。 |
-| `ibit_smart_dca` | IBIT 比特币 ETF 智能定投 | 直接运行输入 | 只买不卖；用 `IBIT` 的 200 日均线距离、252 日回撤、RSI 过热和弱趋势状态决定本期定投金额倍数，并参考加密仓库的 BTC 核心仓位预算思路设置动态卫星仓上限，默认最高 10%。 | 适合作为小比例比特币 ETF 卫星配置；必须先做 paper/dry-run 和账户级风险预算确认。 |
+| `nasdaq_sp500_smart_dca` | 纳斯达克 / 标普定投 | 直接运行输入 | 只买不卖；默认月度按 `base_investment_usd` 定额买入 `QQQM/SPLG`，可配置周/月/季频率和重试窗口；定投账号默认不预留现金；可打开智能倍数，用 `QQQ/SPY` 的 200 日均线距离、252 日回撤和 RSI 过热状态调整本期金额；现金不足以覆盖本期金额时不投。 | 适合没有原生定投功能的平台账户长期积累；默认月度窗口运行。 |
+| `ibit_smart_dca` | IBIT 比特币 ETF 定投 | 直接运行输入 | 只买不卖；默认月度按 `base_investment_usd` 定额买入 `IBIT`，可配置周/月/季频率和重试窗口；定投账号默认不预留现金；可打开智能倍数，用 `BTC-USD` 比特币现货代理信号调整本期金额；不维护额外现金池，执行日现金不足就不投。 | 适合专门跑 IBIT 积累的账户；默认定额普通定投，智能倍数只是可选配置。 |
 | `russell_1000_multi_factor_defensive` | Russell 1000 多因子防守 | feature snapshot | Russell 1000 price-only 多因子，SPY 趋势 + breadth 防守，默认 24 股。 | 可切换但更适合大账户；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响等待长周期代理研究归档。 |
 | `mega_cap_leader_rotation_top50_balanced` | Top50 平衡龙头轮动 | feature snapshot | 固定 `50% Top2 cap50 + 50% Top4 cap25` 袖子混合，不默认趋势降仓。 | 当前保留的无杠杆龙头轮动路线；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响先保持通知/证据模式。 |
 
@@ -37,7 +37,7 @@ _更新日期：2026-06-18_
 
 ## 收入层默认启用口径
 
-除 `nasdaq_sp500_smart_dca` 这类只买不卖的现金定投 profile 外，保留的组合型 runtime profile 默认都启用收入层，且下游策略配置可以覆盖任意 `income_layer_*` 参数；需要关闭时设置 `income_layer_enabled = false`。当前默认统一使用 `log_total_drawdown_budget`，先按账户规模给出目标总回撤预算，再用核心策略压力回撤和收入篮子压力回撤反推出收入层比例。`income_layer_activation_band_ratio` 会在 `start` 到 `start * (1 + band)` 之间把正常目标比例从 0 平滑放大到 1，避免门槛附近来回卡住。
+除 `nasdaq_sp500_smart_dca` / `ibit_smart_dca` 这类只买不卖的现金定投 profile 外，保留的组合型 runtime profile 默认都启用收入层，且下游策略配置可以覆盖任意 `income_layer_*` 参数；需要关闭时设置 `income_layer_enabled = false`。当前默认统一使用 `log_total_drawdown_budget`，先按账户规模给出目标总回撤预算，再用核心策略压力回撤和收入篮子压力回撤反推出收入层比例。`income_layer_activation_band_ratio` 会在 `start` 到 `start * (1 + band)` 之间把正常目标比例从 0 平滑放大到 1，避免门槛附近来回卡住。
 
 | Profile | 模式 | 起点 | 平滑带 | 硬上限 | 默认收入篮子 |
 | --- | --- | ---: | ---: | ---: | --- |

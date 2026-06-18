@@ -225,6 +225,10 @@ class CatalogTest(unittest.TestCase):
             "buy_only_bitcoin_etf_smart_dca",
         )
         self.assertEqual(
+            metadata_map[IBIT_SMART_DCA_PROFILE].status,
+            "runtime_enabled",
+        )
+        self.assertEqual(
             compatibility[IBIT_SMART_DCA_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
@@ -260,6 +264,23 @@ class CatalogTest(unittest.TestCase):
             "option_growth_overlay_enabled",
             get_strategy_definition(IBIT_SMART_DCA_PROFILE).default_config,
         )
+
+    def test_dca_profiles_default_to_ordinary_dca_with_optional_smart_sizing(self):
+        for profile in (NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE):
+            with self.subTest(profile=profile):
+                config = get_strategy_definition(profile).default_config
+                self.assertEqual(config["investment_amount_mode"], "fixed")
+                self.assertNotIn("available_cash_investment_ratio", config)
+                self.assertIs(config["smart_multiplier_enabled"], False)
+                self.assertEqual(config["cadence"], "monthly")
+                self.assertEqual(config["cash_reserve_usd"], 0.0)
+                self.assertIsNone(config["max_investment_usd"])
+                self.assertEqual(config["min_investment_usd"], 5.0)
+                self.assertEqual(config["monthly_window_calendar_days"], 5)
+                self.assertEqual(config["weekly_window_calendar_days"], 4)
+                self.assertEqual(config["quarterly_months"], (1, 4, 7, 10))
+                self.assertEqual(config["quarterly_day"], 25)
+                self.assertEqual(config["quarterly_window_calendar_days"], 5)
 
     def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
         self.assertIs(
