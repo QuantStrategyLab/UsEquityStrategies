@@ -1164,12 +1164,22 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     config.pop("signal_effective_after_trading_days", None)
     config.pop("pacing_sec", None)
     pop_execution_only_config(config)
-    market_history = require_market_data(ctx, "market_history")
+    market_history = ctx.market_data.get("market_history")
+    if market_history is None:
+        def _empty_market_history(_client, _symbol):
+            return ()
+
+        market_history = _empty_market_history
+    crypto_indicator_snapshot = (
+        ctx.market_data.get("crypto_indicator_snapshot")
+        or ctx.market_data.get("derived_indicators")
+    )
     portfolio = require_portfolio(ctx)
     plan = ibit_smart_dca_strategy.build_rebalance_plan(
         market_history,
         portfolio,
         as_of=ctx.as_of,
+        crypto_indicator_snapshot=crypto_indicator_snapshot,
         broker_client=ctx.capabilities.get("broker_client"),
         translator=translator,
         **config,
@@ -1200,6 +1210,10 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         "avg_drawdown_252d": plan["avg_drawdown_252d"],
         "avg_sma200_gap": plan["avg_sma200_gap"],
         "avg_rsi14": plan["avg_rsi14"],
+        "ahr999": plan["ahr999"],
+        "ahr999_sma": plan["ahr999_sma"],
+        "mayer_multiple": plan["mayer_multiple"],
+        "cycle_indicator_source": plan["cycle_indicator_source"],
         "indicator_rows": plan["indicator_rows"],
         "managed_symbols": plan["managed_symbols"],
         "signal_symbols": plan["signal_symbols"],
@@ -1217,6 +1231,9 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
             "investment_amount_mode": plan["investment_amount_mode"],
             "base_investment_budget_usd": plan["base_investment_budget_usd"],
             "regime": plan["regime"],
+            "ahr999": plan["ahr999"],
+            "mayer_multiple": plan["mayer_multiple"],
+            "cycle_indicator_source": plan["cycle_indicator_source"],
             "signal_display": plan["signal_description"],
             "status_display": plan["status_description"],
         },

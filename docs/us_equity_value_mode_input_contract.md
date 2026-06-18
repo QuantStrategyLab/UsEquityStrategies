@@ -6,9 +6,10 @@ current US equity value-mode profiles:
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `nasdaq_sp500_smart_dca`
+- `ibit_smart_dca`
 
 It started as the P2.2 planning document for contract convergence.
-Both current value-mode runtime profiles have since been migrated in code; the
+These value-mode runtime profiles have since been migrated in code; the
 remaining sections describe the current contract plus the still-open follow-up
 work around rollout and deeper payload normalization.
 
@@ -23,6 +24,7 @@ strategy-facing canonical inputs:
 - `tqqq_growth_income` uses `benchmark_history` + `portfolio_snapshot`
 - `soxl_soxx_trend_income` uses `derived_indicators` + `portfolio_snapshot`
 - `nasdaq_sp500_smart_dca` uses `market_history` + `portfolio_snapshot`
+- `ibit_smart_dca` uses `derived_indicators` + `portfolio_snapshot`
 
 This document records the fixed value-mode input contract and the current
 implementation status.
@@ -35,6 +37,9 @@ Current implementation status:
   on `ibkr`, `schwab`, `longbridge`, and `firstrade`
 - `nasdaq_sp500_smart_dca` was added directly on the canonical contract and
   consumes a buy-only market-history + portfolio snapshot path
+- `ibit_smart_dca` consumes a buy-only portfolio snapshot path and prefers
+  externally maintained crypto `derived_indicators`; `market_history` remains a
+  compatibility fallback for BTC close-history derived signals
 
 ## Fixed end-state summary
 
@@ -43,6 +48,7 @@ Current implementation status:
 | `tqqq_growth_income` | `value` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 | `nasdaq_sp500_smart_dca` | `value` | `market_history` + `portfolio_snapshot` | `market_history` + `portfolio_snapshot` |
+| `ibit_smart_dca` | `value` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 
 Shared rules for both profiles:
 
@@ -76,6 +82,8 @@ For this track, the exact target is:
   - `required_inputs = {"derived_indicators", "portfolio_snapshot"}`
 - `nasdaq_sp500_smart_dca`
   - `required_inputs = {"market_history", "portfolio_snapshot"}`
+- `ibit_smart_dca`
+  - `required_inputs = {"derived_indicators", "portfolio_snapshot"}`
 
 `portfolio_snapshot` is not just an adapter-local helper. It is part of the
 strategy contract.
@@ -387,6 +395,7 @@ Current status:
 | --- | --- | --- | --- | --- |
 | `tqqq_growth_income` | not yet implemented | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` | `benchmark_history` + `portfolio_snapshot` |
 | `soxl_soxx_trend_income` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
+| `ibit_smart_dca` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` | `derived_indicators` + `portfolio_snapshot` |
 
 This matrix defines current adapter state, not rollout state.
 Whether a platform becomes `enabled=true` stays a separate rollout decision.

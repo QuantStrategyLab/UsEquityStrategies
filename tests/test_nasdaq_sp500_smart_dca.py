@@ -102,6 +102,7 @@ def test_smart_dca_skips_when_too_expensive_and_overbought() -> None:
         smart_multiplier_enabled=True,
         expensive_gap=0.10,
         very_expensive_gap=0.15,
+        very_expensive_multiplier=0.0,
     )
 
     assert plan["actionable"] is False
@@ -154,7 +155,7 @@ def test_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> N
 
     plan = build_rebalance_plan(
         lambda _client, symbol: history[symbol],
-        _portfolio(buying_power=1550.0),
+        _portfolio(buying_power=1450.0),
         as_of="2026-05-26",
         investment_amount_mode="fixed",
         max_investment_usd=2000.0,
@@ -163,10 +164,10 @@ def test_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> N
 
     assert plan["actionable"] is False
     assert plan["skip_reason"] == "insufficient_cash"
-    assert plan["requested_investment_usd"] == 2000.0
+    assert plan["requested_investment_usd"] == 1500.0
     assert plan["planned_investment_usd"] == 0.0
     assert plan["cash_capped"] is True
-    assert plan["cash_shortfall_usd"] == 450.0
+    assert plan["cash_shortfall_usd"] == 50.0
     assert plan["target_values"] == {}
 
 
@@ -232,6 +233,7 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
                 "smart_multiplier_enabled": True,
                 "expensive_gap": 0.10,
                 "very_expensive_gap": 0.15,
+                "very_expensive_multiplier": 0.0,
             },
         )
     )

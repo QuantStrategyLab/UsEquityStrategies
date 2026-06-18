@@ -50,6 +50,7 @@ def test_compare_can_start_both_paths_from_explicit_date_after_warmup() -> None:
         trade_prices=prices,
         monthly_contribution_usd=1000.0,
         start_date="2026-06-01",
+        plan_overrides={"cycle_indicator_enabled": False},
     )
 
     assert result["smart"].trades
