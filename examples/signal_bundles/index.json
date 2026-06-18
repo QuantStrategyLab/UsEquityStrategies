@@ -1,0 +1,15 @@
+{
+  "schema_version": "market_signal_index.v1",
+  "generated_at": "2026-06-19T00:16:00Z",
+  "bundles": [
+    {
+      "manifest_path": "crypto/btc/derived_indicators/2026-06-19/manifest.json",
+      "manifest_sha256": "2b85d0852f369986285022796427371809b58b16dcb3c79846267fcabb388e05",
+      "bundle_id": "crypto.btc.derived_indicators.2026-06-19",
+      "as_of": "2026-06-19",
+      "canonical_input": "derived_indicators",
+      "freshness_status": "fresh",
+      "bundle_schema_version": "market_signal_bundle.v1"
+    }
+  ]
+}

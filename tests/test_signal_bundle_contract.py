@@ -11,11 +11,16 @@ from us_equity_strategies.signals import (
     SignalBundleContractError,
     extract_canonical_input,
     extract_canonical_input_from_file,
+    extract_canonical_input_from_index,
     extract_canonical_input_from_manifest,
     load_signal_bundle,
+    load_signal_bundle_from_index,
     load_signal_bundle_from_manifest,
+    load_signal_bundle_index,
     load_signal_bundle_manifest,
+    resolve_signal_bundle_manifest_from_index,
     signal_bundle_audit_summary,
+    signal_bundle_audit_summary_from_index,
     signal_bundle_audit_summary_from_manifest,
     validate_signal_bundle,
 )
@@ -32,6 +37,12 @@ FIXTURE_PATH = (
     / "signal_bundle.json"
 )
 FIXTURE_MANIFEST_PATH = FIXTURE_PATH.with_name("manifest.json")
+FIXTURE_INDEX_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "signal_bundles"
+    / "index.json"
+)
 
 
 def _load_bundle() -> dict[str, object]:
@@ -79,10 +90,12 @@ def test_extracts_btc_usd_ahr999_payload_for_strategy_context_market_data() -> N
     market_data = extract_canonical_input(_load_bundle())
     file_market_data = extract_canonical_input_from_file(FIXTURE_PATH)
     manifest_market_data = extract_canonical_input_from_manifest(FIXTURE_MANIFEST_PATH)
+    index_market_data = extract_canonical_input_from_index(FIXTURE_INDEX_PATH)
 
     assert set(market_data) == {"derived_indicators"}
     assert file_market_data == market_data
     assert manifest_market_data == market_data
+    assert index_market_data == market_data
     payload = market_data["derived_indicators"]["BTC-USD"]
     assert payload["close"] == 64000.0
     assert payload["ahr999"] == 0.72
@@ -94,6 +107,7 @@ def test_extracts_btc_usd_ahr999_payload_for_strategy_context_market_data() -> N
 def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     summary = signal_bundle_audit_summary(_load_bundle())
     manifest_summary = signal_bundle_audit_summary_from_manifest(FIXTURE_MANIFEST_PATH)
+    index_summary = signal_bundle_audit_summary_from_index(FIXTURE_INDEX_PATH)
 
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["canonical_input"] == "derived_indicators"
@@ -103,7 +117,25 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     assert manifest_summary["bundle_sha256"] == (
         "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500"
     )
+    assert index_summary["index_schema_version"] == "market_signal_index.v1"
+    assert index_summary["index_bundle_count"] == 1
     assert not any("token" in key.lower() or "secret" in key.lower() for key in manifest_summary)
+
+
+def test_index_resolves_latest_fresh_manifest_for_platform_loader() -> None:
+    index = load_signal_bundle_index(FIXTURE_INDEX_PATH)
+    manifest_path = resolve_signal_bundle_manifest_from_index(
+        FIXTURE_INDEX_PATH,
+        as_of="2026-06-20",
+    )
+    bundle = load_signal_bundle_from_index(FIXTURE_INDEX_PATH)
+
+    assert index["schema_version"] == "market_signal_index.v1"
+    assert index["bundles"][0]["manifest_sha256"] == (
+        "2b85d0852f369986285022796427371809b58b16dcb3c79846267fcabb388e05"
+    )
+    assert manifest_path == FIXTURE_MANIFEST_PATH.resolve()
+    assert bundle["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
 
 
 def test_manifest_checksum_mismatch_is_rejected(tmp_path) -> None:
@@ -126,6 +158,38 @@ def test_manifest_bundle_path_escape_is_rejected(tmp_path) -> None:
 
     with pytest.raises(SignalBundleContractError, match="escapes artifact directory"):
         load_signal_bundle_from_manifest(manifest_path)
+
+
+def test_index_manifest_path_escape_is_rejected(tmp_path) -> None:
+    index_path = tmp_path / "index.json"
+    index = json.loads(FIXTURE_INDEX_PATH.read_text(encoding="utf-8"))
+    index["bundles"][0]["manifest_path"] = "../manifest.json"
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+
+    with pytest.raises(SignalBundleContractError, match="manifest_path escapes"):
+        resolve_signal_bundle_manifest_from_index(index_path)
+
+
+def test_index_manifest_checksum_mismatch_is_rejected(tmp_path) -> None:
+    index_path = tmp_path / "index.json"
+    manifest_dir = tmp_path / "crypto" / "btc" / "derived_indicators" / "2026-06-19"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "manifest.json"
+    manifest_path.write_text(FIXTURE_MANIFEST_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    index = json.loads(FIXTURE_INDEX_PATH.read_text(encoding="utf-8"))
+    index["bundles"][0]["manifest_sha256"] = "0" * 64
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+
+    with pytest.raises(SignalBundleContractError, match="manifest_sha256 mismatch"):
+        resolve_signal_bundle_manifest_from_index(index_path)
+
+
+def test_index_without_matching_entry_is_rejected() -> None:
+    with pytest.raises(SignalBundleContractError, match="no matching manifest"):
+        resolve_signal_bundle_manifest_from_index(
+            FIXTURE_INDEX_PATH,
+            as_of="2026-06-18",
+        )
 
 
 def test_manifest_freshness_mismatch_is_rejected(tmp_path) -> None:

@@ -14,6 +14,7 @@ import pandas as pd
 
 BITCOIN_GENESIS_DATE = pd.Timestamp("2009-01-03")
 SMART_DCA_RESEARCH_ARTIFACT_SCHEMA_VERSION = "smart_dca_research_artifacts.v1"
+SUPPORTED_DCA_CADENCES = frozenset({"weekly", "monthly", "quarterly"})
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,14 @@ class DcaResearchResult:
     invested: float
     contributions: float
     max_drawdown: float
+    max_underwater_days: int
+    money_weighted_return: float
     trade_count: int
     skipped_count: int
     deployment_rate: float
     relative_terminal_value_pct: float
+    equity_curve: tuple[dict[str, object], ...]
+    cash_flows: tuple[dict[str, object], ...]
     trades: tuple[dict[str, object], ...]
     skips: tuple[dict[str, object], ...]
     last_signal_metrics: Mapping[str, object]
@@ -114,6 +119,32 @@ def available_candidate_names() -> tuple[str, ...]:
     """Return the small fixed preset universe used by this research helper."""
 
     return tuple(PRESET_CANDIDATES)
+
+
+def candidate_specs_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, object], ...]:
+    """Return CSV-friendly rows describing frozen preset candidate parameters."""
+
+    names = tuple(candidate_names)
+    unknown = [name for name in names if name not in PRESET_CANDIDATES]
+    if unknown:
+        raise ValueError(f"unknown smart DCA candidates: {unknown}")
+
+    rows: list[dict[str, object]] = []
+    for name in names:
+        candidate = PRESET_CANDIDATES[name]
+        for parameter_name, parameter_value in sorted(candidate.parameters.items()):
+            rows.append(
+                {
+                    "name": candidate.name,
+                    "family": candidate.family,
+                    "rule_type": candidate.rule_type,
+                    "signal_symbols": ",".join(candidate.signal_symbols),
+                    "min_history": candidate.min_history,
+                    "parameter_name": parameter_name,
+                    "parameter_value": parameter_value,
+                }
+            )
+    return tuple(rows)
 
 
 def _normalize_symbol(symbol: object) -> str:
@@ -346,6 +377,65 @@ def _max_drawdown(values: list[float]) -> float:
     return float(max_dd)
 
 
+def _max_underwater_days(equity_curve: Iterable[Mapping[str, object]]) -> int:
+    peak = 0.0
+    peak_date: pd.Timestamp | None = None
+    max_days = 0
+    for row in equity_curve:
+        date = pd.Timestamp(row["date"]).normalize()
+        value = float(row["equity"])
+        if value >= peak:
+            peak = value
+            peak_date = date
+        elif peak_date is not None:
+            max_days = max(max_days, int((date - peak_date).days))
+    return max_days
+
+
+def _xirr(cash_flows: Iterable[Mapping[str, object]]) -> float:
+    rows = tuple(cash_flows)
+    if len(rows) < 2:
+        return float("nan")
+    first_date = pd.Timestamp(rows[0]["date"]).normalize()
+    dated_values = tuple(
+        (
+            max(0.0, (pd.Timestamp(row["date"]).normalize() - first_date).days / 365.25),
+            float(row["amount"]),
+        )
+        for row in rows
+    )
+    if not any(amount < 0.0 for _, amount in dated_values) or not any(
+        amount > 0.0 for _, amount in dated_values
+    ):
+        return float("nan")
+
+    def npv(rate: float) -> float:
+        return sum(amount / ((1.0 + rate) ** years) for years, amount in dated_values)
+
+    low = -0.9999
+    high = 10.0
+    low_value = npv(low)
+    high_value = npv(high)
+    while low_value * high_value > 0.0 and high < 1_000_000.0:
+        high *= 10.0
+        high_value = npv(high)
+    if low_value * high_value > 0.0:
+        return float("nan")
+
+    for _ in range(100):
+        midpoint = (low + high) / 2.0
+        midpoint_value = npv(midpoint)
+        if abs(midpoint_value) < 1e-7:
+            return float(midpoint)
+        if low_value * midpoint_value <= 0.0:
+            high = midpoint
+            high_value = midpoint_value
+        else:
+            low = midpoint
+            low_value = midpoint_value
+    return float((low + high) / 2.0)
+
+
 def _monthly_execution_dates(dates: pd.Index, monthly_execution_day: int) -> frozenset[pd.Timestamp]:
     day = int(max(1, min(31, monthly_execution_day)))
     monthly_dates: dict[str, list[pd.Timestamp]] = {}
@@ -361,22 +451,88 @@ def _monthly_execution_dates(dates: pd.Index, monthly_execution_day: int) -> fro
     return frozenset(selected)
 
 
+def _period_key(date: pd.Timestamp, cadence: str) -> str:
+    if cadence == "weekly":
+        year, week, _ = date.isocalendar()
+        return f"{year}-W{week:02d}"
+    if cadence == "monthly":
+        return date.strftime("%Y-%m")
+    if cadence == "quarterly":
+        quarter = (date.month - 1) // 3 + 1
+        return f"{date.year}-Q{quarter}"
+    raise ValueError(f"unsupported DCA cadence: {cadence}")
+
+
+def _period_start_dates(dates: pd.Index, cadence: str) -> frozenset[pd.Timestamp]:
+    period_dates: dict[str, list[pd.Timestamp]] = {}
+    for raw_date in dates:
+        date = pd.Timestamp(raw_date).normalize()
+        period_dates.setdefault(_period_key(date, cadence), []).append(date)
+    return frozenset(min(values) for values in period_dates.values())
+
+
+def _scheduled_execution_dates(
+    dates: pd.Index,
+    *,
+    cadence: str,
+    monthly_execution_day: int,
+) -> frozenset[pd.Timestamp]:
+    normalized_cadence = _normalize_cadence(cadence)
+    if normalized_cadence == "weekly":
+        return _period_start_dates(dates, normalized_cadence)
+    if normalized_cadence == "monthly":
+        return _monthly_execution_dates(dates, monthly_execution_day)
+
+    day = int(max(1, min(31, monthly_execution_day)))
+    period_dates: dict[str, list[pd.Timestamp]] = {}
+    for raw_date in dates:
+        date = pd.Timestamp(raw_date).normalize()
+        period_dates.setdefault(_period_key(date, normalized_cadence), []).append(date)
+
+    selected: set[pd.Timestamp] = set()
+    for values in period_dates.values():
+        ordered = sorted(values)
+        eligible = [date for date in ordered if date.day >= day]
+        selected.add(eligible[0] if eligible else ordered[-1])
+    return frozenset(selected)
+
+
+def _cadence_contribution_amount(monthly_contribution_usd: float, cadence: str) -> float:
+    normalized_cadence = _normalize_cadence(cadence)
+    if normalized_cadence == "weekly":
+        return float(monthly_contribution_usd) * 12.0 / 52.0
+    if normalized_cadence == "monthly":
+        return float(monthly_contribution_usd)
+    if normalized_cadence == "quarterly":
+        return float(monthly_contribution_usd) * 3.0
+    raise ValueError(f"unsupported DCA cadence: {cadence}")
+
+
+def _normalize_cadence(cadence: str) -> str:
+    normalized = str(cadence).strip().lower()
+    if normalized not in SUPPORTED_DCA_CADENCES:
+        raise ValueError(f"unsupported DCA cadence: {cadence}")
+    return normalized
+
+
 def _run_path(
     *,
     name: str,
     trade_prices: pd.Series,
     signal_prices: pd.DataFrame | None,
-    monthly_contribution_usd: float,
+    contribution_amount_usd: float,
     candidate: SmartDcaCandidate | None,
     min_investment_usd: float,
+    contribution_dates: frozenset[pd.Timestamp],
     execution_dates: frozenset[pd.Timestamp],
 ) -> DcaResearchResult:
     cash = 0.0
     shares = 0.0
     invested = 0.0
     contributions = 0.0
-    last_month = ""
     equity_curve: list[float] = []
+    equity_rows: list[dict[str, object]] = []
+    cash_flows: list[dict[str, object]] = []
     trades: list[dict[str, object]] = []
     skips: list[dict[str, object]] = []
     last_metrics: dict[str, object] = {}
@@ -384,13 +540,19 @@ def _run_path(
     for raw_date, raw_price in trade_prices.items():
         date = pd.Timestamp(raw_date).normalize()
         price = float(raw_price)
-        month_key = date.strftime("%Y-%m")
-        is_contribution_day = month_key != last_month
+        is_contribution_day = date in contribution_dates
 
         if is_contribution_day:
-            cash += float(monthly_contribution_usd)
-            contributions += float(monthly_contribution_usd)
-            last_month = month_key
+            cash += float(contribution_amount_usd)
+            contributions += float(contribution_amount_usd)
+            cash_flows.append(
+                {
+                    "date": date.date().isoformat(),
+                    "name": name,
+                    "cash_flow_type": "contribution",
+                    "amount": -float(contribution_amount_usd),
+                }
+            )
 
         if date in execution_dates:
             if candidate is None:
@@ -403,7 +565,7 @@ def _run_path(
                 multiplier, regime, metrics = _candidate_multiplier(candidate, history, as_of=date)
             last_metrics = dict(metrics)
 
-            requested_buy = float(monthly_contribution_usd) * max(0.0, float(multiplier))
+            requested_buy = float(contribution_amount_usd) * max(0.0, float(multiplier))
             if regime == "insufficient_history":
                 skips.append(
                     {
@@ -458,11 +620,39 @@ def _run_path(
                         }
                     )
 
-        equity_curve.append(cash + shares * price)
+        equity = cash + shares * price
+        equity_curve.append(equity)
+        running_peak = max(equity_curve)
+        equity_rows.append(
+            {
+                "date": date.date().isoformat(),
+                "name": name,
+                "equity": float(equity),
+                "cash": float(cash),
+                "shares": float(shares),
+                "price": price,
+                "invested": float(invested),
+                "contributions": float(contributions),
+                "drawdown_pct": 0.0
+                if running_peak <= 0.0
+                else float((1.0 - equity / running_peak) * 100.0),
+            }
+        )
 
     final_price = float(trade_prices.iloc[-1]) if not trade_prices.empty else 0.0
     terminal_value = cash + shares * final_price
+    if not trade_prices.empty:
+        cash_flows.append(
+            {
+                "date": pd.Timestamp(trade_prices.index[-1]).date().isoformat(),
+                "name": name,
+                "cash_flow_type": "terminal_value",
+                "amount": float(terminal_value),
+            }
+        )
     deployment_rate = invested / contributions if contributions > 0.0 else 0.0
+    equity_curve_rows = tuple(equity_rows)
+    cash_flow_rows = tuple(cash_flows)
     return DcaResearchResult(
         name=name,
         terminal_value=float(terminal_value),
@@ -471,10 +661,14 @@ def _run_path(
         invested=float(invested),
         contributions=float(contributions),
         max_drawdown=_max_drawdown(equity_curve),
+        max_underwater_days=_max_underwater_days(equity_curve_rows),
+        money_weighted_return=_xirr(cash_flow_rows),
         trade_count=len(trades),
         skipped_count=len(skips),
         deployment_rate=float(deployment_rate),
         relative_terminal_value_pct=0.0,
+        equity_curve=equity_curve_rows,
+        cash_flows=cash_flow_rows,
         trades=tuple(trades),
         skips=tuple(skips),
         last_signal_metrics=last_metrics,
@@ -503,6 +697,66 @@ def _with_relative_value(
 def _skipped_buy_ratio(result: DcaResearchResult) -> float:
     scheduled = result.trade_count + result.skipped_count
     return float(result.skipped_count / scheduled) if scheduled > 0 else 0.0
+
+
+def _equity_series(result: DcaResearchResult) -> pd.Series:
+    if not result.equity_curve:
+        return pd.Series(dtype=float)
+    values = {
+        pd.Timestamp(row["date"]).normalize(): float(row["equity"])
+        for row in result.equity_curve
+    }
+    return pd.Series(values, dtype=float).sort_index()
+
+
+def _worst_relative_value_gap_pct(
+    result: DcaResearchResult,
+    *,
+    fixed: DcaResearchResult,
+    min_elapsed_days: int,
+) -> float:
+    if result.name == fixed.name:
+        return 0.0
+    candidate_series = _equity_series(result)
+    fixed_series = _equity_series(fixed)
+    common_index = candidate_series.index.intersection(fixed_series.index).sort_values()
+    if common_index.empty:
+        return 0.0
+    start = common_index[0]
+    eligible_index = common_index[common_index >= start + pd.Timedelta(days=min_elapsed_days)]
+    if eligible_index.empty:
+        return 0.0
+    candidate_values = candidate_series.loc[eligible_index]
+    fixed_values = fixed_series.loc[eligible_index]
+    valid = fixed_values > 0.0
+    if not valid.any():
+        return 0.0
+    gaps = (candidate_values[valid] / fixed_values[valid] - 1.0) * 100.0
+    return float(gaps.min())
+
+
+def _cash_ratio_values(result: DcaResearchResult) -> tuple[float, ...]:
+    values: list[float] = []
+    for row in result.equity_curve:
+        equity = float(row.get("equity", 0.0))
+        if equity <= 0.0:
+            continue
+        values.append(float(row.get("cash", 0.0)) / equity)
+    return tuple(values)
+
+
+def _average_cash_ratio(result: DcaResearchResult) -> float:
+    values = _cash_ratio_values(result)
+    return float(sum(values) / len(values)) if values else 0.0
+
+
+def _max_cash_ratio(result: DcaResearchResult) -> float:
+    values = _cash_ratio_values(result)
+    return float(max(values)) if values else 0.0
+
+
+def _terminal_cash_ratio(result: DcaResearchResult) -> float:
+    return float(result.cash / result.terminal_value) if result.terminal_value > 0.0 else 0.0
 
 
 def evaluate_candidate_results(
@@ -607,6 +861,7 @@ def results_to_metrics_rows(
         else evaluations
     )
     rows: list[dict[str, object]] = []
+    fixed = results[fixed_name]
     for name, result in results.items():
         evaluation = resolved_evaluations.get(name)
         row: dict[str, object] = {
@@ -618,10 +873,30 @@ def results_to_metrics_rows(
             "invested": result.invested,
             "contributions": result.contributions,
             "max_drawdown_pct": result.max_drawdown * 100.0,
+            "max_underwater_days": result.max_underwater_days,
+            "money_weighted_return_pct": result.money_weighted_return * 100.0,
+            "average_cash_ratio_pct": _average_cash_ratio(result) * 100.0,
+            "max_cash_ratio_pct": _max_cash_ratio(result) * 100.0,
+            "terminal_cash_ratio_pct": _terminal_cash_ratio(result) * 100.0,
             "trade_count": result.trade_count,
             "skipped_count": result.skipped_count,
             "skipped_buy_ratio": _skipped_buy_ratio(result),
             "deployment_rate_pct": result.deployment_rate * 100.0,
+            "worst_relative_value_gap_after_1y_pct": _worst_relative_value_gap_pct(
+                result,
+                fixed=fixed,
+                min_elapsed_days=365,
+            ),
+            "worst_relative_value_gap_after_2y_pct": _worst_relative_value_gap_pct(
+                result,
+                fixed=fixed,
+                min_elapsed_days=365 * 2,
+            ),
+            "worst_relative_value_gap_after_3y_pct": _worst_relative_value_gap_pct(
+                result,
+                fixed=fixed,
+                min_elapsed_days=365 * 3,
+            ),
             "relative_terminal_value_pct": (
                 0.0
                 if name == fixed_name
@@ -654,6 +929,239 @@ def results_to_metrics_rows(
             )
         rows.append(row)
     return tuple(rows)
+
+
+def results_to_equity_curve_rows(
+    results: Mapping[str, DcaResearchResult],
+) -> tuple[dict[str, object], ...]:
+    """Convert daily account value curves into CSV-friendly rows."""
+
+    rows: list[dict[str, object]] = []
+    for result in results.values():
+        rows.extend(dict(row) for row in result.equity_curve)
+    return tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("date", "")),
+                str(row.get("name", "")),
+            ),
+        )
+    )
+
+
+def results_to_cash_flow_rows(
+    results: Mapping[str, DcaResearchResult],
+) -> tuple[dict[str, object], ...]:
+    """Convert contribution and terminal-value cash flows into CSV-friendly rows."""
+
+    rows: list[dict[str, object]] = []
+    for result in results.values():
+        rows.extend(dict(row) for row in result.cash_flows)
+    return tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("date", "")),
+                str(row.get("name", "")),
+                str(row.get("cash_flow_type", "")),
+            ),
+        )
+    )
+
+
+def scenario_results_to_robustness_rows(
+    scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
+    *,
+    fixed_name: str = "fixed",
+) -> tuple[dict[str, object], ...]:
+    """Aggregate candidate performance across scenario perturbations."""
+
+    candidate_rows: dict[str, list[dict[str, object]]] = {}
+    for scenario_name, results in scenarios.items():
+        evaluations = evaluate_candidate_results(results, fixed_name=fixed_name)
+        for row in results_to_metrics_rows(results, fixed_name=fixed_name, evaluations=evaluations):
+            if row["name"] == fixed_name:
+                continue
+            enriched = dict(row)
+            enriched["scenario"] = scenario_name
+            candidate_rows.setdefault(str(row["name"]), []).append(enriched)
+
+    rows: list[dict[str, object]] = []
+    for name, values in candidate_rows.items():
+        passed_values = [bool(row["passed_promotion_gate"]) for row in values]
+        scenario_count = len(values)
+        passed_count = sum(1 for value in passed_values if value)
+        failure_reasons = sorted(
+            {
+                reason
+                for row in values
+                for reason in str(row.get("failure_reasons", "")).split(",")
+                if reason
+            }
+        )
+        robustness_gate_passed = scenario_count > 0 and passed_count == scenario_count
+        rows.append(
+            {
+                "name": name,
+                "scenario_count": scenario_count,
+                "passed_count": passed_count,
+                "pass_rate": float(passed_count / scenario_count) if scenario_count else 0.0,
+                "robustness_gate_passed": robustness_gate_passed,
+                "review_status": _robustness_review_status(
+                    passed_count=passed_count,
+                    scenario_count=scenario_count,
+                ),
+                "passed_all_scenarios": robustness_gate_passed,
+                "failed_scenarios": scenario_count - passed_count,
+                "failure_reasons": ",".join(failure_reasons),
+                "weakest_scenario": _scenario_for_min_metric(values, "rank_score"),
+                "worst_terminal_scenario": _scenario_for_min_metric(
+                    values,
+                    "relative_terminal_value_pct",
+                ),
+                "worst_drawdown_scenario": _scenario_for_max_metric(
+                    values,
+                    "max_drawdown_delta_pct_points",
+                ),
+                "min_relative_terminal_value_pct": _min_metric(
+                    values,
+                    "relative_terminal_value_pct",
+                ),
+                "median_relative_terminal_value_pct": _median_metric(
+                    values,
+                    "relative_terminal_value_pct",
+                ),
+                "min_money_weighted_return_pct": _min_metric(
+                    values,
+                    "money_weighted_return_pct",
+                ),
+                "median_money_weighted_return_pct": _median_metric(
+                    values,
+                    "money_weighted_return_pct",
+                ),
+                "max_average_cash_ratio_pct": _max_metric(
+                    values,
+                    "average_cash_ratio_pct",
+                ),
+                "max_cash_ratio_pct": _max_metric(values, "max_cash_ratio_pct"),
+                "max_terminal_cash_ratio_pct": _max_metric(
+                    values,
+                    "terminal_cash_ratio_pct",
+                ),
+                "worst_max_drawdown_delta_pct_points": _max_metric(
+                    values,
+                    "max_drawdown_delta_pct_points",
+                ),
+                "max_skipped_buy_ratio": _max_metric(values, "skipped_buy_ratio"),
+                "min_deployment_rate_delta_pct_points": _min_metric(
+                    values,
+                    "deployment_rate_delta_pct_points",
+                ),
+                "min_rank_score": _min_metric(values, "rank_score"),
+                "worst_relative_value_gap_after_1y_pct": _min_metric(
+                    values,
+                    "worst_relative_value_gap_after_1y_pct",
+                ),
+                "worst_relative_value_gap_after_2y_pct": _min_metric(
+                    values,
+                    "worst_relative_value_gap_after_2y_pct",
+                ),
+                "worst_relative_value_gap_after_3y_pct": _min_metric(
+                    values,
+                    "worst_relative_value_gap_after_3y_pct",
+                ),
+            }
+        )
+
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            bool(row["robustness_gate_passed"]),
+            float(row["pass_rate"]),
+            float(row["min_relative_terminal_value_pct"]),
+            float(row["min_rank_score"]),
+        ),
+        reverse=True,
+    )
+    return tuple(
+        {
+            "review_rank": rank,
+            **row,
+        }
+        for rank, row in enumerate(sorted_rows, start=1)
+    )
+
+
+def _robustness_review_status(*, passed_count: int, scenario_count: int) -> str:
+    if scenario_count <= 0:
+        return "no_scenarios"
+    if passed_count == scenario_count:
+        return "candidate_passed_robustness_gate"
+    if passed_count > 0:
+        return "mixed_scenario_results"
+    return "failed_robustness_gate"
+
+
+def _scenario_for_min_metric(rows: Iterable[Mapping[str, object]], field: str) -> str:
+    row = _scenario_for_metric(rows, field, reverse=False)
+    return str(row.get("scenario", "")) if row is not None else ""
+
+
+def _scenario_for_max_metric(rows: Iterable[Mapping[str, object]], field: str) -> str:
+    row = _scenario_for_metric(rows, field, reverse=True)
+    return str(row.get("scenario", "")) if row is not None else ""
+
+
+def _scenario_for_metric(
+    rows: Iterable[Mapping[str, object]],
+    field: str,
+    *,
+    reverse: bool,
+) -> Mapping[str, object] | None:
+    candidates: list[tuple[float, Mapping[str, object]]] = []
+    for row in rows:
+        raw_value = row.get(field)
+        if raw_value is None:
+            continue
+        value = float(raw_value)
+        if not math.isnan(value):
+            candidates.append((value, row))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0], reverse=reverse)[0][1]
+
+
+def _metric_values(rows: Iterable[Mapping[str, object]], field: str) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        raw_value = row.get(field)
+        if raw_value is None:
+            continue
+        value = float(raw_value)
+        if not math.isnan(value):
+            values.append(value)
+    return values
+
+
+def _min_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
+    values = _metric_values(rows, field)
+    return float(min(values)) if values else 0.0
+
+
+def _max_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
+    values = _metric_values(rows, field)
+    return float(max(values)) if values else 0.0
+
+
+def _median_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
+    values = sorted(_metric_values(rows, field))
+    if not values:
+        return 0.0
+    midpoint = len(values) // 2
+    if len(values) % 2:
+        return float(values[midpoint])
+    return float((values[midpoint - 1] + values[midpoint]) / 2.0)
 
 
 def results_to_decision_log_rows(
@@ -738,7 +1246,11 @@ def write_research_artifacts(
     metrics_path = output_path / "metrics.csv"
     evaluation_path = output_path / "evaluation_summary.csv"
     decision_log_path = output_path / "decision_log.csv"
+    equity_curve_path = output_path / "equity_curve.csv"
+    cash_flows_path = output_path / "cash_flows.csv"
+    candidate_specs_path = output_path / "candidate_specs.csv"
     run_manifest_path = output_path / "run_manifest.json"
+    candidate_names = tuple(name for name in results if name != fixed_name)
 
     pd.DataFrame(results_to_metrics_rows(results, fixed_name=fixed_name, evaluations=resolved_evaluations)).to_csv(
         metrics_path,
@@ -758,21 +1270,34 @@ def write_research_artifacts(
         for item in summarize_candidate_evaluations(resolved_evaluations)
     ).to_csv(evaluation_path, index=False)
     pd.DataFrame(results_to_decision_log_rows(results)).to_csv(decision_log_path, index=False)
+    pd.DataFrame(results_to_equity_curve_rows(results)).to_csv(equity_curve_path, index=False)
+    pd.DataFrame(results_to_cash_flow_rows(results)).to_csv(cash_flows_path, index=False)
+    pd.DataFrame(candidate_specs_to_rows(candidate_names)).to_csv(candidate_specs_path, index=False)
     _write_artifact_manifest(
         run_manifest_path,
         artifact_type="smart_dca_research_run",
-        files=(metrics_path, evaluation_path, decision_log_path),
+        files=(
+            metrics_path,
+            evaluation_path,
+            decision_log_path,
+            equity_curve_path,
+            cash_flows_path,
+            candidate_specs_path,
+        ),
         root=output_path,
         extra={
             "fixed_name": fixed_name,
             "result_names": tuple(results),
-            "candidate_names": tuple(name for name in results if name != fixed_name),
+            "candidate_names": candidate_names,
         },
     )
     return {
         "metrics": metrics_path,
         "evaluation_summary": evaluation_path,
         "decision_log": decision_log_path,
+        "equity_curve": equity_curve_path,
+        "cash_flows": cash_flows_path,
+        "candidate_specs": candidate_specs_path,
         "run_manifest": run_manifest_path,
     }
 
@@ -782,6 +1307,7 @@ def write_scenario_research_artifacts(
     scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
     *,
     fixed_name: str = "fixed",
+    metadata: Mapping[str, object] | None = None,
 ) -> dict[str, Path]:
     """Write per-scenario artifacts and a top-level scenario index CSV."""
 
@@ -816,9 +1342,14 @@ def write_scenario_research_artifacts(
             artifact_paths[f"{safe_name}_{key}"] = path
 
     scenario_index_path = output_path / "scenario_index.csv"
+    robustness_summary_path = output_path / "robustness_summary.csv"
     scenario_manifest_path = output_path / "scenario_manifest.json"
     pd.DataFrame(index_rows).to_csv(scenario_index_path, index=False)
+    pd.DataFrame(
+        scenario_results_to_robustness_rows(scenarios, fixed_name=fixed_name)
+    ).to_csv(robustness_summary_path, index=False)
     artifact_paths["scenario_index"] = scenario_index_path
+    artifact_paths["robustness_summary"] = robustness_summary_path
     _write_artifact_manifest(
         scenario_manifest_path,
         artifact_type="smart_dca_research_scenario_matrix",
@@ -827,6 +1358,7 @@ def write_scenario_research_artifacts(
         extra={
             "fixed_name": fixed_name,
             "scenario_names": tuple(scenarios),
+            "metadata": dict(metadata or {}),
         },
     )
     artifact_paths["scenario_manifest"] = scenario_manifest_path
@@ -877,6 +1409,7 @@ def compare_smart_dca_candidates(
     align_start_after_warmup: bool = True,
     min_investment_usd: float = 0.0,
     monthly_execution_day: int = 1,
+    cadence: str = "monthly",
 ) -> dict[str, DcaResearchResult]:
     """Compare fixed DCA with a small named preset universe of smart DCA rules.
 
@@ -925,15 +1458,26 @@ def compare_smart_dca_candidates(
         raise ValueError("no overlapping price history remains after date and warmup filters")
 
     trade_path = trade_series.loc[common_index]
-    execution_dates = _monthly_execution_dates(trade_path.index, monthly_execution_day)
+    normalized_cadence = _normalize_cadence(cadence)
+    contribution_dates = _period_start_dates(trade_path.index, normalized_cadence)
+    execution_dates = _scheduled_execution_dates(
+        trade_path.index,
+        cadence=normalized_cadence,
+        monthly_execution_day=monthly_execution_day,
+    )
+    contribution_amount_usd = _cadence_contribution_amount(
+        monthly_contribution_usd,
+        normalized_cadence,
+    )
     results: dict[str, DcaResearchResult] = {
         "fixed": _run_path(
             name="fixed",
             trade_prices=trade_path,
             signal_prices=None,
-            monthly_contribution_usd=monthly_contribution_usd,
+            contribution_amount_usd=contribution_amount_usd,
             candidate=None,
             min_investment_usd=min_investment_usd,
+            contribution_dates=contribution_dates,
             execution_dates=execution_dates,
         )
     }
@@ -943,9 +1487,10 @@ def compare_smart_dca_candidates(
             name=candidate.name,
             trade_prices=trade_path,
             signal_prices=candidate_frames[candidate.name],
-            monthly_contribution_usd=monthly_contribution_usd,
+            contribution_amount_usd=contribution_amount_usd,
             candidate=candidate,
             min_investment_usd=min_investment_usd,
+            contribution_dates=contribution_dates,
             execution_dates=execution_dates,
         )
 
@@ -963,13 +1508,15 @@ def compare_monthly_execution_day_scenarios(
     end_date: object | None = None,
     align_start_after_warmup: bool = True,
     min_investment_usd: float = 0.0,
+    cadence: str = "monthly",
 ) -> dict[str, dict[str, DcaResearchResult]]:
     """Run the same fixed candidate universe across monthly execution days."""
 
+    normalized_cadence = _normalize_cadence(cadence)
     scenarios: dict[str, dict[str, DcaResearchResult]] = {}
     for raw_day in execution_days:
         day = int(max(1, min(31, raw_day)))
-        scenarios[f"monthly_day_{day}"] = compare_smart_dca_candidates(
+        scenarios[f"{normalized_cadence}_day_{day}"] = compare_smart_dca_candidates(
             signal_prices=signal_prices,
             trade_prices=trade_prices,
             candidate_set=candidate_set,
@@ -979,5 +1526,107 @@ def compare_monthly_execution_day_scenarios(
             align_start_after_warmup=align_start_after_warmup,
             min_investment_usd=min_investment_usd,
             monthly_execution_day=day,
+            cadence=normalized_cadence,
         )
     return scenarios
+
+
+def compare_execution_day_contribution_scenarios(
+    *,
+    signal_prices: Any,
+    trade_prices: Any,
+    execution_days: Iterable[int] = (1, 10, 15, 20, 25),
+    monthly_contribution_usd_values: Iterable[float] = (500.0, 1000.0, 3000.0),
+    start_dates: Iterable[object] | None = None,
+    cadences: Iterable[str] = ("monthly",),
+    candidate_set: str | Iterable[str] = "nasdaq_sp500_price",
+    start_date: object | None = None,
+    end_date: object | None = None,
+    align_start_after_warmup: bool = True,
+    min_investment_usd: float = 0.0,
+) -> dict[str, dict[str, DcaResearchResult]]:
+    """Run a fixed candidate universe across execution-day and contribution scales.
+
+    This is a bounded anti-overfit robustness matrix. It does not search
+    thresholds; it repeats the same preset rules across plausible monthly cash
+    contribution sizes and monthly execution days.
+    """
+
+    amounts = tuple(float(value) for value in monthly_contribution_usd_values)
+    if not amounts:
+        raise ValueError("monthly_contribution_usd_values must include at least one amount")
+    invalid_amounts = [value for value in amounts if value <= 0.0]
+    if invalid_amounts:
+        raise ValueError(
+            "monthly_contribution_usd_values must be positive: "
+            + ", ".join(str(value) for value in invalid_amounts)
+        )
+
+    resolved_start_dates = _scenario_start_dates(start_dates, fallback_start_date=start_date)
+    resolved_cadences = _scenario_cadences(cadences)
+    resolved_execution_days = tuple(execution_days)
+    if not resolved_execution_days:
+        raise ValueError("execution_days must include at least one day")
+
+    scenarios: dict[str, dict[str, DcaResearchResult]] = {}
+    for scenario_start_date in resolved_start_dates:
+        for cadence in resolved_cadences:
+            cadence_days = (None,) if cadence == "weekly" else resolved_execution_days
+            for amount in amounts:
+                for raw_day in cadence_days:
+                    day = 1 if raw_day is None else int(max(1, min(31, raw_day)))
+                    amount_label = _scenario_amount_label(amount)
+                    if cadence == "weekly":
+                        scenario_name = f"weekly_contribution_usd_{amount_label}"
+                    else:
+                        scenario_name = f"{cadence}_day_{day}_contribution_usd_{amount_label}"
+                    if scenario_start_date is not None:
+                        scenario_name += f"_start_{_scenario_date_label(scenario_start_date)}"
+                    scenarios[scenario_name] = compare_smart_dca_candidates(
+                        signal_prices=signal_prices,
+                        trade_prices=trade_prices,
+                        candidate_set=candidate_set,
+                        monthly_contribution_usd=amount,
+                        start_date=scenario_start_date,
+                        end_date=end_date,
+                        align_start_after_warmup=align_start_after_warmup,
+                        min_investment_usd=min_investment_usd,
+                        monthly_execution_day=day,
+                        cadence=cadence,
+                    )
+    return scenarios
+
+
+def _scenario_amount_label(amount: float) -> str:
+    value = float(amount)
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.2f}".rstrip("0").rstrip(".").replace(".", "_")
+
+
+def _scenario_start_dates(
+    start_dates: Iterable[object] | None,
+    *,
+    fallback_start_date: object | None,
+) -> tuple[pd.Timestamp | None, ...]:
+    if start_dates is None:
+        return (None if fallback_start_date is None else _normalize_scenario_date(fallback_start_date),)
+    dates = tuple(_normalize_scenario_date(value) for value in start_dates)
+    if not dates:
+        raise ValueError("start_dates must include at least one date when provided")
+    return dates
+
+
+def _scenario_cadences(cadences: Iterable[str]) -> tuple[str, ...]:
+    values = tuple(_normalize_cadence(cadence) for cadence in cadences)
+    if not values:
+        raise ValueError("cadences must include at least one cadence")
+    return values
+
+
+def _normalize_scenario_date(value: object) -> pd.Timestamp:
+    return pd.Timestamp(value).tz_localize(None).normalize()
+
+
+def _scenario_date_label(value: object) -> str:
+    return _normalize_scenario_date(value).date().isoformat().replace("-", "_")

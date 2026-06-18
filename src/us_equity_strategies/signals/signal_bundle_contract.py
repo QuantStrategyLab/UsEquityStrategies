@@ -10,6 +10,7 @@ from typing import Any
 
 MARKET_SIGNAL_BUNDLE_SCHEMA_VERSION = "market_signal_bundle.v1"
 MARKET_SIGNAL_MANIFEST_SCHEMA_VERSION = "market_signal_manifest.v1"
+MARKET_SIGNAL_INDEX_SCHEMA_VERSION = "market_signal_index.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
 
@@ -157,21 +158,52 @@ def load_signal_bundle_manifest(path: str | PathLike[str]) -> dict[str, Any]:
     return manifest_dict
 
 
+def load_signal_bundle_index(path: str | PathLike[str]) -> dict[str, Any]:
+    """Load and validate a local index of published signal bundle manifests."""
+
+    with open(path, encoding="utf-8") as file_obj:
+        index = json.load(file_obj)
+    if not isinstance(index, Mapping):
+        raise SignalBundleContractError("signal bundle index JSON root must be a mapping")
+    index_dict = dict(index)
+    _validate_no_sensitive_fields(index_dict, path="index")
+    if index_dict.get("schema_version") != MARKET_SIGNAL_INDEX_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported signal bundle index schema_version: "
+            f"{index_dict.get('schema_version')!r}"
+        )
+    bundles = index_dict.get("bundles")
+    if not _is_non_string_sequence(bundles) or not bundles:
+        raise SignalBundleContractError("signal bundle index bundles must be a non-empty sequence")
+    for raw_entry in bundles:
+        if not isinstance(raw_entry, Mapping):
+            raise SignalBundleContractError("signal bundle index entries must be mappings")
+        entry = dict(raw_entry)
+        for field in (
+            "manifest_path",
+            "manifest_sha256",
+            "bundle_id",
+            "as_of",
+            "canonical_input",
+            "freshness_status",
+        ):
+            if not _has_non_empty_value(entry, field):
+                raise SignalBundleContractError(f"signal bundle index entry missing field: {field}")
+    return index_dict
+
+
 def load_signal_bundle_from_manifest(path: str | PathLike[str]) -> dict[str, Any]:
     """Load a local bundle through a manifest and verify file integrity."""
 
     manifest_path = Path(path)
     manifest = load_signal_bundle_manifest(manifest_path)
-    bundle_path_value = str(manifest["bundle_path"])
-    bundle_path = Path(bundle_path_value)
-    if bundle_path.is_absolute():
-        raise SignalBundleContractError("signal bundle manifest bundle_path must be relative")
     manifest_dir = manifest_path.parent.resolve()
-    resolved_bundle_path = (manifest_dir / bundle_path).resolve()
-    try:
-        resolved_bundle_path.relative_to(manifest_dir)
-    except ValueError as exc:
-        raise SignalBundleContractError("signal bundle manifest bundle_path escapes artifact directory") from exc
+    resolved_bundle_path = _resolve_relative_artifact_path(
+        manifest_dir,
+        manifest["bundle_path"],
+        owner="signal bundle manifest",
+        field="bundle_path",
+    )
 
     expected_sha256 = str(manifest["bundle_sha256"]).strip().lower()
     actual_sha256 = _sha256_file(resolved_bundle_path)
@@ -186,6 +218,80 @@ def load_signal_bundle_from_manifest(path: str | PathLike[str]) -> dict[str, Any
     return bundle
 
 
+def resolve_signal_bundle_manifest_from_index(
+    path: str | PathLike[str],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    bundle_id: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> Path:
+    """Resolve the latest matching manifest path from a local bundle index."""
+
+    index_path = Path(path)
+    index = load_signal_bundle_index(index_path)
+    accepted = {str(item).strip().lower() for item in accepted_freshness_statuses}
+    target_as_of = str(as_of).strip() if as_of is not None else None
+    candidates: list[Mapping[str, Any]] = []
+
+    for raw_entry in index["bundles"]:
+        entry = dict(raw_entry)
+        entry_canonical_input = str(entry.get("canonical_input", "")).strip()
+        entry_freshness = str(entry.get("freshness_status", "")).strip().lower()
+        entry_bundle_id = str(entry.get("bundle_id", "")).strip()
+        entry_as_of = str(entry.get("as_of", "")).strip()
+        if entry_canonical_input != expected_canonical_input:
+            continue
+        if entry_freshness not in accepted:
+            continue
+        if bundle_id is not None and entry_bundle_id != str(bundle_id).strip():
+            continue
+        if target_as_of is not None and entry_as_of > target_as_of:
+            continue
+        candidates.append(entry)
+
+    if not candidates:
+        raise SignalBundleContractError("signal bundle index has no matching manifest entry")
+
+    selected = max(candidates, key=lambda entry: str(entry.get("as_of", "")))
+    resolved_manifest_path = _resolve_relative_artifact_path(
+        index_path.parent.resolve(),
+        selected["manifest_path"],
+        owner="signal bundle index",
+        field="manifest_path",
+    )
+    expected_manifest_sha256 = str(selected["manifest_sha256"]).strip().lower()
+    actual_manifest_sha256 = _sha256_file(resolved_manifest_path)
+    if actual_manifest_sha256 != expected_manifest_sha256:
+        raise SignalBundleContractError(
+            "signal bundle index manifest_sha256 mismatch: "
+            f"expected {expected_manifest_sha256}, got {actual_manifest_sha256}"
+        )
+    manifest = load_signal_bundle_manifest(resolved_manifest_path)
+    _validate_index_manifest_consistency(selected, manifest)
+    return resolved_manifest_path
+
+
+def load_signal_bundle_from_index(
+    path: str | PathLike[str],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    bundle_id: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, Any]:
+    """Load a bundle through an index-selected manifest."""
+
+    manifest_path = resolve_signal_bundle_manifest_from_index(
+        path,
+        expected_canonical_input=expected_canonical_input,
+        as_of=as_of,
+        bundle_id=bundle_id,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+    return load_signal_bundle_from_manifest(manifest_path)
+
+
 def extract_canonical_input_from_manifest(
     path: str | PathLike[str],
     *,
@@ -196,6 +302,29 @@ def extract_canonical_input_from_manifest(
 
     return extract_canonical_input(
         load_signal_bundle_from_manifest(path),
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+
+
+def extract_canonical_input_from_index(
+    path: str | PathLike[str],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    bundle_id: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Load an index-selected bundle and return StrategyContext.market_data input."""
+
+    return extract_canonical_input(
+        load_signal_bundle_from_index(
+            path,
+            expected_canonical_input=expected_canonical_input,
+            as_of=as_of,
+            bundle_id=bundle_id,
+            accepted_freshness_statuses=accepted_freshness_statuses,
+        ),
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )
@@ -244,12 +373,59 @@ def signal_bundle_audit_summary_from_manifest(path: str | PathLike[str]) -> dict
     return summary
 
 
+def signal_bundle_audit_summary_from_index(
+    path: str | PathLike[str],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    bundle_id: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, Any]:
+    """Resolve an index entry and return non-sensitive audit fields."""
+
+    manifest_path = resolve_signal_bundle_manifest_from_index(
+        path,
+        expected_canonical_input=expected_canonical_input,
+        as_of=as_of,
+        bundle_id=bundle_id,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+    summary = signal_bundle_audit_summary_from_manifest(manifest_path)
+    index = load_signal_bundle_index(path)
+    summary.update(
+        {
+            "index_schema_version": str(index.get("schema_version", "")),
+            "index_bundle_count": len(index.get("bundles", ()) or ()),
+            "manifest_path": str(manifest_path),
+        }
+    )
+    return summary
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file_obj:
         for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _resolve_relative_artifact_path(
+    root: Path,
+    value: object,
+    *,
+    owner: str,
+    field: str,
+) -> Path:
+    relative_path = Path(str(value))
+    if relative_path.is_absolute():
+        raise SignalBundleContractError(f"{owner} {field} must be relative")
+    resolved = (root / relative_path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise SignalBundleContractError(f"{owner} {field} escapes artifact directory") from exc
+    return resolved
 
 
 def _validate_manifest_bundle_consistency(
@@ -289,6 +465,26 @@ def _validate_manifest_bundle_consistency(
                 "signal bundle manifest freshness_status mismatch: "
                 f"{manifest_freshness!r} != {bundle_freshness_status!r}"
             )
+
+
+def _validate_index_manifest_consistency(
+    entry: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> None:
+    for field in ("bundle_id", "as_of", "canonical_input"):
+        entry_value = str(entry.get(field, "")).strip()
+        manifest_value = str(manifest.get(field, "")).strip()
+        if entry_value != manifest_value:
+            raise SignalBundleContractError(
+                f"signal bundle index {field} mismatch: {entry_value!r} != {manifest_value!r}"
+            )
+    entry_freshness = str(entry.get("freshness_status", "")).strip()
+    manifest_freshness = str(manifest.get("freshness_status", "")).strip()
+    if manifest_freshness and entry_freshness != manifest_freshness:
+        raise SignalBundleContractError(
+            "signal bundle index freshness_status mismatch: "
+            f"{entry_freshness!r} != {manifest_freshness!r}"
+        )
 
 
 def _canonical_input(bundle: Mapping[str, Any]) -> str:
