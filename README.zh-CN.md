@@ -28,7 +28,7 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 | `global_etf_rotation` | Global ETF Rotation | 使用 market history 的 runtime-enabled ETF 轮动。 |
 | `tqqq_growth_income` | TQQQ Growth Income | QQQ/TQQQ dual-drive，带防守和 income sleeve。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | 半导体 ETF 趋势策略。 |
-| `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | 面向宽基美股 ETF 的买入型 DCA profile。 |
+| `nasdaq_sp500_smart_dca` | 纳指100 / 标普500 智能定投 | 面向宽基美股 ETF 的买入型 DCA profile。 |
 | `ibit_smart_dca` | IBIT Smart DCA | 面向 IBIT 比特币现货 ETF 的买入型 DCA profile，带卫星仓上限。 |
 
 ### Snapshot-backed 策略

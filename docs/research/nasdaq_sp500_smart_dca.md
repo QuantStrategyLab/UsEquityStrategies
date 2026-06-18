@@ -1,4 +1,4 @@
-# Nasdaq/S&P 500 Smart DCA Design
+# Nasdaq 100 / S&P 500 Smart DCA Design
 
 ## Purpose
 

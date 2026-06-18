@@ -445,8 +445,9 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     ),
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyMetadata(
         canonical_profile=NASDAQ_SP500_SMART_DCA_PROFILE,
-        display_name="Nasdaq/S&P 500 Smart DCA",
+        display_name="Nasdaq 100 / S&P 500 Smart DCA",
         description="Buy-only Nasdaq 100 and S&P 500 smart DCA profile with trend, pullback, and overvaluation gates.",
+        localized_display_names={"zh": "纳指100 / 标普500 智能定投"},
         aliases=(),
         cadence="monthly",
         asset_scope="nasdaq_100_sp500_etf_dca",

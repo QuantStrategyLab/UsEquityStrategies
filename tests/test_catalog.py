@@ -209,6 +209,14 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].role, "buy_only_smart_dca")
         self.assertEqual(
+            metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].display_name,
+            "Nasdaq 100 / S&P 500 Smart DCA",
+        )
+        self.assertEqual(
+            metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].localized_display_names["zh"],
+            "纳指100 / 标普500 智能定投",
+        )
+        self.assertEqual(
             compatibility[NASDAQ_SP500_SMART_DCA_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
