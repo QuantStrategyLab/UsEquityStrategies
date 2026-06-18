@@ -10,9 +10,13 @@ import pytest
 from us_equity_strategies.signals import (
     SignalBundleContractError,
     extract_canonical_input,
+    extract_canonical_input_for_consumer,
     extract_canonical_input_from_file,
+    extract_canonical_input_from_file_for_consumer,
     extract_canonical_input_from_index,
+    extract_canonical_input_from_index_for_consumer,
     extract_canonical_input_from_manifest,
+    extract_canonical_input_from_manifest_for_consumer,
     load_signal_consumer_contract_registry,
     load_signal_bundle,
     load_signal_bundle_from_index,
@@ -279,6 +283,34 @@ def test_extracts_btc_usd_ahr999_payload_for_strategy_context_market_data() -> N
     assert payload["provider_timestamp"] == "2026-06-19T00:00:00Z"
 
 
+def test_extracts_market_data_after_consumer_contract_validation() -> None:
+    bundle = _load_bundle()
+    expected_market_data = extract_canonical_input(bundle)
+
+    market_data = extract_canonical_input_for_consumer(
+        bundle,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    file_market_data = extract_canonical_input_from_file_for_consumer(
+        FIXTURE_PATH,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    manifest_market_data = extract_canonical_input_from_manifest_for_consumer(
+        FIXTURE_MANIFEST_PATH,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    index_market_data = extract_canonical_input_from_index_for_consumer(
+        FIXTURE_INDEX_PATH,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        as_of="2026-06-20",
+    )
+
+    assert market_data == expected_market_data
+    assert file_market_data == expected_market_data
+    assert manifest_market_data == expected_market_data
+    assert index_market_data == expected_market_data
+
+
 def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     summary = signal_bundle_audit_summary(_load_bundle())
     manifest_summary = signal_bundle_audit_summary_from_manifest(FIXTURE_MANIFEST_PATH)
@@ -360,6 +392,11 @@ def test_signal_bundle_rejects_missing_consumer_required_indicator_fields() -> N
 
     with pytest.raises(SignalBundleContractError, match="ahr999_sma"):
         validate_signal_bundle_for_consumer(
+            bundle,
+            consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        )
+    with pytest.raises(SignalBundleContractError, match="ahr999_sma"):
+        extract_canonical_input_for_consumer(
             bundle,
             consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
         )

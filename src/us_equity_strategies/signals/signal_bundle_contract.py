@@ -120,6 +120,30 @@ def extract_canonical_input(
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )
+    return _canonical_market_data(bundle)
+
+
+def extract_canonical_input_for_consumer(
+    bundle: Mapping[str, Any],
+    *,
+    consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Validate consumer field coverage and return StrategyContext.market_data input."""
+
+    validate_signal_bundle_for_consumer(
+        bundle,
+        consumer=consumer,
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+    return _canonical_market_data(bundle)
+
+
+def _canonical_market_data(
+    bundle: Mapping[str, Any],
+) -> dict[str, dict[str, dict[str, Any]]]:
     canonical_input = _canonical_input(bundle)
     indicators = bundle[canonical_input]
     return {
@@ -316,10 +340,16 @@ def validate_signal_bundle_indicator_fields(
     bundle: Mapping[str, Any],
     *,
     required_fields_by_symbol: Mapping[str, Iterable[str]],
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
 ) -> None:
     """Validate that a bundle covers required derived indicator fields."""
 
-    validate_signal_bundle(bundle)
+    validate_signal_bundle(
+        bundle,
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
     indicators = bundle[CANONICAL_INPUT_DERIVED_INDICATORS]
     if not isinstance(indicators, Mapping):
         raise SignalBundleContractError("derived_indicators must be a mapping")
@@ -356,12 +386,16 @@ def validate_signal_bundle_for_consumer(
     bundle: Mapping[str, Any],
     *,
     consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
 ) -> None:
     """Validate a bundle against a known strategy or research consumer contract."""
 
     validate_signal_bundle_indicator_fields(
         bundle,
         required_fields_by_symbol=required_indicator_fields_for_consumer(consumer),
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
     )
 
 
@@ -385,6 +419,23 @@ def extract_canonical_input_from_file(
 
     return extract_canonical_input(
         load_signal_bundle(path),
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+
+
+def extract_canonical_input_from_file_for_consumer(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Load a local bundle, validate consumer fields, and return market_data input."""
+
+    return extract_canonical_input_for_consumer(
+        load_signal_bundle(path),
+        consumer=consumer,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )
@@ -570,6 +621,23 @@ def extract_canonical_input_from_manifest(
     )
 
 
+def extract_canonical_input_from_manifest_for_consumer(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Load a manifest bundle, validate consumer fields, and return market_data input."""
+
+    return extract_canonical_input_for_consumer(
+        load_signal_bundle_from_manifest(path),
+        consumer=consumer,
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+
+
 def extract_canonical_input_from_index(
     path: str | PathLike[str],
     *,
@@ -588,6 +656,31 @@ def extract_canonical_input_from_index(
             bundle_id=bundle_id,
             accepted_freshness_statuses=accepted_freshness_statuses,
         ),
+        expected_canonical_input=expected_canonical_input,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+
+
+def extract_canonical_input_from_index_for_consumer(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    bundle_id: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Load an index-selected bundle, validate consumer fields, and return market_data."""
+
+    return extract_canonical_input_for_consumer(
+        load_signal_bundle_from_index(
+            path,
+            expected_canonical_input=expected_canonical_input,
+            as_of=as_of,
+            bundle_id=bundle_id,
+            accepted_freshness_statuses=accepted_freshness_statuses,
+        ),
+        consumer=consumer,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )

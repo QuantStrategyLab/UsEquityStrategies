@@ -169,6 +169,24 @@ secret / signed URL key。
 审计输出只暴露字段名和 provenance 摘要，不暴露指标数值、provider 原始响应或任何
 token / signed URL / cookie / secret。
 
+平台 adapter 如果要直接构造 `StrategyContext.market_data`，应优先使用 consumer-aware
+提取入口。它会在返回 payload 前同时完成 manifest/index、bundle freshness 和 consumer
+字段覆盖校验：
+
+```python
+from us_equity_strategies.signals import extract_canonical_input_from_index_for_consumer
+
+market_data = extract_canonical_input_from_index_for_consumer(
+    "examples/signal_bundles/index.json",
+    consumer="us_equity:ibit_smart_dca",
+    as_of="2026-06-20",
+)
+```
+
+返回值形如 `{"derived_indicators": {"BTC-USD": {...}}}`，可以直接注入
+`StrategyContext.market_data`。平台日志仍应使用 audit summary，只记录字段名、hash 和
+provenance 摘要，不记录指标数值。
+
 ## Research Compatibility
 
 研究回测不直接依赖 vendor。`MarketSignalSources` 或人工下载流程应先把历史价格/指标
