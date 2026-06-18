@@ -61,3 +61,24 @@ def test_signal_bundle_cli_can_resolve_manifest_from_index(capsys) -> None:
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["index_schema_version"] == "market_signal_index.v1"
     assert summary["manifest_path"] == str(FIXTURE_MANIFEST_PATH.resolve())
+
+
+def test_signal_bundle_cli_validates_consumer_indicator_fields(capsys) -> None:
+    result = main(
+        [
+            "--index",
+            str(FIXTURE_INDEX_PATH),
+            "--as-of",
+            "2026-06-20",
+            "--consumer",
+            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["consumer"] == "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    assert summary["required_indicator_fields_by_symbol"] == {
+        "BTC-USD": ["ahr999", "ahr999_sma", "mayer_multiple"]
+    }

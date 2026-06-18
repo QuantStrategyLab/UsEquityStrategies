@@ -14,6 +14,18 @@ MARKET_SIGNAL_INDEX_SCHEMA_VERSION = "market_signal_index.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
 
+REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
+    "us_equity:ibit_smart_dca": {
+        "BTC-USD": ("ahr999", "mayer_multiple"),
+    },
+    "research:ibit_btc_ahr999_mayer_precomputed": {
+        "BTC-USD": ("ahr999", "mayer_multiple"),
+    },
+    "research:ibit_btc_ahr999_mayer_precomputed_variants": {
+        "BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple"),
+    },
+}
+
 _REQUIRED_PROVENANCE_FIELDS = frozenset(
     {
         "source_repo",
@@ -111,6 +123,76 @@ def extract_canonical_input(
             for symbol, payload in indicators.items()
         }
     }
+
+
+def required_indicator_fields_for_consumer(
+    consumer: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return required derived indicator fields for a known platform consumer."""
+
+    normalized = str(consumer or "").strip()
+    if normalized not in REQUIRED_INDICATOR_FIELDS_BY_CONSUMER:
+        known = ", ".join(sorted(REQUIRED_INDICATOR_FIELDS_BY_CONSUMER))
+        raise SignalBundleContractError(
+            f"unknown signal bundle consumer: {consumer!r}; known: {known}"
+        )
+    return {
+        symbol: tuple(fields)
+        for symbol, fields in REQUIRED_INDICATOR_FIELDS_BY_CONSUMER[normalized].items()
+    }
+
+
+def validate_signal_bundle_indicator_fields(
+    bundle: Mapping[str, Any],
+    *,
+    required_fields_by_symbol: Mapping[str, Iterable[str]],
+) -> None:
+    """Validate that a bundle covers required derived indicator fields."""
+
+    validate_signal_bundle(bundle)
+    indicators = bundle[CANONICAL_INPUT_DERIVED_INDICATORS]
+    if not isinstance(indicators, Mapping):
+        raise SignalBundleContractError("derived_indicators must be a mapping")
+    normalized_indicators = {
+        _normalize_symbol(symbol): payload
+        for symbol, payload in indicators.items()
+    }
+    for symbol, raw_required_fields in required_fields_by_symbol.items():
+        normalized_symbol = _normalize_symbol(symbol)
+        payload = normalized_indicators.get(normalized_symbol)
+        if not isinstance(payload, Mapping):
+            raise SignalBundleContractError(
+                f"derived_indicators missing required symbol: {symbol}"
+            )
+        available = {str(field).strip().lower() for field in payload}
+        required_fields = tuple(
+            str(field).strip()
+            for field in raw_required_fields
+            if str(field).strip()
+        )
+        missing = [
+            field
+            for field in required_fields
+            if field.lower() not in available
+        ]
+        if missing:
+            raise SignalBundleContractError(
+                f"derived_indicators[{symbol!r}] missing required fields: "
+                + ", ".join(missing)
+            )
+
+
+def validate_signal_bundle_for_consumer(
+    bundle: Mapping[str, Any],
+    *,
+    consumer: str,
+) -> None:
+    """Validate a bundle against a known strategy or research consumer contract."""
+
+    validate_signal_bundle_indicator_fields(
+        bundle,
+        required_fields_by_symbol=required_indicator_fields_for_consumer(consumer),
+    )
 
 
 def load_signal_bundle(path: str | PathLike[str]) -> dict[str, Any]:
@@ -364,11 +446,50 @@ def signal_bundle_audit_summary(bundle: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def signal_bundle_consumer_audit_summary(
+    bundle: Mapping[str, Any],
+    *,
+    consumer: str,
+) -> dict[str, Any]:
+    """Return audit summary after validating consumer-specific field coverage."""
+
+    validate_signal_bundle_for_consumer(bundle, consumer=consumer)
+    summary = signal_bundle_audit_summary(bundle)
+    summary.update(
+        {
+            "consumer": str(consumer),
+            "required_indicator_fields_by_symbol": required_indicator_fields_for_consumer(
+                consumer
+            ),
+        }
+    )
+    return summary
+
+
 def signal_bundle_audit_summary_from_manifest(path: str | PathLike[str]) -> dict[str, Any]:
     """Load a manifest-referenced bundle and return non-sensitive audit fields."""
 
     bundle = load_signal_bundle_from_manifest(path)
     summary = signal_bundle_audit_summary(bundle)
+    manifest = load_signal_bundle_manifest(path)
+    summary.update(
+        {
+            "manifest_schema_version": str(manifest.get("schema_version", "")),
+            "bundle_sha256": str(manifest.get("bundle_sha256", "")),
+        }
+    )
+    return summary
+
+
+def signal_bundle_consumer_audit_summary_from_manifest(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+) -> dict[str, Any]:
+    """Load a manifest-referenced bundle and validate consumer field coverage."""
+
+    bundle = load_signal_bundle_from_manifest(path)
+    summary = signal_bundle_consumer_audit_summary(bundle, consumer=consumer)
     manifest = load_signal_bundle_manifest(path)
     summary.update(
         {
@@ -408,6 +529,39 @@ def signal_bundle_audit_summary_from_index(
     return summary
 
 
+def signal_bundle_consumer_audit_summary_from_index(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    bundle_id: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> dict[str, Any]:
+    """Resolve an index entry and validate consumer field coverage."""
+
+    manifest_path = resolve_signal_bundle_manifest_from_index(
+        path,
+        expected_canonical_input=expected_canonical_input,
+        as_of=as_of,
+        bundle_id=bundle_id,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+    summary = signal_bundle_consumer_audit_summary_from_manifest(
+        manifest_path,
+        consumer=consumer,
+    )
+    index = load_signal_bundle_index(path)
+    summary.update(
+        {
+            "index_schema_version": str(index.get("schema_version", "")),
+            "index_bundle_count": len(index.get("bundles", ()) or ()),
+            "manifest_path": str(manifest_path),
+        }
+    )
+    return summary
+
+
 def _indicator_fields_by_symbol(bundle: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
     canonical_input = _canonical_input(bundle)
     indicators = bundle.get(canonical_input)
@@ -422,6 +576,10 @@ def _indicator_fields_by_symbol(bundle: Mapping[str, Any]) -> dict[str, tuple[st
             )
         fields_by_symbol[str(symbol)] = tuple(sorted(str(field) for field in payload))
     return fields_by_symbol
+
+
+def _normalize_symbol(symbol: object) -> str:
+    return str(symbol or "").strip().upper().removesuffix(".US")
 
 
 def _sha256_file(path: Path) -> str:

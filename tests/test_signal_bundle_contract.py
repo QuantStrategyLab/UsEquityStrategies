@@ -19,10 +19,16 @@ from us_equity_strategies.signals import (
     load_signal_bundle_index,
     load_signal_bundle_manifest,
     resolve_signal_bundle_manifest_from_index,
+    required_indicator_fields_for_consumer,
+    signal_bundle_consumer_audit_summary,
+    signal_bundle_consumer_audit_summary_from_index,
+    signal_bundle_consumer_audit_summary_from_manifest,
     signal_bundle_audit_summary,
     signal_bundle_audit_summary_from_index,
     signal_bundle_audit_summary_from_manifest,
     validate_signal_bundle,
+    validate_signal_bundle_for_consumer,
+    validate_signal_bundle_indicator_fields,
 )
 
 
@@ -137,6 +143,62 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     assert index_summary["index_schema_version"] == "market_signal_index.v1"
     assert index_summary["index_bundle_count"] == 1
     assert not any("token" in key.lower() or "secret" in key.lower() for key in manifest_summary)
+
+
+def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
+    bundle = _load_bundle()
+
+    validate_signal_bundle_for_consumer(
+        bundle,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    validate_signal_bundle_indicator_fields(
+        bundle,
+        required_fields_by_symbol={"btc-usd": ("AHR999", "AHR999_SMA")},
+    )
+    summary = signal_bundle_consumer_audit_summary(
+        bundle,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    manifest_summary = signal_bundle_consumer_audit_summary_from_manifest(
+        FIXTURE_MANIFEST_PATH,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    index_summary = signal_bundle_consumer_audit_summary_from_index(
+        FIXTURE_INDEX_PATH,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        as_of="2026-06-20",
+    )
+
+    assert required_indicator_fields_for_consumer(
+        "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    ) == {"BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")}
+    assert summary["consumer"] == "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    assert summary["required_indicator_fields_by_symbol"] == {
+        "BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")
+    }
+    assert manifest_summary["bundle_sha256"] == (
+        "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500"
+    )
+    assert index_summary["manifest_path"] == str(FIXTURE_MANIFEST_PATH.resolve())
+
+
+def test_signal_bundle_rejects_missing_consumer_required_indicator_fields() -> None:
+    bundle = _load_bundle()
+    payload = copy.deepcopy(bundle["derived_indicators"]["BTC-USD"])
+    payload.pop("ahr999_sma")
+    bundle["derived_indicators"]["BTC-USD"] = payload
+
+    with pytest.raises(SignalBundleContractError, match="ahr999_sma"):
+        validate_signal_bundle_for_consumer(
+            bundle,
+            consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        )
+
+
+def test_signal_bundle_rejects_unknown_consumer_contract() -> None:
+    with pytest.raises(SignalBundleContractError, match="unknown signal bundle consumer"):
+        required_indicator_fields_for_consumer("unknown:consumer")
 
 
 def test_index_resolves_latest_fresh_manifest_for_platform_loader() -> None:
