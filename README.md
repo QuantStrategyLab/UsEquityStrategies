@@ -28,7 +28,7 @@ These profiles can run from market history, portfolio snapshots, or other runtim
 | `global_etf_rotation` | Global ETF Rotation | runtime-enabled ETF rotation using market history. |
 | `tqqq_growth_income` | TQQQ Growth Income | runtime-enabled QQQ/TQQQ dual-drive profile with defensive and income sleeves. |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | runtime-enabled semiconductor ETF trend profile. |
-| `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | runtime-enabled buy-only DCA profile for broad US equity ETFs. |
+| `nasdaq_sp500_smart_dca` | Nasdaq 100 / S&P 500 Smart DCA | runtime-enabled buy-only DCA profile for broad US equity ETFs. |
 | `ibit_smart_dca` | IBIT Smart DCA | runtime-enabled buy-only spot Bitcoin ETF DCA profile with capped satellite exposure. |
 
 ### Snapshot-backed strategies

@@ -262,7 +262,7 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
 
 nasdaq_sp500_smart_dca_manifest = _manifest(
     profile=NASDAQ_SP500_SMART_DCA_PROFILE,
-    display_name="Nasdaq/S&P 500 Smart DCA",
+    display_name="Nasdaq 100 / S&P 500 Smart DCA",
     description="Buy-only Nasdaq 100 and S&P 500 smart DCA profile with trend, pullback, and overvaluation gates.",
     aliases=(),
     required_inputs=frozenset({"market_history", "portfolio_snapshot"}),
