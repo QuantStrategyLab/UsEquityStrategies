@@ -2,6 +2,7 @@
 
 __all__ = [
     "available_candidate_names",
+    "candidate_summaries_to_rows",
     "candidate_specs_to_rows",
     "compare_execution_day_contribution_scenarios",
     "compare_monthly_execution_day_scenarios",
@@ -25,6 +26,7 @@ def __getattr__(name: str):
         return _compare_smart_vs_fixed_dca
     if name in {
         "available_candidate_names",
+        "candidate_summaries_to_rows",
         "candidate_specs_to_rows",
         "compare_execution_day_contribution_scenarios",
         "compare_monthly_execution_day_scenarios",

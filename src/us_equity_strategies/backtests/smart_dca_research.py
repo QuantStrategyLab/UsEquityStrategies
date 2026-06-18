@@ -61,6 +61,21 @@ class DcaCandidateEvaluation:
     rank_score: float
 
 
+IBIT_AHR999_MAYER_PARAMETERS: dict[str, float] = {
+    "ahr999_bottom_threshold": 0.45,
+    "ahr999_accumulation_threshold": 0.80,
+    "ahr999_dca_threshold": 1.20,
+    "mayer_deep_discount_threshold": 0.65,
+    "mayer_discount_threshold": 0.80,
+    "mayer_expensive_threshold": 2.40,
+    "base_multiplier": 1.0,
+    "ahr999_bottom_multiplier": 3.0,
+    "ahr999_accumulation_multiplier": 2.25,
+    "ahr999_dca_multiplier": 1.50,
+    "ahr999_expensive_multiplier": 0.0,
+}
+
+
 PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
     "nasdaq_sp500_price_defensive": SmartDcaCandidate(
         name="nasdaq_sp500_price_defensive",
@@ -92,25 +107,22 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         rule_type="ahr999_mayer",
         signal_symbols=("BTC-USD",),
         min_history=200,
-        parameters={
-            "ahr999_bottom_threshold": 0.45,
-            "ahr999_accumulation_threshold": 0.80,
-            "ahr999_dca_threshold": 1.20,
-            "mayer_deep_discount_threshold": 0.65,
-            "mayer_discount_threshold": 0.80,
-            "mayer_expensive_threshold": 2.40,
-            "base_multiplier": 1.0,
-            "ahr999_bottom_multiplier": 3.0,
-            "ahr999_accumulation_multiplier": 2.25,
-            "ahr999_dca_multiplier": 1.50,
-            "ahr999_expensive_multiplier": 0.0,
-        },
+        parameters=IBIT_AHR999_MAYER_PARAMETERS,
+    ),
+    "ibit_btc_precomputed_ahr999_mayer_cycle": SmartDcaCandidate(
+        name="ibit_btc_precomputed_ahr999_mayer_cycle",
+        family="ibit_btc_ahr999_mayer_precomputed",
+        rule_type="precomputed_ahr999_mayer",
+        signal_symbols=("ahr999", "mayer_multiple"),
+        min_history=1,
+        parameters=IBIT_AHR999_MAYER_PARAMETERS,
     ),
 }
 
 CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
     "nasdaq_sp500_price": ("nasdaq_sp500_price_defensive",),
     "ibit_btc_ahr999_mayer_price": ("ibit_btc_ahr999_mayer_cycle",),
+    "ibit_btc_ahr999_mayer_precomputed": ("ibit_btc_precomputed_ahr999_mayer_cycle",),
     "all": tuple(PRESET_CANDIDATES),
 }
 
@@ -145,6 +157,51 @@ def candidate_specs_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, o
                 }
             )
     return tuple(rows)
+
+
+def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, object], ...]:
+    """Return candidate-level anti-overfit audit rows for frozen presets."""
+
+    names = tuple(candidate_names)
+    unknown = [name for name in names if name not in PRESET_CANDIDATES]
+    if unknown:
+        raise ValueError(f"unknown smart DCA candidates: {unknown}")
+
+    rows: list[dict[str, object]] = []
+    for name in names:
+        candidate = PRESET_CANDIDATES[name]
+        multiplier_values = _candidate_multiplier_values(candidate)
+        rows.append(
+            {
+                "name": candidate.name,
+                "family": candidate.family,
+                "rule_type": candidate.rule_type,
+                "signal_symbols": ",".join(candidate.signal_symbols),
+                "signal_symbol_count": len(candidate.signal_symbols),
+                "min_history": candidate.min_history,
+                "parameter_count": len(candidate.parameters),
+                "threshold_parameter_count": sum(
+                    1
+                    for parameter_name in candidate.parameters
+                    if not parameter_name.endswith("_multiplier")
+                ),
+                "multiplier_parameter_count": len(multiplier_values),
+                "unique_multiplier_count": len(set(multiplier_values)),
+                "min_multiplier": min(multiplier_values) if multiplier_values else float("nan"),
+                "max_multiplier": max(multiplier_values) if multiplier_values else float("nan"),
+                "zero_multiplier_allowed": any(value <= 0.0 for value in multiplier_values),
+                "open_parameter_search": False,
+            }
+        )
+    return tuple(rows)
+
+
+def _candidate_multiplier_values(candidate: SmartDcaCandidate) -> tuple[float, ...]:
+    return tuple(
+        float(value)
+        for parameter_name, value in sorted(candidate.parameters.items())
+        if parameter_name.endswith("_multiplier")
+    )
 
 
 def _normalize_symbol(symbol: object) -> str:
@@ -352,6 +409,42 @@ def _ahr999_mayer_multiplier(
     return float(multiplier), regime, metrics
 
 
+def _precomputed_ahr999_mayer_metrics(signal_history: pd.DataFrame) -> dict[str, float | str]:
+    latest = signal_history.iloc[-1]
+    return {
+        "ahr999": float(latest[_normalize_symbol("ahr999")]),
+        "mayer_multiple": float(latest[_normalize_symbol("mayer_multiple")]),
+        "cycle_indicator_source": "precomputed_derived_indicators",
+    }
+
+
+def _precomputed_ahr999_mayer_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    metrics = _precomputed_ahr999_mayer_metrics(signal_history)
+    ahr999 = float(metrics["ahr999"])
+    mayer = float(metrics["mayer_multiple"])
+
+    if ahr999 <= parameters["ahr999_bottom_threshold"] or mayer <= parameters["mayer_deep_discount_threshold"]:
+        regime = "ahr999_bottom"
+        multiplier = parameters["ahr999_bottom_multiplier"]
+    elif ahr999 <= parameters["ahr999_accumulation_threshold"] or mayer <= parameters["mayer_discount_threshold"]:
+        regime = "ahr999_accumulation"
+        multiplier = parameters["ahr999_accumulation_multiplier"]
+    elif ahr999 <= parameters["ahr999_dca_threshold"]:
+        regime = "ahr999_dca"
+        multiplier = parameters["ahr999_dca_multiplier"]
+    elif mayer >= parameters["mayer_expensive_threshold"] or ahr999 > parameters["ahr999_dca_threshold"]:
+        regime = "ahr999_expensive"
+        multiplier = parameters["ahr999_expensive_multiplier"]
+    else:
+        regime = "normal"
+        multiplier = parameters["base_multiplier"]
+
+    return float(multiplier), regime, metrics
+
+
 def _candidate_multiplier(
     candidate: SmartDcaCandidate,
     signal_history: pd.DataFrame,
@@ -364,6 +457,8 @@ def _candidate_multiplier(
         return _trend_drawdown_multiplier(signal_history, candidate.parameters)
     if candidate.rule_type == "ahr999_mayer":
         return _ahr999_mayer_multiplier(signal_history, candidate.parameters, as_of=as_of)
+    if candidate.rule_type == "precomputed_ahr999_mayer":
+        return _precomputed_ahr999_mayer_multiplier(signal_history, candidate.parameters)
     raise ValueError(f"unsupported smart DCA rule_type: {candidate.rule_type}")
 
 
@@ -1248,6 +1343,7 @@ def write_research_artifacts(
     decision_log_path = output_path / "decision_log.csv"
     equity_curve_path = output_path / "equity_curve.csv"
     cash_flows_path = output_path / "cash_flows.csv"
+    candidate_summary_path = output_path / "candidate_summary.csv"
     candidate_specs_path = output_path / "candidate_specs.csv"
     run_manifest_path = output_path / "run_manifest.json"
     candidate_names = tuple(name for name in results if name != fixed_name)
@@ -1272,6 +1368,7 @@ def write_research_artifacts(
     pd.DataFrame(results_to_decision_log_rows(results)).to_csv(decision_log_path, index=False)
     pd.DataFrame(results_to_equity_curve_rows(results)).to_csv(equity_curve_path, index=False)
     pd.DataFrame(results_to_cash_flow_rows(results)).to_csv(cash_flows_path, index=False)
+    pd.DataFrame(candidate_summaries_to_rows(candidate_names)).to_csv(candidate_summary_path, index=False)
     pd.DataFrame(candidate_specs_to_rows(candidate_names)).to_csv(candidate_specs_path, index=False)
     _write_artifact_manifest(
         run_manifest_path,
@@ -1282,6 +1379,7 @@ def write_research_artifacts(
             decision_log_path,
             equity_curve_path,
             cash_flows_path,
+            candidate_summary_path,
             candidate_specs_path,
         ),
         root=output_path,
@@ -1297,6 +1395,7 @@ def write_research_artifacts(
         "decision_log": decision_log_path,
         "equity_curve": equity_curve_path,
         "cash_flows": cash_flows_path,
+        "candidate_summary": candidate_summary_path,
         "candidate_specs": candidate_specs_path,
         "run_manifest": run_manifest_path,
     }
@@ -1336,6 +1435,7 @@ def write_scenario_research_artifacts(
                     "metrics_path": paths["metrics"].relative_to(output_path).as_posix(),
                     "evaluation_summary_path": paths["evaluation_summary"].relative_to(output_path).as_posix(),
                     "decision_log_path": paths["decision_log"].relative_to(output_path).as_posix(),
+                    "candidate_summary_path": paths["candidate_summary"].relative_to(output_path).as_posix(),
                 }
             )
         for key, path in paths.items():

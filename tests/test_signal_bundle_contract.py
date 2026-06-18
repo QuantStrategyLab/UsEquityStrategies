@@ -108,12 +108,29 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     summary = signal_bundle_audit_summary(_load_bundle())
     manifest_summary = signal_bundle_audit_summary_from_manifest(FIXTURE_MANIFEST_PATH)
     index_summary = signal_bundle_audit_summary_from_index(FIXTURE_INDEX_PATH)
+    summary_json = json.dumps(summary, sort_keys=True)
 
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["canonical_input"] == "derived_indicators"
     assert summary["freshness_status"] == "fresh"
     assert summary["provider_timestamp"] == "2026-06-19T00:00:00Z"
     assert summary["transform"] == "crypto.btc.ahr999.v1"
+    assert summary["indicator_fields_by_symbol"]["BTC-USD"] == (
+        "ahr999",
+        "ahr999_estimate_price",
+        "ahr999_sma",
+        "close",
+        "drawdown_252d",
+        "high252",
+        "mayer_multiple",
+        "provider_timestamp",
+        "rsi14",
+        "sma200",
+        "sma200_gap",
+    )
+    assert summary["indicator_field_count_by_symbol"] == {"BTC-USD": 11}
+    assert "64000.0" not in summary_json
+    assert "78000.0" not in summary_json
     assert manifest_summary["bundle_sha256"] == (
         "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500"
     )

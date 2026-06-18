@@ -113,7 +113,8 @@ freshness mismatch，以及任何包含敏感字段名的 manifest。
 7. 把 `bundle["derived_indicators"]` 注入
    `StrategyContext.market_data["derived_indicators"]`。
 8. 日志只写 `bundle_id`、`schema_version`、`provider_timestamp`、`source_version`、
-   `code_commit`、`transform`、`bundle_sha256`。
+   `code_commit`、`transform`、`bundle_sha256`、每个 symbol 的指标字段名和字段数量。
+   不写 `close`、`ahr999`、`mayer_multiple` 等指标的具体数值。
 
 本仓库当前的消费者侧校验入口是：
 
@@ -131,6 +132,15 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --as-of 2026-06-20 \
   --pretty
 ```
+
+该审计输出会包含：
+
+- `indicator_fields_by_symbol`：例如 `BTC-USD` 下有哪些字段名，包括 `ahr999`、
+  `ahr999_sma`、`mayer_multiple`、`sma200_gap`。
+- `indicator_field_count_by_symbol`：每个 symbol 的字段数量，便于平台日志和告警做覆盖度检查。
+
+审计输出只暴露字段名和 provenance 摘要，不暴露指标数值、provider 原始响应或任何
+token / signed URL / cookie / secret。
 
 ## Research Compatibility
 
