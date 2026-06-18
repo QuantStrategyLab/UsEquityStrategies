@@ -17,6 +17,7 @@ from .smart_dca_research import (
 )
 
 
+RESEARCH_EXPORT_SCHEMA_VERSION = "research_export.v1"
 _FORBIDDEN_MANIFEST_KEY_FRAGMENTS = frozenset(
     {
         "api_key",
@@ -270,19 +271,46 @@ def _manifest_record(
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
     linked_csv_sha256 = _sha256_file(linked_csv_path)
+    linked_csv_size_bytes = linked_csv_path.stat().st_size
+    linked_csv_columns = tuple(
+        str(column)
+        for column in pd.read_csv(linked_csv_path, nrows=0).columns
+    )
+    schema_version = str(manifest.get("schema_version", "")).strip()
+    if not schema_version:
+        raise ValueError(f"{role} manifest schema_version is required")
     declared_output = manifest.get("output_csv")
-    declared_output_sha256 = ""
-    if isinstance(declared_output, dict):
-        declared_output_sha256 = str(declared_output.get("sha256", "")).strip().lower()
-    if declared_output_sha256 and declared_output_sha256 != linked_csv_sha256:
+    if not isinstance(declared_output, dict):
+        raise ValueError(f"{role} manifest output_csv must be an object")
+    declared_output_sha256 = str(declared_output.get("sha256", "")).strip().lower()
+    if not declared_output_sha256:
+        raise ValueError(f"{role} manifest output_csv.sha256 is required")
+    if declared_output_sha256 != linked_csv_sha256:
         raise ValueError(
             f"{role} manifest output_csv.sha256 mismatch: "
             f"expected {linked_csv_sha256}, got {declared_output_sha256}"
         )
+    declared_output_size = declared_output.get("size_bytes")
+    if declared_output_size is not None:
+        if (
+            not isinstance(declared_output_size, int)
+            or isinstance(declared_output_size, bool)
+            or declared_output_size != linked_csv_size_bytes
+        ):
+            raise ValueError(
+                f"{role} manifest output_csv.size_bytes mismatch: "
+                f"expected {linked_csv_size_bytes}, got {declared_output_size!r}"
+            )
+    if schema_version == RESEARCH_EXPORT_SCHEMA_VERSION:
+        _validate_research_export_manifest(
+            manifest,
+            linked_csv_columns=linked_csv_columns,
+            role=role,
+        )
 
     return {
         **_file_record(path),
-        "schema_version": str(manifest.get("schema_version", "")),
+        "schema_version": schema_version,
         "artifact_type": str(manifest.get("artifact_type", "")),
         "transform": str(manifest.get("transform", "")),
         "source_version": str(manifest.get("source_version", "")),
@@ -293,9 +321,54 @@ def _manifest_record(
         "last_date": str(manifest.get("last_date", "")),
         "columns": tuple(str(column) for column in manifest.get("columns", ()) or ()),
         "linked_csv_sha256": linked_csv_sha256,
+        "linked_csv_size_bytes": linked_csv_size_bytes,
         "declared_output_csv_sha256": declared_output_sha256,
-        "linked_csv_sha256_verified": bool(declared_output_sha256),
+        "declared_output_csv_size_bytes": declared_output_size,
+        "linked_csv_sha256_verified": True,
+        "linked_csv_size_bytes_verified": declared_output_size is not None,
     }
+
+
+def _validate_research_export_manifest(
+    manifest: dict[str, object],
+    *,
+    linked_csv_columns: tuple[str, ...],
+    role: str,
+) -> None:
+    required_fields = (
+        "artifact_type",
+        "transform",
+        "source_version",
+        "row_count",
+        "first_date",
+        "last_date",
+        "columns",
+        "output_csv",
+    )
+    for field in required_fields:
+        if field not in manifest:
+            raise ValueError(f"{role} research export manifest missing field: {field}")
+    if not str(manifest.get("artifact_type", "")).strip():
+        raise ValueError(f"{role} research export manifest artifact_type is required")
+    if not str(manifest.get("transform", "")).strip():
+        raise ValueError(f"{role} research export manifest transform is required")
+    row_count = manifest.get("row_count")
+    if not isinstance(row_count, int) or isinstance(row_count, bool) or row_count < 0:
+        raise ValueError(
+            f"{role} research export manifest row_count must be non-negative"
+        )
+    columns = manifest.get("columns")
+    if not isinstance(columns, list) or not all(
+        isinstance(column, str) and column.strip()
+        for column in columns
+    ):
+        raise ValueError(f"{role} research export manifest columns must be strings")
+    declared_columns = tuple(str(column) for column in columns)
+    if declared_columns != linked_csv_columns:
+        raise ValueError(
+            f"{role} research export manifest columns mismatch: "
+            f"expected {linked_csv_columns}, got {declared_columns}"
+        )
 
 
 def _read_manifest(path: Path) -> dict[str, object]:
