@@ -419,6 +419,24 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         "dual_drive_volatility_delever_true_crisis_active": plan.get(
             "dual_drive_volatility_delever_true_crisis_active"
         ),
+        "dual_drive_volatility_delever_retention_mode": plan.get(
+            "dual_drive_volatility_delever_retention_mode"
+        ),
+        "dual_drive_volatility_delever_retention_policy": plan.get(
+            "dual_drive_volatility_delever_retention_policy"
+        ),
+        "dual_drive_volatility_delever_retention_ratio": plan.get(
+            "dual_drive_volatility_delever_retention_ratio"
+        ),
+        "dual_drive_volatility_delever_retention_source": plan.get(
+            "dual_drive_volatility_delever_retention_source"
+        ),
+        "dual_drive_volatility_delever_retention_context_found": plan.get(
+            "dual_drive_volatility_delever_retention_context_found"
+        ),
+        "dual_drive_volatility_delever_retention_reason_codes": plan.get(
+            "dual_drive_volatility_delever_retention_reason_codes"
+        ),
         "dual_drive_volatility_delever_redirect_symbol": plan.get(
             "dual_drive_volatility_delever_redirect_symbol"
         ),
@@ -505,6 +523,39 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
             "dual_drive_volatility_delever_vetoed": plan.get("dual_drive_volatility_delever_vetoed"),
             "dual_drive_volatility_delever_veto_reason": plan.get(
                 "dual_drive_volatility_delever_veto_reason"
+            ),
+            "dual_drive_volatility_delever_taco_veto_enabled": plan.get(
+                "dual_drive_volatility_delever_taco_veto_enabled"
+            ),
+            "dual_drive_volatility_delever_taco_rebound_context_active": plan.get(
+                "dual_drive_volatility_delever_taco_rebound_context_active"
+            ),
+            "dual_drive_volatility_delever_true_crisis_active": plan.get(
+                "dual_drive_volatility_delever_true_crisis_active"
+            ),
+            "dual_drive_volatility_delever_retention_mode": plan.get(
+                "dual_drive_volatility_delever_retention_mode"
+            ),
+            "dual_drive_volatility_delever_retention_policy": plan.get(
+                "dual_drive_volatility_delever_retention_policy"
+            ),
+            "dual_drive_volatility_delever_retention_ratio": plan.get(
+                "dual_drive_volatility_delever_retention_ratio"
+            ),
+            "dual_drive_volatility_delever_retention_source": plan.get(
+                "dual_drive_volatility_delever_retention_source"
+            ),
+            "dual_drive_volatility_delever_retention_context_found": plan.get(
+                "dual_drive_volatility_delever_retention_context_found"
+            ),
+            "dual_drive_volatility_delever_retention_reason_codes": plan.get(
+                "dual_drive_volatility_delever_retention_reason_codes"
+            ),
+            "dual_drive_volatility_delever_redirect_symbol": plan.get(
+                "dual_drive_volatility_delever_redirect_symbol"
+            ),
+            "dual_drive_volatility_delever_removed_value": plan.get(
+                "dual_drive_volatility_delever_removed_value"
             ),
             "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
             "market_regime_control_found": plan.get("market_regime_control_found"),
@@ -674,6 +725,24 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         "blend_gate_volatility_delever_metric": plan.get("blend_gate_volatility_delever_metric"),
         "blend_gate_volatility_delever_triggered": plan.get("blend_gate_volatility_delever_triggered"),
         "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
+        "blend_gate_volatility_delever_retention_mode": plan.get(
+            "blend_gate_volatility_delever_retention_mode"
+        ),
+        "blend_gate_volatility_delever_retention_policy": plan.get(
+            "blend_gate_volatility_delever_retention_policy"
+        ),
+        "blend_gate_volatility_delever_effective_retention_ratio": plan.get(
+            "blend_gate_volatility_delever_effective_retention_ratio"
+        ),
+        "blend_gate_volatility_delever_retention_source": plan.get(
+            "blend_gate_volatility_delever_retention_source"
+        ),
+        "blend_gate_volatility_delever_retention_context_found": plan.get(
+            "blend_gate_volatility_delever_retention_context_found"
+        ),
+        "blend_gate_volatility_delever_retention_reason_codes": plan.get(
+            "blend_gate_volatility_delever_retention_reason_codes"
+        ),
         "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
         "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
         "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
@@ -755,6 +824,24 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             "blend_gate_volatility_delever_metric": plan.get("blend_gate_volatility_delever_metric"),
             "blend_gate_volatility_delever_triggered": plan.get("blend_gate_volatility_delever_triggered"),
             "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
+            "blend_gate_volatility_delever_retention_mode": plan.get(
+                "blend_gate_volatility_delever_retention_mode"
+            ),
+            "blend_gate_volatility_delever_retention_policy": plan.get(
+                "blend_gate_volatility_delever_retention_policy"
+            ),
+            "blend_gate_volatility_delever_effective_retention_ratio": plan.get(
+                "blend_gate_volatility_delever_effective_retention_ratio"
+            ),
+            "blend_gate_volatility_delever_retention_source": plan.get(
+                "blend_gate_volatility_delever_retention_source"
+            ),
+            "blend_gate_volatility_delever_retention_context_found": plan.get(
+                "blend_gate_volatility_delever_retention_context_found"
+            ),
+            "blend_gate_volatility_delever_retention_reason_codes": plan.get(
+                "blend_gate_volatility_delever_retention_reason_codes"
+            ),
             "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
             "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
             "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
