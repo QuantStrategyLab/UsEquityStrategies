@@ -72,6 +72,13 @@ def _translate_with_fallback(translator, key: str, fallback: str, **kwargs) -> s
     return fallback if rendered == key else rendered
 
 
+def _translate_context_with_fallback(translator, key: str, fallback: str, **kwargs) -> str:
+    rendered = translator(key, **kwargs)
+    if rendered == key or str(rendered).startswith(f"{key}("):
+        return fallback
+    return rendered
+
+
 def _as_bool(value, *, default: bool = False) -> bool:
     if value is None:
         return bool(default)
@@ -209,6 +216,56 @@ def _normalized_text_tuple(value) -> tuple[str, ...]:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         return tuple(str(item).strip() for item in value if str(item).strip())
     return ()
+
+
+def _format_ratio_text(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{max(0.0, min(1.0, float(value))) * 100:.1f}%"
+
+
+def _build_signal_reason(
+    *,
+    icon: str,
+    translator,
+    pullback_risk_on: bool,
+    above_ma200: bool,
+    slope_ok: bool,
+) -> tuple[str, str]:
+    if icon == "entry":
+        if pullback_risk_on:
+            key = "tqqq_signal_reason_entry_pullback"
+            fallback = "reason: QQQ is below MA200 but above MA20 with a confirmed pullback rebound"
+        else:
+            key = "tqqq_signal_reason_entry_trend"
+            fallback = "reason: QQQ is above MA200 and MA20 slope is positive"
+    elif icon == "hold":
+        key = "tqqq_signal_reason_hold_trend"
+        fallback = "reason: existing risk sleeve remains active while QQQ stays above MA200"
+    elif icon == "exit":
+        key = "tqqq_signal_reason_exit_ma200"
+        fallback = "reason: QQQ fell below the MA200 exit line"
+    elif icon == "idle":
+        key = "tqqq_signal_reason_idle_waiting"
+        if not above_ma200:
+            fallback = "reason: waiting for QQQ to reclaim MA200"
+        elif not slope_ok:
+            fallback = "reason: QQQ is above MA200, but MA20 slope is not positive yet"
+        else:
+            fallback = "reason: no active risk position"
+    elif icon == "macro_delever":
+        key = "tqqq_signal_reason_macro_delever"
+        fallback = "reason: macro risk governor reduced leverage"
+    elif icon == "macro_risk_defense":
+        key = "tqqq_signal_reason_macro_defense"
+        fallback = "reason: macro risk governor moved the strategy defensive"
+    elif icon == "crisis_defense":
+        key = "tqqq_signal_reason_crisis_defense"
+        fallback = "reason: crisis defense moved the strategy to the safe sleeve"
+    else:
+        key = "tqqq_signal_reason_unknown"
+        fallback = "reason: strategy state evaluated from QQQ trend and risk controls"
+    return key, _translate_context_with_fallback(translator, key, fallback)
 
 
 def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, object]:
@@ -736,14 +793,26 @@ def build_rebalance_plan(
         and str(retention_decision.get("mode") or "").strip().lower() != "environment"
     )
     volatility_delever_applied = bool(volatility_delever_triggered and not volatility_delever_vetoed)
+    volatility_delever_source_value = 0.0
+    volatility_delever_retained_value = 0.0
     volatility_delever_removed_value = 0.0
+    volatility_delever_retained_ratio = None
+    volatility_delever_redirected_ratio = None
     volatility_delever_veto_reason = None
     if volatility_delever_vetoed:
         volatility_delever_veto_reason = "taco_rebound_context"
     if volatility_delever_applied:
+        volatility_delever_source_value = float(target_tqqq_val)
         retention_ratio = float(retention_decision.get("retention_ratio") or 0.0)
         retained_value = float(target_tqqq_val) * retention_ratio
+        volatility_delever_retained_value = retained_value
         volatility_delever_removed_value = max(0.0, float(target_tqqq_val) - retained_value)
+        if volatility_delever_source_value > 0.0:
+            volatility_delever_retained_ratio = max(
+                0.0,
+                min(1.0, volatility_delever_retained_value / volatility_delever_source_value),
+            )
+            volatility_delever_redirected_ratio = max(0.0, min(1.0, 1.0 - volatility_delever_retained_ratio))
         target_unlevered_val += volatility_delever_removed_value
         target_tqqq_val = retained_value
     threshold = total_equity * rebalance_threshold_ratio
@@ -764,8 +833,17 @@ def build_rebalance_plan(
         "ma20_slope": None if pd.isna(ma20_slope) else float(ma20_slope),
         "ma20_slope_text": ma20_slope_text,
     }
+    signal_reason_code, signal_reason = _build_signal_reason(
+        icon=icon,
+        translator=translator,
+        pullback_risk_on=pullback_risk_on,
+        above_ma200=above_ma200,
+        slope_ok=slope_ok,
+    )
     signal_context = {
         "state": icon,
+        "reason_code": signal_reason_code,
+        "reason": signal_reason,
     }
     risk_control_context = {
         "dual_drive_volatility_delever": {
@@ -798,7 +876,22 @@ def build_rebalance_plan(
             "retention_context_found": retention_decision["context_found"],
             "retention_reason_codes": retention_decision["reason_codes"],
             "redirect_symbol": unlevered_symbol,
+            "source_value": volatility_delever_source_value,
+            "retained_value": volatility_delever_retained_value,
             "removed_value": volatility_delever_removed_value,
+            "retained_ratio": volatility_delever_retained_ratio,
+            "redirected_ratio": volatility_delever_redirected_ratio,
+            "allocation_detail": _translate_context_with_fallback(
+                translator,
+                "tqqq_volatility_delever_allocation_detail",
+                (
+                    f"TQQQ sleeve retained {_format_ratio_text(volatility_delever_retained_ratio)}, "
+                    f"redirected to {unlevered_symbol} {_format_ratio_text(volatility_delever_redirected_ratio)}"
+                ),
+                retained_ratio=_format_ratio_text(volatility_delever_retained_ratio),
+                redirected_ratio=_format_ratio_text(volatility_delever_redirected_ratio),
+                redirect_symbol=unlevered_symbol,
+            ),
         },
         "dual_drive_macro_risk_governor": {
             "enabled": macro_risk_governor_enabled,
@@ -866,7 +959,7 @@ def build_rebalance_plan(
         "risk_controls": risk_control_context,
     }
 
-    sig_display = signal_text_fn(icon)
+    sig_display = f"{signal_text_fn(icon)} | {signal_reason}"
     separator = translator("separator")
     reserved_cash_label = _translate_with_fallback(translator, "reserved_cash", "Reserved Cash")
     investable_cash_label = _translate_with_fallback(translator, "investable_cash", "Investable Cash")
@@ -978,7 +1071,11 @@ def build_rebalance_plan(
         "dual_drive_volatility_delever_retention_context_found": retention_decision["context_found"],
         "dual_drive_volatility_delever_retention_reason_codes": retention_decision["reason_codes"],
         "dual_drive_volatility_delever_redirect_symbol": unlevered_symbol,
+        "dual_drive_volatility_delever_source_value": volatility_delever_source_value,
+        "dual_drive_volatility_delever_retained_value": volatility_delever_retained_value,
         "dual_drive_volatility_delever_removed_value": volatility_delever_removed_value,
+        "dual_drive_volatility_delever_retained_ratio": volatility_delever_retained_ratio,
+        "dual_drive_volatility_delever_redirected_ratio": volatility_delever_redirected_ratio,
         "dual_drive_macro_risk_governor_enabled": macro_risk_governor_enabled,
         "dual_drive_macro_risk_governor_found": bool(macro_risk_governor_context["found"]),
         "dual_drive_macro_risk_governor_route": macro_risk_governor_context["route"],
