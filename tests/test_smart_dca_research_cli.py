@@ -153,7 +153,17 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "coverage_gate_passed" in scenario_coverage
     assert "ready_for_selection_review" in scenario_coverage
     assert review_decision["artifact_type"] == "smart_dca_review_decision"
+    assert review_decision["selection_policy"] == "fixed_preset_no_parameter_search"
+    assert review_decision["effect_size_policy"] == (
+        "fixed_minimum_effect_no_parameter_search"
+    )
+    assert review_decision["effect_size_thresholds"][
+        "min_median_relative_terminal_value_pct"
+    ] == 1.0
     assert review_decision["matrix_coverage_gate_passed"] is True
+    assert review_decision["selection_gate_summary"][
+        "matrix_coverage_gate_passed"
+    ] is True
     assert review_decision["selection_count"] == 1
     assert review_decision["selections"][0]["selected_candidate_definition_sha256"]
     assert "review_status" in robustness_summary

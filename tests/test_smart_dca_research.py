@@ -283,9 +283,25 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert "scenario_count_below_min_review_scenarios" in scenario_coverage
     review_decision = json.loads(artifact_paths["review_decision"].read_text(encoding="utf-8"))
     assert review_decision["artifact_type"] == "smart_dca_review_decision"
+    assert review_decision["selection_policy"] == "fixed_preset_no_parameter_search"
+    assert review_decision["effect_size_policy"] == (
+        "fixed_minimum_effect_no_parameter_search"
+    )
+    assert review_decision["effect_size_thresholds"] == {
+        "min_worst_relative_terminal_value_pct": 0.0,
+        "min_median_relative_terminal_value_pct": 1.0,
+        "min_worst_rank_score": 0.0,
+    }
     assert review_decision["overall_recommendation_status"] == "hold_default_fixed_dca"
     assert "scenario_count_below_min_review_scenarios" in review_decision["blocking_reasons"]
     assert review_decision["matrix_coverage_gate_passed"] is False
+    assert review_decision["selection_gate_summary"]["matrix_coverage_gate_passed"] is False
+    assert isinstance(
+        review_decision["selection_gate_summary"][
+            "all_selection_effect_size_gate_passed"
+        ],
+        bool,
+    )
     assert review_decision["selection_count"] == 1
     assert "weakest_scenario" in robustness_summary
     assert "median_money_weighted_return_pct" in robustness_summary
@@ -479,6 +495,15 @@ def test_selection_rows_hold_fixed_when_effect_size_is_too_small() -> None:
     assert rows[0]["recommendation_reason"] == "insufficient_effect_size_vs_fixed_dca"
     assert decision["overall_recommendation_status"] == "hold_default_fixed_dca"
     assert "insufficient_effect_size_vs_fixed_dca" in decision["blocking_reasons"]
+    assert decision["effect_size_thresholds"][
+        "min_median_relative_terminal_value_pct"
+    ] == 1.0
+    assert decision["selection_gate_summary"][
+        "all_selection_effect_size_gate_passed"
+    ] is False
+    assert decision["selection_gate_summary"][
+        "all_selection_robustness_gate_passed"
+    ] is True
 
 
 def test_selection_rows_hold_fixed_when_matrix_coverage_fails() -> None:

@@ -1423,6 +1423,9 @@ def scenario_results_to_review_decision(
     *,
     fixed_name: str = "fixed",
     min_review_scenarios: int = 3,
+    min_effect_worst_relative_terminal_value_pct: float = 0.0,
+    min_effect_median_relative_terminal_value_pct: float = 1.0,
+    min_effect_worst_rank_score: float = 0.0,
 ) -> dict[str, object]:
     """Return a single JSON-safe decision summary for scenario review gates."""
 
@@ -1435,17 +1438,51 @@ def scenario_results_to_review_decision(
         scenarios,
         fixed_name=fixed_name,
         min_review_scenarios=min_review_scenarios,
+        min_effect_worst_relative_terminal_value_pct=(
+            min_effect_worst_relative_terminal_value_pct
+        ),
+        min_effect_median_relative_terminal_value_pct=(
+            min_effect_median_relative_terminal_value_pct
+        ),
+        min_effect_worst_rank_score=min_effect_worst_rank_score,
     )
     blocking_reasons = _review_decision_blocking_reasons(
         coverage_row=coverage_row,
         selection_rows=selection_rows,
     )
     manual_review_ready = not blocking_reasons
+    effect_size_thresholds = {
+        "min_worst_relative_terminal_value_pct": (
+            min_effect_worst_relative_terminal_value_pct
+        ),
+        "min_median_relative_terminal_value_pct": (
+            min_effect_median_relative_terminal_value_pct
+        ),
+        "min_worst_rank_score": min_effect_worst_rank_score,
+    }
     return {
         "schema_version": SMART_DCA_RESEARCH_ARTIFACT_SCHEMA_VERSION,
         "artifact_type": "smart_dca_review_decision",
         "fixed_name": fixed_name,
         "min_review_scenarios": min_review_scenarios,
+        "selection_policy": "fixed_preset_no_parameter_search",
+        "effect_size_policy": "fixed_minimum_effect_no_parameter_search",
+        "effect_size_thresholds": effect_size_thresholds,
+        "selection_gate_summary": {
+            "matrix_coverage_gate_passed": coverage_row["coverage_gate_passed"],
+            "all_selection_effect_size_gate_passed": bool(selection_rows) and all(
+                bool(row["selected_effect_size_gate_passed"])
+                for row in selection_rows
+            ),
+            "all_selection_robustness_gate_passed": bool(selection_rows) and all(
+                bool(row["selected_robustness_gate_passed"])
+                for row in selection_rows
+            ),
+            "all_selection_review_scenario_gate_passed": bool(selection_rows) and all(
+                bool(row["review_scenario_gate_passed"])
+                for row in selection_rows
+            ),
+        },
         "manual_review_gate_passed": manual_review_ready,
         "overall_recommendation_status": (
             "promote_to_manual_review"
