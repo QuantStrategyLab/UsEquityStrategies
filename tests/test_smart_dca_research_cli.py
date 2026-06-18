@@ -195,3 +195,58 @@ def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> Non
     assert result == 0
     metrics = (output_dir / "monthly_day_15" / "metrics.csv").read_text(encoding="utf-8")
     assert "ibit_btc_ahr999_mayer_cycle" in metrics
+
+
+def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(tmp_path) -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signal_csv = tmp_path / "btc_cycle.csv"
+    trade_csv = tmp_path / "ibit.csv"
+    output_dir = tmp_path / "ibit-precomputed-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ahr999": [1.5 for _ in dates],
+            "mayer_multiple": [2.5 for _ in dates],
+            "unused": [1.0 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed",
+            "--signal-columns",
+            "ahr999,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+        ]
+    )
+
+    assert result == 0
+    metrics = (output_dir / "monthly_day_15" / "metrics.csv").read_text(encoding="utf-8")
+    decision_log = (output_dir / "monthly_day_15" / "decision_log.csv").read_text(
+        encoding="utf-8"
+    )
+    candidate_summary = (
+        output_dir / "monthly_day_15" / "candidate_summary.csv"
+    ).read_text(encoding="utf-8")
+    assert "ibit_btc_precomputed_ahr999_mayer_cycle" in metrics
+    assert "precomputed_derived_indicators" in decision_log
+    assert "precomputed_ahr999_mayer" in candidate_summary

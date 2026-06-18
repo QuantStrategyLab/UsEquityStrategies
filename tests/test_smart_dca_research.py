@@ -319,8 +319,39 @@ def test_ibit_btc_candidate_derives_ahr999_mayer_from_prices() -> None:
     assert smart.last_signal_metrics["mayer_multiple"] == 1.0
 
 
+def test_ibit_btc_candidate_can_use_precomputed_ahr999_mayer_indicators() -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signals = pd.DataFrame(
+        {
+            "ahr999": [1.5 for _ in dates],
+            "mayer_multiple": [2.5 for _ in dates],
+        },
+        index=dates,
+    )
+    ibit = pd.Series([50.0 + i * 0.02 for i in range(len(dates))], index=dates)
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=ibit,
+        candidate_set="ibit_btc_ahr999_mayer_precomputed",
+        monthly_contribution_usd=500.0,
+    )
+
+    fixed = result["fixed"]
+    smart = result["ibit_btc_precomputed_ahr999_mayer_cycle"]
+
+    assert fixed.contributions == smart.contributions
+    assert fixed.trade_count > 0
+    assert smart.skipped_count > 0
+    assert smart.skips[0]["reason"] == "valuation_too_expensive"
+    assert smart.last_signal_metrics["cycle_indicator_source"] == "precomputed_derived_indicators"
+    assert smart.last_signal_metrics["ahr999"] == 1.5
+    assert smart.last_signal_metrics["mayer_multiple"] == 2.5
+
+
 def test_candidate_universe_is_named_and_bounded() -> None:
     assert available_candidate_names() == (
         "nasdaq_sp500_price_defensive",
         "ibit_btc_ahr999_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_mayer_cycle",
     )
