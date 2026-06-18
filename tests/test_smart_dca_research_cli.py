@@ -221,6 +221,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         {
             "date": dates.date,
             "ahr999": [1.5 for _ in dates],
+            "ahr999_sma": [1.4 for _ in dates],
             "mayer_multiple": [2.5 for _ in dates],
             "unused": [1.0 for _ in dates],
         }
@@ -243,7 +244,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "row_count": len(dates),
                 "first_date": str(dates[0].date()),
                 "last_date": str(dates[-1].date()),
-                "columns": ["date", "ahr999", "mayer_multiple", "unused"],
+                "columns": ["date", "ahr999", "ahr999_sma", "mayer_multiple", "unused"],
                 "output_csv": {
                     "path": str(signal_csv),
                     "sha256": _sha256_file(signal_csv),
@@ -265,9 +266,9 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             "--output-dir",
             str(output_dir),
             "--candidate-set",
-            "ibit_btc_ahr999_mayer_precomputed",
+            "ibit_btc_ahr999_mayer_precomputed_variants",
             "--signal-columns",
-            "ahr999,mayer_multiple",
+            "ahr999,ahr999_sma,mayer_multiple",
             "--trade-column",
             "ibit_close",
             "--execution-days",
@@ -286,6 +287,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         output_dir / "monthly_day_15" / "candidate_summary.csv"
     ).read_text(encoding="utf-8")
     assert "ibit_btc_precomputed_ahr999_mayer_cycle" in metrics
+    assert "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle" in metrics
+    assert "ibit_btc_precomputed_ahr999_sma_mayer_cycle" in metrics
     assert "precomputed_derived_indicators" in decision_log
     assert "precomputed_ahr999_mayer" in candidate_summary
     summary = json.loads(capsys.readouterr().out)
@@ -295,6 +298,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert signal_manifest_record["columns"] == [
         "date",
         "ahr999",
+        "ahr999_sma",
         "mayer_multiple",
         "unused",
     ]

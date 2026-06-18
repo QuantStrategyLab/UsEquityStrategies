@@ -315,8 +315,34 @@ def test_ibit_btc_candidate_derives_ahr999_mayer_from_prices() -> None:
     assert smart.skipped_count > 0
     assert smart.skips[0]["reason"] == "valuation_too_expensive"
     assert smart.last_signal_metrics["cycle_indicator_source"] == "price_derived"
+    assert smart.last_signal_metrics["ahr999_metric"] == "ahr999"
     assert smart.last_signal_metrics["ahr999"] > 1.2
     assert smart.last_signal_metrics["mayer_multiple"] == 1.0
+
+
+def test_ibit_btc_price_variants_compare_sma_and_no_skip() -> None:
+    btc = _series([250_000.0 for _ in range(280)], start="2025-01-02")
+    ibit = _series([50.0 + i * 0.02 for i in range(280)], start="2025-01-02")
+
+    result = compare_smart_dca_candidates(
+        signal_prices={"BTC-USD": btc},
+        trade_prices=ibit,
+        candidate_set="ibit_btc_ahr999_mayer_price_variants",
+        monthly_contribution_usd=500.0,
+    )
+
+    assert set(result) == {
+        "fixed",
+        "ibit_btc_ahr999_mayer_cycle",
+        "ibit_btc_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_ahr999_sma_mayer_cycle",
+    }
+    no_skip = result["ibit_btc_ahr999_mayer_no_skip_cycle"]
+    sma = result["ibit_btc_ahr999_sma_mayer_cycle"]
+    assert no_skip.skipped_count == 0
+    assert no_skip.last_signal_metrics["ahr999_metric"] == "ahr999"
+    assert sma.last_signal_metrics["ahr999_metric"] == "ahr999_sma"
+    assert sma.last_signal_metrics["ahr999_selected"] == sma.last_signal_metrics["ahr999_sma"]
 
 
 def test_ibit_btc_candidate_can_use_precomputed_ahr999_mayer_indicators() -> None:
@@ -345,13 +371,51 @@ def test_ibit_btc_candidate_can_use_precomputed_ahr999_mayer_indicators() -> Non
     assert smart.skipped_count > 0
     assert smart.skips[0]["reason"] == "valuation_too_expensive"
     assert smart.last_signal_metrics["cycle_indicator_source"] == "precomputed_derived_indicators"
+    assert smart.last_signal_metrics["ahr999_metric"] == "ahr999"
     assert smart.last_signal_metrics["ahr999"] == 1.5
     assert smart.last_signal_metrics["mayer_multiple"] == 2.5
+
+
+def test_ibit_btc_precomputed_variants_use_exported_ahr999_sma() -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signals = pd.DataFrame(
+        {
+            "ahr999": [1.5 for _ in dates],
+            "ahr999_sma": [0.7 for _ in dates],
+            "mayer_multiple": [1.0 for _ in dates],
+        },
+        index=dates,
+    )
+    ibit = pd.Series([50.0 + i * 0.02 for i in range(len(dates))], index=dates)
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=ibit,
+        candidate_set="ibit_btc_ahr999_mayer_precomputed_variants",
+        monthly_contribution_usd=500.0,
+    )
+
+    assert set(result) == {
+        "fixed",
+        "ibit_btc_precomputed_ahr999_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
+    }
+    no_skip = result["ibit_btc_precomputed_ahr999_mayer_no_skip_cycle"]
+    sma = result["ibit_btc_precomputed_ahr999_sma_mayer_cycle"]
+    assert no_skip.skipped_count == 0
+    assert sma.trades[0]["regime"] == "ahr999_accumulation"
+    assert sma.last_signal_metrics["ahr999_metric"] == "ahr999_sma"
+    assert sma.last_signal_metrics["ahr999_selected"] == 0.7
 
 
 def test_candidate_universe_is_named_and_bounded() -> None:
     assert available_candidate_names() == (
         "nasdaq_sp500_price_defensive",
         "ibit_btc_ahr999_mayer_cycle",
+        "ibit_btc_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_ahr999_sma_mayer_cycle",
         "ibit_btc_precomputed_ahr999_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
     )

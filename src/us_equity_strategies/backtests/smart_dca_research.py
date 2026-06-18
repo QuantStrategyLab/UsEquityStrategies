@@ -74,6 +74,10 @@ IBIT_AHR999_MAYER_PARAMETERS: dict[str, float] = {
     "ahr999_dca_multiplier": 1.50,
     "ahr999_expensive_multiplier": 0.0,
 }
+IBIT_AHR999_MAYER_NO_SKIP_PARAMETERS: dict[str, float] = {
+    **IBIT_AHR999_MAYER_PARAMETERS,
+    "ahr999_expensive_multiplier": 1.0,
+}
 
 
 PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
@@ -109,6 +113,22 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         min_history=200,
         parameters=IBIT_AHR999_MAYER_PARAMETERS,
     ),
+    "ibit_btc_ahr999_mayer_no_skip_cycle": SmartDcaCandidate(
+        name="ibit_btc_ahr999_mayer_no_skip_cycle",
+        family="ibit_btc_ahr999_mayer_price_variant",
+        rule_type="ahr999_mayer",
+        signal_symbols=("BTC-USD",),
+        min_history=200,
+        parameters=IBIT_AHR999_MAYER_NO_SKIP_PARAMETERS,
+    ),
+    "ibit_btc_ahr999_sma_mayer_cycle": SmartDcaCandidate(
+        name="ibit_btc_ahr999_sma_mayer_cycle",
+        family="ibit_btc_ahr999_mayer_price_variant",
+        rule_type="ahr999_sma_mayer",
+        signal_symbols=("BTC-USD",),
+        min_history=200,
+        parameters=IBIT_AHR999_MAYER_PARAMETERS,
+    ),
     "ibit_btc_precomputed_ahr999_mayer_cycle": SmartDcaCandidate(
         name="ibit_btc_precomputed_ahr999_mayer_cycle",
         family="ibit_btc_ahr999_mayer_precomputed",
@@ -117,12 +137,38 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         min_history=1,
         parameters=IBIT_AHR999_MAYER_PARAMETERS,
     ),
+    "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle": SmartDcaCandidate(
+        name="ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
+        family="ibit_btc_ahr999_mayer_precomputed_variant",
+        rule_type="precomputed_ahr999_mayer",
+        signal_symbols=("ahr999", "mayer_multiple"),
+        min_history=1,
+        parameters=IBIT_AHR999_MAYER_NO_SKIP_PARAMETERS,
+    ),
+    "ibit_btc_precomputed_ahr999_sma_mayer_cycle": SmartDcaCandidate(
+        name="ibit_btc_precomputed_ahr999_sma_mayer_cycle",
+        family="ibit_btc_ahr999_mayer_precomputed_variant",
+        rule_type="precomputed_ahr999_sma_mayer",
+        signal_symbols=("ahr999_sma", "mayer_multiple"),
+        min_history=1,
+        parameters=IBIT_AHR999_MAYER_PARAMETERS,
+    ),
 }
 
 CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
     "nasdaq_sp500_price": ("nasdaq_sp500_price_defensive",),
     "ibit_btc_ahr999_mayer_price": ("ibit_btc_ahr999_mayer_cycle",),
+    "ibit_btc_ahr999_mayer_price_variants": (
+        "ibit_btc_ahr999_mayer_cycle",
+        "ibit_btc_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_ahr999_sma_mayer_cycle",
+    ),
     "ibit_btc_ahr999_mayer_precomputed": ("ibit_btc_precomputed_ahr999_mayer_cycle",),
+    "ibit_btc_ahr999_mayer_precomputed_variants": (
+        "ibit_btc_precomputed_ahr999_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
+    ),
     "all": tuple(PRESET_CANDIDATES),
 }
 
@@ -385,10 +431,16 @@ def _ahr999_mayer_multiplier(
     parameters: Mapping[str, float],
     *,
     as_of: pd.Timestamp,
+    ahr999_metric: str = "ahr999",
 ) -> tuple[float, str, dict[str, object]]:
     metrics = _ahr999_mayer_metrics(signal_history, as_of)
-    ahr999 = float(metrics["ahr999"])
+    ahr999 = float(metrics[ahr999_metric])
     mayer = float(metrics["mayer_multiple"])
+    metrics = {
+        **metrics,
+        "ahr999_metric": ahr999_metric,
+        "ahr999_selected": ahr999,
+    }
 
     if ahr999 <= parameters["ahr999_bottom_threshold"] or mayer <= parameters["mayer_deep_discount_threshold"]:
         regime = "ahr999_bottom"
@@ -409,10 +461,18 @@ def _ahr999_mayer_multiplier(
     return float(multiplier), regime, metrics
 
 
-def _precomputed_ahr999_mayer_metrics(signal_history: pd.DataFrame) -> dict[str, float | str]:
+def _precomputed_ahr999_mayer_metrics(
+    signal_history: pd.DataFrame,
+    *,
+    ahr999_column: str = "ahr999",
+) -> dict[str, float | str]:
     latest = signal_history.iloc[-1]
+    normalized_column = _normalize_symbol(ahr999_column)
+    ahr999_value = float(latest[normalized_column])
     return {
-        "ahr999": float(latest[_normalize_symbol("ahr999")]),
+        "ahr999": ahr999_value,
+        "ahr999_selected": ahr999_value,
+        "ahr999_metric": normalized_column.lower(),
         "mayer_multiple": float(latest[_normalize_symbol("mayer_multiple")]),
         "cycle_indicator_source": "precomputed_derived_indicators",
     }
@@ -421,8 +481,13 @@ def _precomputed_ahr999_mayer_metrics(signal_history: pd.DataFrame) -> dict[str,
 def _precomputed_ahr999_mayer_multiplier(
     signal_history: pd.DataFrame,
     parameters: Mapping[str, float],
+    *,
+    ahr999_column: str = "ahr999",
 ) -> tuple[float, str, dict[str, object]]:
-    metrics = _precomputed_ahr999_mayer_metrics(signal_history)
+    metrics = _precomputed_ahr999_mayer_metrics(
+        signal_history,
+        ahr999_column=ahr999_column,
+    )
     ahr999 = float(metrics["ahr999"])
     mayer = float(metrics["mayer_multiple"])
 
@@ -457,8 +522,21 @@ def _candidate_multiplier(
         return _trend_drawdown_multiplier(signal_history, candidate.parameters)
     if candidate.rule_type == "ahr999_mayer":
         return _ahr999_mayer_multiplier(signal_history, candidate.parameters, as_of=as_of)
+    if candidate.rule_type == "ahr999_sma_mayer":
+        return _ahr999_mayer_multiplier(
+            signal_history,
+            candidate.parameters,
+            as_of=as_of,
+            ahr999_metric="ahr999_sma",
+        )
     if candidate.rule_type == "precomputed_ahr999_mayer":
         return _precomputed_ahr999_mayer_multiplier(signal_history, candidate.parameters)
+    if candidate.rule_type == "precomputed_ahr999_sma_mayer":
+        return _precomputed_ahr999_mayer_multiplier(
+            signal_history,
+            candidate.parameters,
+            ahr999_column="ahr999_sma",
+        )
     raise ValueError(f"unsupported smart DCA rule_type: {candidate.rule_type}")
 
 
