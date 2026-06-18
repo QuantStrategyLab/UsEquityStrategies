@@ -134,6 +134,8 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "recommendation_status" in selection_summary
     assert "selected_name" in selection_summary
     assert "min_review_scenarios" in selection_summary
+    assert "selected_candidate_definition_sha256" in selection_summary
+    assert "selection_policy" in selection_summary
     assert "review_status" in robustness_summary
     assert "weakest_scenario" in robustness_summary
     assert "max_terminal_cash_ratio_pct" in robustness_summary
@@ -170,6 +172,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "base_multiplier" in candidate_specs
     assert "open_parameter_search" in candidate_summary
     assert "unique_multiplier_count" in candidate_summary
+    assert "candidate_definition_sha256" in candidate_summary
 
 
 def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> None:

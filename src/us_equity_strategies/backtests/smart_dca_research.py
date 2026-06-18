@@ -255,6 +255,7 @@ def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[st
                 "max_multiplier": max(multiplier_values) if multiplier_values else float("nan"),
                 "zero_multiplier_allowed": any(value <= 0.0 for value in multiplier_values),
                 "open_parameter_search": False,
+                "candidate_definition_sha256": _candidate_definition_sha256(candidate.name),
             }
         )
     return tuple(rows)
@@ -1329,6 +1330,13 @@ def scenario_results_to_selection_rows(
             {
                 "selection_group": group_name,
                 "selected_name": selected["name"],
+                "selected_family": _candidate_family(str(selected["name"])),
+                "selected_rule_type": _candidate_rule_type(str(selected["name"])),
+                "selected_parameter_count": _candidate_parameter_count(str(selected["name"])),
+                "selected_candidate_definition_sha256": _candidate_definition_sha256(
+                    str(selected["name"])
+                ),
+                "selection_policy": "fixed_preset_no_parameter_search",
                 "recommendation_status": (
                     "promote_to_manual_review"
                     if promotion_ready
@@ -1379,6 +1387,37 @@ def _selection_group_for_candidate(name: str) -> str:
         if family.endswith(suffix):
             return family[: -len(suffix)]
     return family
+
+
+def _candidate_family(name: str) -> str:
+    candidate = PRESET_CANDIDATES.get(name)
+    return "" if candidate is None else candidate.family
+
+
+def _candidate_rule_type(name: str) -> str:
+    candidate = PRESET_CANDIDATES.get(name)
+    return "" if candidate is None else candidate.rule_type
+
+
+def _candidate_parameter_count(name: str) -> int:
+    candidate = PRESET_CANDIDATES.get(name)
+    return 0 if candidate is None else len(candidate.parameters)
+
+
+def _candidate_definition_sha256(name: str) -> str:
+    candidate = PRESET_CANDIDATES.get(name)
+    if candidate is None:
+        return ""
+    payload = {
+        "name": candidate.name,
+        "family": candidate.family,
+        "rule_type": candidate.rule_type,
+        "signal_symbols": candidate.signal_symbols,
+        "min_history": candidate.min_history,
+        "parameters": dict(sorted(candidate.parameters.items())),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _robustness_review_status(*, passed_count: int, scenario_count: int) -> str:

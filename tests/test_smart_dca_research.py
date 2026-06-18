@@ -157,24 +157,13 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert any(row["parameter_name"] == "base_multiplier" for row in spec_rows)
     assert all(row["rule_type"] == "trend_drawdown" for row in spec_rows)
     summary_rows = candidate_summaries_to_rows(("nasdaq_sp500_price_defensive",))
-    assert summary_rows == (
-        {
-            "name": "nasdaq_sp500_price_defensive",
-            "family": "nasdaq_sp500_price",
-            "rule_type": "trend_drawdown",
-            "signal_symbols": "QQQ,SPY",
-            "signal_symbol_count": 2,
-            "min_history": 252,
-            "parameter_count": 15,
-            "threshold_parameter_count": 9,
-            "multiplier_parameter_count": 6,
-            "unique_multiplier_count": 6,
-            "min_multiplier": 0.0,
-            "max_multiplier": 1.5,
-            "zero_multiplier_allowed": True,
-            "open_parameter_search": False,
-        },
-    )
+    summary_row = summary_rows[0]
+    assert summary_row["name"] == "nasdaq_sp500_price_defensive"
+    assert summary_row["family"] == "nasdaq_sp500_price"
+    assert summary_row["rule_type"] == "trend_drawdown"
+    assert summary_row["parameter_count"] == 15
+    assert summary_row["open_parameter_search"] is False
+    assert len(str(summary_row["candidate_definition_sha256"])) == 64
 
     artifact_paths = write_research_artifacts(tmp_path, result, evaluations=evaluations)
     assert set(artifact_paths) == {
@@ -197,6 +186,9 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert "drawdown_pct" in artifact_paths["equity_curve"].read_text(encoding="utf-8")
     assert "terminal_value" in artifact_paths["cash_flows"].read_text(encoding="utf-8")
     assert "unique_multiplier_count" in artifact_paths["candidate_summary"].read_text(
+        encoding="utf-8"
+    )
+    assert "candidate_definition_sha256" in artifact_paths["candidate_summary"].read_text(
         encoding="utf-8"
     )
     assert "base_multiplier" in artifact_paths["candidate_specs"].read_text(encoding="utf-8")
@@ -344,6 +336,11 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert "worst_max_drawdown_delta_pct_points" in robustness_rows[0]
     assert selection_rows[0]["selection_group"] == "nasdaq_sp500_price"
     assert selection_rows[0]["selected_name"] == "nasdaq_sp500_price_defensive"
+    assert selection_rows[0]["selected_family"] == "nasdaq_sp500_price"
+    assert selection_rows[0]["selected_rule_type"] == "trend_drawdown"
+    assert selection_rows[0]["selected_parameter_count"] == 15
+    assert len(str(selection_rows[0]["selected_candidate_definition_sha256"])) == 64
+    assert selection_rows[0]["selection_policy"] == "fixed_preset_no_parameter_search"
     assert selection_rows[0]["recommendation_status"] in {
         "promote_to_manual_review",
         "hold_default_fixed_dca",

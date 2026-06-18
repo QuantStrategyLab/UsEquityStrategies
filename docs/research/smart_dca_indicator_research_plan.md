@@ -351,6 +351,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 `promote_to_manual_review`；否则 `recommendation_reason` 会记录为
 `insufficient_robustness_scenarios`。这个 gate 不是统计显著性证明，只是防止单一窗口或单一
 现金流设置被误用为上线证据。
+`candidate_summary.csv` 和 `selection_summary.csv` 同时记录候选定义 SHA-256，包括 family、
+rule type、signal symbols、min history 和参数集合，用来证明被选择的是预先固定的 preset，
+不是回测后临时搜索出的参数组合。
 
 ## Promotion Gate
 
