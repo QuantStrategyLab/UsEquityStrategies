@@ -1290,6 +1290,9 @@ def scenario_results_to_selection_rows(
     *,
     fixed_name: str = "fixed",
     min_review_scenarios: int = 3,
+    min_effect_worst_relative_terminal_value_pct: float = 0.0,
+    min_effect_median_relative_terminal_value_pct: float = 1.0,
+    min_effect_worst_rank_score: float = 0.0,
 ) -> tuple[dict[str, object], ...]:
     """Select the strongest fixed candidate per family without parameter search.
 
@@ -1331,10 +1334,22 @@ def scenario_results_to_selection_rows(
         selected_passed = bool(selected["robustness_gate_passed"])
         selected_scenario_count = int(selected["scenario_count"])
         scenario_gate_passed = selected_scenario_count >= min_review_scenarios
+        effect_size_failure_reasons = _selection_effect_size_failure_reasons(
+            selected,
+            min_worst_relative_terminal_value_pct=(
+                min_effect_worst_relative_terminal_value_pct
+            ),
+            min_median_relative_terminal_value_pct=(
+                min_effect_median_relative_terminal_value_pct
+            ),
+            min_worst_rank_score=min_effect_worst_rank_score,
+        )
+        effect_size_gate_passed = not effect_size_failure_reasons
         promotion_ready = (
             selected_passed
             and scenario_gate_passed
             and matrix_coverage_gate_passed
+            and effect_size_gate_passed
         )
         selection_rows.append(
             {
@@ -1356,6 +1371,7 @@ def scenario_results_to_selection_rows(
                     selected_passed=selected_passed,
                     scenario_gate_passed=scenario_gate_passed,
                     matrix_coverage_gate_passed=matrix_coverage_gate_passed,
+                    effect_size_gate_passed=effect_size_gate_passed,
                 ),
                 "selected_review_rank": selected["review_rank"],
                 "selected_review_status": selected["review_status"],
@@ -1363,6 +1379,18 @@ def scenario_results_to_selection_rows(
                 "selected_scenario_count": selected_scenario_count,
                 "min_review_scenarios": min_review_scenarios,
                 "review_scenario_gate_passed": scenario_gate_passed,
+                "effect_size_policy": "fixed_minimum_effect_no_parameter_search",
+                "selected_effect_size_gate_passed": effect_size_gate_passed,
+                "selected_effect_size_failure_reasons": ",".join(
+                    effect_size_failure_reasons
+                ),
+                "min_effect_worst_relative_terminal_value_pct": (
+                    min_effect_worst_relative_terminal_value_pct
+                ),
+                "min_effect_median_relative_terminal_value_pct": (
+                    min_effect_median_relative_terminal_value_pct
+                ),
+                "min_effect_worst_rank_score": min_effect_worst_rank_score,
                 "matrix_coverage_gate_passed": matrix_coverage_gate_passed,
                 "matrix_coverage_status": coverage_row["coverage_status"],
                 "matrix_coverage_failure_reasons": coverage_row["failure_reasons"],
@@ -1376,6 +1404,9 @@ def scenario_results_to_selection_rows(
                 "selected_pass_rate": selected["pass_rate"],
                 "selected_min_relative_terminal_value_pct": selected[
                     "min_relative_terminal_value_pct"
+                ],
+                "selected_median_relative_terminal_value_pct": selected[
+                    "median_relative_terminal_value_pct"
                 ],
                 "selected_min_rank_score": selected["min_rank_score"],
                 "selected_failure_reasons": selected["failure_reasons"],
@@ -1464,6 +1495,29 @@ def _review_decision_blocking_reasons(
     return tuple(dict.fromkeys(reasons))
 
 
+def _selection_effect_size_failure_reasons(
+    selected: Mapping[str, object],
+    *,
+    min_worst_relative_terminal_value_pct: float,
+    min_median_relative_terminal_value_pct: float,
+    min_worst_rank_score: float,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if (
+        float(selected["min_relative_terminal_value_pct"])
+        < min_worst_relative_terminal_value_pct
+    ):
+        reasons.append("worst_terminal_edge_below_min_effect_size")
+    if (
+        float(selected["median_relative_terminal_value_pct"])
+        < min_median_relative_terminal_value_pct
+    ):
+        reasons.append("median_terminal_edge_below_min_effect_size")
+    if float(selected["min_rank_score"]) < min_worst_rank_score:
+        reasons.append("worst_rank_score_below_min_effect_size")
+    return tuple(reasons)
+
+
 def scenario_results_to_coverage_rows(
     scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
     *,
@@ -1544,13 +1598,21 @@ def _selection_recommendation_reason(
     selected_passed: bool,
     scenario_gate_passed: bool,
     matrix_coverage_gate_passed: bool,
+    effect_size_gate_passed: bool,
 ) -> str:
-    if selected_passed and scenario_gate_passed and matrix_coverage_gate_passed:
+    if (
+        selected_passed
+        and scenario_gate_passed
+        and matrix_coverage_gate_passed
+        and effect_size_gate_passed
+    ):
         return "selected_candidate_passed_all_scenarios"
     if selected_passed:
-        if scenario_gate_passed:
+        if not scenario_gate_passed:
+            return "insufficient_robustness_scenarios"
+        if not matrix_coverage_gate_passed:
             return "insufficient_scenario_matrix_coverage"
-        return "insufficient_robustness_scenarios"
+        return "insufficient_effect_size_vs_fixed_dca"
     return "no_candidate_passed_robustness_gate"
 
 

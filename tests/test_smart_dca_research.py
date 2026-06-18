@@ -358,6 +358,9 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["selected_parameter_count"] == 15
     assert len(str(selection_rows[0]["selected_candidate_definition_sha256"])) == 64
     assert selection_rows[0]["selection_policy"] == "fixed_preset_no_parameter_search"
+    assert selection_rows[0]["effect_size_policy"] == (
+        "fixed_minimum_effect_no_parameter_search"
+    )
     assert selection_rows[0]["recommendation_status"] in {
         "promote_to_manual_review",
         "hold_default_fixed_dca",
@@ -372,6 +375,8 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["matrix_candidate_set_consistent"] is True
     assert selection_rows[0]["matrix_fixed_benchmark_present_all"] is True
     assert selection_rows[0]["matrix_candidate_names"] == "nasdaq_sp500_price_defensive"
+    assert "selected_effect_size_gate_passed" in selection_rows[0]
+    assert "selected_median_relative_terminal_value_pct" in selection_rows[0]
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
     assert coverage_rows[0]["scenario_count"] == 4
     assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
@@ -439,6 +444,41 @@ def test_selection_rows_require_minimum_robustness_scenarios() -> None:
     )
     assert relaxed_rows[0]["recommendation_status"] == "promote_to_manual_review"
     assert relaxed_rows[0]["recommendation_reason"] == "selected_candidate_passed_all_scenarios"
+
+
+def test_selection_rows_hold_fixed_when_effect_size_is_too_small() -> None:
+    scenarios = {
+        "scenario_a": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1001.0,
+                max_drawdown=0.10,
+            ),
+        }
+    }
+
+    rows = scenario_results_to_selection_rows(
+        scenarios,
+        min_review_scenarios=1,
+    )
+    decision = scenario_results_to_review_decision(
+        scenarios,
+        min_review_scenarios=1,
+    )
+
+    assert rows[0]["selected_robustness_gate_passed"] is True
+    assert rows[0]["review_scenario_gate_passed"] is True
+    assert rows[0]["matrix_coverage_gate_passed"] is True
+    assert rows[0]["selected_effect_size_gate_passed"] is False
+    assert rows[0]["selected_median_relative_terminal_value_pct"] < 1.0
+    assert rows[0]["selected_effect_size_failure_reasons"] == (
+        "median_terminal_edge_below_min_effect_size"
+    )
+    assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert rows[0]["recommendation_reason"] == "insufficient_effect_size_vs_fixed_dca"
+    assert decision["overall_recommendation_status"] == "hold_default_fixed_dca"
+    assert "insufficient_effect_size_vs_fixed_dca" in decision["blocking_reasons"]
 
 
 def test_selection_rows_hold_fixed_when_matrix_coverage_fails() -> None:
