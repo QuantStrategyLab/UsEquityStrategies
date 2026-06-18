@@ -289,6 +289,7 @@ python -m us_equity_strategies.backtests.smart_dca_research_cli \
 python -m us_equity_strategies.backtests.smart_dca_research_cli \
   --signal-csv ./research_inputs/btc_cycle_indicators.csv \
   --trade-csv ./research_inputs/ibit_prices.csv \
+  --signal-manifest ./research_inputs/btc_cycle_indicators.manifest.json \
   --output-dir ./artifacts/smart_dca_research/ibit_btc_cycle_precomputed \
   --candidate-set ibit_btc_ahr999_mayer_precomputed \
   --signal-columns ahr999,mayer_multiple \
@@ -304,6 +305,10 @@ python -m us_equity_strategies.backtests.smart_dca_research_cli \
 从 BTC close 内部复算，`ibit_btc_precomputed_ahr999_mayer_cycle` 信任外部
 `derived_indicators` 宽表中的 `ahr999` / `mayer_multiple`。后续比较时应把两者同时放进
 robustness matrix，检查公式版本、provider timestamp 和字段覆盖是否会改变结论。
+使用 `MarketSignalSources` 导出的 research CSV 时，应同时传入 `--signal-manifest`；
+CLI 会把上游 `research_export.v1`、transform、source version、列集合、日期范围和
+CSV hash 校验结果写入 `scenario_manifest.json`。manifest 中出现疑似密钥、token、cookie
+或 signed URL 字段，或声明的 `output_csv.sha256` 与实际 CSV 不一致时，研究运行会直接失败。
 
 CLI 只读取本地 CSV、写出 metrics / decision log / manifest，不负责下载行情、读取密钥
 或选择 vendor。这样研究回测和后续 `MarketSignalSources` 的 provider adapter 仍保持解耦。

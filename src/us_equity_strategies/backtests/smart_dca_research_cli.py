@@ -17,6 +17,20 @@ from .smart_dca_research import (
 )
 
 
+_FORBIDDEN_MANIFEST_KEY_FRAGMENTS = frozenset(
+    {
+        "api_key",
+        "authorization",
+        "cookie",
+        "credential",
+        "password",
+        "secret",
+        "signed_url",
+        "token",
+    }
+)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -111,6 +125,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--signal-csv", required=True, type=Path)
     parser.add_argument("--trade-csv", required=True, type=Path)
+    parser.add_argument(
+        "--signal-manifest",
+        type=Path,
+        help="Optional upstream manifest describing the signal CSV artifact.",
+    )
+    parser.add_argument(
+        "--trade-manifest",
+        type=Path,
+        help="Optional upstream manifest describing the trade price CSV artifact.",
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
         "--candidate-set",
@@ -200,8 +224,83 @@ def _research_metadata(
         "input_artifacts": {
             "signal_csv": _file_record(args.signal_csv),
             "trade_csv": _file_record(args.trade_csv),
+            **_optional_manifest_records(args),
         },
     }
+
+
+def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, object]]:
+    records: dict[str, dict[str, object]] = {}
+    if args.signal_manifest is not None:
+        records["signal_manifest"] = _manifest_record(
+            args.signal_manifest,
+            linked_csv_path=args.signal_csv,
+            role="signal",
+        )
+    if args.trade_manifest is not None:
+        records["trade_manifest"] = _manifest_record(
+            args.trade_manifest,
+            linked_csv_path=args.trade_csv,
+            role="trade",
+        )
+    return records
+
+
+def _manifest_record(
+    path: Path,
+    *,
+    linked_csv_path: Path,
+    role: str,
+) -> dict[str, object]:
+    manifest = _read_manifest(path)
+    _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
+    linked_csv_sha256 = _sha256_file(linked_csv_path)
+    declared_output = manifest.get("output_csv")
+    declared_output_sha256 = ""
+    if isinstance(declared_output, dict):
+        declared_output_sha256 = str(declared_output.get("sha256", "")).strip().lower()
+    if declared_output_sha256 and declared_output_sha256 != linked_csv_sha256:
+        raise ValueError(
+            f"{role} manifest output_csv.sha256 mismatch: "
+            f"expected {linked_csv_sha256}, got {declared_output_sha256}"
+        )
+
+    return {
+        **_file_record(path),
+        "schema_version": str(manifest.get("schema_version", "")),
+        "artifact_type": str(manifest.get("artifact_type", "")),
+        "transform": str(manifest.get("transform", "")),
+        "source_version": str(manifest.get("source_version", "")),
+        "as_of": str(manifest.get("as_of", "")),
+        "min_history": manifest.get("min_history"),
+        "row_count": manifest.get("row_count"),
+        "first_date": str(manifest.get("first_date", "")),
+        "last_date": str(manifest.get("last_date", "")),
+        "columns": tuple(str(column) for column in manifest.get("columns", ()) or ()),
+        "linked_csv_sha256": linked_csv_sha256,
+        "declared_output_csv_sha256": declared_output_sha256,
+        "linked_csv_sha256_verified": bool(declared_output_sha256),
+    }
+
+
+def _read_manifest(path: Path) -> dict[str, object]:
+    with path.open(encoding="utf-8") as file_obj:
+        payload = json.load(file_obj)
+    if not isinstance(payload, dict):
+        raise ValueError(f"manifest JSON root must be an object: {path}")
+    return payload
+
+
+def _validate_no_sensitive_manifest_fields(value: object, *, path: str) -> None:
+    if isinstance(value, dict):
+        for raw_key, item in value.items():
+            key = str(raw_key).strip().lower()
+            if any(fragment in key for fragment in _FORBIDDEN_MANIFEST_KEY_FRAGMENTS):
+                raise ValueError(f"sensitive field is not allowed in {path}: {raw_key}")
+            _validate_no_sensitive_manifest_fields(item, path=f"{path}.{raw_key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _validate_no_sensitive_manifest_fields(item, path=f"{path}[{index}]")
 
 
 def _file_record(path: Path) -> dict[str, object]:

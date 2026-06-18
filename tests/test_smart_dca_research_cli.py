@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 
 import pandas as pd
 
 from us_equity_strategies.backtests.smart_dca_research_cli import main
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> None:
@@ -197,9 +207,13 @@ def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> Non
     assert "ibit_btc_ahr999_mayer_cycle" in metrics
 
 
-def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(tmp_path) -> None:
+def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
+    tmp_path,
+    capsys,
+) -> None:
     dates = pd.date_range("2025-01-02", periods=120, freq="B")
     signal_csv = tmp_path / "btc_cycle.csv"
+    signal_manifest = tmp_path / "btc_cycle.manifest.json"
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
 
@@ -217,6 +231,28 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(tmp_path)
             "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
         }
     ).to_csv(trade_csv, index=False)
+    signal_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "artifact_type": "btc_cycle_research_csv",
+                "transform": "crypto.btc.ahr999_mayer.v1",
+                "source_version": "0.1.0",
+                "as_of": "2025-06-18",
+                "min_history": 200,
+                "row_count": len(dates),
+                "first_date": str(dates[0].date()),
+                "last_date": str(dates[-1].date()),
+                "columns": ["date", "ahr999", "mayer_multiple", "unused"],
+                "output_csv": {
+                    "path": str(signal_csv),
+                    "sha256": _sha256_file(signal_csv),
+                    "size_bytes": signal_csv.stat().st_size,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = main(
         [
@@ -224,6 +260,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(tmp_path)
             str(signal_csv),
             "--trade-csv",
             str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -250,3 +288,143 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(tmp_path)
     assert "ibit_btc_precomputed_ahr999_mayer_cycle" in metrics
     assert "precomputed_derived_indicators" in decision_log
     assert "precomputed_ahr999_mayer" in candidate_summary
+    summary = json.loads(capsys.readouterr().out)
+    signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
+    assert signal_manifest_record["schema_version"] == "research_export.v1"
+    assert signal_manifest_record["transform"] == "crypto.btc.ahr999_mayer.v1"
+    assert signal_manifest_record["columns"] == [
+        "date",
+        "ahr999",
+        "mayer_multiple",
+        "unused",
+    ]
+    assert signal_manifest_record["linked_csv_sha256_verified"] is True
+    scenario_manifest = json.loads(
+        (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
+    )
+    assert (
+        scenario_manifest["metadata"]["input_artifacts"]["signal_manifest"][
+            "linked_csv_sha256"
+        ]
+        == _sha256_file(signal_csv)
+    )
+
+
+def test_smart_dca_research_cli_rejects_signal_manifest_hash_mismatch(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signal_csv = tmp_path / "btc_cycle.csv"
+    signal_manifest = tmp_path / "btc_cycle.manifest.json"
+    trade_csv = tmp_path / "ibit.csv"
+    output_dir = tmp_path / "ibit-precomputed-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ahr999": [1.5 for _ in dates],
+            "mayer_multiple": [2.5 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    signal_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "output_csv": {
+                    "path": str(signal_csv),
+                    "sha256": "0" * 64,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed",
+            "--signal-columns",
+            "ahr999,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+        ]
+    )
+
+    assert result == 2
+    assert "output_csv.sha256 mismatch" in capsys.readouterr().err
+
+
+def test_smart_dca_research_cli_rejects_sensitive_manifest_fields(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signal_csv = tmp_path / "btc_cycle.csv"
+    signal_manifest = tmp_path / "btc_cycle.manifest.json"
+    trade_csv = tmp_path / "ibit.csv"
+    output_dir = tmp_path / "ibit-precomputed-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ahr999": [1.5 for _ in dates],
+            "mayer_multiple": [2.5 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    signal_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "output_csv": {"sha256": _sha256_file(signal_csv)},
+                "provenance": {"signed_url": "https://example.invalid/private.csv"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed",
+            "--signal-columns",
+            "ahr999,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+        ]
+    )
+
+    assert result == 2
+    assert "sensitive field" in capsys.readouterr().err
