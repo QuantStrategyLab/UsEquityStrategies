@@ -27,6 +27,7 @@ SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
+IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 FULL_SHARED_PLATFORM_MATRIX = frozenset(
     {"ibkr", "schwab", "longbridge", "firstrade", "paper_signal"}
 )
@@ -39,6 +40,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
+    IBIT_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
@@ -48,6 +50,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
+    IBIT_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
 }
 
 STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
@@ -252,6 +255,44 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "execution_cash_reserve_ratio": 0.0,
         "execution_rebalance_threshold_ratio": 0.0,
     },
+    IBIT_SMART_DCA_PROFILE: {
+        "signal_symbols": ("IBIT",),
+        "trade_allocations": {
+            "IBIT": 1.0,
+        },
+        "managed_symbols": ("IBIT",),
+        "base_investment_usd": 250.0,
+        "max_investment_usd": 750.0,
+        "cash_reserve_usd": 50.0,
+        "min_investment_usd": 50.0,
+        "cadence": "monthly",
+        "monthly_day": 25,
+        "monthly_window_calendar_days": 5,
+        "weekly_day": 4,
+        "target_allocation_mode": "dynamic",
+        "target_allocation_ratio": 0.05,
+        "target_allocation_base_ratio": 0.03,
+        "target_allocation_growth_per_log10k": 0.02,
+        "max_target_allocation_ratio": 0.10,
+        "mild_drawdown_threshold": 0.12,
+        "deep_drawdown_threshold": 0.25,
+        "severe_drawdown_threshold": 0.40,
+        "mild_discount_gap": 0.08,
+        "deep_discount_gap": 0.18,
+        "expensive_gap": 0.30,
+        "very_expensive_gap": 0.60,
+        "shallow_drawdown_threshold": 0.05,
+        "overbought_rsi": 75.0,
+        "base_multiplier": 1.0,
+        "weak_trend_multiplier": 0.50,
+        "mild_pullback_multiplier": 1.25,
+        "deep_pullback_multiplier": 1.75,
+        "severe_pullback_multiplier": 2.50,
+        "expensive_multiplier": 0.50,
+        "very_expensive_multiplier": 0.0,
+        "execution_cash_reserve_ratio": 0.0,
+        "execution_rebalance_threshold_ratio": 0.0,
+    },
 }
 
 STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
@@ -261,6 +302,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "mega_cap_leader_rotation_top50_balanced_entrypoint",
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
+    IBIT_SMART_DCA_PROFILE: "ibit_smart_dca_entrypoint",
 }
 
 STRATEGY_TARGET_MODES: dict[str, str] = {
@@ -270,6 +312,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "weight",
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
+    IBIT_SMART_DCA_PROFILE: "value",
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {}
@@ -334,6 +377,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         NASDAQ_SP500_SMART_DCA_PROFILE,
         component_name="allocation",
         module_path="us_equity_strategies.strategies.nasdaq_sp500_smart_dca",
+    ),
+    IBIT_SMART_DCA_PROFILE: _build_strategy_definition(
+        IBIT_SMART_DCA_PROFILE,
+        component_name="allocation",
+        module_path="us_equity_strategies.strategies.ibit_smart_dca",
     ),
 }
 
@@ -404,6 +452,18 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="nasdaq_100_sp500_etf_dca",
         benchmark="QQQ/SPY",
         role="buy_only_smart_dca",
+        status="runtime_enabled",
+    ),
+    IBIT_SMART_DCA_PROFILE: StrategyMetadata(
+        canonical_profile=IBIT_SMART_DCA_PROFILE,
+        display_name="IBIT Smart DCA",
+        description="Buy-only spot Bitcoin ETF smart DCA profile with pullback-aware sizing and a capped IBIT sleeve.",
+        localized_display_names={"zh": "IBIT 比特币 ETF 智能定投"},
+        aliases=("bitcoin_etf_smart_dca",),
+        cadence="monthly",
+        asset_scope="spot_bitcoin_etf_dca",
+        benchmark="IBIT",
+        role="buy_only_bitcoin_etf_smart_dca",
         status="runtime_enabled",
     ),
 }

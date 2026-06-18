@@ -8,6 +8,7 @@ from us_equity_strategies.income_layer_defaults import income_layer_default_conf
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
+IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
 
 def _manifest(
@@ -300,6 +301,52 @@ nasdaq_sp500_smart_dca_manifest = _manifest(
     },
 )
 
+ibit_smart_dca_manifest = _manifest(
+    profile=IBIT_SMART_DCA_PROFILE,
+    display_name="IBIT Smart DCA",
+    description="Buy-only spot Bitcoin ETF smart DCA profile with pullback-aware sizing and a capped IBIT sleeve.",
+    aliases=("bitcoin_etf_smart_dca",),
+    required_inputs=frozenset({"market_history", "portfolio_snapshot"}),
+    default_config={
+        "signal_symbols": ("IBIT",),
+        "trade_allocations": {
+            "IBIT": 1.0,
+        },
+        "managed_symbols": ("IBIT",),
+        "base_investment_usd": 250.0,
+        "max_investment_usd": 750.0,
+        "cash_reserve_usd": 50.0,
+        "min_investment_usd": 50.0,
+        "cadence": "monthly",
+        "monthly_day": 25,
+        "monthly_window_calendar_days": 5,
+        "weekly_day": 4,
+        "target_allocation_mode": "dynamic",
+        "target_allocation_ratio": 0.05,
+        "target_allocation_base_ratio": 0.03,
+        "target_allocation_growth_per_log10k": 0.02,
+        "max_target_allocation_ratio": 0.10,
+        "mild_drawdown_threshold": 0.12,
+        "deep_drawdown_threshold": 0.25,
+        "severe_drawdown_threshold": 0.40,
+        "mild_discount_gap": 0.08,
+        "deep_discount_gap": 0.18,
+        "expensive_gap": 0.30,
+        "very_expensive_gap": 0.60,
+        "shallow_drawdown_threshold": 0.05,
+        "overbought_rsi": 75.0,
+        "base_multiplier": 1.0,
+        "weak_trend_multiplier": 0.50,
+        "mild_pullback_multiplier": 1.25,
+        "deep_pullback_multiplier": 1.75,
+        "severe_pullback_multiplier": 2.50,
+        "expensive_multiplier": 0.50,
+        "very_expensive_multiplier": 0.0,
+        "execution_cash_reserve_ratio": 0.0,
+        "execution_rebalance_threshold_ratio": 0.0,
+    },
+)
+
 MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
@@ -307,6 +354,7 @@ MANIFESTS = {
     russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest.profile: mega_cap_leader_rotation_top50_balanced_manifest,
     nasdaq_sp500_smart_dca_manifest.profile: nasdaq_sp500_smart_dca_manifest,
+    ibit_smart_dca_manifest.profile: ibit_smart_dca_manifest,
 }
 
 MANIFEST_ALIASES = {
@@ -330,4 +378,5 @@ __all__ = [
     "russell_1000_multi_factor_defensive_manifest",
     "mega_cap_leader_rotation_top50_balanced_manifest",
     "nasdaq_sp500_smart_dca_manifest",
+    "ibit_smart_dca_manifest",
 ]

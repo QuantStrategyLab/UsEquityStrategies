@@ -29,6 +29,7 @@ These profiles can run from market history, portfolio snapshots, or other runtim
 | `tqqq_growth_income` | TQQQ Growth Income | runtime-enabled QQQ/TQQQ dual-drive profile with defensive and income sleeves. |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | runtime-enabled semiconductor ETF trend profile. |
 | `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | runtime-enabled buy-only DCA profile for broad US equity ETFs. |
+| `ibit_smart_dca` | IBIT Smart DCA | runtime-enabled buy-only spot Bitcoin ETF DCA profile with capped satellite exposure. |
 
 ### Snapshot-backed strategies
 
@@ -80,6 +81,7 @@ python -m pytest -q
 - [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
 - [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)
 - [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)
+- [`docs/research/ibit_smart_dca.md`](docs/research/ibit_smart_dca.md)
 - [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
 
 ## Safety and contribution notes

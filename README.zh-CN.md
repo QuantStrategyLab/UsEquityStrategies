@@ -29,6 +29,7 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 | `tqqq_growth_income` | TQQQ Growth Income | QQQ/TQQQ dual-drive，带防守和 income sleeve。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | 半导体 ETF 趋势策略。 |
 | `nasdaq_sp500_smart_dca` | Nasdaq/S&P 500 Smart DCA | 面向宽基美股 ETF 的买入型 DCA profile。 |
+| `ibit_smart_dca` | IBIT Smart DCA | 面向 IBIT 比特币现货 ETF 的买入型 DCA profile，带卫星仓上限。 |
 
 ### Snapshot-backed 策略
 
@@ -80,6 +81,7 @@ python -m pytest -q
 - [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
 - [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)
 - [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)
+- [`docs/research/ibit_smart_dca.md`](docs/research/ibit_smart_dca.md)
 - [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
 
 ## 安全和贡献说明

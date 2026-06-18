@@ -11,6 +11,7 @@ from quant_platform_kit.strategy_contracts import (
 )
 
 from us_equity_strategies.catalog import (
+    IBIT_SMART_DCA_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
     get_strategy_definition,
@@ -18,6 +19,7 @@ from us_equity_strategies.catalog import (
     resolve_canonical_profile,
 )
 from us_equity_strategies.strategies import (
+    ibit_smart_dca as ibit_smart_dca_strategy,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
     russell_1000_multi_factor_defensive as legacy_russell,
@@ -83,6 +85,11 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     ),
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyRuntimeAdapter(
         status_icon=nasdaq_sp500_smart_dca_strategy.STATUS_ICON,
+        portfolio_input_name="portfolio_snapshot",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
+    ),
+    IBIT_SMART_DCA_PROFILE: StrategyRuntimeAdapter(
+        status_icon=ibit_smart_dca_strategy.STATUS_ICON,
         portfolio_input_name="portfolio_snapshot",
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
