@@ -1,6 +1,6 @@
 # 美股策略状态与研究手册
 
-_更新日期：2026-06-16_
+_更新日期：2026-06-18_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
 
@@ -10,7 +10,7 @@ _更新日期：2026-06-16_
 
 ## 当前可配置 profiles
 
-这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
+这 7 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
 
 | Profile | 中文定位 | 输入类型 | 特点 | 当前建议 |
 | --- | --- | --- | --- | --- |
@@ -18,6 +18,7 @@ _更新日期：2026-06-16_
 | `tqqq_growth_income` | TQQQ 增长收益 | 直接运行输入 | `QQQ` / `TQQQ` 双轮增长，默认 `45% / 45% / 8% BOXX / 2% cash`；`QQQM` 可作为低单价交易代理；高波动降杠杆触发时默认读取 `market_regime_control` 的确定性 retention context，采用 `tqqq_step_softzero_0.25_0.50`。 | 小账户最容易落地；需要策略级 `market_regime_control` artifact。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | 直接运行输入 | 以 `SOXX` 140 日趋势闸门控制 `SOXL` / `SOXX` / `BOXX`；默认用 `SOXX` 10 日年化实际波动率的 252 日滚动 95 分位阈值，边界 `50%`-`75%`，样本不足时回退固定 `55%`；触发后读取确定性 `soxl_step_rebound_0.25_0.50` retention context，剩余 `SOXL` 转向 `SOXX`；插件也支持 `soxl_step_softzero_rebound_0.25_0.50` 保守切换；并叠加收入层。 | 半导体高弹性直接输入策略；默认启用策略级 `market_regime_control`，但 `risk_reduced` 仓位影响默认关闭。 |
 | `nasdaq_sp500_smart_dca` | 纳斯达克 / 标普智能定投 | 直接运行输入 | 只买不卖；用 `QQQ/SPY` 的 200 日均线距离、252 日回撤和 RSI 过热状态决定本期定投金额倍数，默认买入 `QQQM/SPLG`。 | 适合现金账户长期积累；建议月度窗口运行。 |
+| `ibit_smart_dca` | IBIT 比特币 ETF 智能定投 | 直接运行输入 | 只买不卖；用 `IBIT` 的 200 日均线距离、252 日回撤、RSI 过热和弱趋势状态决定本期定投金额倍数，并参考加密仓库的 BTC 核心仓位预算思路设置动态卫星仓上限，默认最高 10%。 | 适合作为小比例比特币 ETF 卫星配置；必须先做 paper/dry-run 和账户级风险预算确认。 |
 | `russell_1000_multi_factor_defensive` | Russell 1000 多因子防守 | feature snapshot | Russell 1000 price-only 多因子，SPY 趋势 + breadth 防守，默认 24 股。 | 可切换但更适合大账户；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响等待长周期代理研究归档。 |
 | `mega_cap_leader_rotation_top50_balanced` | Top50 平衡龙头轮动 | feature snapshot | 固定 `50% Top2 cap50 + 50% Top4 cap25` 袖子混合，不默认趋势降仓。 | 当前保留的无杠杆龙头轮动路线；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响先保持通知/证据模式。 |
 

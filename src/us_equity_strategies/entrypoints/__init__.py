@@ -19,6 +19,7 @@ from us_equity_strategies.ai_extensions import (
 )
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
+    ibit_smart_dca_manifest,
     mega_cap_leader_rotation_top50_balanced_manifest,
     nasdaq_sp500_smart_dca_manifest,
     russell_1000_multi_factor_defensive_manifest,
@@ -27,6 +28,7 @@ from us_equity_strategies.manifests import (
 )
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
+    ibit_smart_dca as ibit_smart_dca_strategy,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
     tqqq_growth_income as tqqq_growth_income_strategy,
@@ -1147,8 +1149,110 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     )
 
 
+def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
+    config = merge_runtime_config(ibit_smart_dca_manifest.default_config, ctx)
+    option_overlay_config = pop_option_overlay_config(config)
+    translator = config.pop("translator", default_translator)
+    config.pop("signal_effective_after_trading_days", None)
+    config.pop("pacing_sec", None)
+    pop_execution_only_config(config)
+    market_history = require_market_data(ctx, "market_history")
+    portfolio = require_portfolio(ctx)
+    plan = ibit_smart_dca_strategy.build_rebalance_plan(
+        market_history,
+        portfolio,
+        as_of=ctx.as_of,
+        broker_client=ctx.capabilities.get("broker_client"),
+        translator=translator,
+        **config,
+    )
+    diagnostics = {
+        "signal_description": plan["signal_description"],
+        "status_description": plan["status_description"],
+        "signal_source": ibit_smart_dca_strategy.SIGNAL_SOURCE,
+        "actionable": plan["actionable"],
+        "skip_reason": plan["skip_reason"],
+        "regime": plan["regime"],
+        "multiplier": plan["multiplier"],
+        "base_investment_usd": plan["base_investment_usd"],
+        "requested_investment_usd": plan["requested_investment_usd"],
+        "planned_investment_usd": plan["planned_investment_usd"],
+        "available_cash": plan["available_cash"],
+        "reserved_cash": plan["reserved_cash"],
+        "investable_cash": plan["investable_cash"],
+        "min_investment_usd": plan["min_investment_usd"],
+        "total_equity": plan["total_equity"],
+        "target_allocation_mode": plan["target_allocation_mode"],
+        "target_allocation_ratio": plan["target_allocation_ratio"],
+        "target_allocation_value_usd": plan["target_allocation_value_usd"],
+        "current_strategy_value_usd": plan["current_strategy_value_usd"],
+        "remaining_capacity_usd": plan["remaining_capacity_usd"],
+        "target_capped": plan["target_capped"],
+        "cash_capped": plan["cash_capped"],
+        "cash_shortfall_usd": plan["cash_shortfall_usd"],
+        "target_shortfall_usd": plan["target_shortfall_usd"],
+        "execution_window": plan["execution_window"],
+        "in_execution_window": plan["in_execution_window"],
+        "avg_drawdown_252d": plan["avg_drawdown_252d"],
+        "avg_sma200_gap": plan["avg_sma200_gap"],
+        "avg_rsi14": plan["avg_rsi14"],
+        "trend_positive_ratio": plan["trend_positive_ratio"],
+        "indicator_rows": plan["indicator_rows"],
+        "managed_symbols": plan["managed_symbols"],
+        "signal_symbols": plan["signal_symbols"],
+        "trade_allocations": plan["trade_allocations"],
+        "target_values": plan["target_values"],
+        "execution_annotations": {
+            "trade_threshold_value": plan["min_investment_usd"],
+            "raw_buying_power": plan["available_cash"],
+            "reserved_cash": plan["reserved_cash"],
+            "investable_cash": plan["investable_cash"],
+            "planned_investment_usd": plan["planned_investment_usd"],
+            "multiplier": plan["multiplier"],
+            "regime": plan["regime"],
+            "signal_display": plan["signal_description"],
+            "status_display": plan["status_description"],
+            "target_allocation_ratio": plan["target_allocation_ratio"],
+            "target_allocation_value_usd": plan["target_allocation_value_usd"],
+            "remaining_capacity_usd": plan["remaining_capacity_usd"],
+        },
+        **build_option_overlay_diagnostics(option_overlay_config, ctx),
+    }
+    diagnostics.update(_account_size_diagnostics(ibit_smart_dca_manifest.profile, ctx))
+    diagnostics["signal_description"] = append_account_size_warning(
+        str(diagnostics["signal_description"]),
+        diagnostics,
+        translator=translator,
+    )
+    _attach_dashboard_text(
+        diagnostics,
+        _build_dashboard_text(
+            ctx,
+            strategy_symbols=_symbols_from_sources(
+                plan["managed_symbols"],
+                plan["target_values"],
+                get_current_holdings(ctx),
+            ),
+            translator=translator,
+            signal_text=diagnostics["signal_description"],
+        ),
+    )
+    _attach_execution_timing(diagnostics, ctx)
+    risk_flags = ("no_execute",) if not plan["actionable"] else ()
+    return StrategyDecision(
+        positions=target_values_to_positions(plan["target_values"]),
+        risk_flags=risk_flags,
+        diagnostics=diagnostics,
+    )
+
+
 nasdaq_sp500_smart_dca_strategy.build_rebalance_plan.__doc__ = (
     ((nasdaq_sp500_smart_dca_strategy.build_rebalance_plan.__doc__ or "").strip() +
+     "\n\nPrefer us_equity_strategies entrypoints for platform integrations.")
+    .strip()
+)
+ibit_smart_dca_strategy.build_rebalance_plan.__doc__ = (
+    ((ibit_smart_dca_strategy.build_rebalance_plan.__doc__ or "").strip() +
      "\n\nPrefer us_equity_strategies entrypoints for platform integrations.")
     .strip()
 )
@@ -1177,6 +1281,10 @@ nasdaq_sp500_smart_dca_entrypoint = CallableStrategyEntrypoint(
     manifest=nasdaq_sp500_smart_dca_manifest,
     _evaluate=evaluate_nasdaq_sp500_smart_dca,
 )
+ibit_smart_dca_entrypoint = CallableStrategyEntrypoint(
+    manifest=ibit_smart_dca_manifest,
+    _evaluate=evaluate_ibit_smart_dca,
+)
 
 
 __all__ = [
@@ -1186,10 +1294,12 @@ __all__ = [
     "russell_1000_multi_factor_defensive_entrypoint",
     "mega_cap_leader_rotation_top50_balanced_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
+    "ibit_smart_dca_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_russell_1000_multi_factor_defensive",
     "evaluate_mega_cap_leader_rotation_top50_balanced",
     "evaluate_nasdaq_sp500_smart_dca",
+    "evaluate_ibit_smart_dca",
 ]

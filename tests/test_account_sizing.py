@@ -21,6 +21,7 @@ def test_min_recommended_equity_is_profile_specific() -> None:
     assert get_min_recommended_equity_usd("tech_communication_pullback_enhancement") is None
     assert get_min_recommended_equity_usd("mega_cap_leader_rotation_top50_balanced") == 10_000.0
     assert get_min_recommended_equity_usd("nasdaq_sp500_smart_dca") == 1_000.0
+    assert get_min_recommended_equity_usd("ibit_smart_dca") == 1_000.0
     assert get_min_recommended_equity_usd("russell_1000_multi_factor_defensive") == 30_000.0
     assert get_min_recommended_equity_usd("unknown") is None
 

@@ -5,6 +5,7 @@ from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
+    IBIT_SMART_DCA_PROFILE,
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
@@ -70,6 +71,13 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[NASDAQ_SP500_SMART_DCA_PROFILE].domain, "us_equity")
         self.assertEqual(
             catalog[NASDAQ_SP500_SMART_DCA_PROFILE].required_inputs,
+            frozenset({"market_history", "portfolio_snapshot"}),
+        )
+
+        self.assertIn(IBIT_SMART_DCA_PROFILE, catalog)
+        self.assertEqual(catalog[IBIT_SMART_DCA_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            catalog[IBIT_SMART_DCA_PROFILE].required_inputs,
             frozenset({"market_history", "portfolio_snapshot"}),
         )
 
@@ -148,6 +156,15 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(smart_dca_definition.target_mode, "value")
 
+        ibit_dca_definition = get_strategy_definition("ibit_smart_dca")
+        self.assertEqual(ibit_dca_definition.profile, IBIT_SMART_DCA_PROFILE)
+        ibit_dca_module = get_strategy_component_map(ibit_dca_definition)["allocation"]
+        self.assertEqual(
+            ibit_dca_module.module_path,
+            "us_equity_strategies.strategies.ibit_smart_dca",
+        )
+        self.assertEqual(ibit_dca_definition.target_mode, "value")
+
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
         self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
@@ -195,6 +212,14 @@ class CatalogTest(unittest.TestCase):
             compatibility[NASDAQ_SP500_SMART_DCA_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
+        self.assertEqual(
+            metadata_map[IBIT_SMART_DCA_PROFILE].role,
+            "buy_only_bitcoin_etf_smart_dca",
+        )
+        self.assertEqual(
+            compatibility[IBIT_SMART_DCA_PROFILE],
+            FULL_SHARED_PLATFORM_MATRIX,
+        )
 
     def test_option_overlay_defaults_are_scoped_to_supported_profiles(self):
         tqqq = get_strategy_definition(TQQQ_GROWTH_INCOME_PROFILE).default_config
@@ -223,6 +248,10 @@ class CatalogTest(unittest.TestCase):
             "option_growth_overlay_enabled",
             get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
         )
+        self.assertNotIn(
+            "option_growth_overlay_enabled",
+            get_strategy_definition(IBIT_SMART_DCA_PROFILE).default_config,
+        )
 
     def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
         self.assertIs(
@@ -250,6 +279,10 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn(
             "market_regime_control_enabled",
             get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
+        )
+        self.assertNotIn(
+            "market_regime_control_enabled",
+            get_strategy_definition(IBIT_SMART_DCA_PROFILE).default_config,
         )
 
     def test_strategy_index_rows_are_human_readable(self):
@@ -286,6 +319,7 @@ class CatalogTest(unittest.TestCase):
                     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
                     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
                     NASDAQ_SP500_SMART_DCA_PROFILE,
+                    IBIT_SMART_DCA_PROFILE,
                 }
             ),
         )
