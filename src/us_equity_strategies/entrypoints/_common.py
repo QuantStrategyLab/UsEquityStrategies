@@ -33,6 +33,8 @@ INCOME_LAYER_CONFIG_KEYS = {
 EXECUTION_ONLY_CONFIG_KEYS = {
     "execution_cash_reserve_ratio",
     "execution_rebalance_threshold_ratio",
+    "reserved_cash_floor_usd",
+    "reserved_cash_ratio",
 }
 MARKET_REGIME_CONTROL_CONFIG_KEYS = {
     "market_regime_control_enabled",
@@ -116,6 +118,65 @@ def pop_option_overlay_config(config: dict[str, object]) -> dict[str, object]:
 def pop_execution_only_config(config: dict[str, object]) -> None:
     for key in EXECUTION_ONLY_CONFIG_KEYS:
         config.pop(key, None)
+
+
+def pop_reserved_cash_policy_config(config: dict[str, object]) -> dict[str, float]:
+    policy: dict[str, float] = {}
+    if "reserved_cash_floor_usd" in config:
+        policy["reserved_cash_floor_usd"] = max(
+            0.0,
+            _as_float(config.pop("reserved_cash_floor_usd"), default=0.0),
+        )
+    if "reserved_cash_ratio" in config:
+        policy["reserved_cash_ratio"] = _clamped_ratio(
+            config.pop("reserved_cash_ratio"),
+            default=0.0,
+            upper=1.0,
+        )
+    return policy
+
+
+def apply_reserved_cash_policy_to_ratio_config(
+    config: dict[str, object],
+    policy: Mapping[str, float],
+) -> None:
+    if not policy:
+        return
+    policy_ratio = float(policy.get("reserved_cash_ratio", 0.0) or 0.0)
+    if policy_ratio > 0.0:
+        config["cash_reserve_ratio"] = max(
+            _clamped_ratio(config.get("cash_reserve_ratio"), default=0.0, upper=1.0),
+            policy_ratio,
+        )
+    policy_floor = float(policy.get("reserved_cash_floor_usd", 0.0) or 0.0)
+    if policy_floor > 0.0:
+        config["cash_reserve_floor_usd"] = max(
+            0.0,
+            _as_float(config.get("cash_reserve_floor_usd"), default=0.0),
+            policy_floor,
+        )
+
+
+def apply_reserved_cash_policy_to_usd_config(
+    config: dict[str, object],
+    policy: Mapping[str, float],
+    *,
+    total_equity: float,
+) -> None:
+    if not policy:
+        return
+    reserved_cash = max(
+        float(policy.get("reserved_cash_floor_usd", 0.0) or 0.0),
+        max(0.0, float(total_equity or 0.0))
+        * float(policy.get("reserved_cash_ratio", 0.0) or 0.0),
+    )
+    if reserved_cash <= 0.0:
+        return
+    config["cash_reserve_usd"] = max(
+        0.0,
+        _as_float(config.get("cash_reserve_usd"), default=0.0),
+        reserved_cash,
+    )
 
 
 def pop_market_regime_control_config(config: dict[str, object]) -> dict[str, object]:

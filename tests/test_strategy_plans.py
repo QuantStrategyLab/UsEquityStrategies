@@ -101,6 +101,42 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 15000.0)
         self.assertEqual(plan["notification_context"]["portfolio"]["investable_cash"], 5000.0)
 
+    def test_tqqq_growth_income_reserved_cash_floor_can_exceed_ratio(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.tqqq_growth_income import (
+            build_rebalance_plan as build_tqqq_plan,
+        )
+
+        qqq_history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[],
+            total_equity=761.72,
+            buying_power=761.72,
+            metadata={"account_hash": "small"},
+        )
+
+        plan = build_tqqq_plan(
+            qqq_history,
+            snapshot,
+            signal_text_fn=lambda icon: icon,
+            translator=_translator,
+            income_threshold_usd=1_000_000_000.0,
+            qqqi_income_ratio=0.5,
+            cash_reserve_ratio=0.03,
+            cash_reserve_floor_usd=150.0,
+            rebalance_threshold_ratio=0.01,
+            dual_drive_qqq_weight=0.45,
+            dual_drive_tqqq_weight=0.45,
+        )
+
+        self.assertAlmostEqual(plan["reserved"], 150.0)
+        self.assertAlmostEqual(plan["investable_buying_power"], 611.72)
+        self.assertAlmostEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 150.0)
+        self.assertAlmostEqual(plan["notification_context"]["portfolio"]["investable_cash"], 611.72)
+
     def test_tqqq_growth_income_normalizes_close_column_case(self):
         _skip_if_missing_numeric_stack()
         from us_equity_strategies.strategies.tqqq_growth_income import (
@@ -1115,6 +1151,53 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 5000.0)
         self.assertAlmostEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 3000.0)
         self.assertAlmostEqual(plan["notification_context"]["portfolio"]["investable_cash"], 2000.0)
+
+    def test_soxl_soxx_trend_income_reserved_cash_floor_can_exceed_ratio(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 761.72,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 0.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 0, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 0, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 761.72,
+        }
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0},
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            cash_reserve_floor_usd=150.0,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+        )
+
+        self.assertAlmostEqual(plan["reserved_cash"], 150.0)
+        self.assertAlmostEqual(plan["investable_cash"], 611.72)
+        self.assertAlmostEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 150.0)
+        self.assertAlmostEqual(plan["notification_context"]["portfolio"]["investable_cash"], 611.72)
 
     def test_soxl_soxx_trend_income_tiered_blend_uses_mid_and_defensive_bands(self):
         _skip_if_missing_numeric_stack()

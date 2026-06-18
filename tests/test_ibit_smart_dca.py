@@ -365,3 +365,31 @@ def test_ibit_smart_dca_entrypoint_uses_derived_indicators_for_ahr999() -> None:
     assert decision.diagnostics["multiplier"] == 3.0
     assert decision.diagnostics["ahr999"] == 0.40
     assert decision.diagnostics["cycle_indicator_source"] == "derived_indicators"
+
+
+def test_ibit_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
+    entrypoint = get_strategy_entrypoint("ibit_smart_dca")
+    history = {BTC_SIGNAL_SYMBOL: _normal_history()}
+
+    decision = entrypoint.evaluate(
+        StrategyContext(
+            as_of="2026-05-26",
+            market_data={"market_history": lambda _client, symbol: history[symbol]},
+            portfolio=_portfolio(),
+            runtime_config={
+                "translator": _zh_translator,
+                "investment_amount_mode": "fixed",
+                "reserved_cash_floor_usd": 4500.0,
+                "reserved_cash_ratio": 0.03,
+            },
+        )
+    )
+
+    targets = {position.symbol: position.target_value for position in decision.positions}
+    assert decision.risk_flags == ("no_execute",)
+    assert decision.diagnostics["reserved_cash"] == 4500.0
+    assert decision.diagnostics["investable_cash"] == 500.0
+    assert decision.diagnostics["requested_investment_usd"] == 1000.0
+    assert decision.diagnostics["planned_investment_usd"] == 0.0
+    assert decision.diagnostics["skip_reason"] == "insufficient_cash"
+    assert targets == {}

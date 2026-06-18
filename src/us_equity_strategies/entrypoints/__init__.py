@@ -37,6 +37,8 @@ from us_equity_strategies.strategies import (
 )
 
 from ._common import (
+    apply_reserved_cash_policy_to_ratio_config,
+    apply_reserved_cash_policy_to_usd_config,
     apply_income_layer_to_weights,
     apply_market_regime_control_to_weights,
     build_option_overlay_diagnostics,
@@ -44,6 +46,7 @@ from ._common import (
     default_translator,
     get_current_holdings,
     merge_runtime_config,
+    pop_reserved_cash_policy_config,
     pop_execution_only_config,
     pop_income_layer_config,
     pop_market_regime_control_config,
@@ -326,7 +329,9 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     config.pop("benchmark_symbol", None)
     config.pop("signal_effective_after_trading_days", None)
     ai_extension_config = config.pop("ai_extensions", None)
+    reserved_cash_policy = pop_reserved_cash_policy_config(config)
     pop_execution_only_config(config)
+    apply_reserved_cash_policy_to_ratio_config(config, reserved_cash_policy)
     translator = config.pop("translator", default_translator)
     signal_text_fn = config.pop("signal_text_fn", default_signal_text_fn)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
@@ -624,7 +629,9 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
     config.pop("signal_text_fn", None)
     config.pop("signal_effective_after_trading_days", None)
+    reserved_cash_policy = pop_reserved_cash_policy_config(config)
     pop_execution_only_config(config)
+    apply_reserved_cash_policy_to_ratio_config(config, reserved_cash_policy)
     portfolio = require_portfolio(ctx)
     translator = config.pop("translator", default_translator)
     plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
@@ -1072,9 +1079,15 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     translator = config.pop("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     config.pop("pacing_sec", None)
+    reserved_cash_policy = pop_reserved_cash_policy_config(config)
     pop_execution_only_config(config)
     market_history = require_market_data(ctx, "market_history")
     portfolio = require_portfolio(ctx)
+    apply_reserved_cash_policy_to_usd_config(
+        config,
+        reserved_cash_policy,
+        total_equity=float(getattr(portfolio, "total_equity", 0.0) or 0.0),
+    )
     plan = nasdaq_sp500_smart_dca_strategy.build_rebalance_plan(
         market_history,
         portfolio,
@@ -1163,6 +1176,7 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     translator = config.pop("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     config.pop("pacing_sec", None)
+    reserved_cash_policy = pop_reserved_cash_policy_config(config)
     pop_execution_only_config(config)
     market_history = ctx.market_data.get("market_history")
     if market_history is None:
@@ -1175,6 +1189,11 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         or ctx.market_data.get("derived_indicators")
     )
     portfolio = require_portfolio(ctx)
+    apply_reserved_cash_policy_to_usd_config(
+        config,
+        reserved_cash_policy,
+        total_equity=float(getattr(portfolio, "total_equity", 0.0) or 0.0),
+    )
     plan = ibit_smart_dca_strategy.build_rebalance_plan(
         market_history,
         portfolio,

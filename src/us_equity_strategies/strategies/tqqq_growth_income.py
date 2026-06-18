@@ -503,6 +503,7 @@ def build_rebalance_plan(
     income_threshold_usd,
     qqqi_income_ratio,
     cash_reserve_ratio,
+    cash_reserve_floor_usd=0.0,
     rebalance_threshold_ratio,
     income_layer_start_usd=None,
     income_layer_max_ratio=None,
@@ -611,7 +612,8 @@ def build_rebalance_plan(
     target_income_values = income_layer_plan.target_values
 
     strategy_equity = max(0.0, total_equity - income_layer_plan.locked_value)
-    reserved = strategy_equity * cash_reserve_ratio
+    cash_reserve_floor = max(0.0, float(cash_reserve_floor_usd or 0.0))
+    reserved = max(strategy_equity * cash_reserve_ratio, cash_reserve_floor)
 
     latest_ma20 = ma20.iloc[-1]
     pullback_rebound_window = max(1, int(dual_drive_pullback_rebound_window or 20))
@@ -709,7 +711,10 @@ def build_rebalance_plan(
     target_unlevered_val = 0.0
     if risk_active or pullback_risk_on:
         dual_drive_reserve_ratio = 0.02 if dual_drive_cash_reserve_ratio is None else float(dual_drive_cash_reserve_ratio)
-        reserved = strategy_equity * max(0.0, min(1.0, dual_drive_reserve_ratio))
+        reserved = max(
+            strategy_equity * max(0.0, min(1.0, dual_drive_reserve_ratio)),
+            cash_reserve_floor,
+        )
         target_tqqq_ratio = max(0.0, min(1.0, float(dual_drive_tqqq_weight or 0.45)))
         target_unlevered_ratio = max(0.0, min(1.0, float(dual_drive_qqq_weight or 0.45)))
         total_risk_ratio = target_tqqq_ratio + target_unlevered_ratio
