@@ -147,6 +147,51 @@ def candidate_specs_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, o
     return tuple(rows)
 
 
+def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, object], ...]:
+    """Return candidate-level anti-overfit audit rows for frozen presets."""
+
+    names = tuple(candidate_names)
+    unknown = [name for name in names if name not in PRESET_CANDIDATES]
+    if unknown:
+        raise ValueError(f"unknown smart DCA candidates: {unknown}")
+
+    rows: list[dict[str, object]] = []
+    for name in names:
+        candidate = PRESET_CANDIDATES[name]
+        multiplier_values = _candidate_multiplier_values(candidate)
+        rows.append(
+            {
+                "name": candidate.name,
+                "family": candidate.family,
+                "rule_type": candidate.rule_type,
+                "signal_symbols": ",".join(candidate.signal_symbols),
+                "signal_symbol_count": len(candidate.signal_symbols),
+                "min_history": candidate.min_history,
+                "parameter_count": len(candidate.parameters),
+                "threshold_parameter_count": sum(
+                    1
+                    for parameter_name in candidate.parameters
+                    if not parameter_name.endswith("_multiplier")
+                ),
+                "multiplier_parameter_count": len(multiplier_values),
+                "unique_multiplier_count": len(set(multiplier_values)),
+                "min_multiplier": min(multiplier_values) if multiplier_values else float("nan"),
+                "max_multiplier": max(multiplier_values) if multiplier_values else float("nan"),
+                "zero_multiplier_allowed": any(value <= 0.0 for value in multiplier_values),
+                "open_parameter_search": False,
+            }
+        )
+    return tuple(rows)
+
+
+def _candidate_multiplier_values(candidate: SmartDcaCandidate) -> tuple[float, ...]:
+    return tuple(
+        float(value)
+        for parameter_name, value in sorted(candidate.parameters.items())
+        if parameter_name.endswith("_multiplier")
+    )
+
+
 def _normalize_symbol(symbol: object) -> str:
     return str(symbol or "").strip().upper().removesuffix(".US")
 
@@ -1248,6 +1293,7 @@ def write_research_artifacts(
     decision_log_path = output_path / "decision_log.csv"
     equity_curve_path = output_path / "equity_curve.csv"
     cash_flows_path = output_path / "cash_flows.csv"
+    candidate_summary_path = output_path / "candidate_summary.csv"
     candidate_specs_path = output_path / "candidate_specs.csv"
     run_manifest_path = output_path / "run_manifest.json"
     candidate_names = tuple(name for name in results if name != fixed_name)
@@ -1272,6 +1318,7 @@ def write_research_artifacts(
     pd.DataFrame(results_to_decision_log_rows(results)).to_csv(decision_log_path, index=False)
     pd.DataFrame(results_to_equity_curve_rows(results)).to_csv(equity_curve_path, index=False)
     pd.DataFrame(results_to_cash_flow_rows(results)).to_csv(cash_flows_path, index=False)
+    pd.DataFrame(candidate_summaries_to_rows(candidate_names)).to_csv(candidate_summary_path, index=False)
     pd.DataFrame(candidate_specs_to_rows(candidate_names)).to_csv(candidate_specs_path, index=False)
     _write_artifact_manifest(
         run_manifest_path,
@@ -1282,6 +1329,7 @@ def write_research_artifacts(
             decision_log_path,
             equity_curve_path,
             cash_flows_path,
+            candidate_summary_path,
             candidate_specs_path,
         ),
         root=output_path,
@@ -1297,6 +1345,7 @@ def write_research_artifacts(
         "decision_log": decision_log_path,
         "equity_curve": equity_curve_path,
         "cash_flows": cash_flows_path,
+        "candidate_summary": candidate_summary_path,
         "candidate_specs": candidate_specs_path,
         "run_manifest": run_manifest_path,
     }
@@ -1336,6 +1385,7 @@ def write_scenario_research_artifacts(
                     "metrics_path": paths["metrics"].relative_to(output_path).as_posix(),
                     "evaluation_summary_path": paths["evaluation_summary"].relative_to(output_path).as_posix(),
                     "decision_log_path": paths["decision_log"].relative_to(output_path).as_posix(),
+                    "candidate_summary_path": paths["candidate_summary"].relative_to(output_path).as_posix(),
                 }
             )
         for key, path in paths.items():

@@ -96,6 +96,11 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert (
         output_dir
         / "weekly_contribution_usd_500_start_2025_01_02"
+        / "candidate_summary.csv"
+    ).exists()
+    assert (
+        output_dir
+        / "weekly_contribution_usd_500_start_2025_01_02"
         / "candidate_specs.csv"
     ).exists()
     assert (
@@ -135,8 +140,15 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
         / "weekly_contribution_usd_500_start_2025_01_02"
         / "candidate_specs.csv"
     ).read_text(encoding="utf-8")
+    candidate_summary = (
+        output_dir
+        / "weekly_contribution_usd_500_start_2025_01_02"
+        / "candidate_summary.csv"
+    ).read_text(encoding="utf-8")
     assert "nasdaq_sp500_price_defensive" in candidate_specs
     assert "base_multiplier" in candidate_specs
+    assert "open_parameter_search" in candidate_summary
+    assert "unique_multiplier_count" in candidate_summary
 
 
 def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> None:

@@ -4,6 +4,7 @@ import pandas as pd
 
 from us_equity_strategies.backtests.smart_dca_research import (
     available_candidate_names,
+    candidate_summaries_to_rows,
     candidate_specs_to_rows,
     compare_execution_day_contribution_scenarios,
     compare_monthly_execution_day_scenarios,
@@ -94,6 +95,25 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     spec_rows = candidate_specs_to_rows(("nasdaq_sp500_price_defensive",))
     assert any(row["parameter_name"] == "base_multiplier" for row in spec_rows)
     assert all(row["rule_type"] == "trend_drawdown" for row in spec_rows)
+    summary_rows = candidate_summaries_to_rows(("nasdaq_sp500_price_defensive",))
+    assert summary_rows == (
+        {
+            "name": "nasdaq_sp500_price_defensive",
+            "family": "nasdaq_sp500_price",
+            "rule_type": "trend_drawdown",
+            "signal_symbols": "QQQ,SPY",
+            "signal_symbol_count": 2,
+            "min_history": 252,
+            "parameter_count": 15,
+            "threshold_parameter_count": 9,
+            "multiplier_parameter_count": 6,
+            "unique_multiplier_count": 6,
+            "min_multiplier": 0.0,
+            "max_multiplier": 1.5,
+            "zero_multiplier_allowed": True,
+            "open_parameter_search": False,
+        },
+    )
 
     artifact_paths = write_research_artifacts(tmp_path, result, evaluations=evaluations)
     assert set(artifact_paths) == {
@@ -102,6 +122,7 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
         "decision_log",
         "equity_curve",
         "cash_flows",
+        "candidate_summary",
         "candidate_specs",
         "run_manifest",
     }
@@ -114,6 +135,9 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert "valuation_too_expensive" in artifact_paths["decision_log"].read_text(encoding="utf-8")
     assert "drawdown_pct" in artifact_paths["equity_curve"].read_text(encoding="utf-8")
     assert "terminal_value" in artifact_paths["cash_flows"].read_text(encoding="utf-8")
+    assert "unique_multiplier_count" in artifact_paths["candidate_summary"].read_text(
+        encoding="utf-8"
+    )
     assert "base_multiplier" in artifact_paths["candidate_specs"].read_text(encoding="utf-8")
     run_manifest = json.loads(artifact_paths["run_manifest"].read_text(encoding="utf-8"))
     assert run_manifest["schema_version"] == "smart_dca_research_artifacts.v1"
@@ -123,6 +147,7 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
         "decision_log.csv",
         "equity_curve.csv",
         "cash_flows.csv",
+        "candidate_summary.csv",
         "candidate_specs.csv",
     }
 
@@ -168,6 +193,7 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert (tmp_path / "monthly_day_25" / "decision_log.csv").exists()
     assert (tmp_path / "monthly_day_25" / "equity_curve.csv").exists()
     assert (tmp_path / "monthly_day_25" / "cash_flows.csv").exists()
+    assert (tmp_path / "monthly_day_25" / "candidate_summary.csv").exists()
     assert (tmp_path / "monthly_day_25" / "candidate_specs.csv").exists()
     scenario_manifest = json.loads(artifact_paths["scenario_manifest"].read_text(encoding="utf-8"))
     assert scenario_manifest["artifact_type"] == "smart_dca_research_scenario_matrix"
