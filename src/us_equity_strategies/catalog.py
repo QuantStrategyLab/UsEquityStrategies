@@ -387,6 +387,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
         display_name="Mega Cap Leader Rotation Top50 Balanced",
         description="Balanced monthly Top50 mega-cap leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
+        localized_display_names={"zh": "美股超大盘50强平衡龙头轮动"},
         aliases=(),
         cadence="monthly",
         asset_scope="us_mega_cap_top50_balanced_stocks",
