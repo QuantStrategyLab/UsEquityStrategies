@@ -1395,6 +1395,26 @@ def scenario_results_to_selection_rows(
                 "matrix_coverage_status": coverage_row["coverage_status"],
                 "matrix_coverage_failure_reasons": coverage_row["failure_reasons"],
                 "matrix_scenario_count": coverage_row["scenario_count"],
+                "matrix_scenario_cadences": coverage_row["scenario_cadences"],
+                "matrix_scenario_cadence_count": coverage_row[
+                    "scenario_cadence_count"
+                ],
+                "matrix_scenario_execution_days": coverage_row[
+                    "scenario_execution_days"
+                ],
+                "matrix_scenario_execution_day_count": coverage_row[
+                    "scenario_execution_day_count"
+                ],
+                "matrix_scenario_contribution_amounts_usd": coverage_row[
+                    "scenario_contribution_amounts_usd"
+                ],
+                "matrix_scenario_contribution_amount_count": coverage_row[
+                    "scenario_contribution_amount_count"
+                ],
+                "matrix_scenario_start_dates": coverage_row["scenario_start_dates"],
+                "matrix_scenario_start_date_count": coverage_row[
+                    "scenario_start_date_count"
+                ],
                 "matrix_candidate_count": coverage_row["candidate_count"],
                 "matrix_candidate_set_consistent": coverage_row["candidate_set_consistent"],
                 "matrix_fixed_benchmark_present_all": coverage_row[
@@ -1567,6 +1587,7 @@ def scenario_results_to_coverage_rows(
         raise ValueError("min_review_scenarios must be at least 1")
 
     scenario_names = tuple(str(name) for name in scenarios)
+    dimension_summary = _scenario_dimension_summary(scenario_names)
     candidate_sets = tuple(
         tuple(sorted(str(name) for name in results if name != fixed_name))
         for results in scenarios.values()
@@ -1600,6 +1621,7 @@ def scenario_results_to_coverage_rows(
             "candidate_count": len(candidate_names),
             "candidate_names": ",".join(candidate_names),
             "scenario_names": ",".join(scenario_names),
+            **dimension_summary,
             "coverage_gate_passed": coverage_gate_passed,
             "coverage_status": (
                 "ready_for_selection_review"
@@ -1609,6 +1631,111 @@ def scenario_results_to_coverage_rows(
             "failure_reasons": ",".join(failure_reasons),
         },
     )
+
+
+def _scenario_dimension_summary(
+    scenario_names: Iterable[str],
+) -> dict[str, object]:
+    cadences: list[str] = []
+    execution_days: list[str] = []
+    contribution_amounts: list[str] = []
+    start_dates: list[str] = []
+    for scenario_name in scenario_names:
+        dimensions = _parse_scenario_dimensions(str(scenario_name))
+        if dimensions["cadence"]:
+            cadences.append(dimensions["cadence"])
+        if dimensions["execution_day"]:
+            execution_days.append(dimensions["execution_day"])
+        if dimensions["contribution_amount_usd"]:
+            contribution_amounts.append(dimensions["contribution_amount_usd"])
+        if dimensions["start_date"]:
+            start_dates.append(dimensions["start_date"])
+
+    cadence_values = _sorted_unique_text(cadences)
+    execution_day_values = _sorted_unique_numeric_text(execution_days)
+    contribution_values = _sorted_unique_numeric_text(contribution_amounts)
+    start_date_values = _sorted_unique_text(start_dates)
+    return {
+        "scenario_cadences": ",".join(cadence_values),
+        "scenario_cadence_count": len(cadence_values),
+        "scenario_execution_days": ",".join(execution_day_values),
+        "scenario_execution_day_count": len(execution_day_values),
+        "scenario_contribution_amounts_usd": ",".join(contribution_values),
+        "scenario_contribution_amount_count": len(contribution_values),
+        "scenario_start_dates": ",".join(start_date_values),
+        "scenario_start_date_count": len(start_date_values),
+    }
+
+
+def _parse_scenario_dimensions(scenario_name: str) -> dict[str, str]:
+    base_name, start_date = _split_scenario_start_label(scenario_name)
+    cadence = ""
+    execution_day = ""
+    contribution_amount = ""
+    for candidate_cadence in sorted(SUPPORTED_DCA_CADENCES):
+        if candidate_cadence == "weekly":
+            prefix = "weekly_contribution_usd_"
+            if base_name.startswith(prefix):
+                cadence = "weekly"
+                contribution_amount = _scenario_amount_display(
+                    base_name[len(prefix) :]
+                )
+                break
+            continue
+
+        prefix = f"{candidate_cadence}_day_"
+        if base_name.startswith(prefix):
+            cadence = candidate_cadence
+            remainder = base_name[len(prefix) :]
+            contribution_marker = "_contribution_usd_"
+            if contribution_marker in remainder:
+                execution_day, amount_label = remainder.split(contribution_marker, 1)
+                contribution_amount = _scenario_amount_display(amount_label)
+            else:
+                execution_day = remainder
+            break
+    return {
+        "cadence": cadence,
+        "execution_day": execution_day,
+        "contribution_amount_usd": contribution_amount,
+        "start_date": start_date,
+    }
+
+
+def _split_scenario_start_label(scenario_name: str) -> tuple[str, str]:
+    marker = "_start_"
+    if marker not in scenario_name:
+        return scenario_name, ""
+    base_name, start_label = scenario_name.rsplit(marker, 1)
+    return base_name, start_label.replace("_", "-")
+
+
+def _scenario_amount_display(amount_label: str) -> str:
+    return amount_label.replace("_", ".")
+
+
+def _sorted_unique_text(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted(set(values)))
+
+
+def _sorted_unique_numeric_text(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            set(values),
+            key=lambda value: (
+                float(value) if _is_float_text(value) else math.inf,
+                value,
+            ),
+        )
+    )
+
+
+def _is_float_text(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _scenario_coverage_failure_reasons(

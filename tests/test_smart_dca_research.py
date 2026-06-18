@@ -397,6 +397,17 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert coverage_rows[0]["scenario_count"] == 4
     assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
     assert coverage_rows[0]["failure_reasons"] == ""
+    assert coverage_rows[0]["scenario_cadences"] == "monthly"
+    assert coverage_rows[0]["scenario_cadence_count"] == 1
+    assert coverage_rows[0]["scenario_execution_days"] == "1,25"
+    assert coverage_rows[0]["scenario_execution_day_count"] == 2
+    assert coverage_rows[0]["scenario_contribution_amounts_usd"] == "500,1000"
+    assert coverage_rows[0]["scenario_contribution_amount_count"] == 2
+    assert coverage_rows[0]["scenario_start_dates"] == ""
+    assert coverage_rows[0]["scenario_start_date_count"] == 0
+    assert selection_rows[0]["matrix_scenario_cadences"] == "monthly"
+    assert selection_rows[0]["matrix_scenario_execution_days"] == "1,25"
+    assert selection_rows[0]["matrix_scenario_contribution_amounts_usd"] == "500,1000"
     assert review_decision["matrix_coverage_gate_passed"] is True
     assert review_decision["selection_groups"] == ("nasdaq_sp500_price",)
     assert review_decision["selection_count"] == 1
@@ -611,6 +622,12 @@ def test_execution_day_contribution_scenarios_cover_cadence_robustness() -> None
     assert weekly_fixed.contributions > 0.0
     assert quarterly_fixed.contributions > 0.0
 
+    coverage_rows = scenario_results_to_coverage_rows(scenarios)
+    assert coverage_rows[0]["scenario_cadences"] == "monthly,quarterly,weekly"
+    assert coverage_rows[0]["scenario_cadence_count"] == 3
+    assert coverage_rows[0]["scenario_execution_days"] == "15"
+    assert coverage_rows[0]["scenario_contribution_amounts_usd"] == "1000"
+
 
 def test_execution_day_contribution_scenarios_cover_rolling_starts() -> None:
     prices = _series([100.0 + i * 0.08 for i in range(520)])
@@ -634,6 +651,10 @@ def test_execution_day_contribution_scenarios_cover_rolling_starts() -> None:
     assert early.contributions > late.contributions
     assert early.equity_curve[0]["date"] >= "2025-01-02"
     assert late.equity_curve[0]["date"] >= "2025-07-01"
+
+    coverage_rows = scenario_results_to_coverage_rows(scenarios)
+    assert coverage_rows[0]["scenario_start_dates"] == "2025-01-02,2025-07-01"
+    assert coverage_rows[0]["scenario_start_date_count"] == 2
 
 
 def test_ibit_btc_candidate_derives_ahr999_mayer_from_prices() -> None:
