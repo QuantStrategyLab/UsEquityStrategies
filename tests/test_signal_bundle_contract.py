@@ -147,10 +147,87 @@ def _write_consumer_contract_registry_manifest(
     return registry_path, manifest_path
 
 
+def _write_signal_bundle_manifest_with_quality_report(
+    tmp_path: Path,
+    *,
+    quality_status: str = "pass",
+    failure_reasons: tuple[str, ...] = (),
+) -> tuple[Path, Path, Path]:
+    bundle_path = tmp_path / "signal_bundle.json"
+    bundle_path.write_text(FIXTURE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    quality_report = {
+        "schema_version": "market_signal_quality_report.v1",
+        "artifact_type": "local_ohlcv_quality_report",
+        "quality_status": quality_status,
+        "failure_reasons": failure_reasons,
+        "warning_reasons": (),
+        "raw_row_count": 260,
+        "normalized_row_count": 260,
+        "first_date": "2025-01-01",
+        "last_date": "2025-09-17",
+    }
+    quality_report_path = tmp_path / "quality_report.json"
+    quality_report_path.write_text(
+        json.dumps(quality_report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest = json.loads(FIXTURE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest["bundle_path"] = "signal_bundle.json"
+    manifest["bundle_sha256"] = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    manifest["quality_report_path"] = "quality_report.json"
+    manifest["quality_report_sha256"] = hashlib.sha256(
+        quality_report_path.read_bytes()
+    ).hexdigest()
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return bundle_path, manifest_path, quality_report_path
+
+
 def test_fresh_signal_bundle_is_accepted() -> None:
     validate_signal_bundle(_load_bundle())
     assert load_signal_bundle(FIXTURE_PATH)["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert load_signal_bundle_manifest(FIXTURE_MANIFEST_PATH)["bundle_path"] == "signal_bundle.json"
+
+
+def test_manifest_quality_report_reference_is_validated(tmp_path) -> None:
+    _, manifest_path, quality_report_path = _write_signal_bundle_manifest_with_quality_report(
+        tmp_path,
+    )
+
+    bundle = load_signal_bundle_from_manifest(manifest_path)
+    summary = signal_bundle_audit_summary_from_manifest(manifest_path)
+
+    assert bundle["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
+    assert summary["quality_report_path"] == str(quality_report_path.resolve())
+    assert summary["quality_report_sha256"] == hashlib.sha256(
+        quality_report_path.read_bytes()
+    ).hexdigest()
+    assert summary["quality_status"] == "pass"
+    assert summary["quality_failure_reasons"] == ()
+    assert summary["quality_normalized_row_count"] == 260
+    assert summary["quality_first_date"] == "2025-01-01"
+    assert summary["quality_last_date"] == "2025-09-17"
+
+    quality_report = json.loads(quality_report_path.read_text(encoding="utf-8"))
+    quality_report["quality_status"] = "warn"
+    quality_report_path.write_text(json.dumps(quality_report), encoding="utf-8")
+
+    with pytest.raises(SignalBundleContractError, match="quality_report_sha256"):
+        load_signal_bundle_from_manifest(manifest_path)
+
+
+def test_manifest_quality_report_fail_status_is_rejected(tmp_path) -> None:
+    _, manifest_path, _ = _write_signal_bundle_manifest_with_quality_report(
+        tmp_path,
+        quality_status="fail",
+        failure_reasons=("insufficient_history_rows",),
+    )
+
+    with pytest.raises(SignalBundleContractError, match="quality report status is fail"):
+        load_signal_bundle_from_manifest(manifest_path)
 
 
 @pytest.mark.parametrize("status", ["stale", "missing"])

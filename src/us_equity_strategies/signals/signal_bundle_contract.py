@@ -15,6 +15,7 @@ MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION = "market_signal_consumer_contra
 MARKET_SIGNAL_CONSUMER_CONTRACT_MANIFEST_SCHEMA_VERSION = (
     "market_signal_consumer_contract_manifest.v1"
 )
+QUALITY_REPORT_SCHEMA_VERSION = "market_signal_quality_report.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
 
@@ -406,6 +407,13 @@ def load_signal_bundle_manifest(path: str | PathLike[str]) -> dict[str, Any]:
     for field in ("bundle_path", "bundle_sha256", "bundle_id", "as_of", "canonical_input"):
         if not _has_non_empty_value(manifest_dict, field):
             raise SignalBundleContractError(f"signal bundle manifest missing field: {field}")
+    quality_path_present = _has_non_empty_value(manifest_dict, "quality_report_path")
+    quality_sha_present = _has_non_empty_value(manifest_dict, "quality_report_sha256")
+    if quality_path_present != quality_sha_present:
+        raise SignalBundleContractError(
+            "signal bundle manifest quality_report_path and "
+            "quality_report_sha256 must be provided together"
+        )
     return manifest_dict
 
 
@@ -463,6 +471,10 @@ def load_signal_bundle_from_manifest(path: str | PathLike[str]) -> dict[str, Any
             "signal bundle sha256 mismatch: "
             f"expected {expected_sha256}, got {actual_sha256}"
         )
+    _validate_optional_quality_report_reference(
+        manifest,
+        manifest_root=manifest_dir,
+    )
 
     bundle = load_signal_bundle(resolved_bundle_path)
     _validate_manifest_bundle_consistency(manifest, bundle)
@@ -647,6 +659,12 @@ def signal_bundle_audit_summary_from_manifest(path: str | PathLike[str]) -> dict
             "bundle_sha256": str(manifest.get("bundle_sha256", "")),
         }
     )
+    summary.update(
+        _validate_optional_quality_report_reference(
+            manifest,
+            manifest_root=Path(path).parent.resolve(),
+        )
+    )
     return summary
 
 
@@ -665,6 +683,12 @@ def signal_bundle_consumer_audit_summary_from_manifest(
             "manifest_schema_version": str(manifest.get("schema_version", "")),
             "bundle_sha256": str(manifest.get("bundle_sha256", "")),
         }
+    )
+    summary.update(
+        _validate_optional_quality_report_reference(
+            manifest,
+            manifest_root=Path(path).parent.resolve(),
+        )
     )
     return summary
 
@@ -745,6 +769,95 @@ def _indicator_fields_by_symbol(bundle: Mapping[str, Any]) -> dict[str, tuple[st
             )
         fields_by_symbol[str(symbol)] = tuple(sorted(str(field) for field in payload))
     return fields_by_symbol
+
+
+def _validate_optional_quality_report_reference(
+    manifest: Mapping[str, Any],
+    *,
+    manifest_root: Path,
+) -> dict[str, Any]:
+    if not _has_non_empty_value(manifest, "quality_report_path"):
+        return {}
+    quality_path = _resolve_relative_artifact_path(
+        manifest_root,
+        manifest["quality_report_path"],
+        owner="signal bundle manifest",
+        field="quality_report_path",
+    )
+    expected_sha256 = str(manifest["quality_report_sha256"]).strip().lower()
+    actual_sha256 = _sha256_file(quality_path)
+    if actual_sha256 != expected_sha256:
+        raise SignalBundleContractError(
+            "signal bundle quality_report_sha256 mismatch: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    quality_report = _load_quality_report(quality_path)
+    _validate_quality_report(quality_report)
+    return {
+        "quality_report_path": str(quality_path.resolve()),
+        "quality_report_sha256": expected_sha256,
+        "quality_status": str(quality_report["quality_status"]),
+        "quality_failure_reasons": tuple(quality_report["failure_reasons"]),
+        "quality_warning_reasons": tuple(quality_report["warning_reasons"]),
+        "quality_raw_row_count": int(quality_report["raw_row_count"]),
+        "quality_normalized_row_count": int(quality_report["normalized_row_count"]),
+        "quality_first_date": str(quality_report["first_date"]),
+        "quality_last_date": str(quality_report["last_date"]),
+    }
+
+
+def _load_quality_report(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        report = json.load(file_obj)
+    if not isinstance(report, Mapping):
+        raise SignalBundleContractError("quality report JSON root must be a mapping")
+    return dict(report)
+
+
+def _validate_quality_report(report: Mapping[str, Any]) -> None:
+    _validate_no_sensitive_fields(report, path="quality_report")
+    if report.get("schema_version") != QUALITY_REPORT_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported quality report schema_version: "
+            f"{report.get('schema_version')!r}"
+        )
+    if report.get("artifact_type") != "local_ohlcv_quality_report":
+        raise SignalBundleContractError(
+            "quality report artifact_type mismatch: "
+            f"{report.get('artifact_type')!r}"
+        )
+    for field in (
+        "quality_status",
+        "failure_reasons",
+        "warning_reasons",
+        "raw_row_count",
+        "normalized_row_count",
+        "first_date",
+        "last_date",
+    ):
+        if field not in report:
+            raise SignalBundleContractError(f"quality report missing field: {field}")
+    if not _has_non_empty_value(report, "quality_status"):
+        raise SignalBundleContractError("quality report missing field: quality_status")
+    if report["quality_status"] not in {"pass", "warn", "fail"}:
+        raise SignalBundleContractError(
+            f"unsupported quality_status: {report['quality_status']!r}"
+        )
+    if not _is_string_sequence(report["failure_reasons"]):
+        raise SignalBundleContractError("quality report failure_reasons must be strings")
+    if not _is_string_sequence(report["warning_reasons"]):
+        raise SignalBundleContractError("quality report warning_reasons must be strings")
+    for field in ("raw_row_count", "normalized_row_count"):
+        value = report[field]
+        if not isinstance(value, int) or value < 0:
+            raise SignalBundleContractError(
+                f"quality report {field} must be a non-negative integer"
+            )
+    if report["quality_status"] == "fail":
+        raise SignalBundleContractError(
+            "quality report status is fail: "
+            + ",".join(str(reason) for reason in report["failure_reasons"])
+        )
 
 
 def _load_signal_consumer_contract_registry_manifest(path: Path) -> dict[str, Any]:

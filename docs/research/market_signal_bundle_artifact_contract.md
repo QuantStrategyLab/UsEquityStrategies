@@ -107,12 +107,14 @@ freshness mismatch，以及任何包含敏感字段名的 manifest。
 2. 如果从 index 选择，按 canonical input、as_of、freshness 和可选 bundle id 定位
    manifest，先校验 `manifest_sha256`，再校验 index entry 与 manifest 一致。
 3. 校验 manifest schema、相对路径和敏感字段。
-4. 读取 `signal_bundle.json` 并校验 SHA-256。
-5. 校验 bundle schema、canonical input、symbols、freshness、provenance。
-6. 对 `smart_multiplier_enabled=True` 的策略，只允许 `fresh` bundle 注入。
-7. 把 `bundle["derived_indicators"]` 注入
+4. 若 manifest 声明 `quality_report_path`，读取 `quality_report.json`，校验
+   `quality_report_sha256`、schema、敏感字段，并拒绝 `quality_status=fail`。
+5. 读取 `signal_bundle.json` 并校验 SHA-256。
+6. 校验 bundle schema、canonical input、symbols、freshness、provenance。
+7. 对 `smart_multiplier_enabled=True` 的策略，只允许 `fresh` bundle 注入。
+8. 把 `bundle["derived_indicators"]` 注入
    `StrategyContext.market_data["derived_indicators"]`。
-8. 日志只写 `bundle_id`、`schema_version`、`provider_timestamp`、`source_version`、
+9. 日志只写 `bundle_id`、`schema_version`、`provider_timestamp`、`source_version`、
    `code_commit`、`transform`、`bundle_sha256`、每个 symbol 的指标字段名和字段数量。
    不写 `close`、`ahr999`、`mayer_multiple` 等指标的具体数值。
 
