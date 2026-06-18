@@ -344,6 +344,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 `review_status` 只表达矩阵内所有场景是否
 都通过 promotion gate，不自动上线策略；智能定投候选进入下一轮人工评审前，应优先看这个
 汇总，而不是只挑单个最优场景。
+顶层 `selection_summary.csv` 会按候选 family 选择当前矩阵内最强的固定候选，并明确给出
+`recommendation_status`。若没有候选通过全部 robustness gate，它会标记
+`hold_default_fixed_dca`，避免把“最不差”的 smart 版本误当成可上线推荐。
 
 ## Promotion Gate
 

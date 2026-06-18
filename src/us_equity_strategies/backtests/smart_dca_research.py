@@ -1284,6 +1284,83 @@ def scenario_results_to_robustness_rows(
     )
 
 
+def scenario_results_to_selection_rows(
+    scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
+    *,
+    fixed_name: str = "fixed",
+) -> tuple[dict[str, object], ...]:
+    """Select the strongest fixed candidate per family without parameter search.
+
+    Selection is intentionally conservative: a candidate that does not pass the
+    robustness gate can be named as the best observed variant, but it is not
+    recommended for promotion.
+    """
+
+    robustness_rows = scenario_results_to_robustness_rows(
+        scenarios,
+        fixed_name=fixed_name,
+    )
+    groups: dict[str, list[Mapping[str, object]]] = {}
+    for row in robustness_rows:
+        name = str(row["name"])
+        groups.setdefault(_selection_group_for_candidate(name), []).append(row)
+
+    selection_rows: list[dict[str, object]] = []
+    for group_name, rows in sorted(groups.items()):
+        ordered = sorted(
+            rows,
+            key=lambda row: (
+                bool(row["robustness_gate_passed"]),
+                float(row["pass_rate"]),
+                float(row["min_relative_terminal_value_pct"]),
+                float(row["min_rank_score"]),
+            ),
+            reverse=True,
+        )
+        selected = ordered[0]
+        selected_passed = bool(selected["robustness_gate_passed"])
+        selection_rows.append(
+            {
+                "selection_group": group_name,
+                "selected_name": selected["name"],
+                "recommendation_status": (
+                    "promote_to_manual_review"
+                    if selected_passed
+                    else "hold_default_fixed_dca"
+                ),
+                "recommendation_reason": (
+                    "selected_candidate_passed_all_scenarios"
+                    if selected_passed
+                    else "no_candidate_passed_robustness_gate"
+                ),
+                "selected_review_rank": selected["review_rank"],
+                "selected_review_status": selected["review_status"],
+                "selected_robustness_gate_passed": selected_passed,
+                "selected_pass_rate": selected["pass_rate"],
+                "selected_min_relative_terminal_value_pct": selected[
+                    "min_relative_terminal_value_pct"
+                ],
+                "selected_min_rank_score": selected["min_rank_score"],
+                "selected_failure_reasons": selected["failure_reasons"],
+                "candidate_count": len(ordered),
+                "compared_candidates": ",".join(str(row["name"]) for row in ordered),
+                "fixed_benchmark": fixed_name,
+            }
+        )
+    return tuple(selection_rows)
+
+
+def _selection_group_for_candidate(name: str) -> str:
+    candidate = PRESET_CANDIDATES.get(name)
+    if candidate is None:
+        return str(name)
+    family = candidate.family
+    for suffix in ("_variant",):
+        if family.endswith(suffix):
+            return family[: -len(suffix)]
+    return family
+
+
 def _robustness_review_status(*, passed_count: int, scenario_count: int) -> str:
     if scenario_count <= 0:
         return "no_scenarios"
@@ -1539,13 +1616,18 @@ def write_scenario_research_artifacts(
 
     scenario_index_path = output_path / "scenario_index.csv"
     robustness_summary_path = output_path / "robustness_summary.csv"
+    selection_summary_path = output_path / "selection_summary.csv"
     scenario_manifest_path = output_path / "scenario_manifest.json"
     pd.DataFrame(index_rows).to_csv(scenario_index_path, index=False)
     pd.DataFrame(
         scenario_results_to_robustness_rows(scenarios, fixed_name=fixed_name)
     ).to_csv(robustness_summary_path, index=False)
+    pd.DataFrame(
+        scenario_results_to_selection_rows(scenarios, fixed_name=fixed_name)
+    ).to_csv(selection_summary_path, index=False)
     artifact_paths["scenario_index"] = scenario_index_path
     artifact_paths["robustness_summary"] = robustness_summary_path
+    artifact_paths["selection_summary"] = selection_summary_path
     _write_artifact_manifest(
         scenario_manifest_path,
         artifact_type="smart_dca_research_scenario_matrix",

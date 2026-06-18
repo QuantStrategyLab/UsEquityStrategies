@@ -3,6 +3,7 @@ import json
 import pandas as pd
 
 from us_equity_strategies.backtests.smart_dca_research import (
+    DcaResearchResult,
     available_candidate_names,
     candidate_summaries_to_rows,
     candidate_specs_to_rows,
@@ -15,6 +16,7 @@ from us_equity_strategies.backtests.smart_dca_research import (
     results_to_equity_curve_rows,
     results_to_metrics_rows,
     scenario_results_to_robustness_rows,
+    scenario_results_to_selection_rows,
     summarize_candidate_evaluations,
     write_research_artifacts,
     write_scenario_research_artifacts,
@@ -24,6 +26,65 @@ from us_equity_strategies.backtests.smart_dca_research import (
 def _series(values, *, start: str = "2024-01-02") -> pd.Series:
     index = pd.date_range(start, periods=len(values), freq="B")
     return pd.Series(values, index=index, dtype=float)
+
+
+def _research_result(
+    name: str,
+    *,
+    terminal_value: float,
+    max_drawdown: float = 0.10,
+    trade_count: int = 1,
+    skipped_count: int = 0,
+    deployment_rate: float = 1.0,
+) -> DcaResearchResult:
+    return DcaResearchResult(
+        name=name,
+        terminal_value=terminal_value,
+        cash=0.0,
+        shares=terminal_value,
+        invested=1000.0,
+        contributions=1000.0,
+        max_drawdown=max_drawdown,
+        max_underwater_days=0,
+        money_weighted_return=0.0,
+        trade_count=trade_count,
+        skipped_count=skipped_count,
+        deployment_rate=deployment_rate,
+        relative_terminal_value_pct=0.0,
+        equity_curve=(
+            {
+                "date": "2025-01-01",
+                "name": name,
+                "equity": 1000.0,
+                "cash": 0.0,
+                "drawdown_pct": 0.0,
+            },
+            {
+                "date": "2026-01-01",
+                "name": name,
+                "equity": terminal_value,
+                "cash": 0.0,
+                "drawdown_pct": max_drawdown * 100.0,
+            },
+        ),
+        cash_flows=(
+            {
+                "date": "2025-01-01",
+                "name": name,
+                "cash_flow_type": "contribution",
+                "amount": -1000.0,
+            },
+            {
+                "date": "2026-01-01",
+                "name": name,
+                "cash_flow_type": "terminal_value",
+                "amount": terminal_value,
+            },
+        ),
+        trades=(),
+        skips=(),
+        last_signal_metrics={},
+    )
 
 
 def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path) -> None:
@@ -207,12 +268,19 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     )
     assert "scenario_index" in artifact_paths
     assert "robustness_summary" in artifact_paths
+    assert "selection_summary" in artifact_paths
     assert "scenario_manifest" in artifact_paths
     scenario_index = artifact_paths["scenario_index"].read_text(encoding="utf-8")
     robustness_summary = artifact_paths["robustness_summary"].read_text(encoding="utf-8")
+    selection_summary = artifact_paths["selection_summary"].read_text(encoding="utf-8")
     assert "monthly_day_1" in scenario_index
     assert "monthly_day_25" in scenario_index
     assert "pass_rate" in robustness_summary
+    assert "recommendation_status" in selection_summary
+    assert (
+        "hold_default_fixed_dca" in selection_summary
+        or "promote_to_manual_review" in selection_summary
+    )
     assert "review_status" in robustness_summary
     assert "weakest_scenario" in robustness_summary
     assert "median_money_weighted_return_pct" in robustness_summary
@@ -229,6 +297,7 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert scenario_manifest["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price"
     assert "scenario_index.csv" in {item["path"] for item in scenario_manifest["files"]}
     assert "robustness_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
+    assert "selection_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
 
 
 def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -> None:
@@ -256,6 +325,7 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     artifact_paths = write_scenario_research_artifacts(tmp_path, scenarios)
     scenario_index = artifact_paths["scenario_index"].read_text(encoding="utf-8")
     robustness_rows = scenario_results_to_robustness_rows(scenarios)
+    selection_rows = scenario_results_to_selection_rows(scenarios)
     assert "monthly_day_25_contribution_usd_1000" in scenario_index
     assert (tmp_path / "monthly_day_1_contribution_usd_500" / "metrics.csv").exists()
     assert robustness_rows[0]["name"] == "nasdaq_sp500_price_defensive"
@@ -271,6 +341,40 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert "min_money_weighted_return_pct" in robustness_rows[0]
     assert "max_average_cash_ratio_pct" in robustness_rows[0]
     assert "worst_max_drawdown_delta_pct_points" in robustness_rows[0]
+    assert selection_rows[0]["selection_group"] == "nasdaq_sp500_price"
+    assert selection_rows[0]["selected_name"] == "nasdaq_sp500_price_defensive"
+    assert selection_rows[0]["recommendation_status"] in {
+        "promote_to_manual_review",
+        "hold_default_fixed_dca",
+    }
+    assert selection_rows[0]["fixed_benchmark"] == "fixed"
+
+
+def test_selection_rows_hold_fixed_when_no_variant_passes() -> None:
+    scenarios = {
+        "scenario_a": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_defensive": _research_result(
+                "nasdaq_sp500_price_defensive",
+                terminal_value=975.0,
+                max_drawdown=0.12,
+                skipped_count=1,
+                deployment_rate=0.60,
+            ),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=980.0,
+                max_drawdown=0.12,
+            ),
+        }
+    }
+
+    rows = scenario_results_to_selection_rows(scenarios)
+
+    assert rows[0]["selection_group"] == "nasdaq_sp500_price"
+    assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert rows[0]["recommendation_reason"] == "no_candidate_passed_robustness_gate"
+    assert "nasdaq_sp500_price_no_skip" in rows[0]["compared_candidates"]
 
 
 def test_execution_day_contribution_scenarios_cover_cadence_robustness() -> None:
