@@ -296,6 +296,9 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 version、transform、bundle sha256、指标字段清单等字段；它不拉取 vendor 数据，也不输出
 token、signed URL、cookie、secret 或指标具体数值。
 
+后续独立仓库的 Phase 1 模块划分、crypto 侧可复用指标目录、artifact families 和验证门槛，
+记录在 `docs/research/market_signal_sources_bootstrap_plan.md`。
+
 ### 扩展路线
 
 Phase 1：IBIT / BTC cycle MVP

@@ -196,3 +196,8 @@ read prepared bundles, not call slow vendors during order generation.
 Migration risk is best handled per profile. IBIT should be the first cross-market
 consumer because its current strategy already has a narrow BTC/AHR999 signal
 surface and a fixed DCA fallback.
+
+The concrete bootstrap plan for the future `MarketSignalSources` repository,
+including crypto live-pool indicator families observed from the existing crypto
+pipeline, is tracked in
+`docs/research/market_signal_sources_bootstrap_plan.md`.
