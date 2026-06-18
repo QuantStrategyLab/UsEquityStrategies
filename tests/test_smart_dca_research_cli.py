@@ -140,6 +140,8 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "min_review_scenarios" in selection_summary
     assert "selected_candidate_definition_sha256" in selection_summary
     assert "selection_policy" in selection_summary
+    assert "matrix_coverage_gate_passed" in selection_summary
+    assert "matrix_coverage_status" in selection_summary
     assert "coverage_gate_passed" in scenario_coverage
     assert "ready_for_selection_review" in scenario_coverage
     assert "review_status" in robustness_summary

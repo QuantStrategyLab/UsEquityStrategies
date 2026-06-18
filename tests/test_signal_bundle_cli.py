@@ -82,3 +82,40 @@ def test_signal_bundle_cli_validates_consumer_indicator_fields(capsys) -> None:
     assert summary["required_indicator_fields_by_symbol"] == {
         "BTC-USD": ["ahr999", "ahr999_sma", "mayer_multiple"]
     }
+
+
+def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys) -> None:
+    registry_path = tmp_path / "market_signal_consumers.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "contracts": [
+                    {
+                        "consumer": "us_equity:ibit_smart_dca",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--consumer-contract-registry",
+            str(registry_path),
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["schema_version"] == "market_signal_consumer_contracts.v1"
+    assert summary["consumer_count"] == 1
+    assert summary["consumers"] == ["us_equity:ibit_smart_dca"]
+    assert summary["path"] == str(registry_path.resolve())

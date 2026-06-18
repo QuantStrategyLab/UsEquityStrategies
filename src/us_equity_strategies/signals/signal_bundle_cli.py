@@ -9,6 +9,7 @@ import sys
 from .signal_bundle_contract import (
     CANONICAL_INPUT_DERIVED_INDICATORS,
     SignalBundleContractError,
+    signal_consumer_contract_registry_audit_summary_from_file,
     signal_bundle_consumer_audit_summary_from_index,
     signal_bundle_consumer_audit_summary_from_manifest,
     signal_bundle_audit_summary_from_index,
@@ -21,9 +22,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if args.index is not None and args.manifest is not None:
+        if args.consumer_contract_registry is not None:
+            if args.index is not None or args.manifest is not None or args.consumer:
+                raise SignalBundleContractError(
+                    "provide --consumer-contract-registry without manifest, --index, or --consumer"
+                )
+            summary = signal_consumer_contract_registry_audit_summary_from_file(
+                args.consumer_contract_registry,
+                expected_canonical_input=args.canonical_input,
+            )
+        elif args.index is not None and args.manifest is not None:
             raise SignalBundleContractError("provide either manifest or --index, not both")
-        if args.index is not None:
+        elif args.index is not None:
             if args.consumer:
                 summary = signal_bundle_consumer_audit_summary_from_index(
                     args.index,
@@ -48,7 +58,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 summary = signal_bundle_audit_summary_from_manifest(args.manifest)
         else:
-            raise SignalBundleContractError("provide a manifest path or --index")
+            raise SignalBundleContractError(
+                "provide a manifest path, --index, or --consumer-contract-registry"
+            )
     except (OSError, SignalBundleContractError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -66,6 +78,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("manifest", nargs="?", type=Path)
     parser.add_argument("--index", type=Path, help="Resolve a manifest from a local bundle index.")
+    parser.add_argument(
+        "--consumer-contract-registry",
+        type=Path,
+        help="Validate an external consumer contract registry JSON artifact.",
+    )
     parser.add_argument("--as-of", help="Select the latest index entry at or before this as_of date.")
     parser.add_argument("--bundle-id", help="Require a specific bundle_id from the index.")
     parser.add_argument("--canonical-input", default=CANONICAL_INPUT_DERIVED_INDICATORS)

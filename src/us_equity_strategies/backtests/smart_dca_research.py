@@ -1304,6 +1304,12 @@ def scenario_results_to_selection_rows(
     )
     if min_review_scenarios < 1:
         raise ValueError("min_review_scenarios must be at least 1")
+    coverage_row = scenario_results_to_coverage_rows(
+        scenarios,
+        fixed_name=fixed_name,
+        min_review_scenarios=min_review_scenarios,
+    )[0]
+    matrix_coverage_gate_passed = bool(coverage_row["coverage_gate_passed"])
     groups: dict[str, list[Mapping[str, object]]] = {}
     for row in robustness_rows:
         name = str(row["name"])
@@ -1325,7 +1331,11 @@ def scenario_results_to_selection_rows(
         selected_passed = bool(selected["robustness_gate_passed"])
         selected_scenario_count = int(selected["scenario_count"])
         scenario_gate_passed = selected_scenario_count >= min_review_scenarios
-        promotion_ready = selected_passed and scenario_gate_passed
+        promotion_ready = (
+            selected_passed
+            and scenario_gate_passed
+            and matrix_coverage_gate_passed
+        )
         selection_rows.append(
             {
                 "selection_group": group_name,
@@ -1345,6 +1355,7 @@ def scenario_results_to_selection_rows(
                 "recommendation_reason": _selection_recommendation_reason(
                     selected_passed=selected_passed,
                     scenario_gate_passed=scenario_gate_passed,
+                    matrix_coverage_gate_passed=matrix_coverage_gate_passed,
                 ),
                 "selected_review_rank": selected["review_rank"],
                 "selected_review_status": selected["review_status"],
@@ -1352,6 +1363,9 @@ def scenario_results_to_selection_rows(
                 "selected_scenario_count": selected_scenario_count,
                 "min_review_scenarios": min_review_scenarios,
                 "review_scenario_gate_passed": scenario_gate_passed,
+                "matrix_coverage_gate_passed": matrix_coverage_gate_passed,
+                "matrix_coverage_status": coverage_row["coverage_status"],
+                "matrix_coverage_failure_reasons": coverage_row["failure_reasons"],
                 "selected_pass_rate": selected["pass_rate"],
                 "selected_min_relative_terminal_value_pct": selected[
                     "min_relative_terminal_value_pct"
@@ -1445,10 +1459,13 @@ def _selection_recommendation_reason(
     *,
     selected_passed: bool,
     scenario_gate_passed: bool,
+    matrix_coverage_gate_passed: bool,
 ) -> str:
-    if selected_passed and scenario_gate_passed:
+    if selected_passed and scenario_gate_passed and matrix_coverage_gate_passed:
         return "selected_candidate_passed_all_scenarios"
     if selected_passed:
+        if scenario_gate_passed:
+            return "insufficient_scenario_matrix_coverage"
         return "insufficient_robustness_scenarios"
     return "no_candidate_passed_robustness_gate"
 

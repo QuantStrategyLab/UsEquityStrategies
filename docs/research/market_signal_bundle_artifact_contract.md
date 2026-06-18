@@ -133,6 +133,18 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --pretty
 ```
 
+平台或策略仓 CI 也应校验 `MarketSignalSources` 发布的 consumer contract registry artifact，
+确认上游声明的字段集合没有和本策略仓的本地契约漂移：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --consumer-contract-registry ./data/output/market_signal_consumers.json \
+  --pretty
+```
+
+该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
+unknown consumer、字段漂移、重复字段和疑似 token / secret / signed URL key。
+
 该审计输出会包含：
 
 - `indicator_fields_by_symbol`：例如 `BTC-USD` 下有哪些字段名，包括 `ahr999`、

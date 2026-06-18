@@ -11,6 +11,7 @@ from typing import Any
 MARKET_SIGNAL_BUNDLE_SCHEMA_VERSION = "market_signal_bundle.v1"
 MARKET_SIGNAL_MANIFEST_SCHEMA_VERSION = "market_signal_manifest.v1"
 MARKET_SIGNAL_INDEX_SCHEMA_VERSION = "market_signal_index.v1"
+MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION = "market_signal_consumer_contracts.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
 
@@ -140,6 +141,99 @@ def required_indicator_fields_for_consumer(
         symbol: tuple(fields)
         for symbol, fields in REQUIRED_INDICATOR_FIELDS_BY_CONSUMER[normalized].items()
     }
+
+
+def validate_signal_consumer_contract_registry(
+    registry: Mapping[str, Any],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+) -> None:
+    """Validate an external consumer contract registry against this strategy package."""
+
+    if not isinstance(registry, Mapping):
+        raise SignalBundleContractError("consumer contract registry must be a mapping")
+    _validate_no_sensitive_fields(registry, path="consumer_contract_registry")
+    schema_version = registry.get("schema_version")
+    if schema_version != MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported consumer contract registry schema_version: "
+            f"{schema_version!r}"
+        )
+    canonical_input = str(registry.get("canonical_input", "")).strip()
+    if canonical_input != expected_canonical_input:
+        raise SignalBundleContractError(
+            "consumer contract registry canonical_input mismatch: "
+            f"expected {expected_canonical_input!r}, got {canonical_input!r}"
+        )
+    contracts = registry.get("contracts")
+    if not isinstance(contracts, list) or not contracts:
+        raise SignalBundleContractError(
+            "consumer contract registry contracts must be a non-empty list"
+        )
+
+    seen_consumers: set[str] = set()
+    for contract in contracts:
+        _validate_signal_consumer_contract_record(
+            contract,
+            expected_canonical_input=expected_canonical_input,
+            seen_consumers=seen_consumers,
+        )
+
+
+def load_signal_consumer_contract_registry(path: str | PathLike[str]) -> dict[str, Any]:
+    """Load and validate an external consumer contract registry JSON artifact."""
+
+    with open(path, encoding="utf-8") as file_obj:
+        registry = json.load(file_obj)
+    if not isinstance(registry, Mapping):
+        raise SignalBundleContractError("consumer contract registry JSON root must be a mapping")
+    registry_dict = dict(registry)
+    validate_signal_consumer_contract_registry(registry_dict)
+    return registry_dict
+
+
+def signal_consumer_contract_registry_audit_summary(
+    registry: Mapping[str, Any],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+) -> dict[str, Any]:
+    """Return non-sensitive audit metadata for an external consumer contract registry."""
+
+    validate_signal_consumer_contract_registry(
+        registry,
+        expected_canonical_input=expected_canonical_input,
+    )
+    contracts = registry["contracts"]
+    return {
+        "schema_version": str(registry.get("schema_version", "")),
+        "canonical_input": str(registry.get("canonical_input", "")),
+        "consumer_count": len(contracts),
+        "consumers": tuple(str(contract["consumer"]) for contract in contracts),
+        "known_consumer_count": len(REQUIRED_INDICATOR_FIELDS_BY_CONSUMER),
+    }
+
+
+def signal_consumer_contract_registry_audit_summary_from_file(
+    path: str | PathLike[str],
+    *,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+) -> dict[str, Any]:
+    """Load a consumer contract registry artifact and return audit metadata."""
+
+    registry_path = Path(path)
+    registry = load_signal_consumer_contract_registry(registry_path)
+    summary = signal_consumer_contract_registry_audit_summary(
+        registry,
+        expected_canonical_input=expected_canonical_input,
+    )
+    summary.update(
+        {
+            "path": str(registry_path.resolve()),
+            "sha256": _sha256_file(registry_path),
+            "size_bytes": registry_path.stat().st_size,
+        }
+    )
+    return summary
 
 
 def validate_signal_bundle_indicator_fields(
@@ -576,6 +670,54 @@ def _indicator_fields_by_symbol(bundle: Mapping[str, Any]) -> dict[str, tuple[st
             )
         fields_by_symbol[str(symbol)] = tuple(sorted(str(field) for field in payload))
     return fields_by_symbol
+
+
+def _validate_signal_consumer_contract_record(
+    contract: object,
+    *,
+    expected_canonical_input: str,
+    seen_consumers: set[str],
+) -> None:
+    if not isinstance(contract, Mapping):
+        raise SignalBundleContractError("consumer contract registry entries must be mappings")
+    consumer = str(contract.get("consumer", "")).strip()
+    if not consumer:
+        raise SignalBundleContractError("consumer contract registry entry missing consumer")
+    if consumer in seen_consumers:
+        raise SignalBundleContractError(f"duplicate consumer contract registry entry: {consumer}")
+    seen_consumers.add(consumer)
+    canonical_input = str(contract.get("canonical_input", "")).strip()
+    if canonical_input != expected_canonical_input:
+        raise SignalBundleContractError(
+            f"consumer contract {consumer} canonical_input mismatch: {canonical_input!r}"
+        )
+    fields_by_symbol = contract.get("required_indicator_fields_by_symbol")
+    if not isinstance(fields_by_symbol, Mapping) or not fields_by_symbol:
+        raise SignalBundleContractError(
+            f"consumer contract {consumer} missing required indicator fields"
+        )
+    expected = required_indicator_fields_for_consumer(consumer)
+    normalized: dict[str, tuple[str, ...]] = {}
+    for symbol, raw_fields in fields_by_symbol.items():
+        normalized_symbol = str(symbol).strip()
+        if not normalized_symbol:
+            raise SignalBundleContractError(
+                f"consumer contract {consumer} has empty indicator symbol"
+            )
+        if not _is_string_sequence(raw_fields):
+            raise SignalBundleContractError(
+                f"consumer contract {consumer} fields for {normalized_symbol} must be strings"
+            )
+        fields = tuple(str(field).strip() for field in raw_fields)
+        if len(set(fields)) != len(fields):
+            raise SignalBundleContractError(
+                f"consumer contract {consumer} fields for {normalized_symbol} include duplicates"
+            )
+        normalized[normalized_symbol] = fields
+    if normalized != expected:
+        raise SignalBundleContractError(
+            f"consumer contract {consumer} required fields drift from local contract"
+        )
 
 
 def _normalize_symbol(symbol: object) -> str:

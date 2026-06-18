@@ -354,6 +354,9 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     }
     assert selection_rows[0]["min_review_scenarios"] == 3
     assert selection_rows[0]["review_scenario_gate_passed"] is True
+    assert selection_rows[0]["matrix_coverage_gate_passed"] is True
+    assert selection_rows[0]["matrix_coverage_status"] == "ready_for_selection_review"
+    assert selection_rows[0]["matrix_coverage_failure_reasons"] == ""
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
     assert coverage_rows[0]["scenario_count"] == 4
     assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
@@ -404,6 +407,7 @@ def test_selection_rows_require_minimum_robustness_scenarios() -> None:
     assert rows[0]["selected_scenario_count"] == 1
     assert rows[0]["min_review_scenarios"] == 3
     assert rows[0]["review_scenario_gate_passed"] is False
+    assert rows[0]["matrix_coverage_gate_passed"] is False
     assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
     assert rows[0]["recommendation_reason"] == "insufficient_robustness_scenarios"
 
@@ -413,6 +417,51 @@ def test_selection_rows_require_minimum_robustness_scenarios() -> None:
     )
     assert relaxed_rows[0]["recommendation_status"] == "promote_to_manual_review"
     assert relaxed_rows[0]["recommendation_reason"] == "selected_candidate_passed_all_scenarios"
+
+
+def test_selection_rows_hold_fixed_when_matrix_coverage_fails() -> None:
+    scenarios = {
+        "scenario_a": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1020.0,
+                max_drawdown=0.09,
+            ),
+            "nasdaq_sp500_price_defensive": _research_result(
+                "nasdaq_sp500_price_defensive",
+                terminal_value=990.0,
+                max_drawdown=0.12,
+            ),
+        },
+        "scenario_b": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1020.0,
+                max_drawdown=0.09,
+            ),
+        },
+        "scenario_c": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1020.0,
+                max_drawdown=0.09,
+            ),
+        },
+    }
+
+    rows = scenario_results_to_selection_rows(scenarios)
+
+    assert rows[0]["selected_name"] == "nasdaq_sp500_price_no_skip"
+    assert rows[0]["selected_robustness_gate_passed"] is True
+    assert rows[0]["review_scenario_gate_passed"] is True
+    assert rows[0]["matrix_coverage_gate_passed"] is False
+    assert rows[0]["matrix_coverage_status"] == "insufficient_coverage"
+    assert rows[0]["matrix_coverage_failure_reasons"] == "candidate_set_inconsistent"
+    assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert rows[0]["recommendation_reason"] == "insufficient_scenario_matrix_coverage"
 
 
 def test_scenario_coverage_rows_flag_incomplete_or_inconsistent_matrix() -> None:

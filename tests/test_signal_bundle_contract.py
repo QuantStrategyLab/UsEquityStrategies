@@ -13,6 +13,7 @@ from us_equity_strategies.signals import (
     extract_canonical_input_from_file,
     extract_canonical_input_from_index,
     extract_canonical_input_from_manifest,
+    load_signal_consumer_contract_registry,
     load_signal_bundle,
     load_signal_bundle_from_index,
     load_signal_bundle_from_manifest,
@@ -20,12 +21,15 @@ from us_equity_strategies.signals import (
     load_signal_bundle_manifest,
     resolve_signal_bundle_manifest_from_index,
     required_indicator_fields_for_consumer,
+    signal_consumer_contract_registry_audit_summary,
+    signal_consumer_contract_registry_audit_summary_from_file,
     signal_bundle_consumer_audit_summary,
     signal_bundle_consumer_audit_summary_from_index,
     signal_bundle_consumer_audit_summary_from_manifest,
     signal_bundle_audit_summary,
     signal_bundle_audit_summary_from_index,
     signal_bundle_audit_summary_from_manifest,
+    validate_signal_consumer_contract_registry,
     validate_signal_bundle,
     validate_signal_bundle_for_consumer,
     validate_signal_bundle_indicator_fields,
@@ -53,6 +57,29 @@ FIXTURE_INDEX_PATH = (
 
 def _load_bundle() -> dict[str, object]:
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+
+
+def _consumer_contract_registry() -> dict[str, object]:
+    return {
+        "schema_version": "market_signal_consumer_contracts.v1",
+        "canonical_input": "derived_indicators",
+        "contracts": [
+            {
+                "consumer": "us_equity:ibit_smart_dca",
+                "canonical_input": "derived_indicators",
+                "required_indicator_fields_by_symbol": {
+                    "BTC-USD": ["ahr999", "mayer_multiple"],
+                },
+            },
+            {
+                "consumer": "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                "canonical_input": "derived_indicators",
+                "required_indicator_fields_by_symbol": {
+                    "BTC-USD": ["ahr999", "ahr999_sma", "mayer_multiple"],
+                },
+            },
+        ],
+    }
 
 
 def test_fresh_signal_bundle_is_accepted() -> None:
@@ -199,6 +226,41 @@ def test_signal_bundle_rejects_missing_consumer_required_indicator_fields() -> N
 def test_signal_bundle_rejects_unknown_consumer_contract() -> None:
     with pytest.raises(SignalBundleContractError, match="unknown signal bundle consumer"):
         required_indicator_fields_for_consumer("unknown:consumer")
+
+
+def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -> None:
+    registry = _consumer_contract_registry()
+    registry_path = tmp_path / "market_signal_consumers.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    validate_signal_consumer_contract_registry(registry)
+    loaded = load_signal_consumer_contract_registry(registry_path)
+    summary = signal_consumer_contract_registry_audit_summary(registry)
+    file_summary = signal_consumer_contract_registry_audit_summary_from_file(registry_path)
+
+    assert loaded == registry
+    assert summary["schema_version"] == "market_signal_consumer_contracts.v1"
+    assert summary["consumer_count"] == 2
+    assert summary["consumers"] == (
+        "us_equity:ibit_smart_dca",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    )
+    assert file_summary["sha256"] == hashlib.sha256(
+        registry_path.read_bytes()
+    ).hexdigest()
+    assert file_summary["size_bytes"] == registry_path.stat().st_size
+
+
+def test_external_consumer_contract_registry_rejects_drift() -> None:
+    registry = _consumer_contract_registry()
+    contracts = registry["contracts"]
+    assert isinstance(contracts, list)
+    required_fields = contracts[1]["required_indicator_fields_by_symbol"]
+    assert isinstance(required_fields, dict)
+    required_fields["BTC-USD"] = ["ahr999", "mayer_multiple"]
+
+    with pytest.raises(SignalBundleContractError, match="drift"):
+        validate_signal_consumer_contract_registry(registry)
 
 
 def test_index_resolves_latest_fresh_manifest_for_platform_loader() -> None:
