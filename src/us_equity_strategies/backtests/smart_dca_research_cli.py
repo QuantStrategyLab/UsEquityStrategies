@@ -93,6 +93,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir,
             scenarios,
             metadata=metadata,
+            min_review_scenarios=args.min_review_scenarios,
         )
     except (OSError, ValueError, pd.errors.ParserError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -166,6 +167,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--min-investment-usd", type=float, default=0.0)
     parser.add_argument(
+        "--min-review-scenarios",
+        type=int,
+        default=3,
+        help=(
+            "Minimum scenario count before selection_summary can promote a "
+            "candidate to manual review."
+        ),
+    )
+    parser.add_argument(
         "--cadences",
         default="monthly",
         help="Comma-separated DCA cadences for robustness runs: weekly, monthly, quarterly.",
@@ -223,6 +233,7 @@ def _research_metadata(
             "end_date": args.end_date,
             "align_start_after_warmup": not args.no_align_start_after_warmup,
             "min_investment_usd": args.min_investment_usd,
+            "min_review_scenarios": args.min_review_scenarios,
         },
         "input_artifacts": {
             "signal_csv": _file_record(args.signal_csv),

@@ -347,6 +347,10 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 顶层 `selection_summary.csv` 会按候选 family 选择当前矩阵内最强的固定候选，并明确给出
 `recommendation_status`。若没有候选通过全部 robustness gate，它会标记
 `hold_default_fixed_dca`，避免把“最不差”的 smart 版本误当成可上线推荐。
+即使候选在已有场景内全部通过，也必须达到 `--min-review-scenarios`（默认 3）后才会进入
+`promote_to_manual_review`；否则 `recommendation_reason` 会记录为
+`insufficient_robustness_scenarios`。这个 gate 不是统计显著性证明，只是防止单一窗口或单一
+现金流设置被误用为上线证据。
 
 ## Promotion Gate
 

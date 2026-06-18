@@ -69,6 +69,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert summary["cadences"] == ["weekly", "monthly", "quarterly"]
     assert summary["start_dates"] == ["2025-01-02", "2025-04-01"]
     assert summary["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price_variants"
+    assert summary["metadata"]["research_config"]["min_review_scenarios"] == 3
     assert summary["metadata"]["research_config"]["cadences"] == [
         "weekly",
         "monthly",
@@ -132,9 +133,11 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "pass_rate" in robustness_summary
     assert "recommendation_status" in selection_summary
     assert "selected_name" in selection_summary
+    assert "min_review_scenarios" in selection_summary
     assert "review_status" in robustness_summary
     assert "weakest_scenario" in robustness_summary
     assert "max_terminal_cash_ratio_pct" in robustness_summary
+    assert scenario_manifest["min_review_scenarios"] == 3
     assert scenario_manifest["metadata"]["research_config"]["execution_days"] == [1, 25]
     assert scenario_manifest["metadata"]["research_config"]["cadences"] == [
         "weekly",

@@ -294,6 +294,7 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert (tmp_path / "monthly_day_25" / "candidate_specs.csv").exists()
     scenario_manifest = json.loads(artifact_paths["scenario_manifest"].read_text(encoding="utf-8"))
     assert scenario_manifest["artifact_type"] == "smart_dca_research_scenario_matrix"
+    assert scenario_manifest["min_review_scenarios"] == 3
     assert scenario_manifest["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price"
     assert "scenario_index.csv" in {item["path"] for item in scenario_manifest["files"]}
     assert "robustness_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
@@ -347,6 +348,8 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
         "promote_to_manual_review",
         "hold_default_fixed_dca",
     }
+    assert selection_rows[0]["min_review_scenarios"] == 3
+    assert selection_rows[0]["review_scenario_gate_passed"] is True
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
 
 
@@ -375,6 +378,34 @@ def test_selection_rows_hold_fixed_when_no_variant_passes() -> None:
     assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
     assert rows[0]["recommendation_reason"] == "no_candidate_passed_robustness_gate"
     assert "nasdaq_sp500_price_no_skip" in rows[0]["compared_candidates"]
+
+
+def test_selection_rows_require_minimum_robustness_scenarios() -> None:
+    scenarios = {
+        "scenario_a": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1020.0,
+                max_drawdown=0.09,
+            ),
+        }
+    }
+
+    rows = scenario_results_to_selection_rows(scenarios)
+    assert rows[0]["selected_robustness_gate_passed"] is True
+    assert rows[0]["selected_scenario_count"] == 1
+    assert rows[0]["min_review_scenarios"] == 3
+    assert rows[0]["review_scenario_gate_passed"] is False
+    assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert rows[0]["recommendation_reason"] == "insufficient_robustness_scenarios"
+
+    relaxed_rows = scenario_results_to_selection_rows(
+        scenarios,
+        min_review_scenarios=1,
+    )
+    assert relaxed_rows[0]["recommendation_status"] == "promote_to_manual_review"
+    assert relaxed_rows[0]["recommendation_reason"] == "selected_candidate_passed_all_scenarios"
 
 
 def test_execution_day_contribution_scenarios_cover_cadence_robustness() -> None:

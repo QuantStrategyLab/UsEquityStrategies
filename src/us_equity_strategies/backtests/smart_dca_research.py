@@ -1288,6 +1288,7 @@ def scenario_results_to_selection_rows(
     scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
     *,
     fixed_name: str = "fixed",
+    min_review_scenarios: int = 3,
 ) -> tuple[dict[str, object], ...]:
     """Select the strongest fixed candidate per family without parameter search.
 
@@ -1300,6 +1301,8 @@ def scenario_results_to_selection_rows(
         scenarios,
         fixed_name=fixed_name,
     )
+    if min_review_scenarios < 1:
+        raise ValueError("min_review_scenarios must be at least 1")
     groups: dict[str, list[Mapping[str, object]]] = {}
     for row in robustness_rows:
         name = str(row["name"])
@@ -1319,23 +1322,28 @@ def scenario_results_to_selection_rows(
         )
         selected = ordered[0]
         selected_passed = bool(selected["robustness_gate_passed"])
+        selected_scenario_count = int(selected["scenario_count"])
+        scenario_gate_passed = selected_scenario_count >= min_review_scenarios
+        promotion_ready = selected_passed and scenario_gate_passed
         selection_rows.append(
             {
                 "selection_group": group_name,
                 "selected_name": selected["name"],
                 "recommendation_status": (
                     "promote_to_manual_review"
-                    if selected_passed
+                    if promotion_ready
                     else "hold_default_fixed_dca"
                 ),
-                "recommendation_reason": (
-                    "selected_candidate_passed_all_scenarios"
-                    if selected_passed
-                    else "no_candidate_passed_robustness_gate"
+                "recommendation_reason": _selection_recommendation_reason(
+                    selected_passed=selected_passed,
+                    scenario_gate_passed=scenario_gate_passed,
                 ),
                 "selected_review_rank": selected["review_rank"],
                 "selected_review_status": selected["review_status"],
                 "selected_robustness_gate_passed": selected_passed,
+                "selected_scenario_count": selected_scenario_count,
+                "min_review_scenarios": min_review_scenarios,
+                "review_scenario_gate_passed": scenario_gate_passed,
                 "selected_pass_rate": selected["pass_rate"],
                 "selected_min_relative_terminal_value_pct": selected[
                     "min_relative_terminal_value_pct"
@@ -1348,6 +1356,18 @@ def scenario_results_to_selection_rows(
             }
         )
     return tuple(selection_rows)
+
+
+def _selection_recommendation_reason(
+    *,
+    selected_passed: bool,
+    scenario_gate_passed: bool,
+) -> str:
+    if selected_passed and scenario_gate_passed:
+        return "selected_candidate_passed_all_scenarios"
+    if selected_passed:
+        return "insufficient_robustness_scenarios"
+    return "no_candidate_passed_robustness_gate"
 
 
 def _selection_group_for_candidate(name: str) -> str:
@@ -1580,6 +1600,7 @@ def write_scenario_research_artifacts(
     *,
     fixed_name: str = "fixed",
     metadata: Mapping[str, object] | None = None,
+    min_review_scenarios: int = 3,
 ) -> dict[str, Path]:
     """Write per-scenario artifacts and a top-level scenario index CSV."""
 
@@ -1623,7 +1644,11 @@ def write_scenario_research_artifacts(
         scenario_results_to_robustness_rows(scenarios, fixed_name=fixed_name)
     ).to_csv(robustness_summary_path, index=False)
     pd.DataFrame(
-        scenario_results_to_selection_rows(scenarios, fixed_name=fixed_name)
+        scenario_results_to_selection_rows(
+            scenarios,
+            fixed_name=fixed_name,
+            min_review_scenarios=min_review_scenarios,
+        )
     ).to_csv(selection_summary_path, index=False)
     artifact_paths["scenario_index"] = scenario_index_path
     artifact_paths["robustness_summary"] = robustness_summary_path
@@ -1635,6 +1660,7 @@ def write_scenario_research_artifacts(
         root=output_path,
         extra={
             "fixed_name": fixed_name,
+            "min_review_scenarios": min_review_scenarios,
             "scenario_names": tuple(scenarios),
             "metadata": dict(metadata or {}),
         },
