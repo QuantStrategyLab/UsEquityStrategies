@@ -17,14 +17,14 @@ Because IBIT is a spot bitcoin ETF rather than a diversified equity ETF, the int
 
 The implementation follows `nasdaq_sp500_smart_dca` where possible:
 
-- direct runtime inputs: `market_history` and `portfolio_snapshot`
-- default signal source: `BTC-USD`
+- direct runtime inputs: `derived_indicators` and `portfolio_snapshot`
+- compatible fallback signal source: `market_history` for `BTC-USD`
 - default trade target: `IBIT`
 - buy-only value targets; no automatic sell-down
 - weekly, monthly, or quarterly execution window
 - cash reserve and minimum investment gates
 - fixed-amount investment sizing from `base_investment_usd`
-- optional trend, pullback, and overvaluation regimes based on daily close history
+- optional AHR999 cycle regimes; BTC price-history pullback regimes remain as fallback
 
 The strategy follows the same value-target pattern as `nasdaq_sp500_smart_dca`: each actionable run sets `target_value = current IBIT market value + planned investment`. It does not cap IBIT by a portfolio percentage and does not rebalance by selling.
 
@@ -45,7 +45,21 @@ can override `cash_reserve_usd` or `max_investment_usd`.
 
 ## Default Regimes
 
-The default signal source uses bitcoin spot history rather than IBIT history. This mirrors `nasdaq_sp500_smart_dca`, which reads QQQ/SPY signals and trades QQQM/SPLG accumulation ETFs. Deployments can override `signal_symbols` if their data provider uses a different bitcoin symbol such as `BTCUSDT`.
+IBIT trades on US equity platforms, but its signal source is crypto-native. The
+runtime contract therefore follows the crypto strategy package pattern: the
+preferred input is an externally maintained `derived_indicators` snapshot keyed
+by `BTC-USD`, `BTCUSDT`, or `BTC`. This avoids assuming that every US broker
+platform can serve reliable bitcoin spot or chain-derived indicators. The
+strategy still accepts `market_history` as a compatibility fallback for local
+tests or platforms that already expose BTC spot close history.
+
+The `CryptoStrategies` package uses externally supplied `derived_indicators`
+and `benchmark_snapshot` inputs instead of fetching exchange data inside the
+strategy. Its current live rotation indicators are trend and liquidity metrics:
+`close`, `sma20`, `sma60`, `sma200`, `roc20`, `roc60`, `roc120`, `vol20`,
+`avg_quote_vol_*`, `trend_persist_90`, `age_days`, and BTC benchmark ROC
+fields. It does not currently use AHR999, MVRV, or NUPL directly, but the same
+input-boundary pattern is the right fit for IBIT's crypto signal dependency.
 
 The strategy emits dollar `target_value` outputs and this platform DCA profile
 assumes fractional-share / dollar-order execution. `min_investment_usd` is only a
@@ -60,21 +74,48 @@ Sizing controls:
 - `cadence = "monthly"` by default; `weekly` and `quarterly` are supported configuration options
 - `monthly_window_calendar_days`, `weekly_window_calendar_days`, and `quarterly_window_calendar_days` define retry windows
 - `smart_multiplier_enabled = false` keeps the profile in ordinary DCA mode; this is the default
-- `smart_multiplier_enabled = true` enables bitcoin pullback / overvaluation sizing
+- `smart_multiplier_enabled = true` enables external AHR999 cycle sizing when available
+- `cycle_indicator_enabled = true` prefers AHR999 from `derived_indicators`; set it to `false` for price-history pullback sizing only
 
 Ordinary DCA mode does not need 252-day signal indicators before it can place the
-scheduled buy. Smart sizing mode still requires enough bitcoin spot history to
-classify the pullback or overvaluation regime.
+scheduled buy. Smart sizing can run from an external AHR999 snapshot without
+pulling BTC price history. If no AHR999 value is supplied, the strategy falls
+back to BTC spot history and requires enough daily closes to classify the
+pullback or overvaluation regime.
 
-When smart sizing is enabled, bitcoin uses wider thresholds than broad equity ETFs:
+AHR999 is a BTC cycle valuation indicator. Public descriptions define it as the
+product of BTC price versus 200-day cost and BTC price versus an exponential
+growth valuation fitted to coin age:
+
+`AHR999 = (BTC price / 200-day cost) * (BTC price / growth estimate price)`
+
+This implementation prefers the geometric 200-day cost (`ahr999` or
+`ahr999_gma`) when an external snapshot supplies it. It can also derive a
+compatible value from BTC close history using:
+
+`growth estimate price = 10 ^ (5.84 * log10(days since 2009-01-03) - 17.01)`
+
+Selected AHR999 smart sizing:
 
 | Regime | Default trigger | Default multiplier |
 | --- | --- | ---: |
-| `severe_pullback` | 252-day drawdown >= 40% | 2.50x |
-| `deep_pullback` | drawdown >= 25% or <= -18% vs SMA200 | 1.75x |
-| `mild_pullback` | drawdown >= 12% or <= -8% vs SMA200 | 1.25x |
-| `very_expensive_overbought` | >= 60% vs SMA200, shallow drawdown, RSI overbought | 0.00x |
-| `expensive` | >= 30% vs SMA200 with shallow drawdown | 0.50x |
+| `ahr999_bottom` | AHR999 <= 0.45 | 3.00x |
+| `ahr999_accumulation` | AHR999 <= 0.80 | 2.25x |
+| `ahr999_dca` | AHR999 <= 1.20 | 1.50x |
+| `ahr999_expensive` | AHR999 > 1.20 | 0.00x |
+
+The `ahr999_expensive` rule intentionally skips smart DCA buys in the expensive
+zone. Ordinary DCA mode is unaffected and still buys the fixed base amount.
+
+Fallback BTC price-history sizing uses wider thresholds than broad equity ETFs:
+
+| Regime | Default trigger | Default multiplier |
+| --- | --- | ---: |
+| `severe_pullback` | 252-day drawdown >= 40% | 3.00x |
+| `deep_pullback` | drawdown >= 25% or <= -18% vs SMA200 | 2.25x |
+| `mild_pullback` | drawdown >= 12% or <= -8% vs SMA200 | 1.50x |
+| `very_expensive_overbought` | >= 60% vs SMA200, shallow drawdown, RSI overbought | 1.00x |
+| `expensive` | >= 30% vs SMA200 with shallow drawdown | 1.00x |
 | `normal` | none of the above | 1.00x |
 
 ## BTC Proxy Backtest
@@ -88,26 +129,45 @@ signal and a synthetic IBIT NAV path. The Binance spot API documents
 
 Run date: 2026-06-19. Data window: 2017-08-17 through 2026-06-18. Parameters:
 monthly contribution $1,000, fractional/dollar-order execution, monthly day 25,
-optional smart multipliers, default max investment $2,000, no cash reserve in the
-research harness, and a shared 252-day warm-up before both smart and fixed DCA
-begin buying.
+optional smart multipliers, no cash reserve, no single-run cap, and a shared
+252-day warm-up before both smart and fixed DCA begin buying.
 
-| Window | First buy | Contributions | Smart terminal | Fixed terminal | Smart vs fixed | Smart max DD | Fixed max DD |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Full BTC proxy | 2018-04-25 | $99,000 | $383,943.78 | $386,853.54 | -0.75% | 74.37% | 74.40% |
-| 2020 cycle | 2020-01-25 | $78,000 | $169,033.49 | $173,253.73 | -2.44% | 68.73% | 69.12% |
-| 2022 bear/recovery | 2022-01-25 | $54,000 | $81,541.27 | $81,709.46 | -0.21% | 47.29% | 47.37% |
-| IBIT-launch proxy | 2024-01-25 | $30,000 | $24,321.96 | $24,394.47 | -0.30% | 40.18% | 40.40% |
+The selected smart variant is AHR999 GMA gate-tier sizing. It buys more in the
+bottom / accumulation / DCA zones and skips when AHR999 is above 1.20. This is
+different from ordinary DCA: fixed DCA remains the default for accounts that
+should invest every scheduled month regardless of crypto valuation.
 
-This does not justify making smart sizing the default: smart sizing slightly
-reduced drawdown but did not beat fixed DCA terminal value in any checked proxy
-window. The runtime profile remains useful as a fixed DCA execution engine.
+| Smart variant | Terminal | Vs fixed | Max DD | DD delta |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed DCA benchmark | $386,795 | 0.00% | 74.40% | 0.00% |
+| AHR999 GMA gate-tier, 3.00/2.25/1.50/0.00x | $412,311 | +6.60% | 72.24% | -2.16% |
+| AHR999 GMA gate, 3.00/1.50/0.00x | $410,149 | +6.04% | 72.08% | -2.32% |
+| AHR999 GMA gate plus price pullback fallback | $405,677 | +4.88% | 73.10% | -1.30% |
+| Price pullback aggressive dip-only | $391,153 | +1.13% | 74.07% | -0.33% |
+| Price pullback default dip-only | $387,124 | +0.09% | 74.19% | -0.21% |
+
+Window sensitivity is material:
+
+| Window | AHR999 GMA gate-tier vs fixed | DD delta |
+| --- | ---: | ---: |
+| Full BTC proxy, first buy 2018-04-25 | +6.60% | -2.16% |
+| 2020 cycle | +5.58% | -10.47% |
+| 2022 bear/recovery | +1.17% | -0.41% |
+| IBIT-launch proxy, 2024-01-25 | -2.16% | -1.69% |
+
+This is enough to replace the price-only smart selection with AHR999 GMA
+gate-tier sizing when smart mode is explicitly enabled. It is still not enough
+to make smart sizing the default: the 2024 IBIT-launch proxy window still trails
+fixed DCA terminal value, and AHR999 skip behavior means some scheduled months
+will intentionally invest nothing even when cash is available. The runtime
+profile therefore remains ordinary fixed DCA by default.
 
 ## Live Enablement Notes
 
 Before live enablement, rerun paper or dry-run evidence across broker platforms and review:
 
 - bitcoin market-history availability and symbol mapping, for example `BTC-USD` vs `BTCUSDT`
+- external `derived_indicators` freshness, especially `ahr999`, `close`, `sma200`, and provider timestamp
 - IBIT orderability and split/adjustment handling
 - fractional-share / dollar-order behavior for the target broker account
 - monthly turnover and cash reserve behavior

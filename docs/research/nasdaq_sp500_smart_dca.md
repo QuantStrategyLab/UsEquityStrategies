@@ -125,16 +125,39 @@ It averages QQQ and SPY drawdown / SMA gap and maps the state to a multiplier:
 
 | Regime | Default trigger | Multiplier |
 | --- | --- | ---: |
-| `severe_pullback` | average 252-day drawdown >= 25% | 2.00x |
-| `deep_pullback` | average drawdown >= 15% or average gap <= -10% | 1.50x |
-| `mild_pullback` | average drawdown >= 8% or average gap <= -5% | 1.25x |
+| `severe_pullback` | average 252-day drawdown >= 25% | 1.50x |
+| `deep_pullback` | average drawdown >= 15% or average gap <= -10% | 1.25x |
+| `mild_pullback` | average drawdown >= 8% or average gap <= -5% | 1.10x |
 | `normal` | no discount or overvaluation trigger | 1.00x |
-| `expensive` | average gap >= 12% and drawdown <= 3% | 0.50x |
-| `very_expensive_overbought` | average gap >= 20%, drawdown <= 3%, both RSI >= 70 | 0.00x |
+| `expensive` | average gap >= 12% and drawdown <= 3% | 1.00x |
+| `very_expensive_overbought` | average gap >= 20%, drawdown <= 3%, both RSI >= 70 | 1.00x |
 
 The actual buy is capped by available cash after any configured
 `cash_reserve_usd`. If the result is below `min_investment_usd`, the strategy
 waits/skips instead of creating a tiny order.
+
+## Smart Sizing Sweep
+
+Run date: 2026-06-19. Data: FRED `NASDAQ100` and `SP500` daily closes, using a
+50/50 price-only proxy from 2017-06-20 through 2026-06-17. Assumptions:
+monthly contribution $1,000, fractional / dollar-order execution, shared 252-day
+warm-up, fixed DCA as the benchmark. The proxy is price-only and does not
+include ETF expense ratios, spreads, taxes, dividends, or total-return
+reinvestment.
+
+| Smart variant | Terminal | Vs fixed | Max DD | DD delta |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed DCA benchmark | $249,508 | 0.00% | 28.25% | 0.00% |
+| Conservative dip-only, 1.10/1.25/1.50x | $247,501 | -0.80% | 27.97% | -0.28% |
+| Conservative with trimming | $247,433 | -0.83% | 27.79% | -0.46% |
+| Previous default smart sizing | $246,273 | -1.30% | 28.21% | -0.04% |
+
+The best smart variant in this sweep was conservative dip-only sizing: it does
+not reduce buys in expensive regimes and only raises the scheduled buy modestly
+in pullbacks. It still did not beat fixed DCA terminal value, so
+`smart_multiplier_enabled` remains disabled by default. These multipliers are
+the recommended parameters only when a deployment explicitly enables smart
+sizing, not evidence that smart sizing should replace ordinary fixed DCA.
 
 ## Execution Contract
 

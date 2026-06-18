@@ -97,6 +97,7 @@ def test_ibit_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount()
         investment_amount_mode="fixed",
         max_investment_usd=2000.0,
         smart_multiplier_enabled=True,
+        cycle_indicator_enabled=False,
     )
 
     assert plan["actionable"] is False
@@ -158,12 +159,55 @@ def test_ibit_smart_dca_skips_when_too_expensive_and_overbought() -> None:
         as_of="2026-05-26",
         investment_amount_mode="fixed",
         smart_multiplier_enabled=True,
+        cycle_indicator_enabled=False,
         expensive_gap=0.10,
         very_expensive_gap=0.15,
+        very_expensive_multiplier=0.0,
     )
 
     assert plan["actionable"] is False
     assert plan["skip_reason"] == "valuation_too_expensive"
+
+
+def test_ibit_smart_dca_uses_external_ahr999_indicator_snapshot() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=2500.0, ibit_value=300.0),
+        as_of="2026-05-26",
+        smart_multiplier_enabled=True,
+        crypto_indicator_snapshot={
+            BTC_SIGNAL_SYMBOL: {
+                "ahr999": 0.70,
+                "mayer_multiple": 0.85,
+            }
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["regime"] == "ahr999_accumulation"
+    assert plan["multiplier"] == 2.25
+    assert plan["requested_investment_usd"] == 2250.0
+    assert plan["planned_investment_usd"] == 2250.0
+    assert plan["target_values"]["IBIT"] == 2550.0
+    assert plan["ahr999"] == 0.70
+    assert plan["mayer_multiple"] == 0.85
+    assert plan["cycle_indicator_source"] == "derived_indicators"
+
+
+def test_ibit_smart_dca_skips_when_external_ahr999_is_expensive() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=5000.0, ibit_value=300.0),
+        as_of="2026-05-26",
+        smart_multiplier_enabled=True,
+        crypto_indicator_snapshot={BTC_SIGNAL_SYMBOL: {"ahr999": 1.35}},
+    )
+
+    assert plan["actionable"] is False
+    assert plan["skip_reason"] == "valuation_too_expensive"
+    assert plan["regime"] == "ahr999_expensive"
+    assert plan["requested_investment_usd"] == 0.0
+    assert plan["target_values"] == {}
 
 
 def test_ibit_smart_dca_signal_uses_chinese_fallback_when_translator_is_zh() -> None:
@@ -254,12 +298,11 @@ def test_ibit_smart_dca_disables_platform_rebalance_threshold_by_default() -> No
 
 def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> None:
     entrypoint = get_strategy_entrypoint("ibit_smart_dca")
-    history = {BTC_SIGNAL_SYMBOL: _normal_history()}
 
     decision = entrypoint.evaluate(
         StrategyContext(
             as_of="2026-05-26",
-            market_data={"market_history": lambda _client, symbol: history[symbol]},
+            market_data={"derived_indicators": {}},
             portfolio=_portfolio(),
             runtime_config={
                 "translator": _zh_translator,
@@ -273,7 +316,7 @@ def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -
     targets = {position.symbol: position.target_value for position in decision.positions}
     assert decision.risk_flags == ()
     assert targets == {"IBIT": 1100.0}
-    assert decision.diagnostics["signal_source"] == "market_history+portfolio_snapshot"
+    assert decision.diagnostics["signal_source"] == "derived_indicators/market_history+portfolio_snapshot"
     assert decision.diagnostics["signal_symbols"] == (BTC_SIGNAL_SYMBOL,)
     assert decision.diagnostics["planned_investment_usd"] == 1000.0
     assert decision.diagnostics["investment_amount_mode"] == "fixed"
@@ -285,10 +328,40 @@ def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -
     target_full_decision = entrypoint.evaluate(
         StrategyContext(
             as_of="2026-05-26",
-            market_data={"market_history": lambda _client, symbol: history[symbol]},
+            market_data={"derived_indicators": {}},
             portfolio=_portfolio(buying_power=4.0, ibit_value=500.0),
             runtime_config={"translator": lambda key, **_kwargs: key},
         )
     )
     assert target_full_decision.positions == ()
     assert target_full_decision.risk_flags == ("no_execute",)
+
+
+def test_ibit_smart_dca_entrypoint_uses_derived_indicators_for_ahr999() -> None:
+    entrypoint = get_strategy_entrypoint("ibit_smart_dca")
+
+    decision = entrypoint.evaluate(
+        StrategyContext(
+            as_of="2026-05-26",
+            market_data={
+                "derived_indicators": {
+                    BTC_SIGNAL_SYMBOL: {
+                        "ahr999": 0.40,
+                        "mayer_multiple": 0.80,
+                    }
+                }
+            },
+            portfolio=_portfolio(buying_power=5000.0, ibit_value=500.0),
+            runtime_config={
+                "smart_multiplier_enabled": True,
+            },
+        )
+    )
+
+    targets = {position.symbol: position.target_value for position in decision.positions}
+    assert decision.risk_flags == ()
+    assert targets == {"IBIT": 3500.0}
+    assert decision.diagnostics["regime"] == "ahr999_bottom"
+    assert decision.diagnostics["multiplier"] == 3.0
+    assert decision.diagnostics["ahr999"] == 0.40
+    assert decision.diagnostics["cycle_indicator_source"] == "derived_indicators"

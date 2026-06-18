@@ -78,7 +78,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(catalog[IBIT_SMART_DCA_PROFILE].domain, "us_equity")
         self.assertEqual(
             catalog[IBIT_SMART_DCA_PROFILE].required_inputs,
-            frozenset({"market_history", "portfolio_snapshot"}),
+            frozenset({"derived_indicators", "portfolio_snapshot"}),
         )
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
@@ -281,6 +281,28 @@ class CatalogTest(unittest.TestCase):
                 self.assertEqual(config["quarterly_months"], (1, 4, 7, 10))
                 self.assertEqual(config["quarterly_day"], 25)
                 self.assertEqual(config["quarterly_window_calendar_days"], 5)
+
+        nasdaq_config = get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config
+        self.assertEqual(nasdaq_config["mild_pullback_multiplier"], 1.10)
+        self.assertEqual(nasdaq_config["deep_pullback_multiplier"], 1.25)
+        self.assertEqual(nasdaq_config["severe_pullback_multiplier"], 1.50)
+        self.assertEqual(nasdaq_config["expensive_multiplier"], 1.0)
+        self.assertEqual(nasdaq_config["very_expensive_multiplier"], 1.0)
+
+        ibit_config = get_strategy_definition(IBIT_SMART_DCA_PROFILE).default_config
+        self.assertEqual(ibit_config["mild_pullback_multiplier"], 1.50)
+        self.assertEqual(ibit_config["deep_pullback_multiplier"], 2.25)
+        self.assertEqual(ibit_config["severe_pullback_multiplier"], 3.0)
+        self.assertEqual(ibit_config["expensive_multiplier"], 1.0)
+        self.assertEqual(ibit_config["very_expensive_multiplier"], 1.0)
+        self.assertIs(ibit_config["cycle_indicator_enabled"], True)
+        self.assertEqual(ibit_config["ahr999_bottom_threshold"], 0.45)
+        self.assertEqual(ibit_config["ahr999_accumulation_threshold"], 0.80)
+        self.assertEqual(ibit_config["ahr999_dca_threshold"], 1.20)
+        self.assertEqual(ibit_config["ahr999_bottom_multiplier"], 3.0)
+        self.assertEqual(ibit_config["ahr999_accumulation_multiplier"], 2.25)
+        self.assertEqual(ibit_config["ahr999_dca_multiplier"], 1.50)
+        self.assertEqual(ibit_config["ahr999_expensive_multiplier"], 0.0)
 
     def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
         self.assertIs(
