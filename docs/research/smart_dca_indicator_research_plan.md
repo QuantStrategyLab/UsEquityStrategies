@@ -1,0 +1,249 @@
+# Smart DCA Indicator Research Plan
+
+Run date: 2026-06-19.
+
+本文记录 `nasdaq_sp500_smart_dca` 与 `ibit_smart_dca` 的下一轮指标与
+回测优化方向。它只用于研究排期和验收口径，不是投资建议，也不要求当前
+策略代码立即变更。
+
+## Current Baseline
+
+两个 profile 的共同约束：
+
+- 默认仍是 `smart_multiplier_enabled = false` 的普通固定金额定投。
+- 智能模式只改变本期投入金额，不改变买入标的，不卖出，不做目标比例再平衡。
+- 固定定投是主基准；任何智能信号都必须证明它相对固定定投有可复现的收益、
+  回撤或执行质量改进。
+- 回测必须共享同一贡献节奏、同一 warm-up、同一交易日对齐、同一现金规则，
+  不能让 smart 版本因数据启动日或可交易日差异占便宜。
+
+当前实现差异：
+
+| Profile | 当前信号来源 | 当前智能模式状态 | 下一步研究重点 |
+| --- | --- | --- | --- |
+| `nasdaq_sp500_smart_dca` | `market_history` 里的 QQQ/SPY 日线 | 价格回撤 / SMA200 gap / RSI 规则已存在，但默认关闭；最近 price-only sweep 未战胜固定定投 | 把 CAPE、VIX、breadth、利率/流动性作为外部信号研究，先验证稳健性，不直接上线 |
+| `ibit_smart_dca` | 优先 `derived_indicators` 的 AHR999；缺失时回退 BTC price-history | AHR999 GMA gate-tier 已替代 price-only 作为智能模式候选，但默认仍关闭 | 在 AHR999 后继续比较可稳定复现的 BTC 价格/周期指标与需要外部供应的链上/情绪指标 |
+
+## Shared Research Rules
+
+下一轮研究先产出证据，再决定是否进入策略代码。研究脚本可以新增或扩展，
+但策略模块的生产行为保持不变，直到单独评审通过。
+
+### Anti-Overfitting Controls
+
+- 先冻结候选指标族，再跑参数搜索；不得在看完全样本结果后临时追加一组只解释
+  历史赢家的阈值。
+- 每个指标族最多保留 3 到 5 个有经济含义的阈值组合；避免连续参数网格。
+- 所有策略候选都必须和固定定投、当前智能规则、简单 dip-only 规则比较。
+- 记录所有失败结果；不只保留胜出的组合。
+- 使用 walk-forward / expanding-window 评估，禁止把未来分位数、未来成分股、
+  修订后的宏观数据当作当时可见输入。
+- 对执行日做扰动：月度第 20/25/最后一个交易日前后、周度/季度 cadence 都要抽样，
+  确认结论不是单一日期偶然性。
+- 对贡献金额做尺度扰动：`$500`、`$1000`、`$3000` 或等比例贡献路径应保持方向一致。
+- 对智能倍数施加工程约束：倍率数量少、最大单期投入有限、跳过买入必须有明确解释。
+
+### Evaluation Metrics
+
+每个候选至少报告：
+
+| Metric | 用途 |
+| --- | --- |
+| Terminal value vs fixed DCA | 终值是否真实改善，不能只看单次最好窗口 |
+| Max drawdown delta | 智能模式是否降低账户权益回撤 |
+| Underwater duration | 回撤持续时间是否改善 |
+| XIRR / money-weighted return | 定投现金流下的可比收益率 |
+| Invested amount / deployment rate | 是否靠长期不投现金制造虚假低回撤 |
+| Skipped scheduled buys | 跳过定投的频率和集中区间 |
+| Worst rolling window gap | 任意 1Y/2Y/3Y 起点下相对固定定投的最差差距 |
+| Signal availability and freshness | 外部信号是否能在执行日前稳定拿到 |
+| Turnover / order count | 是否增加平台执行复杂度或小额订单噪音 |
+
+### Elimination Rules
+
+任一候选满足以下条件即淘汰，不进入策略实现：
+
+- 样本外终值低于固定定投超过 `1%`，且最大回撤改善小于 `2 percentage points`。
+- 样本外最大回撤更差超过 `1 percentage point`，但终值提升小于 `3%`。
+- 只在一个市场阶段或一个起始日显著胜出，walk-forward 多数窗口落后。
+- 参数最优点落在搜索边界，或相邻阈值结果方向剧烈变化。
+- 跳过买入月份超过计划买入月份的 `30%`，但没有显著降低回撤或改善 XIRR。
+- 信号需要不可审计、不可缓存、许可不明确或没有 point-in-time 历史的数据。
+- 数据发布日期晚于策略执行日，或者供应商修订会改变历史信号而没有版本锁定。
+- 候选逻辑需要卖出、杠杆、保证金、期权或跨账户现金调拨；这超出当前 buy-only DCA profile。
+
+## Nasdaq / S&P 500 Plan
+
+### Candidate Indicators
+
+这些信号先作为外部研究输入，不直接接入 runtime。当前价格型规则仍是最小可用
+基线；新指标必须说明相对价格型规则增加了什么独立信息。
+
+| Indicator family | Candidate signals | Data status | Research intent |
+| --- | --- | --- | --- |
+| Valuation / CAPE | Shiller CAPE、CAPE percentile、earnings yield vs 10Y Treasury、SPX trailing/forward PE | 外部月度或低频数据；需要供应商、发布日期、修订版本 | 判断是否只在极高估值时降低加码，而不是频繁择时 |
+| Volatility / VIX | VIX level、VIX percentile、VIX term structure、realized vol vs VIX | VIXCLS 等日线可复现；term structure 需要期货曲线数据 | 区分恐慌加码与高波动环境下的现金保护 |
+| Market breadth | SPX/NDX 成分股高于 SMA200 比例、advance/decline、new highs/lows | 最容易产生 survivorship bias；需要历史成分或可靠 breadth 指数 | 验证价格回撤之外，内部广度恶化是否能改善加码时点 |
+| Rates / liquidity | 10Y/2Y、real yield、Fed funds/SOFR、T-bill yield、credit spread、NFCI、M2/流动性同比 | 多数可从 FRED/官方数据取得，但要处理发布时间和修订 | 判断利率与流动性环境是否应限制估值信号权重 |
+| Trend quality | QQQ/SPY 10M SMA、12M momentum、rolling Sharpe、drawdown speed | 可由价格稳定复现 | 只允许作为当前 price-only baseline 的稳健化，不扩展复杂参数 |
+
+### Data Source Requirements
+
+- 价格路径优先使用 adjusted close / total return proxy；如果只能用 FRED `NASDAQ100`
+  和 `SP500` price-only，报告必须标注不含分红和费用。
+- CAPE/PE 类指标必须保存原始下载文件、`as_of`、发布日期假设、字段定义和供应商 URL。
+- Breadth 数据如果由当前成分股回推，必须标记为研究失败输入；只有 point-in-time
+  成分或供应商 breadth 历史可以进入候选比较。
+- VIX、利率、信用利差等宏观数据要按实际可获得日滞后至少 1 个交易日，避免收盘后
+  才发布的数据影响同日订单。
+- 所有外部信号都要产出一个离线 `SignalBundle` 样式快照：`as_of`、`generated_at`、
+  `source_name`、`source_version`、`freshness_policy`、`provenance`。
+
+### Sample Split
+
+建议同时跑两个层次：
+
+| Layer | Window | Purpose |
+| --- | --- | --- |
+| ETF-era core | 1999-03-10 至当前可得日期 | 覆盖 QQQ/SPY ETF 可交易历史，作为主结论 |
+| Recent implementation proxy | 2017-06-20 至 2026-06-17 左右 | 对齐现有 FRED price-only sweep，用于和当前文档结果复核 |
+
+主样本切分：
+
+- Discovery: 1999-03-10 至 2009-12-31，用于确定候选指标族是否有基本方向。
+- Validation: 2010-01-01 至 2018-12-31，用于缩小到少数阈值组合。
+- Out-of-sample: 2019-01-01 至最新可得完整交易日，用于最终保留/淘汰。
+- Walk-forward: 5 年训练、2 年验证、2 年测试滚动；每次只允许使用训练窗口确定阈值。
+- Stress windows: 2000-2002、2008-2009、2020-03、2022、2024-2026 单独报告。
+
+### Backtest Method
+
+- 固定定投、当前 smart 规则、每个候选规则共享同一月度贡献和执行窗口。
+- 候选先以 signal-only overlay 运行：输出建议 multiplier 序列，不改生产策略。
+- 倍率结构优先限制为 `{0.0, 0.5, 1.0, 1.25, 1.5}` 或更少档位。
+- 估值/宏观信号只允许降低或限制加码强度；不得让单个低频估值指标驱动频繁交易。
+- 对 VIX/breadth 这类高噪音指标，必须要求连续确认或月末采样，避免日度抖动改变定投计划。
+- 回测中显式模拟现金未投后的留存现金，不能把跳过买入当作消失的风险资产。
+- 输出每月 decision log：信号值、分位数、multiplier、计划投入、实际投入、skip reason。
+
+### Nasdaq / S&P Elimination Rules
+
+除共享淘汰规则外，额外要求：
+
+- CAPE/估值候选如果只在 1999-2002 有效，2010 年后多数窗口无效，则淘汰。
+- VIX 候选如果提升终值主要来自危机后追涨，而非危机中可解释加码，则淘汰。
+- Breadth 候选如果依赖当前指数成分回推，直接淘汰，不进入结果表。
+- 利率/流动性候选如果没有明确发布时间滞后模型，淘汰。
+- 任一组合如果需要超过 2 个外部信号同时可用才工作，先降级为研究观察项，不进入策略候选。
+
+## IBIT Plan
+
+### Post-AHR999 Baseline
+
+IBIT 的下一步不是继续把 price-only pullback 当最终结论。当前研究结论已经是：
+AHR999 GMA gate-tier 是显式启用 smart mode 时的优先候选，BTC price-history
+pullback 只是兼容 fallback。后续研究应围绕两件事展开：
+
+- AHR999 是否在更多样本切分、执行日扰动、贡献金额扰动下仍优于固定定投。
+- AHR999 之外的指标是否提供独立信息，且数据供应能被稳定复现和审计。
+
+### Candidate Indicators
+
+| Indicator family | Candidate signals | Reproducibility tier | Notes |
+| --- | --- | --- | --- |
+| BTC price-derived | Mayer Multiple、SMA200 gap、252d drawdown、realized volatility、12M momentum | Tier 1: 可由缓存 BTC 日线稳定复现 | 可作为 AHR999 的 sanity check 或 fallback，不应重新覆盖 AHR999 结论 |
+| AHR999 variants | GMA/SMA 200d cost、AHR999 moving average、AHR999 percentile、AHR999 slope | Tier 1/2: 公式冻结后可复现；若依赖外部 AHR999 服务则需 provenance | 优先验证当前 0.45/0.80/1.20 阈值是否稳健 |
+| On-chain valuation | MVRV、MVRV Z-score、NUPL、realized price、SOPR | Tier 3: 需要 CoinMetrics/Glassnode 等外部供应 | 只有在有 point-in-time 历史、许可和滞后模型后才能比较 |
+| Sentiment | Fear & Greed、funding rate、perp basis、social/news sentiment | Tier 3: 外部供应且定义可能变化 | 只能作为观察项；不得用不可审计历史优化阈值 |
+| Market structure | BTC dominance、stablecoin supply、ETF flow、IBIT premium/discount、spot volume/liquidity | Tier 2/3: 多源数据，字段定义差异大 | 先用于解释 skip / add 行为，不直接驱动倍率 |
+
+Tier 定义：
+
+- Tier 1: 只依赖缓存 BTC 日线 OHLCV 和固定公式，可在本仓库或 signal-source
+  包中完全复算。
+- Tier 2: 需要外部原始数据，但字段定义稳定、可缓存、可记录 provider timestamp。
+- Tier 3: 需要商业链上/情绪供应商或定义频繁变化的数据；没有供应合同和历史快照前，
+  不得作为生产候选。
+
+### Data Source Requirements
+
+- BTC 价格主路径至少保留 `BTCUSDT` 或 `BTC-USD` 日线 close，记录交易所/供应商、
+  时区、收盘时间、缺失日处理、异常价格过滤。
+- AHR999 必须保存公式版本：genesis date、growth estimate formula、200d cost 使用
+  GMA 还是 SMA、价格源和计算时点。
+- MVRV/NUPL 等链上指标必须记录供应商、字段定义、发布时间延迟、历史覆盖开始日、
+  修订政策、许可限制；没有这些元数据不跑正式对比。
+- Fear & Greed 必须有每日历史快照和当天可获得时间；只有静态 CSV 且无法确认
+  point-in-time 的，不进入候选。
+- IBIT 交易价格/NAV 需要和 BTC 信号分开：信号可以用 BTC，交易回测应报告使用
+  BTC proxy、IBIT market close 或 IBIT NAV proxy 的差异。
+
+### Sample Split
+
+IBIT 本身 2024-01-05 才上市，不能只用 IBIT live history 推断完整周期。建议分层：
+
+| Layer | Window | Purpose |
+| --- | --- | --- |
+| BTC proxy full cycle | 2017-08-17 至最新完整日 | 继续复核现有 Binance/BTC proxy 结论 |
+| Cycle windows | 2018-04-25 起、2020 cycle、2022 bear/recovery | 检查 AHR999 在不同周期位置的表现 |
+| IBIT live proxy | 2024-01-25 至最新完整日 | 检查 ETF 上市后 tracking、执行和短样本风险 |
+| Provider overlap | 以 MVRV/NUPL/Fear&Greed 可得历史为准 | 只在外部数据覆盖完整且可审计时运行 |
+
+建议切分：
+
+- Discovery: 2017-08-17 至 2020-12-31，只验证指标方向。
+- Validation: 2021-01-01 至 2023-12-31，用于固定少数阈值和倍率。
+- Out-of-sample: 2024-01-01 至最新完整日，重点看 IBIT-launch proxy 是否继续可接受。
+- Rolling starts: 每季度一个起始点，至少覆盖 2018Q2 到 2025Q1。
+- Execution jitter: 月度第 10/15/20/25 日、月末、周度 cadence 都要跑。
+
+### Backtest Method
+
+- 以固定定投为主基准，当前 AHR999 GMA gate-tier 为 smart baseline。
+- 任何新指标先作为 overlay 生成 multiplier，不直接改 `ibit_smart_dca.py`。
+- 新指标不得使用 price-only pullback 结果替代 AHR999 结论；price-only 只作为 fallback
+  和 Tier 1 对照。
+- 先做单指标比较，再做最多两指标组合；两指标组合必须能解释冲突处理，例如
+  AHR999 cheap 但 MVRV expensive 时维持 1.0x 而不是扩大参数网格。
+- 对 Tier 3 数据先跑 availability report：覆盖率、缺失率、滞后、修订、许可。
+  availability 不过关就不跑策略排名。
+- 显式报告 skipped buys 与现金余额路径；AHR999 expensive zone 的 0.0x 可能提高现金
+  留存，不能把现金拖累隐藏掉。
+- 单独报告 IBIT live window，即使样本短；若 live window 明显落后固定定投，不能把
+  全周期 BTC proxy 的胜出当作最终上线理由。
+
+### IBIT Elimination Rules
+
+除共享淘汰规则外，额外要求：
+
+- 新指标不能在 IBIT live proxy 窗口相对当前 AHR999 baseline 明显恶化；若恶化超过
+  `2%` 终值且回撤改善小于 `2 percentage points`，淘汰。
+- Tier 3 指标若无法提供 provider timestamp、历史字段定义和许可说明，淘汰。
+- MVRV/NUPL/Fear&Greed 组合如果只因短期顶部避开买入而胜出，但多数 rolling starts
+  落后固定定投，淘汰。
+- Mayer/SMA/drawdown 类 price-derived 指标如果不能补充 AHR999，只能保留为 fallback，
+  不得替代 AHR999 smart baseline。
+- 任一组合需要超过 3 档 BTC 周期状态或超过 4 个阈值，淘汰；当前 DCA profile 不适合
+  高维择时模型。
+- 如果外部信号缺失时的 fallback 会把策略行为从 AHR999 切到 price-only 且结果差异
+  很大，必须先设计 stale/missing-data handling；否则不进入策略候选。
+
+## Deliverables
+
+下一轮研究产物应按以下顺序交付：
+
+1. `SignalBundle` 样例数据：Nasdaq/S&P 外部信号与 IBIT BTC/AHR999/Tier 1 指标各一份。
+2. Backtest notebook 或脚本：能复现固定定投、当前 smart baseline、候选指标结果。
+3. Metrics CSV：包含所有候选、失败组合、样本切分、执行日扰动和评价指标。
+4. Decision log：逐月记录每个候选的 signal、multiplier、planned investment、skip reason。
+5. Research summary：只推荐通过淘汰规则的少数候选；没有候选通过时明确保持普通定投默认。
+
+## Promotion Gate
+
+只有同时满足以下条件，才考虑后续策略代码改动：
+
+- 数据源可复现、可缓存、可审计，且符合对应 profile 的 runtime 输入边界。
+- 样本外和 rolling starts 结果均通过淘汰规则。
+- 候选规则比当前实现复杂度只小幅增加，且有清晰 missing/stale data 行为。
+- 固定定投默认不变；智能模式仍需显式配置开启。
+- 评审明确记录：该改动是研究驱动的可选 smart sizing，不是收益承诺。
