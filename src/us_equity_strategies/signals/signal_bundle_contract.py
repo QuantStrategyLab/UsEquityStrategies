@@ -334,6 +334,7 @@ def signal_bundle_audit_summary(bundle: Mapping[str, Any]) -> dict[str, Any]:
     """Return non-sensitive audit fields for platform logs."""
 
     validate_signal_bundle(bundle)
+    indicator_fields_by_symbol = _indicator_fields_by_symbol(bundle)
     freshness = bundle.get("freshness")
     provenance = bundle.get("provenance")
     if not isinstance(freshness, Mapping) or not isinstance(provenance, Mapping):
@@ -346,6 +347,11 @@ def signal_bundle_audit_summary(bundle: Mapping[str, Any]) -> dict[str, Any]:
         "as_of": str(bundle.get("as_of", "")),
         "generated_at": str(bundle.get("generated_at", "")),
         "symbols": tuple(str(symbol) for symbol in bundle.get("symbols", ()) or ()),
+        "indicator_fields_by_symbol": indicator_fields_by_symbol,
+        "indicator_field_count_by_symbol": {
+            symbol: len(fields)
+            for symbol, fields in indicator_fields_by_symbol.items()
+        },
         "freshness_status": str(freshness.get("status", "")),
         "freshness_policy": str(freshness.get("policy", "")),
         "provider_timestamp": str(freshness.get("provider_timestamp", "")),
@@ -400,6 +406,22 @@ def signal_bundle_audit_summary_from_index(
         }
     )
     return summary
+
+
+def _indicator_fields_by_symbol(bundle: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    canonical_input = _canonical_input(bundle)
+    indicators = bundle.get(canonical_input)
+    if not isinstance(indicators, Mapping):
+        raise SignalBundleContractError("signal bundle indicators must be a mapping")
+
+    fields_by_symbol: dict[str, tuple[str, ...]] = {}
+    for symbol, payload in indicators.items():
+        if not isinstance(payload, Mapping):
+            raise SignalBundleContractError(
+                f"signal bundle indicators[{symbol!r}] must be a mapping"
+            )
+        fields_by_symbol[str(symbol)] = tuple(sorted(str(field) for field in payload))
+    return fields_by_symbol
 
 
 def _sha256_file(path: Path) -> str:

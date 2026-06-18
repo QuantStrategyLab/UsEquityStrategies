@@ -259,7 +259,7 @@ StrategyContext(
 ```
 
 5. 在 dry-run/live 日志记录 `bundle_id`、`schema_version`、`provider_timestamp`、
-   `source_version` 和 `code_commit`。
+   `source_version`、`code_commit`，以及每个 symbol 提供了哪些指标字段名。
 
 平台不应把 bundle 的 provenance 直接塞进策略算法输入；如果需要审计，可放在平台日志或
 `runtime_config` 的执行审计字段中，但不要让策略公式依赖它。
@@ -274,7 +274,10 @@ StrategyContext(
 manifest 里的 `bundle_path` 必须是 artifact 目录内的相对路径，不能是绝对路径或跳出目录。
 消费者 contract 也会拒绝包含 token、signed URL、cookie、secret 等敏感字段的 bundle。
 平台日志可使用 `signal_bundle_audit_summary_from_manifest` 记录 bundle id、schema、freshness、
-provider timestamp、source version 和 transform，不需要把完整 bundle 或供应商密钥写进日志。
+provider timestamp、source version、transform，以及 `indicator_fields_by_symbol` /
+`indicator_field_count_by_symbol`。这能在不泄露指标数值的情况下证明当前 bundle 是否提供了
+`ahr999`、`ahr999_sma`、`mayer_multiple`、`sma200_gap` 等策略期望字段，不需要把完整
+bundle 或供应商密钥写进日志。
 这不是 vendor adapter，也不拥有密钥、缓存或 artifact 发布职责；这些仍属于后续
 `MarketSignalSources` / pipeline 环境。
 更细的 artifact 字段、manifest 校验门槛和平台注入顺序记录在
@@ -290,8 +293,8 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 ```
 
 该命令只验证本地 artifact 和打印 bundle id、freshness、provider timestamp、source
-version、transform、bundle sha256 等字段；它不拉取 vendor 数据，也不输出 token、
-signed URL、cookie 或 secret。
+version、transform、bundle sha256、指标字段清单等字段；它不拉取 vendor 数据，也不输出
+token、signed URL、cookie、secret 或指标具体数值。
 
 ### 扩展路线
 
