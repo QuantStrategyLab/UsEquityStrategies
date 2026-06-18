@@ -82,6 +82,23 @@ def _consumer_contract_registry() -> dict[str, object]:
     }
 
 
+def _complete_consumer_contract_registry() -> dict[str, object]:
+    registry = _consumer_contract_registry()
+    contracts = registry["contracts"]
+    assert isinstance(contracts, list)
+    contracts.insert(
+        1,
+        {
+            "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "BTC-USD": ["ahr999", "mayer_multiple"],
+            },
+        },
+    )
+    return registry
+
+
 def test_fresh_signal_bundle_is_accepted() -> None:
     validate_signal_bundle(_load_bundle())
     assert load_signal_bundle(FIXTURE_PATH)["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
@@ -245,10 +262,36 @@ def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -
         "us_equity:ibit_smart_dca",
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     )
+    assert summary["all_known_consumers_present"] is False
+    assert summary["missing_known_consumers"] == (
+        "research:ibit_btc_ahr999_mayer_precomputed",
+    )
     assert file_summary["sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
     assert file_summary["size_bytes"] == registry_path.stat().st_size
+
+
+def test_external_consumer_contract_registry_can_require_all_known_consumers() -> None:
+    incomplete_registry = _consumer_contract_registry()
+    complete_registry = _complete_consumer_contract_registry()
+
+    with pytest.raises(SignalBundleContractError, match="missing known consumers"):
+        validate_signal_consumer_contract_registry(
+            incomplete_registry,
+            require_all_known_consumers=True,
+        )
+
+    validate_signal_consumer_contract_registry(
+        complete_registry,
+        require_all_known_consumers=True,
+    )
+    summary = signal_consumer_contract_registry_audit_summary(
+        complete_registry,
+        require_all_known_consumers=True,
+    )
+    assert summary["all_known_consumers_present"] is True
+    assert summary["missing_known_consumers"] == ()
 
 
 def test_external_consumer_contract_registry_rejects_drift() -> None:

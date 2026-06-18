@@ -353,6 +353,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 若 `scenario_coverage.csv` 的 `coverage_gate_passed=false`，`selection_summary.csv` 也会保持
 `hold_default_fixed_dca`，并记录 `insufficient_scenario_matrix_coverage`，避免候选集不一致的
 矩阵进入人工评审。
+`selection_summary.csv` 同时复制矩阵级覆盖字段，例如 `matrix_scenario_count`、
+`matrix_candidate_set_consistent`、`matrix_fixed_benchmark_present_all` 和
+`matrix_candidate_names`，便于人工评审时只看 selection summary 也能识别覆盖缺口。
 即使候选在已有场景内全部通过，也必须达到 `--min-review-scenarios`（默认 3）后才会进入
 `promote_to_manual_review`；否则 `recommendation_reason` 会记录为
 `insufficient_robustness_scenarios`。这个 gate 不是统计显著性证明，只是防止单一窗口或单一

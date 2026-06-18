@@ -1366,6 +1366,13 @@ def scenario_results_to_selection_rows(
                 "matrix_coverage_gate_passed": matrix_coverage_gate_passed,
                 "matrix_coverage_status": coverage_row["coverage_status"],
                 "matrix_coverage_failure_reasons": coverage_row["failure_reasons"],
+                "matrix_scenario_count": coverage_row["scenario_count"],
+                "matrix_candidate_count": coverage_row["candidate_count"],
+                "matrix_candidate_set_consistent": coverage_row["candidate_set_consistent"],
+                "matrix_fixed_benchmark_present_all": coverage_row[
+                    "fixed_benchmark_present_all"
+                ],
+                "matrix_candidate_names": coverage_row["candidate_names"],
                 "selected_pass_rate": selected["pass_rate"],
                 "selected_min_relative_terminal_value_pct": selected[
                     "min_relative_terminal_value_pct"

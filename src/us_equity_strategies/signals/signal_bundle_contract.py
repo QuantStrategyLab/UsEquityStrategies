@@ -147,6 +147,7 @@ def validate_signal_consumer_contract_registry(
     registry: Mapping[str, Any],
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    require_all_known_consumers: bool = False,
 ) -> None:
     """Validate an external consumer contract registry against this strategy package."""
 
@@ -178,9 +179,20 @@ def validate_signal_consumer_contract_registry(
             expected_canonical_input=expected_canonical_input,
             seen_consumers=seen_consumers,
         )
+    if require_all_known_consumers:
+        missing = sorted(set(REQUIRED_INDICATOR_FIELDS_BY_CONSUMER) - seen_consumers)
+        if missing:
+            raise SignalBundleContractError(
+                "consumer contract registry missing known consumers: "
+                + ", ".join(missing)
+            )
 
 
-def load_signal_consumer_contract_registry(path: str | PathLike[str]) -> dict[str, Any]:
+def load_signal_consumer_contract_registry(
+    path: str | PathLike[str],
+    *,
+    require_all_known_consumers: bool = False,
+) -> dict[str, Any]:
     """Load and validate an external consumer contract registry JSON artifact."""
 
     with open(path, encoding="utf-8") as file_obj:
@@ -188,7 +200,10 @@ def load_signal_consumer_contract_registry(path: str | PathLike[str]) -> dict[st
     if not isinstance(registry, Mapping):
         raise SignalBundleContractError("consumer contract registry JSON root must be a mapping")
     registry_dict = dict(registry)
-    validate_signal_consumer_contract_registry(registry_dict)
+    validate_signal_consumer_contract_registry(
+        registry_dict,
+        require_all_known_consumers=require_all_known_consumers,
+    )
     return registry_dict
 
 
@@ -196,20 +211,28 @@ def signal_consumer_contract_registry_audit_summary(
     registry: Mapping[str, Any],
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    require_all_known_consumers: bool = False,
 ) -> dict[str, Any]:
     """Return non-sensitive audit metadata for an external consumer contract registry."""
 
     validate_signal_consumer_contract_registry(
         registry,
         expected_canonical_input=expected_canonical_input,
+        require_all_known_consumers=require_all_known_consumers,
     )
     contracts = registry["contracts"]
+    consumers = tuple(str(contract["consumer"]) for contract in contracts)
+    missing_known_consumers = tuple(
+        sorted(set(REQUIRED_INDICATOR_FIELDS_BY_CONSUMER) - set(consumers))
+    )
     return {
         "schema_version": str(registry.get("schema_version", "")),
         "canonical_input": str(registry.get("canonical_input", "")),
         "consumer_count": len(contracts),
-        "consumers": tuple(str(contract["consumer"]) for contract in contracts),
+        "consumers": consumers,
         "known_consumer_count": len(REQUIRED_INDICATOR_FIELDS_BY_CONSUMER),
+        "missing_known_consumers": missing_known_consumers,
+        "all_known_consumers_present": not missing_known_consumers,
     }
 
 
@@ -217,14 +240,19 @@ def signal_consumer_contract_registry_audit_summary_from_file(
     path: str | PathLike[str],
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    require_all_known_consumers: bool = False,
 ) -> dict[str, Any]:
     """Load a consumer contract registry artifact and return audit metadata."""
 
     registry_path = Path(path)
-    registry = load_signal_consumer_contract_registry(registry_path)
+    registry = load_signal_consumer_contract_registry(
+        registry_path,
+        require_all_known_consumers=require_all_known_consumers,
+    )
     summary = signal_consumer_contract_registry_audit_summary(
         registry,
         expected_canonical_input=expected_canonical_input,
+        require_all_known_consumers=require_all_known_consumers,
     )
     summary.update(
         {

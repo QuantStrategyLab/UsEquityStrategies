@@ -118,4 +118,38 @@ def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys
     assert summary["schema_version"] == "market_signal_consumer_contracts.v1"
     assert summary["consumer_count"] == 1
     assert summary["consumers"] == ["us_equity:ibit_smart_dca"]
+    assert summary["all_known_consumers_present"] is False
     assert summary["path"] == str(registry_path.resolve())
+
+
+def test_signal_bundle_cli_can_require_complete_consumer_contract_registry(tmp_path, capsys) -> None:
+    registry_path = tmp_path / "market_signal_consumers.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "contracts": [
+                    {
+                        "consumer": "us_equity:ibit_smart_dca",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--consumer-contract-registry",
+            str(registry_path),
+            "--require-all-known-consumers",
+        ]
+    )
+
+    assert result == 2
+    assert "missing known consumers" in capsys.readouterr().err

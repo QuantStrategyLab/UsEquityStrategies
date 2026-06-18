@@ -357,6 +357,11 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["matrix_coverage_gate_passed"] is True
     assert selection_rows[0]["matrix_coverage_status"] == "ready_for_selection_review"
     assert selection_rows[0]["matrix_coverage_failure_reasons"] == ""
+    assert selection_rows[0]["matrix_scenario_count"] == 4
+    assert selection_rows[0]["matrix_candidate_count"] == 1
+    assert selection_rows[0]["matrix_candidate_set_consistent"] is True
+    assert selection_rows[0]["matrix_fixed_benchmark_present_all"] is True
+    assert selection_rows[0]["matrix_candidate_names"] == "nasdaq_sp500_price_defensive"
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
     assert coverage_rows[0]["scenario_count"] == 4
     assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
@@ -460,6 +465,9 @@ def test_selection_rows_hold_fixed_when_matrix_coverage_fails() -> None:
     assert rows[0]["matrix_coverage_gate_passed"] is False
     assert rows[0]["matrix_coverage_status"] == "insufficient_coverage"
     assert rows[0]["matrix_coverage_failure_reasons"] == "candidate_set_inconsistent"
+    assert rows[0]["matrix_scenario_count"] == 3
+    assert rows[0]["matrix_candidate_set_consistent"] is False
+    assert rows[0]["matrix_fixed_benchmark_present_all"] is True
     assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
     assert rows[0]["recommendation_reason"] == "insufficient_scenario_matrix_coverage"
 

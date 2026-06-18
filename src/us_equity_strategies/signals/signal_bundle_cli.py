@@ -30,9 +30,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             summary = signal_consumer_contract_registry_audit_summary_from_file(
                 args.consumer_contract_registry,
                 expected_canonical_input=args.canonical_input,
+                require_all_known_consumers=args.require_all_known_consumers,
             )
         elif args.index is not None and args.manifest is not None:
             raise SignalBundleContractError("provide either manifest or --index, not both")
+        elif args.require_all_known_consumers:
+            raise SignalBundleContractError(
+                "--require-all-known-consumers is only valid with --consumer-contract-registry"
+            )
         elif args.index is not None:
             if args.consumer:
                 summary = signal_bundle_consumer_audit_summary_from_index(
@@ -86,6 +91,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--as-of", help="Select the latest index entry at or before this as_of date.")
     parser.add_argument("--bundle-id", help="Require a specific bundle_id from the index.")
     parser.add_argument("--canonical-input", default=CANONICAL_INPUT_DERIVED_INDICATORS)
+    parser.add_argument(
+        "--require-all-known-consumers",
+        action="store_true",
+        help="Require a consumer contract registry to cover every known local consumer.",
+    )
     parser.add_argument(
         "--consumer",
         help="Validate required indicator fields for a known strategy or research consumer.",
