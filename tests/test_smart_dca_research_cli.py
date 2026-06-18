@@ -97,6 +97,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
         / "equity_curve.csv"
     ).exists()
     assert (output_dir / "selection_summary.csv").exists()
+    assert (output_dir / "scenario_coverage.csv").exists()
     assert (
         output_dir
         / "monthly_day_25_contribution_usd_1000_start_2025_04_01"
@@ -127,6 +128,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     selection_summary = (output_dir / "selection_summary.csv").read_text(
         encoding="utf-8"
     )
+    scenario_coverage = (output_dir / "scenario_coverage.csv").read_text(
+        encoding="utf-8"
+    )
     scenario_manifest = json.loads((output_dir / "scenario_manifest.json").read_text(encoding="utf-8"))
     assert "nasdaq_sp500_price_defensive" in scenario_index
     assert "nasdaq_sp500_price_no_skip" in scenario_index
@@ -136,6 +140,8 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "min_review_scenarios" in selection_summary
     assert "selected_candidate_definition_sha256" in selection_summary
     assert "selection_policy" in selection_summary
+    assert "coverage_gate_passed" in scenario_coverage
+    assert "ready_for_selection_review" in scenario_coverage
     assert "review_status" in robustness_summary
     assert "weakest_scenario" in robustness_summary
     assert "max_terminal_cash_ratio_pct" in robustness_summary

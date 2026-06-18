@@ -1366,6 +1366,81 @@ def scenario_results_to_selection_rows(
     return tuple(selection_rows)
 
 
+def scenario_results_to_coverage_rows(
+    scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
+    *,
+    fixed_name: str = "fixed",
+    min_review_scenarios: int = 3,
+) -> tuple[dict[str, object], ...]:
+    """Summarize scenario matrix coverage before reviewing selected candidates."""
+
+    if min_review_scenarios < 1:
+        raise ValueError("min_review_scenarios must be at least 1")
+
+    scenario_names = tuple(str(name) for name in scenarios)
+    candidate_sets = tuple(
+        tuple(sorted(str(name) for name in results if name != fixed_name))
+        for results in scenarios.values()
+    )
+    unique_candidate_sets = sorted(set(candidate_sets))
+    fixed_present_all = all(fixed_name in results for results in scenarios.values())
+    candidate_set_consistent = len(unique_candidate_sets) <= 1
+    scenario_count = len(scenario_names)
+    review_scenario_gate_passed = scenario_count >= min_review_scenarios
+    candidate_names = unique_candidate_sets[0] if unique_candidate_sets else ()
+    coverage_gate_passed = (
+        scenario_count > 0
+        and review_scenario_gate_passed
+        and fixed_present_all
+        and candidate_set_consistent
+    )
+    failure_reasons = _scenario_coverage_failure_reasons(
+        scenario_count=scenario_count,
+        review_scenario_gate_passed=review_scenario_gate_passed,
+        fixed_present_all=fixed_present_all,
+        candidate_set_consistent=candidate_set_consistent,
+    )
+    return (
+        {
+            "scenario_count": scenario_count,
+            "min_review_scenarios": min_review_scenarios,
+            "review_scenario_gate_passed": review_scenario_gate_passed,
+            "fixed_benchmark": fixed_name,
+            "fixed_benchmark_present_all": fixed_present_all,
+            "candidate_set_consistent": candidate_set_consistent,
+            "candidate_count": len(candidate_names),
+            "candidate_names": ",".join(candidate_names),
+            "scenario_names": ",".join(scenario_names),
+            "coverage_gate_passed": coverage_gate_passed,
+            "coverage_status": (
+                "ready_for_selection_review"
+                if coverage_gate_passed
+                else "insufficient_coverage"
+            ),
+            "failure_reasons": ",".join(failure_reasons),
+        },
+    )
+
+
+def _scenario_coverage_failure_reasons(
+    *,
+    scenario_count: int,
+    review_scenario_gate_passed: bool,
+    fixed_present_all: bool,
+    candidate_set_consistent: bool,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if scenario_count <= 0:
+        reasons.append("no_scenarios")
+    if not review_scenario_gate_passed:
+        reasons.append("scenario_count_below_min_review_scenarios")
+    if not fixed_present_all:
+        reasons.append("missing_fixed_benchmark")
+    if not candidate_set_consistent:
+        reasons.append("candidate_set_inconsistent")
+    return tuple(reasons)
+
+
 def _selection_recommendation_reason(
     *,
     selected_passed: bool,
@@ -1677,6 +1752,7 @@ def write_scenario_research_artifacts(
     scenario_index_path = output_path / "scenario_index.csv"
     robustness_summary_path = output_path / "robustness_summary.csv"
     selection_summary_path = output_path / "selection_summary.csv"
+    scenario_coverage_path = output_path / "scenario_coverage.csv"
     scenario_manifest_path = output_path / "scenario_manifest.json"
     pd.DataFrame(index_rows).to_csv(scenario_index_path, index=False)
     pd.DataFrame(
@@ -1689,9 +1765,17 @@ def write_scenario_research_artifacts(
             min_review_scenarios=min_review_scenarios,
         )
     ).to_csv(selection_summary_path, index=False)
+    pd.DataFrame(
+        scenario_results_to_coverage_rows(
+            scenarios,
+            fixed_name=fixed_name,
+            min_review_scenarios=min_review_scenarios,
+        )
+    ).to_csv(scenario_coverage_path, index=False)
     artifact_paths["scenario_index"] = scenario_index_path
     artifact_paths["robustness_summary"] = robustness_summary_path
     artifact_paths["selection_summary"] = selection_summary_path
+    artifact_paths["scenario_coverage"] = scenario_coverage_path
     _write_artifact_manifest(
         scenario_manifest_path,
         artifact_type="smart_dca_research_scenario_matrix",

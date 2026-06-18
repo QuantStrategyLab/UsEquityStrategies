@@ -15,6 +15,7 @@ from us_equity_strategies.backtests.smart_dca_research import (
     results_to_decision_log_rows,
     results_to_equity_curve_rows,
     results_to_metrics_rows,
+    scenario_results_to_coverage_rows,
     scenario_results_to_robustness_rows,
     scenario_results_to_selection_rows,
     summarize_candidate_evaluations,
@@ -261,10 +262,12 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert "scenario_index" in artifact_paths
     assert "robustness_summary" in artifact_paths
     assert "selection_summary" in artifact_paths
+    assert "scenario_coverage" in artifact_paths
     assert "scenario_manifest" in artifact_paths
     scenario_index = artifact_paths["scenario_index"].read_text(encoding="utf-8")
     robustness_summary = artifact_paths["robustness_summary"].read_text(encoding="utf-8")
     selection_summary = artifact_paths["selection_summary"].read_text(encoding="utf-8")
+    scenario_coverage = artifact_paths["scenario_coverage"].read_text(encoding="utf-8")
     assert "monthly_day_1" in scenario_index
     assert "monthly_day_25" in scenario_index
     assert "pass_rate" in robustness_summary
@@ -274,6 +277,8 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
         or "promote_to_manual_review" in selection_summary
     )
     assert "review_status" in robustness_summary
+    assert "coverage_gate_passed" in scenario_coverage
+    assert "scenario_count_below_min_review_scenarios" in scenario_coverage
     assert "weakest_scenario" in robustness_summary
     assert "median_money_weighted_return_pct" in robustness_summary
     assert "max_terminal_cash_ratio_pct" in robustness_summary
@@ -291,6 +296,7 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert "scenario_index.csv" in {item["path"] for item in scenario_manifest["files"]}
     assert "robustness_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
     assert "selection_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
+    assert "scenario_coverage.csv" in {item["path"] for item in scenario_manifest["files"]}
 
 
 def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -> None:
@@ -319,6 +325,7 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     scenario_index = artifact_paths["scenario_index"].read_text(encoding="utf-8")
     robustness_rows = scenario_results_to_robustness_rows(scenarios)
     selection_rows = scenario_results_to_selection_rows(scenarios)
+    coverage_rows = scenario_results_to_coverage_rows(scenarios)
     assert "monthly_day_25_contribution_usd_1000" in scenario_index
     assert (tmp_path / "monthly_day_1_contribution_usd_500" / "metrics.csv").exists()
     assert robustness_rows[0]["name"] == "nasdaq_sp500_price_defensive"
@@ -348,6 +355,9 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["min_review_scenarios"] == 3
     assert selection_rows[0]["review_scenario_gate_passed"] is True
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
+    assert coverage_rows[0]["scenario_count"] == 4
+    assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
+    assert coverage_rows[0]["failure_reasons"] == ""
 
 
 def test_selection_rows_hold_fixed_when_no_variant_passes() -> None:
@@ -403,6 +413,36 @@ def test_selection_rows_require_minimum_robustness_scenarios() -> None:
     )
     assert relaxed_rows[0]["recommendation_status"] == "promote_to_manual_review"
     assert relaxed_rows[0]["recommendation_reason"] == "selected_candidate_passed_all_scenarios"
+
+
+def test_scenario_coverage_rows_flag_incomplete_or_inconsistent_matrix() -> None:
+    scenarios = {
+        "scenario_a": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_defensive": _research_result(
+                "nasdaq_sp500_price_defensive",
+                terminal_value=990.0,
+            ),
+        },
+        "scenario_b": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1010.0,
+            ),
+        },
+    }
+
+    rows = scenario_results_to_coverage_rows(scenarios)
+
+    assert rows[0]["scenario_count"] == 2
+    assert rows[0]["coverage_gate_passed"] is False
+    assert rows[0]["coverage_status"] == "insufficient_coverage"
+    assert rows[0]["candidate_set_consistent"] is False
+    assert rows[0]["fixed_benchmark_present_all"] is True
+    assert rows[0]["failure_reasons"] == (
+        "scenario_count_below_min_review_scenarios,candidate_set_inconsistent"
+    )
 
 
 def test_execution_day_contribution_scenarios_cover_cadence_robustness() -> None:
