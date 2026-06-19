@@ -14,6 +14,27 @@ from .smart_dca_promotion_gate import (
 
 
 SMART_DCA_DECISION_SUMMARY_SCHEMA_VERSION = "smart_dca_decision_summary.v1"
+SMART_DCA_NEXT_ACTION_GUARDRAILS_BY_PRIORITY = {
+    "avoid_parameter_tuning_without_new_independent_signal": (
+        "do_not_parameter_search_current_candidate_family"
+    ),
+    "avoid_skip_heavy_cash_drag_variants_as_default": (
+        "reject_skip_heavy_cash_drag_default_candidates"
+    ),
+    "expand_contract_covered_signal_family_before_retest": (
+        "add_contract_covered_independent_signal_before_retest"
+    ),
+    "hold_fixed_default": "keep_fixed_dca_default",
+    "improve_cross_scenario_robustness_before_manual_review": (
+        "require_cross_scenario_robustness_before_manual_review"
+    ),
+    "require_material_terminal_edge_before_promotion": (
+        "require_effect_size_gate_before_default_change"
+    ),
+    "require_terminal_value_non_regression_before_promotion": (
+        "require_terminal_value_non_regression"
+    ),
+}
 
 
 def summarize_smart_dca_decision_matrices(
@@ -57,6 +78,9 @@ def summarize_smart_dca_decision_matrices(
             profile_rollups
         ),
         "research_priority_counts": _research_priority_counts(profile_rollups),
+        "next_action_guardrail_counts": _next_action_guardrail_counts(
+            profile_rollups
+        ),
         "profile_rollups": profile_rollups,
         "matrices": matrices,
     }
@@ -95,8 +119,8 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
         "",
         "## Profile Rollup",
         "",
-        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers | Research priorities |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers | Research priorities | Next-action guardrails |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for profile in summary.get("profile_rollups", ()):
         lines.append(
@@ -123,6 +147,9 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
                     _markdown_cell(
                         ", ".join(profile.get("research_priorities", ()))
                     ),
+                    _markdown_cell(
+                        ", ".join(profile.get("next_action_guardrails", ()))
+                    ),
                 )
             )
             + " |"
@@ -147,6 +174,11 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
             "| Research priorities | "
             + _markdown_cell(
                 _format_counts(summary.get("research_priority_counts", {}))
+            )
+            + " |",
+            "| Next-action guardrails | "
+            + _markdown_cell(
+                _format_counts(summary.get("next_action_guardrail_counts", {}))
             )
             + " |",
         ]
@@ -435,6 +467,10 @@ def _profile_rollup(
         if str(row.get("observed_best_candidate", "")).strip()
     )
     promotion_blockers = _profile_promotion_blockers(rows)
+    research_priorities = _profile_research_priorities(
+        promotion_blockers,
+        observed_best_evidence,
+    )
     return {
         "profile": profile,
         "matrix_count": len(rows),
@@ -449,9 +485,9 @@ def _profile_rollup(
         ),
         "observed_best_evidence": observed_best_evidence,
         "promotion_blockers": promotion_blockers,
-        "research_priorities": _profile_research_priorities(
-            promotion_blockers,
-            observed_best_evidence,
+        "research_priorities": research_priorities,
+        "next_action_guardrails": _profile_next_action_guardrails(
+            research_priorities
         ),
     }
 
@@ -563,6 +599,17 @@ def _profile_research_priorities(
     return tuple(sorted(priorities))
 
 
+def _profile_next_action_guardrails(
+    research_priorities: Iterable[str],
+) -> tuple[str, ...]:
+    guardrails = {
+        SMART_DCA_NEXT_ACTION_GUARDRAILS_BY_PRIORITY[priority]
+        for priority in research_priorities
+        if priority in SMART_DCA_NEXT_ACTION_GUARDRAILS_BY_PRIORITY
+    }
+    return tuple(sorted(guardrails))
+
+
 def _promotion_blocker_counts(
     profile_rollups: Iterable[Mapping[str, Any]],
 ) -> dict[str, int]:
@@ -596,6 +643,18 @@ def _research_priority_counts(
         for profile in profile_rollups
         for priority in profile.get("research_priorities", ())
         if str(priority).strip()
+    ]
+    return _count_values(values)
+
+
+def _next_action_guardrail_counts(
+    profile_rollups: Iterable[Mapping[str, Any]],
+) -> dict[str, int]:
+    values = [
+        str(guardrail)
+        for profile in profile_rollups
+        for guardrail in profile.get("next_action_guardrails", ())
+        if str(guardrail).strip()
     ]
     return _count_values(values)
 

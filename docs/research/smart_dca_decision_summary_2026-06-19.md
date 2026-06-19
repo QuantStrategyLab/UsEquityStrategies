@@ -24,10 +24,10 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 
 ## Profile Rollup
 
-| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers | Research priorities |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` | `default_change_not_allowed_by_research`, `effect_size_gate_failed`, `manual_review_required_before_default_change`, `smart_mode_not_recommended_for_enablement` | `avoid_parameter_tuning_without_new_independent_signal`, `hold_fixed_default`, `require_material_terminal_edge_before_promotion` |
-| `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` | `default_change_not_allowed_by_research`, `effect_size_gate_failed`, `manual_review_required_before_default_change`, `robustness_gate_failed`, `smart_mode_not_recommended_for_enablement` | `avoid_parameter_tuning_without_new_independent_signal`, `avoid_skip_heavy_cash_drag_variants_as_default`, `hold_fixed_default`, `improve_cross_scenario_robustness_before_manual_review`, `require_material_terminal_edge_before_promotion`, `require_terminal_value_non_regression_before_promotion` |
+| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers | Research priorities | Next-action guardrails |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` | `default_change_not_allowed_by_research`, `effect_size_gate_failed`, `manual_review_required_before_default_change`, `smart_mode_not_recommended_for_enablement` | `avoid_parameter_tuning_without_new_independent_signal`, `hold_fixed_default`, `require_material_terminal_edge_before_promotion` | `do_not_parameter_search_current_candidate_family`, `keep_fixed_dca_default`, `require_effect_size_gate_before_default_change` |
+| `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` | `default_change_not_allowed_by_research`, `effect_size_gate_failed`, `manual_review_required_before_default_change`, `robustness_gate_failed`, `smart_mode_not_recommended_for_enablement` | `avoid_parameter_tuning_without_new_independent_signal`, `avoid_skip_heavy_cash_drag_variants_as_default`, `hold_fixed_default`, `improve_cross_scenario_robustness_before_manual_review`, `require_material_terminal_edge_before_promotion`, `require_terminal_value_non_regression_before_promotion` | `do_not_parameter_search_current_candidate_family`, `keep_fixed_dca_default`, `reject_skip_heavy_cash_drag_default_candidates`, `require_cross_scenario_robustness_before_manual_review`, `require_effect_size_gate_before_default_change`, `require_terminal_value_non_regression` |
 
 ## Overall Diagnostics
 
@@ -36,6 +36,7 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 | Promotion blockers | `default_change_not_allowed_by_research: 2`, `effect_size_gate_failed: 2`, `manual_review_required_before_default_change: 2`, `robustness_gate_failed: 1`, `smart_mode_not_recommended_for_enablement: 2` |
 | Performance diagnoses | `drawdown_better_than_fixed: 1`, `excess_terminal_cash: 1`, `lower_deployment_rate: 1`, `paid_terminal_value_for_drawdown_relief: 1`, `skipped_buy_cash_drag: 1`, `terminal_edge_non_negative: 2`, `terminal_underperformance_vs_fixed: 1` |
 | Research priorities | `avoid_parameter_tuning_without_new_independent_signal: 2`, `avoid_skip_heavy_cash_drag_variants_as_default: 1`, `hold_fixed_default: 2`, `improve_cross_scenario_robustness_before_manual_review: 1`, `require_material_terminal_edge_before_promotion: 2`, `require_terminal_value_non_regression_before_promotion: 1` |
+| Next-action guardrails | `do_not_parameter_search_current_candidate_family: 2`, `keep_fixed_dca_default: 2`, `reject_skip_heavy_cash_drag_default_candidates: 1`, `require_cross_scenario_robustness_before_manual_review: 1`, `require_effect_size_gate_before_default_change: 2`, `require_terminal_value_non_regression: 1` |
 
 ## Profile Evidence
 
