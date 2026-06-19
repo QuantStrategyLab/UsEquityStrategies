@@ -65,12 +65,17 @@ from .signal_bundle_contract import (
     validate_signal_bundle_indicator_fields,
 )
 from .runtime_market_signal_inputs import (
+    DEFAULT_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS,
+    DEFAULT_MARKET_SIGNAL_FALLBACK_MODE,
     IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER,
+    MARKET_SIGNAL_FALLBACK_MODE_LAST_VALID,
+    MARKET_SIGNAL_FALLBACK_MODE_NONE,
     MARKET_SIGNAL_REFERENCE_CONSUMPTION_AUDIT,
     MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF,
     MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX,
     SUPPORTED_MARKET_SIGNAL_REFERENCE_TYPES,
     extract_consumer_market_signal_inputs_from_reference,
+    normalize_market_signal_fallback_mode,
     normalize_market_signal_reference_type,
 )
 
@@ -137,11 +142,16 @@ __all__ = [
     "validate_signal_consumer_contract_registry",
     "validate_signal_bundle_for_consumer",
     "validate_signal_bundle_indicator_fields",
+    "DEFAULT_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS",
+    "DEFAULT_MARKET_SIGNAL_FALLBACK_MODE",
     "IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER",
+    "MARKET_SIGNAL_FALLBACK_MODE_LAST_VALID",
+    "MARKET_SIGNAL_FALLBACK_MODE_NONE",
     "MARKET_SIGNAL_REFERENCE_CONSUMPTION_AUDIT",
     "MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF",
     "MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX",
     "SUPPORTED_MARKET_SIGNAL_REFERENCE_TYPES",
     "extract_consumer_market_signal_inputs_from_reference",
+    "normalize_market_signal_fallback_mode",
     "normalize_market_signal_reference_type",
 ]
