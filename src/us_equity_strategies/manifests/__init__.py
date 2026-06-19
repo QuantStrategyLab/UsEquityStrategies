@@ -38,7 +38,7 @@ global_etf_rotation_manifest = _manifest(
         "Quarterly top-2 global ETF rotation with daily canary defense, SMA250 confidence gating, and BIL safe haven."
     ),
     aliases=("global_macro_etf_rotation", GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE),
-    required_inputs=frozenset({"market_history"}),
+    required_inputs=frozenset({"feature_snapshot"}),
     default_config={
         "ranking_pool": (
             "EWY",

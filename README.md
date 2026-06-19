@@ -25,7 +25,6 @@ These profiles can run from market history, portfolio snapshots, or other runtim
 
 | Profile | Name | Notes |
 | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | runtime-enabled ETF rotation using market history. |
 | `tqqq_growth_income` | TQQQ Growth Income | runtime-enabled QQQ/TQQQ dual-drive profile with defensive and income sleeves. |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | runtime-enabled semiconductor ETF trend profile. |
 | `nasdaq_sp500_smart_dca` | Nasdaq 100 / S&P 500 Smart DCA | runtime-enabled buy-only DCA profile for broad US equity ETFs; defaults to monthly fixed-amount DCA with configurable weekly/monthly/quarterly cadence and optional smart sizing. |
@@ -37,6 +36,7 @@ These profiles depend on artifacts produced by `UsEquitySnapshotPipelines` befor
 
 | Profile | Name | Notes |
 | --- | --- | --- |
+| `global_etf_rotation` | Global ETF Rotation | runtime-enabled feature-snapshot ETF rotation with daily canary defense and BIL safe haven. |
 | `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | runtime-enabled feature-snapshot Russell Top50 leader rotation. |
 
 ### Research-only candidates

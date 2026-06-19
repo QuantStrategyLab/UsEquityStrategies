@@ -25,7 +25,6 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | 使用 market history 的 runtime-enabled ETF 轮动。 |
 | `tqqq_growth_income` | TQQQ Growth Income | QQQ/TQQQ dual-drive，带防守和 income sleeve。 |
 | `soxl_soxx_trend_income` | SOXL/SOXX Semiconductor Trend Income | 半导体 ETF 趋势策略。 |
 | `nasdaq_sp500_smart_dca` | Nasdaq 100 / S&P 500 Smart DCA | 面向宽基美股 ETF 的买入型 DCA profile；默认月度定额定投，可配置周/月/季频率和智能倍数。 |
@@ -37,6 +36,7 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
+| `global_etf_rotation` | Global ETF Rotation | 基于 feature snapshot 的 ETF 轮动，带每日 canary 防守和 BIL safe haven。 |
 | `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | 基于 feature snapshot 的 Russell Top50 leader rotation。 |
 
 ### 研究侧候选

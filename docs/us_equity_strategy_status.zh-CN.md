@@ -30,7 +30,6 @@ _更新日期：2026-06-19_
 | `russell_1000_multi_factor_defensive` | 年化只小幅跑赢大盘，最大回撤与大盘接近，实盘价值弱于定投大盘，移除可运行入口。 |
 | `mega_cap_leader_rotation_top50_balanced` | 名称不再贴切；策略仍保留但改名为 `russell_top50_leader_rotation`，旧 profile 不再兼容。 |
 | `mega_cap_leader_rotation_dynamic_top20` | 同期 CAGR 21.51%、最大回撤 -23.14%；收益明显弱于 `russell_top50_leader_rotation` 的 36.41%。 |
-| `mega_cap_leader_rotation_aggressive` | Top50 top3/cap35 CAGR 32.42%、最大回撤 -28.64%；仍弱于 Russell Top50，且更集中。 |
 | `dynamic_mega_leveraged_pullback` | CAGR 30.96%、最大回撤 -34.80%；2x 产品和事件反弹路线更复杂，未优于当前保留路线。 |
 | `tech_communication_pullback_enhancement` | 行业限制在科技/通信，收益明显低于 `russell_top50_leader_rotation`，最大回撤也没有改善；策略实现和 bundled config 仅作为离线研究归档保留。 |
 

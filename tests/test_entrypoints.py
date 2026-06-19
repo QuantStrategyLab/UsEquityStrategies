@@ -10,12 +10,63 @@ from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entr
 from us_equity_strategies.catalog import get_runtime_enabled_profiles
 from us_equity_strategies.entrypoints._common import OPTION_OVERLAY_CONFIG_KEYS, build_option_overlay_diagnostics
 from us_equity_strategies.runtime_adapters import describe_platform_runtime_requirements
-from us_equity_strategies.strategies.global_etf_rotation import compute_signals as legacy_global_compute_signals
+from us_equity_strategies.strategies.global_etf_rotation import compute_signals_from_feature_snapshot
 from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
 from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan as soxl_soxx_trend_build_rebalance_plan
 from us_equity_strategies.strategies.mega_cap_leader_rotation import extract_managed_symbols as mega_cap_managed_symbols
 
 from tests.test_mega_cap_leader_rotation import _mega_snapshot
+
+
+def _global_etf_snapshot(as_of: str | pd.Timestamp = "2026-03-31") -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "as_of": as_of,
+                "symbol": "SMH",
+                "role": "ranking_pool_etf",
+                "close": 200.0,
+                "momentum_13612w": 0.45,
+                "score": 0.45,
+                "sma_pass": True,
+                "eligible": True,
+                "vol_126": 0.25,
+            },
+            {
+                "as_of": as_of,
+                "symbol": "GLD",
+                "role": "ranking_pool_etf",
+                "close": 180.0,
+                "momentum_13612w": 0.20,
+                "score": 0.20,
+                "sma_pass": True,
+                "eligible": True,
+                "vol_126": 0.12,
+            },
+            {
+                "as_of": as_of,
+                "symbol": "SPY",
+                "role": "canary_asset",
+                "close": 500.0,
+                "momentum_13612w": 0.08,
+                "score": 0.08,
+                "sma_pass": True,
+                "eligible": False,
+                "vol_126": 0.15,
+            },
+            {
+                "as_of": as_of,
+                "symbol": "BIL",
+                "role": "safe_haven",
+                "close": 91.0,
+                "momentum_13612w": 0.01,
+                "score": 0.01,
+                "sma_pass": True,
+                "eligible": False,
+                "vol_126": 0.01,
+            },
+        ]
+    )
 
 
 class StrategyEntrypointTests(unittest.TestCase):
@@ -115,18 +166,17 @@ class StrategyEntrypointTests(unittest.TestCase):
 
     def test_global_etf_rotation_entrypoint_matches_legacy_emergency_weights(self) -> None:
         entrypoint = get_strategy_entrypoint("global_etf_rotation")
-        index = pd.date_range("2024-01-01", periods=320, freq="B")
-        price_series = pd.Series([100.0 + (i * 0.1) for i in range(len(index))], index=index)
-
-        def get_historical_close(_ib, _ticker):
-            return price_series
-
-        legacy_weights, legacy_signal, legacy_is_emergency, legacy_canary = legacy_global_compute_signals(
-            None,
+        feature_snapshot = _global_etf_snapshot(as_of="2026-04-06")
+        (
+            expected_weights,
+            expected_signal,
+            expected_is_emergency,
+            expected_canary,
+        ) = compute_signals_from_feature_snapshot(
+            feature_snapshot,
             current_holdings={"VOO"},
-            get_historical_close=get_historical_close,
+            as_of_date="2026-04-06",
             translator=lambda key, **kwargs: f"{key}:{kwargs}",
-            pacing_sec=0.0,
             canary_bad_threshold=0,
             sma_period=entrypoint.manifest.default_config["sma_period"],
             confidence_weighting_enabled=entrypoint.manifest.default_config["confidence_weighting_enabled"],
@@ -140,7 +190,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of="2026-04-06",
-                market_data={"market_history": get_historical_close},
+                market_data={"feature_snapshot": feature_snapshot},
                 state={"current_holdings": {"VOO"}},
                 runtime_config={
                     "translator": lambda key, **kwargs: f"{key}:{kwargs}",
@@ -150,11 +200,16 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        self.assertTrue(legacy_is_emergency)
+        self.assertTrue(expected_is_emergency)
         self.assertEqual(decision.risk_flags, ("emergency",))
-        self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, legacy_weights)
-        self.assertEqual(decision.diagnostics["signal_description"], legacy_signal)
-        self.assertEqual(decision.diagnostics["canary_status"], legacy_canary)
+        self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, expected_weights)
+        self.assertEqual(decision.diagnostics["signal_description"], expected_signal)
+        self.assertEqual(decision.diagnostics["canary_status"], expected_canary)
+        self.assertEqual(decision.diagnostics["signal_source"], "feature_snapshot")
+        self.assertEqual(
+            decision.diagnostics["snapshot_contract_version"],
+            "global_etf_rotation.feature_snapshot.v1",
+        )
         self.assertEqual(decision.diagnostics["signal_date"], "2026-04-06")
         self.assertEqual(decision.diagnostics["effective_date"], "2026-04-07")
         self.assertEqual(decision.diagnostics["execution_timing_contract"], "next_trading_day")
@@ -163,33 +218,36 @@ class StrategyEntrypointTests(unittest.TestCase):
             "2026-04-07",
         )
 
-    def test_global_etf_runtime_adapter_uses_canonical_market_history(self) -> None:
+    def test_global_etf_runtime_adapter_uses_feature_snapshot(self) -> None:
         adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id="ibkr")
-        self.assertEqual(adapter.available_inputs, frozenset({"market_history"}))
+        self.assertEqual(adapter.available_inputs, frozenset({"feature_snapshot"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
+        self.assertTrue(adapter.artifact_contract.requires_snapshot_artifacts)
+        self.assertEqual(
+            adapter.artifact_contract.snapshot_contract_version,
+            "global_etf_rotation.feature_snapshot.v1",
+        )
         self.assertEqual(adapter.runtime_policy.signal_effective_after_trading_days, 1)
         confidence_adapter = get_platform_runtime_adapter("global_etf_confidence_vol_gate", platform_id="ibkr")
         self.assertEqual(confidence_adapter, adapter)
         confidence_entrypoint = get_strategy_entrypoint("global_etf_confidence_vol_gate")
         self.assertEqual(confidence_entrypoint.manifest.profile, "global_etf_rotation")
         paper_signal_adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id="paper_signal")
-        self.assertEqual(paper_signal_adapter.available_inputs, frozenset({"market_history"}))
+        self.assertEqual(paper_signal_adapter.available_inputs, frozenset({"feature_snapshot"}))
         self.assertEqual(paper_signal_adapter.available_capabilities, frozenset())
         self.assertEqual(paper_signal_adapter.runtime_policy.signal_effective_after_trading_days, 1)
 
     def test_global_etf_rotation_entrypoint_accepts_timestamp_as_of(self) -> None:
         entrypoint = get_strategy_entrypoint("global_etf_rotation")
-        index = pd.date_range("2025-01-01", periods=320, freq="B")
-        price_series = pd.Series([100.0 + (i * 0.1) for i in range(len(index))], index=index)
+        feature_snapshot = _global_etf_snapshot(as_of=pd.Timestamp("2026-03-31"))
 
         decision = entrypoint.evaluate(
             StrategyContext(
                 as_of=pd.Timestamp("2026-03-31"),
-                market_data={"market_history": lambda _ib, _ticker: price_series},
+                market_data={"feature_snapshot": feature_snapshot},
                 state={"current_holdings": ()},
                 runtime_config={
                     "translator": lambda key, **kwargs: key,
-                    "pacing_sec": 0.0,
                     "signal_effective_after_trading_days": 1,
                 },
             )
@@ -202,7 +260,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             adapter = get_platform_runtime_adapter("global_etf_rotation", platform_id=platform_id)
             self.assertEqual(
                 adapter.available_inputs,
-                frozenset({"market_history", "portfolio_snapshot"}),
+                frozenset({"feature_snapshot", "portfolio_snapshot"}),
             )
             self.assertEqual(adapter.portfolio_input_name, "portfolio_snapshot")
 
