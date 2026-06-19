@@ -38,6 +38,17 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 | Research priorities | `avoid_parameter_tuning_without_new_independent_signal: 2`, `avoid_skip_heavy_cash_drag_variants_as_default: 1`, `hold_fixed_default: 2`, `improve_cross_scenario_robustness_before_manual_review: 1`, `require_material_terminal_edge_before_promotion: 2`, `require_terminal_value_non_regression_before_promotion: 1` |
 | Next-action guardrails | `do_not_parameter_search_current_candidate_family: 2`, `keep_fixed_dca_default: 2`, `reject_skip_heavy_cash_drag_default_candidates: 1`, `require_cross_scenario_robustness_before_manual_review: 1`, `require_effect_size_gate_before_default_change: 2`, `require_terminal_value_non_regression: 1` |
 
+## Default Decision Contract
+
+- Passed: `true`
+- Failure reasons: -
+- Evidence hashes present: `true`
+
+| Profile | Runtime default fixed | Default change blocked | Required guardrails present | Required guardrails | Missing guardrails |
+| --- | --- | --- | --- | --- | --- |
+| `nasdaq_sp500_smart_dca` | `True` | `True` | `True` | `keep_fixed_dca_default`, `require_effect_size_gate_before_default_change` | - |
+| `ibit_smart_dca` | `True` | `True` | `True` | `keep_fixed_dca_default`, `reject_skip_heavy_cash_drag_default_candidates`, `require_cross_scenario_robustness_before_manual_review`, `require_terminal_value_non_regression` | - |
+
 ## Profile Evidence
 
 | Profile | Matrix | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Min rank score | Robustness gate | Effect gate | Diagnosis | Hold reason |

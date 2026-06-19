@@ -68,6 +68,17 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert summary["next_action_guardrail_counts"][
         "do_not_parameter_search_current_candidate_family"
     ] == 2
+    contract = summary["default_decision_contract"]
+    assert contract["schema_version"] == "smart_dca_default_decision_contract.v1"
+    assert contract["passed"] is True
+    assert contract["evidence_hashes_present"] is True
+    assert contract["profiles"][0]["profile"] == "ibit_smart_dca"
+    assert contract["profiles"][0]["runtime_default_fixed"] is True
+    assert contract["profiles"][0]["default_change_blocked"] is True
+    assert contract["profiles"][0]["missing_guardrails"] == ()
+    assert "require_cross_scenario_robustness_before_manual_review" in contract[
+        "profiles"
+    ][0]["required_guardrails"]
     assert summary["profile_rollups"][0]["profile"] == "ibit_smart_dca"
     assert summary["profile_rollups"][0][
         "runtime_default_recommendations"
@@ -107,6 +118,8 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert "hold_fixed_default: 2" in markdown
     assert "Next-action guardrails" in markdown
     assert "keep_fixed_dca_default: 2" in markdown
+    assert "## Default Decision Contract" in markdown
+    assert "Evidence hashes present" in markdown
     assert "Promotion blockers" in markdown
     assert "default_change_not_allowed_by_research" in markdown
     assert "## Profile Evidence" in markdown
@@ -333,6 +346,7 @@ def _observed_best_smart_candidates(
                 "dominant_performance_diagnosis": "terminal_edge_non_negative",
                 "performance_diagnoses": [
                     "drawdown_better_than_fixed",
+                    "skipped_buy_cash_drag",
                     "terminal_edge_non_negative",
                     "terminal_underperformance_vs_fixed",
                 ],

@@ -14,6 +14,9 @@ from .smart_dca_promotion_gate import (
 
 
 SMART_DCA_DECISION_SUMMARY_SCHEMA_VERSION = "smart_dca_decision_summary.v1"
+SMART_DCA_DEFAULT_DECISION_CONTRACT_SCHEMA_VERSION = (
+    "smart_dca_default_decision_contract.v1"
+)
 SMART_DCA_NEXT_ACTION_GUARDRAILS_BY_PRIORITY = {
     "avoid_parameter_tuning_without_new_independent_signal": (
         "do_not_parameter_search_current_candidate_family"
@@ -33,6 +36,16 @@ SMART_DCA_NEXT_ACTION_GUARDRAILS_BY_PRIORITY = {
     ),
     "require_terminal_value_non_regression_before_promotion": (
         "require_terminal_value_non_regression"
+    ),
+}
+SMART_DCA_REQUIRED_DEFAULT_DECISION_GUARDRAILS_BY_PROFILE = {
+    "ibit_smart_dca": (
+        "reject_skip_heavy_cash_drag_default_candidates",
+        "require_cross_scenario_robustness_before_manual_review",
+        "require_terminal_value_non_regression",
+    ),
+    "nasdaq_sp500_smart_dca": (
+        "require_effect_size_gate_before_default_change",
     ),
 }
 
@@ -61,11 +74,15 @@ def summarize_smart_dca_decision_matrices(
         _profile_rollup(profile, matrices)
         for profile in selected_profiles
     )
+    default_decision_contract = _default_decision_contract(
+        profile_rollups,
+        matrices,
+    )
     failure_reasons = [
         reason
         for matrix in matrices
         for reason in matrix["failure_reasons"]
-    ]
+    ] + list(default_decision_contract["failure_reasons"])
     return {
         "schema_version": SMART_DCA_DECISION_SUMMARY_SCHEMA_VERSION,
         "artifact_type": "smart_dca_decision_summary",
@@ -81,6 +98,7 @@ def summarize_smart_dca_decision_matrices(
         "next_action_guardrail_counts": _next_action_guardrail_counts(
             profile_rollups
         ),
+        "default_decision_contract": default_decision_contract,
         "profile_rollups": profile_rollups,
         "matrices": matrices,
     }
@@ -183,6 +201,49 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
             + " |",
         ]
     )
+    contract = summary.get("default_decision_contract", {})
+    if isinstance(contract, Mapping):
+        lines.extend(
+            [
+                "",
+                "## Default Decision Contract",
+                "",
+                f"- Passed: `{str(bool(contract.get('passed'))).lower()}`",
+                "- Failure reasons: "
+                + _markdown_cell(", ".join(contract.get("failure_reasons", ()))),
+                "- Evidence hashes present: `"
+                + str(bool(contract.get("evidence_hashes_present"))).lower()
+                + "`",
+                "",
+                "| Profile | Runtime default fixed | Default change blocked | Required guardrails present | Required guardrails | Missing guardrails |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for profile in contract.get("profiles", ()):
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _markdown_cell(profile.get("profile", "")),
+                        _markdown_cell(
+                            str(bool(profile.get("runtime_default_fixed")))
+                        ),
+                        _markdown_cell(
+                            str(bool(profile.get("default_change_blocked")))
+                        ),
+                        _markdown_cell(
+                            str(bool(profile.get("required_guardrails_present")))
+                        ),
+                        _markdown_cell(
+                            ", ".join(profile.get("required_guardrails", ()))
+                        ),
+                        _markdown_cell(
+                            ", ".join(profile.get("missing_guardrails", ()))
+                        ),
+                    )
+                )
+                + " |"
+            )
     lines.extend(
         [
             "",
@@ -608,6 +669,100 @@ def _profile_next_action_guardrails(
         if priority in SMART_DCA_NEXT_ACTION_GUARDRAILS_BY_PRIORITY
     }
     return tuple(sorted(guardrails))
+
+
+def _default_decision_contract(
+    profile_rollups: Iterable[Mapping[str, Any]],
+    matrices: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    profile_contracts = tuple(
+        _profile_default_decision_contract(profile)
+        for profile in profile_rollups
+    )
+    matrix_hash_failures = tuple(
+        reason
+        for matrix in matrices
+        for reason in _matrix_evidence_hash_failure_reasons(matrix)
+    )
+    failure_reasons = tuple(
+        [
+            reason
+            for profile in profile_contracts
+            for reason in profile["failure_reasons"]
+        ]
+        + list(matrix_hash_failures)
+    )
+    return {
+        "schema_version": SMART_DCA_DEFAULT_DECISION_CONTRACT_SCHEMA_VERSION,
+        "artifact_type": "smart_dca_default_decision_contract",
+        "passed": not failure_reasons,
+        "failure_reasons": failure_reasons,
+        "evidence_hashes_present": not matrix_hash_failures,
+        "profiles": profile_contracts,
+    }
+
+
+def _profile_default_decision_contract(
+    profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    profile_name = str(profile.get("profile", ""))
+    runtime_defaults = tuple(profile.get("runtime_default_recommendations", ()))
+    actual_guardrails = tuple(profile.get("next_action_guardrails", ()))
+    required_guardrails = tuple(
+        sorted(
+            {
+                "keep_fixed_dca_default",
+                *SMART_DCA_REQUIRED_DEFAULT_DECISION_GUARDRAILS_BY_PROFILE.get(
+                    profile_name,
+                    (),
+                ),
+            }
+        )
+    )
+    missing_guardrails = tuple(
+        guardrail
+        for guardrail in required_guardrails
+        if guardrail not in actual_guardrails
+    )
+    runtime_default_fixed = runtime_defaults == ("fixed_dca",)
+    default_change_blocked = (
+        profile.get("default_change_allowed_by_any_matrix") is False
+    )
+    failure_reasons: list[str] = []
+    if not runtime_default_fixed:
+        failure_reasons.append(f"default_contract_runtime_default_not_fixed:{profile_name}")
+    if not default_change_blocked:
+        failure_reasons.append(f"default_contract_default_change_not_blocked:{profile_name}")
+    failure_reasons.extend(
+        f"default_contract_missing_guardrail:{profile_name}:{guardrail}"
+        for guardrail in missing_guardrails
+    )
+    return {
+        "profile": profile_name,
+        "passed": not failure_reasons,
+        "failure_reasons": tuple(failure_reasons),
+        "runtime_default_recommendations": runtime_defaults,
+        "runtime_default_fixed": runtime_default_fixed,
+        "default_change_blocked": default_change_blocked,
+        "required_guardrails": required_guardrails,
+        "missing_guardrails": missing_guardrails,
+        "required_guardrails_present": not missing_guardrails,
+    }
+
+
+def _matrix_evidence_hash_failure_reasons(
+    matrix: Mapping[str, Any],
+) -> tuple[str, ...]:
+    label = str(matrix.get("label", ""))
+    failures: list[str] = []
+    for field in (
+        "review_decision_sha256",
+        "production_profile_decisions_sha256",
+    ):
+        value = str(matrix.get(field, ""))
+        if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+            failures.append(f"default_contract_missing_evidence_hash:{label}:{field}")
+    return tuple(failures)
 
 
 def _promotion_blocker_counts(
