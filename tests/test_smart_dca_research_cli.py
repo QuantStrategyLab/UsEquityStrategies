@@ -1602,6 +1602,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     )
     platform_handoff_manifest = tmp_path / "platform_handoff.json"
     platform_handoff_index = tmp_path / "platform_handoff_index.json"
+    signal_consumption_audit = tmp_path / "consumption_audit.json"
     research_handoff_manifest = tmp_path / "research_handoff.json"
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
@@ -1895,6 +1896,63 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                         ],
                     }
                 ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    signal_consumption_audit.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumption_audit.v1",
+                "artifact_type": "market_signal_consumption_audit",
+                "consumption_mode": "runtime_platform",
+                "handoff_source": "platform_handoff_index",
+                "consumer": "us_equity:ibit_smart_dca",
+                "consumer_role": "runtime",
+                "ready_for_consumption": True,
+                "ready_for_runtime_injection": True,
+                "ready_for_research_consumption": False,
+                "runtime_injection_allowed": True,
+                "research_csv_runtime_injection_allowed": False,
+                "runtime_market_data_key": "derived_indicators",
+                "runtime_payload_field": "derived_indicators",
+                "canonical_input": runtime_manifest["canonical_input"],
+                "bundle_id": runtime_manifest["bundle_id"],
+                "as_of": runtime_manifest["as_of"],
+                "lookup_as_of": str(dates[-1].date()),
+                "freshness_status": runtime_manifest["freshness_status"],
+                "handoff_manifest_path": str(platform_handoff_manifest.resolve()),
+                "handoff_manifest_sha256": _sha256_file(platform_handoff_manifest),
+                "index_path": str(platform_handoff_index.resolve()),
+                "index_handoff_count": 1,
+                "signal_bundle_manifest_path": str(runtime_signal_manifest.resolve()),
+                "signal_bundle_manifest_sha256": _sha256_file(runtime_signal_manifest),
+                "source_family_catalog_manifest_path": str(
+                    source_catalog_manifest.resolve()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_file(
+                    source_catalog_manifest
+                ),
+                "consumer_contract_registry_manifest_path": str(
+                    consumer_contract_registry_manifest.resolve()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_file(
+                    consumer_contract_registry_manifest
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "matched_source_family_count": 1,
+                "matched_source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_count": 1,
+                "consumer_contracts": ["us_equity:ibit_smart_dca"],
+                "all_known_consumers_present": False,
+                "all_runtime_consumers_covered": True,
+                "linked_manifest_sha256s_verified": True,
+                "consumer_contract_verified": True,
+                "source_catalog_verified": True,
             },
             sort_keys=True,
         ),
@@ -2205,6 +2263,63 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ]
     assert handoff_index_record["all_runtime_consumers_covered"] is True
+
+    consumption_audit_result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-consumption-audit-json",
+            str(signal_consumption_audit),
+            "--require-runtime-consumer-coverage",
+            "--output-dir",
+            str(tmp_path / "ibit-precomputed-consumption-audit-artifacts"),
+            "--candidate-set",
+            "ibit_btc_ahr999_precomputed",
+            "--signal-columns",
+            "ahr999",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+        ]
+    )
+
+    assert consumption_audit_result == 0
+    consumption_summary = json.loads(capsys.readouterr().out)
+    consumption_audit_record = consumption_summary["metadata"]["input_artifacts"][
+        "signal_consumption_audit"
+    ]
+    assert consumption_audit_record["schema_version"] == (
+        "market_signal_consumption_audit.v1"
+    )
+    assert consumption_audit_record["consumer"] == "us_equity:ibit_smart_dca"
+    assert consumption_audit_record["signal_bundle_manifest_sha256"] == (
+        _sha256_file(runtime_signal_manifest)
+    )
+    assert consumption_audit_record["handoff_manifest_sha256"] == (
+        _sha256_file(platform_handoff_manifest)
+    )
+    assert consumption_audit_record["all_runtime_consumers_covered"] is True
+    assert consumption_audit_record["bundle_identity_verified"] is True
+    consumption_scenario_manifest = json.loads(
+        (
+            tmp_path
+            / "ibit-precomputed-consumption-audit-artifacts"
+            / "scenario_manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert (
+        consumption_scenario_manifest["metadata"]["input_artifacts"][
+            "signal_consumption_audit"
+        ]["sha256"]
+        == _sha256_file(signal_consumption_audit)
+    )
 
     source_catalog_manifest_payload = json.loads(
         source_catalog_manifest.read_text(encoding="utf-8")

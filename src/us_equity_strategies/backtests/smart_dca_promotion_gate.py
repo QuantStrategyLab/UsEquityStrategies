@@ -310,6 +310,7 @@ def _input_artifacts_runtime_coverage_ok(input_artifacts: object) -> bool:
         "platform_signal_handoff_manifest",
         "platform_signal_handoff_index",
         "research_signal_handoff_manifest",
+        "signal_consumption_audit",
     ):
         record = input_artifacts.get(key)
         if (

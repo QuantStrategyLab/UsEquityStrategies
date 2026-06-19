@@ -83,6 +83,41 @@ def test_smart_dca_promotion_gate_accepts_scenario_manifest_evidence(
     assert audit["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
 
 
+def test_smart_dca_promotion_gate_accepts_consumption_audit_runtime_evidence(
+    tmp_path,
+) -> None:
+    review_path, decisions_path = _write_gate_artifacts(tmp_path)
+    scenario_manifest_path = _write_scenario_manifest(
+        tmp_path,
+        review_path=review_path,
+        decisions_path=decisions_path,
+        runtime_consumer_coverage=True,
+    )
+    scenario_manifest = json.loads(
+        scenario_manifest_path.read_text(encoding="utf-8")
+    )
+    scenario_manifest["metadata"]["input_artifacts"] = {
+        "signal_consumption_audit": {
+            "schema_version": "market_signal_consumption_audit.v1",
+            "all_runtime_consumers_covered": True,
+        }
+    }
+    scenario_manifest_path.write_text(
+        json.dumps(scenario_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_smart_dca_promotion_gate(
+        review_decision_path=review_path,
+        production_profile_decisions_path=decisions_path,
+        scenario_manifest_path=scenario_manifest_path,
+        require_runtime_consumer_coverage=True,
+    )
+
+    assert audit["passed"] is True
+    assert audit["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
+
+
 def test_smart_dca_promotion_gate_rejects_missing_runtime_coverage_evidence(
     tmp_path,
 ) -> None:

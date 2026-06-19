@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import hashlib
 import json
 from pathlib import Path
@@ -13,6 +13,7 @@ import pandas as pd
 from us_equity_strategies.signals import (
     SignalBundleContractError,
     required_indicator_fields_for_consumer,
+    signal_consumption_audit_summary_from_file,
     signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
     signal_research_handoff_audit_summary_from_manifest,
@@ -241,6 +242,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--signal-consumption-audit-json",
+        type=Path,
+        help=(
+            "Optional MarketSignalSources market_signal_consumption_audit.v1 "
+            "artifact proving the runtime deploy/startup decision record."
+        ),
+    )
+    parser.add_argument(
         "--research-signal-handoff-manifest",
         type=Path,
         help=(
@@ -259,8 +268,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--require-runtime-consumer-coverage",
         action="store_true",
         help=(
-            "Require supplied source catalog or handoff manifests to prove every "
-            "known runtime signal consumer has an implemented source family."
+            "Require supplied source catalog, handoff, or consumption audit "
+            "artifacts to prove every known runtime signal consumer has an "
+            "implemented source family."
         ),
     )
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -579,6 +589,16 @@ def _optional_manifest_records(
                 args.require_runtime_consumer_coverage
             ),
         )
+    if args.signal_consumption_audit_json is not None:
+        runtime_consumer = _runtime_consumption_audit_consumer(required_consumers)
+        records["signal_consumption_audit"] = _signal_consumption_audit_record(
+            args.signal_consumption_audit_json,
+            consumer=runtime_consumer,
+            require_runtime_consumer_coverage=(
+                args.require_runtime_consumer_coverage
+            ),
+        )
+        _validate_consumption_audit_record_links(records)
     if args.research_signal_handoff_manifest is not None:
         handoff_consumer = _research_handoff_consumer(
             required_consumers=required_consumers,
@@ -1447,6 +1467,104 @@ def _platform_handoff_index_record(
             "consumer_registry_contract_fields_verified"
         ],
     }
+
+
+def _runtime_consumption_audit_consumer(required_consumers: tuple[str, ...]) -> str:
+    runtime_consumers = tuple(
+        consumer
+        for consumer in required_consumers
+        if not str(consumer).startswith("research:")
+    )
+    if len(runtime_consumers) != 1:
+        raise ValueError(
+            "--signal-consumption-audit-json requires a candidate set with exactly "
+            "one runtime signal consumer"
+        )
+    return runtime_consumers[0]
+
+
+def _signal_consumption_audit_record(
+    path: Path,
+    *,
+    consumer: str,
+    require_runtime_consumer_coverage: bool = False,
+) -> dict[str, object]:
+    try:
+        summary = signal_consumption_audit_summary_from_file(
+            path,
+            consumer=consumer,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
+        )
+    except SignalBundleContractError as exc:
+        raise ValueError(str(exc)) from exc
+    return {
+        "path": summary["path"],
+        "sha256": summary["sha256"],
+        "size_bytes": summary["size_bytes"],
+        "schema_version": summary["schema_version"],
+        "artifact_type": summary["artifact_type"],
+        "consumption_mode": summary["consumption_mode"],
+        "handoff_source": summary["handoff_source"],
+        "consumer": summary["consumer"],
+        "canonical_input": summary["canonical_input"],
+        "bundle_id": summary["bundle_id"],
+        "as_of": summary["as_of"],
+        "lookup_as_of": summary["lookup_as_of"],
+        "freshness_status": summary["freshness_status"],
+        "runtime_market_data_key": summary["runtime_market_data_key"],
+        "runtime_payload_field": summary["runtime_payload_field"],
+        "signal_bundle_manifest_path": summary["signal_bundle_manifest_path"],
+        "signal_bundle_manifest_sha256": summary["signal_bundle_manifest_sha256"],
+        "handoff_manifest_path": summary["handoff_manifest_path"],
+        "handoff_manifest_sha256": summary["handoff_manifest_sha256"],
+        "source_families": summary["source_families"],
+        "matched_source_families": summary["matched_source_families"],
+        "consumer_contracts": summary["consumer_contracts"],
+        "all_runtime_consumers_covered": summary["all_runtime_consumers_covered"],
+        "ready_for_runtime_injection": summary["ready_for_runtime_injection"],
+        "runtime_injection_allowed": summary["runtime_injection_allowed"],
+        "linked_manifest_sha256s_verified": summary[
+            "linked_manifest_sha256s_verified"
+        ],
+        "bundle_identity_verified": summary["bundle_identity_verified"],
+    }
+
+
+def _validate_consumption_audit_record_links(
+    records: Mapping[str, dict[str, object]],
+) -> None:
+    audit_record = records["signal_consumption_audit"]
+    signal_manifest = records.get("signal_manifest")
+    if (
+        signal_manifest is not None
+        and signal_manifest.get("schema_version") == "market_signal_manifest.v1"
+        and audit_record["signal_bundle_manifest_sha256"]
+        != signal_manifest["sha256"]
+    ):
+        raise ValueError(
+            "signal consumption audit signal_bundle_manifest_sha256 does not "
+            "match --signal-manifest"
+        )
+    platform_handoff_manifest = records.get("platform_signal_handoff_manifest")
+    if (
+        platform_handoff_manifest is not None
+        and audit_record["handoff_manifest_sha256"]
+        != platform_handoff_manifest["sha256"]
+    ):
+        raise ValueError(
+            "signal consumption audit handoff_manifest_sha256 does not match "
+            "--platform-signal-handoff-manifest"
+        )
+    platform_handoff_index = records.get("platform_signal_handoff_index")
+    if (
+        platform_handoff_index is not None
+        and audit_record["handoff_manifest_sha256"]
+        != platform_handoff_index["resolved_handoff_manifest_sha256"]
+    ):
+        raise ValueError(
+            "signal consumption audit handoff_manifest_sha256 does not match "
+            "--platform-signal-handoff-index"
+        )
 
 
 def _research_handoff_consumer(
