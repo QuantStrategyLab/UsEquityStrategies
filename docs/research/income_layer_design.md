@@ -15,8 +15,7 @@ Current defaults:
 | `tqqq_growth_income` | `log_total_drawdown_budget` | `250000` | `20%` | `55%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
 | `soxl_soxx_trend_income` | `log_total_drawdown_budget` | `150000` | `20%` | `95%` | `SCHD 15% / DGRO 10% / SGOV 70% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_total_drawdown_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `log_total_drawdown_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `mega_cap_leader_rotation_top50_balanced` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `russell_top50_leader_rotation_aggressive` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 
 `tech_communication_pullback_enhancement` is removed from runtime exposure. Its
 strategy implementation and bundled config remain only as archived research, so
@@ -47,8 +46,7 @@ Activation and near-cap visualization:
 | `tqqq_growth_income` | Broad-market leveraged growth | `45%` | `8%` | Starts at `45%`, tightens `5%` per double, floor `25%` | `55%` | Small accounts can accept near-core volatility; around `500k` the budget tightens near `40%`, around `2M` near `30%`, while preserving compounding. |
 | `soxl_soxx_trend_income` | Semiconductor leveraged trend | `45%` | `6%` | Starts at `45%`, tightens `5%` per double, floor `25%` | `95%` | SOXL has sharper path risk and a more SGOV-heavy income basket, so the cap is high enough to satisfy large-account budgets. |
 | `global_etf_rotation` | Defensive ETF rotation | `30%` | `8%` | Starts at `30%`, tightens `1.5%` per double, floor `26.7%` | `15%` | The core already has canary/BIL defense; the floor matches the drawdown achievable with the 15% income cap. |
-| `russell_1000_multi_factor_defensive` | Defensive multi-factor stocks | `30%` | `8%` | Starts at `30%`, tightens `1.5%` per double, floor `25.6%` | `20%` | Single-stock equity risk is higher than Global ETF, so the cap and achievable floor are slightly more defensive. |
-| `mega_cap_leader_rotation_top50_balanced` | Concentrated leader rotation | `35%` | `8%` | Starts at `35%`, tightens `2%` per double, floor `28.25%` | `25%` | Top2/Top4 concentration needs a Tech-like budget curve, but the cap is lower to avoid muting strong trend capture too much. |
+| `russell_top50_leader_rotation_aggressive` | Concentrated leader rotation | `35%` | `8%` | Starts at `35%`, tightens `2%` per double, floor `28.25%` | `25%` | Top2/Top4 concentration needs a Tech-like budget curve, but the cap is lower to avoid muting strong trend capture too much. |
 
 ## Leveraged Profile Review
 

@@ -37,8 +37,7 @@ These profiles depend on artifacts produced by `UsEquitySnapshotPipelines` befor
 
 | Profile | Name | Notes |
 | --- | --- | --- |
-| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | runtime-enabled feature-snapshot stock selector. |
-| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | runtime-enabled feature-snapshot mega-cap leader rotation. |
+| `russell_top50_leader_rotation_aggressive` | Russell Top50 Leader Rotation Aggressive | runtime-enabled feature-snapshot Russell Top50 leader rotation. |
 
 ### Research-only candidates
 

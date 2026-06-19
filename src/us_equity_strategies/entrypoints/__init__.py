@@ -20,9 +20,8 @@ from us_equity_strategies.ai_extensions import (
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     ibit_smart_dca_manifest,
-    mega_cap_leader_rotation_top50_balanced_manifest,
+    russell_top50_leader_rotation_aggressive_manifest,
     nasdaq_sp500_smart_dca_manifest,
-    russell_1000_multi_factor_defensive_manifest,
     soxl_soxx_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
@@ -32,7 +31,6 @@ from us_equity_strategies.strategies import (
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
     tqqq_growth_income as tqqq_growth_income_strategy,
-    russell_1000_multi_factor_defensive as legacy_russell,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
 )
 
@@ -873,90 +871,6 @@ soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
 )
 
 
-def evaluate_russell_1000_multi_factor_defensive(ctx: StrategyContext) -> StrategyDecision:
-    config = merge_runtime_config(russell_1000_multi_factor_defensive_manifest.default_config, ctx)
-    income_layer_config = pop_income_layer_config(config)
-    option_overlay_config = pop_option_overlay_config(config)
-    market_regime_control_config = pop_market_regime_control_config(config)
-    translator = config.pop("translator", default_translator)
-    config.pop("signal_text_fn", None)
-    config.pop("run_as_of", None)
-    config.pop("signal_effective_after_trading_days", None)
-    config.pop("runtime_execution_window_trading_days", None)
-    pop_execution_only_config(config)
-    weights, signal_desc, is_emergency, status_desc, metadata = legacy_russell.compute_signals(
-        require_market_data(ctx, "feature_snapshot"),
-        get_current_holdings(ctx),
-        **config,
-    )
-    weights, income_layer_diagnostics = apply_income_layer_to_weights(
-        weights,
-        income_layer_config=income_layer_config,
-        ctx=ctx,
-        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
-    )
-    weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
-        weights,
-        market_regime_control_config=market_regime_control_config,
-        ctx=ctx,
-        safe_haven=str(config.get("safe_haven", "BOXX")),
-        excluded_symbols=(config.get("safe_haven"), config.get("benchmark_symbol")),
-    )
-    rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
-        signal_desc,
-        status_desc,
-        metadata,
-        translator=translator,
-    )
-    notification_context = _merge_notification_contexts(
-        notification_context,
-        market_regime_control_diagnostics.get("market_regime_control_notification_context"),
-    )
-    diagnostics = {
-        **metadata,
-        **income_layer_diagnostics,
-        **market_regime_control_diagnostics,
-        **build_option_overlay_diagnostics(option_overlay_config, ctx),
-        "signal_description": rendered_signal_desc,
-        "status_description": rendered_status_desc,
-        "signal_source": legacy_russell.SIGNAL_SOURCE,
-    }
-    diagnostics.update(_account_size_diagnostics(russell_1000_multi_factor_defensive_manifest.profile, ctx))
-    diagnostics["signal_description"] = append_account_size_warning(
-        str(diagnostics["signal_description"]),
-        diagnostics,
-        translator=translator,
-    )
-    _attach_dashboard_text(
-        diagnostics,
-        _build_dashboard_text(
-            ctx,
-            strategy_symbols=_symbols_from_sources(
-                metadata.get("managed_symbols"),
-                weights or {},
-                get_current_holdings(ctx),
-                config.get("safe_haven"),
-            ),
-            translator=translator,
-            signal_text=diagnostics["signal_description"],
-        ),
-    )
-    _attach_notification_context(diagnostics, notification_context)
-    risk_flags = ("hard_defense",) if is_emergency else ()
-    return StrategyDecision(
-        positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
-        risk_flags=risk_flags,
-        diagnostics=diagnostics,
-    )
-
-
-legacy_russell.compute_signals.__doc__ = (
-    ((legacy_russell.compute_signals.__doc__ or "").strip() +
-     "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
-    .strip()
-)
-
-
 def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     ctx: StrategyContext,
     *,
@@ -1059,10 +973,10 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     )
 
 
-def evaluate_mega_cap_leader_rotation_top50_balanced(ctx: StrategyContext) -> StrategyDecision:
+def evaluate_russell_top50_leader_rotation_aggressive(ctx: StrategyContext) -> StrategyDecision:
     return _evaluate_mega_cap_leader_rotation_snapshot_profile(
         ctx,
-        manifest=mega_cap_leader_rotation_top50_balanced_manifest,
+        manifest=russell_top50_leader_rotation_aggressive_manifest,
     )
 
 
@@ -1309,13 +1223,9 @@ soxl_soxx_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=soxl_soxx_trend_income_manifest,
     _evaluate=evaluate_soxl_soxx_trend_income,
 )
-russell_1000_multi_factor_defensive_entrypoint = CallableStrategyEntrypoint(
-    manifest=russell_1000_multi_factor_defensive_manifest,
-    _evaluate=evaluate_russell_1000_multi_factor_defensive,
-)
-mega_cap_leader_rotation_top50_balanced_entrypoint = CallableStrategyEntrypoint(
-    manifest=mega_cap_leader_rotation_top50_balanced_manifest,
-    _evaluate=evaluate_mega_cap_leader_rotation_top50_balanced,
+russell_top50_leader_rotation_aggressive_entrypoint = CallableStrategyEntrypoint(
+    manifest=russell_top50_leader_rotation_aggressive_manifest,
+    _evaluate=evaluate_russell_top50_leader_rotation_aggressive,
 )
 nasdaq_sp500_smart_dca_entrypoint = CallableStrategyEntrypoint(
     manifest=nasdaq_sp500_smart_dca_manifest,
@@ -1331,15 +1241,13 @@ __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
-    "russell_1000_multi_factor_defensive_entrypoint",
-    "mega_cap_leader_rotation_top50_balanced_entrypoint",
+    "russell_top50_leader_rotation_aggressive_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
     "ibit_smart_dca_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
-    "evaluate_russell_1000_multi_factor_defensive",
-    "evaluate_mega_cap_leader_rotation_top50_balanced",
+    "evaluate_russell_top50_leader_rotation_aggressive",
     "evaluate_nasdaq_sp500_smart_dca",
     "evaluate_ibit_smart_dca",
 ]

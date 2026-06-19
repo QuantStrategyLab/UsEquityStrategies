@@ -12,10 +12,9 @@ from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
     IBIT_SMART_DCA_PROFILE,
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
     audit_smart_dca_runtime_default_contract,
     get_compatible_platforms,
@@ -67,11 +66,14 @@ class CatalogTest(unittest.TestCase):
             frozenset({"derived_indicators", "portfolio_snapshot"}),
         )
 
-        self.assertIn(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE, catalog)
-        self.assertEqual(catalog[RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE].domain, "us_equity")
+        self.assertIn(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE, catalog)
         self.assertEqual(
-            get_compatible_platforms(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
+            get_compatible_platforms(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE),
             FULL_SHARED_PLATFORM_MATRIX,
+        )
+        self.assertEqual(
+            catalog[RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE].required_inputs,
+            frozenset({"feature_snapshot"}),
         )
 
         self.assertIn(NASDAQ_SP500_SMART_DCA_PROFILE, catalog)
@@ -138,16 +140,8 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.soxl_soxx_trend_income",
         )
 
-        ibkr_definition = get_strategy_definition("russell_1000_multi_factor_defensive")
-        self.assertEqual(ibkr_definition.profile, RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
-        ibkr_module = get_strategy_component_map(ibkr_definition)["signal_logic"]
-        self.assertEqual(
-            ibkr_module.module_path,
-            "us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
-        )
-
-        balanced_definition = get_strategy_definition("mega_cap_leader_rotation_top50_balanced")
-        self.assertEqual(balanced_definition.profile, MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE)
+        balanced_definition = get_strategy_definition("russell_top50_leader_rotation_aggressive")
+        self.assertEqual(balanced_definition.profile, RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE)
         balanced_module = get_strategy_component_map(balanced_definition)["signal_logic"]
         self.assertEqual(
             balanced_module.module_path,
@@ -174,7 +168,6 @@ class CatalogTest(unittest.TestCase):
 
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
-        self.assertEqual(resolve_canonical_profile("r1000_multifactor_defensive"), RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE)
         for legacy_profile in (
             "hybrid_growth_income",
             "qqq_tqqq_growth_income",
@@ -207,11 +200,11 @@ class CatalogTest(unittest.TestCase):
             "runtime_enabled",
         )
         self.assertEqual(
-            metadata_map[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE].role,
-            "balanced_leader_rotation",
+            metadata_map[RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE].role,
+            "aggressive_leader_rotation",
         )
         self.assertEqual(
-            compatibility[MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE],
+            compatibility[RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].role, "buy_only_smart_dca")
@@ -253,16 +246,12 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(soxl["option_income_overlay_start_usd"], 1000000.0)
         self.assertEqual(soxl["option_income_overlay_nav_risk_ratio"], 0.01)
 
-        mega = get_strategy_definition(MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE).default_config
+        mega = get_strategy_definition(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE).default_config
         self.assertIs(mega["option_growth_overlay_enabled"], True)
         self.assertEqual(mega["option_growth_overlay_recipe"], "qqq_leaps_growth_v1")
         self.assertEqual(mega["option_growth_overlay_start_usd"], 1000000.0)
         self.assertEqual(mega["option_growth_overlay_nav_budget_ratio"], 0.03)
 
-        self.assertNotIn(
-            "option_growth_overlay_enabled",
-            get_strategy_definition(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE).default_config,
-        )
         self.assertNotIn(
             "option_growth_overlay_enabled",
             get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
@@ -405,8 +394,7 @@ class CatalogTest(unittest.TestCase):
 
         promotion_pending_profiles = (
             GLOBAL_ETF_ROTATION_PROFILE,
-            RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-            MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+            RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
         )
         for profile in promotion_pending_profiles:
             config = get_strategy_definition(profile).default_config
@@ -438,6 +426,9 @@ class CatalogTest(unittest.TestCase):
         for profile in (
             "mega_cap_leader_rotation_dynamic_top20",
             "mega_cap_leader_rotation_aggressive",
+            "mega_cap_leader_rotation_top50_balanced",
+            "russell_1000_multi_factor_defensive",
+            "r1000_multifactor_defensive",
             "dynamic_mega_leveraged_pullback",
             "tech_communication_pullback_enhancement",
             "qqq_tech_enhancement",
@@ -456,8 +447,7 @@ class CatalogTest(unittest.TestCase):
                     GLOBAL_ETF_ROTATION_PROFILE,
                     TQQQ_GROWTH_INCOME_PROFILE,
                     SOXL_SOXX_TREND_INCOME_PROFILE,
-                    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-                    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+                    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
                     NASDAQ_SP500_SMART_DCA_PROFILE,
                     IBIT_SMART_DCA_PROFILE,
                 }
