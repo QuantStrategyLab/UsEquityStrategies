@@ -660,7 +660,7 @@ def build_rebalance_plan(
     ahr999_dca_multiplier: float = 1.50,
     ahr999_expensive_multiplier: float = 0.0,
     crypto_indicator_snapshot: Mapping[str, object] | None = None,
-    ibit_zscore_exit_enabled: bool = False,
+    ibit_zscore_exit_enabled: bool = True,
     ibit_zscore_exit_mode: str = "live",
     ibit_zscore_exit_context: Mapping[str, object] | None = None,
     ibit_zscore_exit_parking_symbol: str = DEFAULT_IBIT_ZSCORE_EXIT_PARKING_SYMBOL,

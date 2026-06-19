@@ -332,7 +332,7 @@ ibit_smart_dca_manifest = _manifest(
         "ahr999_accumulation_multiplier": 2.25,
         "ahr999_dca_multiplier": 1.50,
         "ahr999_expensive_multiplier": 0.0,
-        "ibit_zscore_exit_enabled": False,
+        "ibit_zscore_exit_enabled": True,
         "ibit_zscore_exit_mode": "live",
         "ibit_zscore_exit_parking_symbol": "BOXX",
         "ibit_zscore_exit_risk_reduced_exposure": 0.50,
