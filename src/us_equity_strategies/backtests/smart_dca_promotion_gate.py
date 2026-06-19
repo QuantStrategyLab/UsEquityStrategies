@@ -218,13 +218,19 @@ def _audit_scenario_manifest(
         failure_reasons.append("scenario_manifest_missing_candidate_set")
 
     runtime_consumer_coverage_verified = False
+    runtime_consumer_coverage_artifact_verified = False
     if require_runtime_consumer_coverage:
         if research_config.get("require_runtime_consumer_coverage") is not True:
             failure_reasons.append(
                 "scenario_manifest_runtime_consumer_coverage_not_required"
             )
-        runtime_consumer_coverage_verified = _input_artifacts_runtime_coverage_ok(
-            input_artifacts
+        (
+            runtime_consumer_coverage_verified,
+            runtime_consumer_coverage_artifact_verified,
+        ) = _input_artifacts_runtime_coverage_ok(
+            input_artifacts,
+            root=root,
+            failure_reasons=failure_reasons,
         )
         if not runtime_consumer_coverage_verified:
             failure_reasons.append(
@@ -245,6 +251,9 @@ def _audit_scenario_manifest(
         "production_profile_decisions_verified": decisions_verified,
         "require_runtime_consumer_coverage": require_runtime_consumer_coverage,
         "runtime_consumer_coverage_verified": runtime_consumer_coverage_verified,
+        "runtime_consumer_coverage_artifact_verified": (
+            runtime_consumer_coverage_artifact_verified
+        ),
     }
 
 
@@ -302,9 +311,16 @@ def _verify_manifest_file_record(
     return verified
 
 
-def _input_artifacts_runtime_coverage_ok(input_artifacts: object) -> bool:
+def _input_artifacts_runtime_coverage_ok(
+    input_artifacts: object,
+    *,
+    root: Path,
+    failure_reasons: list[str],
+) -> tuple[bool, bool]:
     if not isinstance(input_artifacts, Mapping):
-        return False
+        return False, False
+    coverage_found = False
+    artifact_verified = False
     for key in (
         "signal_source_family_catalog_manifest",
         "platform_signal_handoff_manifest",
@@ -317,8 +333,46 @@ def _input_artifacts_runtime_coverage_ok(input_artifacts: object) -> bool:
             isinstance(record, Mapping)
             and record.get("all_runtime_consumers_covered") is True
         ):
-            return True
-    return False
+            coverage_found = True
+            if _verify_input_artifact_file_record(
+                record,
+                root=root,
+                label=key,
+                failure_reasons=failure_reasons,
+            ):
+                artifact_verified = True
+    return coverage_found and artifact_verified, artifact_verified
+
+
+def _verify_input_artifact_file_record(
+    record: Mapping[str, Any],
+    *,
+    root: Path,
+    label: str,
+    failure_reasons: list[str],
+) -> bool:
+    raw_path = str(record.get("path", "") or "").strip()
+    if not raw_path:
+        failure_reasons.append(f"scenario_manifest_input_artifact_missing_path:{label}")
+        return False
+    artifact_path = Path(raw_path)
+    if not artifact_path.is_absolute():
+        artifact_path = root / artifact_path
+    if not artifact_path.exists():
+        failure_reasons.append(f"scenario_manifest_input_artifact_missing_file:{label}")
+        return False
+    verified = True
+    if record.get("sha256") != _sha256_file(artifact_path):
+        failure_reasons.append(
+            f"scenario_manifest_input_artifact_sha256_mismatch:{label}"
+        )
+        verified = False
+    if record.get("size_bytes") != artifact_path.stat().st_size:
+        failure_reasons.append(
+            f"scenario_manifest_input_artifact_size_bytes_mismatch:{label}"
+        )
+        verified = False
+    return verified
 
 
 def _sha256_file(path: Path) -> str:

@@ -81,6 +81,10 @@ def test_smart_dca_promotion_gate_accepts_scenario_manifest_evidence(
     assert audit["scenario_manifest"]["candidate_summary_present"] is True
     assert audit["scenario_manifest"]["candidate_specs_present"] is True
     assert audit["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
+    assert (
+        audit["scenario_manifest"]["runtime_consumer_coverage_artifact_verified"]
+        is True
+    )
 
 
 def test_smart_dca_promotion_gate_accepts_consumption_audit_runtime_evidence(
@@ -96,11 +100,26 @@ def test_smart_dca_promotion_gate_accepts_consumption_audit_runtime_evidence(
     scenario_manifest = json.loads(
         scenario_manifest_path.read_text(encoding="utf-8")
     )
-    scenario_manifest["metadata"]["input_artifacts"] = {
-        "signal_consumption_audit": {
+    consumption_audit_path = _write_text_file(
+        tmp_path / "consumption_audit.json",
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumption_audit.v1",
+                "all_runtime_consumers_covered": True,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    consumption_audit_record = _file_record(consumption_audit_path, root=tmp_path)
+    consumption_audit_record.update(
+        {
             "schema_version": "market_signal_consumption_audit.v1",
             "all_runtime_consumers_covered": True,
         }
+    )
+    scenario_manifest["metadata"]["input_artifacts"] = {
+        "signal_consumption_audit": consumption_audit_record
     }
     scenario_manifest_path.write_text(
         json.dumps(scenario_manifest, indent=2, sort_keys=True) + "\n",
@@ -116,6 +135,40 @@ def test_smart_dca_promotion_gate_accepts_consumption_audit_runtime_evidence(
 
     assert audit["passed"] is True
     assert audit["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
+    assert (
+        audit["scenario_manifest"]["runtime_consumer_coverage_artifact_verified"]
+        is True
+    )
+
+
+def test_smart_dca_promotion_gate_rejects_runtime_coverage_hash_mismatch(
+    tmp_path,
+) -> None:
+    review_path, decisions_path = _write_gate_artifacts(tmp_path)
+    scenario_manifest_path = _write_scenario_manifest(
+        tmp_path,
+        review_path=review_path,
+        decisions_path=decisions_path,
+        runtime_consumer_coverage=True,
+    )
+    coverage_path = tmp_path / "runtime_coverage_manifest.json"
+    coverage_path.write_text("tampered\n", encoding="utf-8")
+
+    audit = audit_smart_dca_promotion_gate(
+        review_decision_path=review_path,
+        production_profile_decisions_path=decisions_path,
+        scenario_manifest_path=scenario_manifest_path,
+        require_runtime_consumer_coverage=True,
+    )
+
+    assert audit["passed"] is False
+    assert (
+        "scenario_manifest_input_artifact_sha256_mismatch:"
+        "signal_source_family_catalog_manifest"
+    ) in audit["failure_reasons"]
+    assert "scenario_manifest_runtime_consumer_coverage_not_verified" in audit[
+        "failure_reasons"
+    ]
 
 
 def test_smart_dca_promotion_gate_rejects_missing_runtime_coverage_evidence(
@@ -317,6 +370,24 @@ def _write_scenario_manifest(
             "name,parameter_name,parameter_value\nsmart,multiplier,1.0\n",
         ),
     ]
+    runtime_coverage_artifact = _write_text_file(
+        tmp_path / "runtime_coverage_manifest.json",
+        json.dumps(
+            {
+                "schema_version": "market_signal_source_family_catalog_manifest.v1",
+                "all_runtime_consumers_covered": runtime_consumer_coverage,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    runtime_coverage_record = _file_record(runtime_coverage_artifact, root=tmp_path)
+    runtime_coverage_record.update(
+        {
+            "schema_version": "market_signal_source_family_catalog_manifest.v1",
+            "all_runtime_consumers_covered": runtime_consumer_coverage,
+        }
+    )
     scenario_manifest_path = tmp_path / "scenario_manifest.json"
     payload = {
         "schema_version": "smart_dca_research_artifacts.v1",
@@ -329,9 +400,7 @@ def _write_scenario_manifest(
                 "require_runtime_consumer_coverage": runtime_consumer_coverage,
             },
             "input_artifacts": {
-                "signal_source_family_catalog_manifest": {
-                    "all_runtime_consumers_covered": runtime_consumer_coverage,
-                }
+                "signal_source_family_catalog_manifest": runtime_coverage_record
             },
         },
         "files": [_file_record(path, root=tmp_path) for path in scenario_files],

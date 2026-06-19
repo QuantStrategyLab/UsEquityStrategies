@@ -687,8 +687,10 @@ python -m us_equity_strategies.backtests.smart_dca_promotion_gate_cli \
 
 Use `--require-runtime-consumer-coverage` only for runs that consumed
 MarketSignalSources catalog, handoff, or saved consumption-audit artifacts with
-`all_runtime_consumers_covered=true`; otherwise the gate intentionally fails
-instead of allowing a research matrix to stand in for runtime source coverage.
+`all_runtime_consumers_covered=true`; the gate re-reads the referenced input
+artifact and verifies its recorded `sha256` and `size_bytes` before accepting
+that coverage evidence. Otherwise it intentionally fails instead of allowing a
+research matrix to stand in for runtime source coverage.
 
 For a research review that combines multiple matrix directories without reruns,
 use the summary CLI:
