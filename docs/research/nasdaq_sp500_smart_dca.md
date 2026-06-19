@@ -179,9 +179,12 @@ These candidates require point-in-time external context CSVs or future signal
 source artifacts. In the strategy research helper they are tied to the
 `research:nasdaq_sp500_external_context_precomputed` consumer contract, which
 expects `US-EQUITY-CONTEXT` fields for `cape_percentile`, `vix_percentile`, and
-`breadth_above_sma200_pct`. They are not production defaults, and they should
-not be enabled unless a robustness matrix beats fixed DCA under the same review
-gates used for the price-only sweep.
+`breadth_above_sma200_pct`. The input CSV should also carry a signal-source
+availability report that checks field presence, date validity, percentile
+ranges, duplicate dates, and gaps before any robustness matrix is reviewed.
+They are not production defaults, and they should not be enabled unless a
+robustness matrix beats fixed DCA under the same review gates used for the
+price-only sweep.
 
 ## Execution Contract
 

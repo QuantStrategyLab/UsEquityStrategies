@@ -102,7 +102,9 @@ context 回测留入口，不改变生产等价候选或默认普通定投行为
 矩阵前，不得进入 runtime 默认配置。策略侧研究工具将这两个候选标记为兼容
 `research:nasdaq_sp500_external_context_precomputed`，对应信号仓库字段为
 `US-EQUITY-CONTEXT.cape_percentile`、`US-EQUITY-CONTEXT.vix_percentile` 和
-`US-EQUITY-CONTEXT.breadth_above_sma200_pct`。
+`US-EQUITY-CONTEXT.breadth_above_sma200_pct`。正式跑 robustness matrix 前，
+对应输入还必须有 `us_equity_context_availability_report.v1`，并记录缺字段、
+无效日期、越界分位、重复日期、日期缺口和 `as_of` 截断。
 
 ### Data Source Requirements
 
