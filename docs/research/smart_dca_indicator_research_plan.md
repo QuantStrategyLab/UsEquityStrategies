@@ -43,6 +43,60 @@ macro/liquidity variants against the same `robustness_summary.csv`,
 `selection_summary.csv`, and `review_decision.json` gates. Adjusted-close ETF or
 total-return reruns can still be added later as separate data-quality checks.
 
+## Cadence Sensitivity Read-Through
+
+The current matrices already cover weekly, monthly, and quarterly cadence. This
+is a product/execution configuration check, not a new parameter search. Do not
+choose cadence by whichever row gives the best smart-DCA return in hindsight.
+The default remains monthly DCA, with weekly and quarterly kept as explicit
+configuration options.
+
+IBIT AHR999 helper matrix, BTC proxy through 2026-06-18:
+
+| Candidate | Cadence | Scenarios | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Median DD delta | Median skipped buys |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `ibit_btc_precomputed_ahr999_cycle` | weekly | 12 | 100.00% | -3.24% | +1.46% | -0.97 pp | 23.49% |
+| `ibit_btc_precomputed_ahr999_cycle` | monthly | 24 | 100.00% | -3.46% | +0.82% | -1.08 pp | 24.29% |
+| `ibit_btc_precomputed_ahr999_cycle` | quarterly | 24 | 75.00% | -1.70% | +1.95% | -0.37 pp | 25.76% |
+| `ibit_btc_precomputed_ahr999_guarded_cycle` | weekly | 12 | 100.00% | -3.60% | +0.49% | -0.23 pp | 10.21% |
+| `ibit_btc_precomputed_ahr999_guarded_cycle` | monthly | 24 | 100.00% | -4.46% | +0.06% | -0.16 pp | 10.61% |
+| `ibit_btc_precomputed_ahr999_guarded_cycle` | quarterly | 24 | 87.50% | -1.77% | 0.00% | 0.00 pp | 6.06% |
+
+The AHR999 baseline has better median terminal edge than the guarded helper, but
+it skips roughly a quarter of scheduled buys. The guarded helper reduces skipped
+buys to roughly 10% for weekly/monthly cadence, but does not add enough terminal
+edge and still fails the overall robustness gate. Quarterly cadence is not a
+clean improvement: pass rates drop for the AHR999 baseline and guarded helper.
+Treat quarterly as an explicit user cadence, not as the recommended default.
+
+Nasdaq/S&P price proxy matrix through 2026-06-18:
+
+| Candidate | Cadence | Scenarios | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Median DD delta |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `nasdaq_sp500_price_no_skip` | weekly | 9 | 100.00% | 0.00% | 0.00% | 0.00 pp |
+| `nasdaq_sp500_price_no_skip` | monthly | 45 | 100.00% | 0.00% | 0.00% | 0.00 pp |
+| `nasdaq_sp500_price_no_skip` | quarterly | 45 | 100.00% | 0.00% | 0.00% | 0.00 pp |
+| `nasdaq_sp500_price_defensive` | weekly | 9 | 66.67% | -1.50% | +0.02% | -0.13 pp |
+| `nasdaq_sp500_price_defensive` | monthly | 45 | 73.33% | -1.84% | -0.06% | -0.32 pp |
+| `nasdaq_sp500_price_defensive` | quarterly | 45 | 80.00% | -1.87% | 0.00% | -0.77 pp |
+
+The no-skip price candidate is effectively ordinary fixed DCA with the existing
+smart-DCA scaffolding; cadence does not create edge. The defensive price
+candidate remains weaker across cadence, so monthly default should not be
+changed for Nasdaq/S&P.
+
+CAPE/VIX public-context matrix:
+
+| Candidate | Cadence | Scenarios | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Median DD delta |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `nasdaq_sp500_precomputed_cape_vix_guard` | weekly | 3 | 100.00% | -13.65% | -13.65% | -3.70 pp |
+| `nasdaq_sp500_precomputed_cape_vix_guard` | monthly | 15 | 100.00% | -13.77% | -13.66% | -3.71 pp |
+| `nasdaq_sp500_precomputed_cape_vix_guard` | quarterly | 15 | 100.00% | -13.78% | -13.63% | -3.61 pp |
+
+This confirms the CAPE/VIX underperformance is signal design, not cadence. The
+candidate can reduce drawdown by investing less, but it gives up too much
+terminal value and deployment rate across all cadence settings.
+
 ## Shared Research Rules
 
 下一轮研究先产出证据，再决定是否进入策略代码。研究脚本可以新增或扩展，
