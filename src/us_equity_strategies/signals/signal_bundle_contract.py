@@ -21,7 +21,10 @@ FRESHNESS_FRESH = "fresh"
 
 REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
     "us_equity:ibit_smart_dca": {
-        "BTC-USD": ("ahr999", "mayer_multiple"),
+        "BTC-USD": ("ahr999",),
+    },
+    "research:ibit_btc_ahr999_precomputed": {
+        "BTC-USD": ("ahr999",),
     },
     "research:ibit_btc_ahr999_mayer_precomputed": {
         "BTC-USD": ("ahr999", "mayer_multiple"),

@@ -144,7 +144,7 @@ def _consumer_contract_registry() -> dict[str, object]:
                 "consumer": "us_equity:ibit_smart_dca",
                 "canonical_input": "derived_indicators",
                 "required_indicator_fields_by_symbol": {
-                    "BTC-USD": ["ahr999", "mayer_multiple"],
+                    "BTC-USD": ["ahr999"],
                 },
             },
             {
@@ -164,6 +164,16 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
     assert isinstance(contracts, list)
     contracts.insert(
         1,
+        {
+            "consumer": "research:ibit_btc_ahr999_precomputed",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "BTC-USD": ["ahr999"],
+            },
+        },
+    )
+    contracts.insert(
+        2,
         {
             "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
             "canonical_input": "derived_indicators",
@@ -190,6 +200,7 @@ def _write_consumer_contract_registry_manifest(
     missing_consumers = sorted(
         {
             "us_equity:ibit_smart_dca",
+            "research:ibit_btc_ahr999_precomputed",
             "research:ibit_btc_ahr999_mayer_precomputed",
             "research:ibit_btc_ahr999_mayer_precomputed_variants",
         }
@@ -209,7 +220,7 @@ def _write_consumer_contract_registry_manifest(
                 "registry_schema_version": registry["schema_version"],
                 "canonical_input": registry["canonical_input"],
                 "consumer_count": len(contracts),
-                "known_consumer_count": 3,
+                "known_consumer_count": 4,
                 "missing_known_consumers": missing_consumers,
                 "all_known_consumers_present": not missing_consumers,
             },
@@ -386,6 +397,7 @@ def test_consumer_index_resolution_filters_incompatible_newer_bundle(tmp_path) -
     consumer = "research:ibit_btc_ahr999_mayer_precomputed_variants"
     compatible_profiles = [
         "us_equity:ibit_smart_dca",
+        "research:ibit_btc_ahr999_precomputed",
         "research:ibit_btc_ahr999_mayer_precomputed",
         consumer,
     ]
@@ -450,6 +462,7 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["canonical_input"] == "derived_indicators"
     assert "us_equity:ibit_smart_dca" in summary["compatible_profiles"]
+    assert "research:ibit_btc_ahr999_precomputed" in summary["compatible_profiles"]
     assert "research:ibit_btc_ahr999_mayer_precomputed_variants" in summary[
         "compatible_profiles"
     ]
@@ -473,7 +486,7 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     assert "64000.0" not in summary_json
     assert "78000.0" not in summary_json
     assert manifest_summary["bundle_sha256"] == (
-        "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
+        "495b87b61c7aceff9822329ad0832ec9fc6952225d4552f4dd9d85f947a9adb9"
     )
     assert index_summary["index_schema_version"] == "market_signal_index.v1"
     assert index_summary["index_bundle_count"] == 1
@@ -497,6 +510,10 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
         bundle,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
     )
+    validate_signal_bundle_for_consumer(
+        bundle,
+        consumer="research:ibit_btc_ahr999_precomputed",
+    )
     validate_signal_bundle_indicator_fields(
         bundle,
         required_fields_by_symbol={"btc-usd": ("AHR999", "AHR999_SMA")},
@@ -516,6 +533,9 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
     )
 
     assert required_indicator_fields_for_consumer(
+        "research:ibit_btc_ahr999_precomputed"
+    ) == {"BTC-USD": ("ahr999",)}
+    assert required_indicator_fields_for_consumer(
         "research:ibit_btc_ahr999_mayer_precomputed_variants"
     ) == {"BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")}
     assert summary["consumer"] == "research:ibit_btc_ahr999_mayer_precomputed_variants"
@@ -527,7 +547,7 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
         "BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")
     }
     assert manifest_summary["bundle_sha256"] == (
-        "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
+        "495b87b61c7aceff9822329ad0832ec9fc6952225d4552f4dd9d85f947a9adb9"
     )
     assert index_summary["manifest_path"] == str(FIXTURE_MANIFEST_PATH.resolve())
 
@@ -593,6 +613,7 @@ def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -
     assert summary["all_known_consumers_present"] is False
     assert summary["missing_known_consumers"] == (
         "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_precomputed",
     )
     assert file_summary["sha256"] == hashlib.sha256(
         registry_path.read_bytes()
@@ -625,7 +646,7 @@ def test_external_consumer_contract_registry_manifest_matches_local_contracts(
         registry_path.read_bytes()
     ).hexdigest()
     assert summary["registry_schema_version"] == "market_signal_consumer_contracts.v1"
-    assert summary["consumer_count"] == 3
+    assert summary["consumer_count"] == 4
     assert summary["all_known_consumers_present"] is True
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -680,7 +701,7 @@ def test_index_resolves_latest_fresh_manifest_for_platform_loader() -> None:
 
     assert index["schema_version"] == "market_signal_index.v1"
     assert index["bundles"][0]["manifest_sha256"] == (
-        "e77dd70004d9d47a47b5a7904764dd98355114d013814be1c44a4eab8cd0f42e"
+        "f95a9bcb331388cf60cad66505f5b44974d09f1cd5f5a00a96c4dca828bc237f"
     )
     assert manifest_path == FIXTURE_MANIFEST_PATH.resolve()
     assert bundle["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"

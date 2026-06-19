@@ -121,6 +121,7 @@ MVP 使用 JSON 作为平台消费主格式；后续可增加 Parquet/Arrow 给 
     "canonical_input": "derived_indicators",
     "compatible_profiles": [
       "us_equity:ibit_smart_dca",
+      "research:ibit_btc_ahr999_precomputed",
       "research:ibit_btc_ahr999_mayer_precomputed",
       "research:ibit_btc_ahr999_mayer_precomputed_variants"
     ],

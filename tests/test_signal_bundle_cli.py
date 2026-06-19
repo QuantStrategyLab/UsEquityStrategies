@@ -33,7 +33,7 @@ def test_signal_bundle_cli_prints_non_sensitive_audit_summary(capsys) -> None:
     summary = json.loads(output)
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["bundle_sha256"] == (
-        "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
+        "495b87b61c7aceff9822329ad0832ec9fc6952225d4552f4dd9d85f947a9adb9"
     )
     assert "us_equity:ibit_smart_dca" in summary["compatible_profiles"]
     assert summary["symbols"] == ["BTC-USD"]
@@ -102,7 +102,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys
                         "consumer": "us_equity:ibit_smart_dca",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
-                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                            "BTC-USD": ["ahr999"],
                         },
                     }
                 ],
@@ -143,7 +143,14 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                         "consumer": "us_equity:ibit_smart_dca",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
-                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                            "BTC-USD": ["ahr999"],
+                        },
+                    },
+                    {
+                        "consumer": "research:ibit_btc_ahr999_precomputed",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": ["ahr999"],
                         },
                     },
                     {
@@ -187,8 +194,8 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 3,
-                "known_consumer_count": 3,
+                "consumer_count": 4,
+                "known_consumer_count": 4,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -218,7 +225,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     assert summary["registry_sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
-    assert summary["consumer_count"] == 3
+    assert summary["consumer_count"] == 4
     assert summary["all_known_consumers_present"] is True
 
 
@@ -234,7 +241,7 @@ def test_signal_bundle_cli_can_require_complete_consumer_contract_registry(tmp_p
                         "consumer": "us_equity:ibit_smart_dca",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
-                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                            "BTC-USD": ["ahr999"],
                         },
                     }
                 ],

@@ -7,6 +7,7 @@
     "canonical_input": "derived_indicators",
     "compatible_profiles": [
       "us_equity:ibit_smart_dca",
+      "research:ibit_btc_ahr999_precomputed",
       "research:ibit_btc_ahr999_mayer_precomputed",
       "research:ibit_btc_ahr999_mayer_precomputed_variants"
     ],

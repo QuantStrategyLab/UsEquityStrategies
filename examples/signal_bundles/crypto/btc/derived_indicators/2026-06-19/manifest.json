@@ -2,11 +2,12 @@
   "schema_version": "market_signal_manifest.v1",
   "bundle_id": "crypto.btc.derived_indicators.2026-06-19",
   "bundle_path": "signal_bundle.json",
-  "bundle_sha256": "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45",
+  "bundle_sha256": "495b87b61c7aceff9822329ad0832ec9fc6952225d4552f4dd9d85f947a9adb9",
   "bundle_schema_version": "market_signal_bundle.v1",
   "canonical_input": "derived_indicators",
   "compatible_profiles": [
     "us_equity:ibit_smart_dca",
+    "research:ibit_btc_ahr999_precomputed",
     "research:ibit_btc_ahr999_mayer_precomputed",
     "research:ibit_btc_ahr999_mayer_precomputed_variants"
   ],
