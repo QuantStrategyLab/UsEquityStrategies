@@ -540,6 +540,7 @@ def resolve_signal_bundle_manifest_from_index(
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     as_of: str | None = None,
     bundle_id: str | None = None,
+    compatible_profile: str | None = None,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
 ) -> Path:
     """Resolve the latest matching manifest path from a local bundle index."""
@@ -548,6 +549,7 @@ def resolve_signal_bundle_manifest_from_index(
     index = load_signal_bundle_index(index_path)
     accepted = {str(item).strip().lower() for item in accepted_freshness_statuses}
     target_as_of = str(as_of).strip() if as_of is not None else None
+    target_profile = str(compatible_profile).strip() if compatible_profile is not None else None
     candidates: list[Mapping[str, Any]] = []
 
     for raw_entry in index["bundles"]:
@@ -563,6 +565,10 @@ def resolve_signal_bundle_manifest_from_index(
         if bundle_id is not None and entry_bundle_id != str(bundle_id).strip():
             continue
         if target_as_of is not None and entry_as_of > target_as_of:
+            continue
+        if target_profile is not None and target_profile not in _index_compatible_profiles(
+            entry
+        ):
             continue
         candidates.append(entry)
 
@@ -594,6 +600,7 @@ def load_signal_bundle_from_index(
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     as_of: str | None = None,
     bundle_id: str | None = None,
+    compatible_profile: str | None = None,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
 ) -> dict[str, Any]:
     """Load a bundle through an index-selected manifest."""
@@ -603,6 +610,7 @@ def load_signal_bundle_from_index(
         expected_canonical_input=expected_canonical_input,
         as_of=as_of,
         bundle_id=bundle_id,
+        compatible_profile=compatible_profile,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )
     return load_signal_bundle_from_manifest(manifest_path)
@@ -674,12 +682,14 @@ def extract_canonical_input_from_index_for_consumer(
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load an index-selected bundle, validate consumer fields, and return market_data."""
 
+    required_indicator_fields_for_consumer(consumer)
     return extract_canonical_input_for_consumer(
         load_signal_bundle_from_index(
             path,
             expected_canonical_input=expected_canonical_input,
             as_of=as_of,
             bundle_id=bundle_id,
+            compatible_profile=consumer,
             accepted_freshness_statuses=accepted_freshness_statuses,
         ),
         consumer=consumer,
@@ -831,11 +841,13 @@ def signal_bundle_consumer_audit_summary_from_index(
 ) -> dict[str, Any]:
     """Resolve an index entry and validate consumer field coverage."""
 
+    required_indicator_fields_for_consumer(consumer)
     manifest_path = resolve_signal_bundle_manifest_from_index(
         path,
         expected_canonical_input=expected_canonical_input,
         as_of=as_of,
         bundle_id=bundle_id,
+        compatible_profile=consumer,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )
     summary = signal_bundle_consumer_audit_summary_from_manifest(
@@ -1208,6 +1220,29 @@ def _compatible_profiles(bundle: Mapping[str, Any]) -> tuple[str, ...]:
     if not normalized:
         raise SignalBundleContractError(
             "consumer_contract.compatible_profiles must include at least one profile"
+        )
+    return tuple(normalized)
+
+
+def _index_compatible_profiles(entry: Mapping[str, Any]) -> tuple[str, ...]:
+    if "compatible_profiles" not in entry:
+        return ()
+    profiles = entry.get("compatible_profiles")
+    if isinstance(profiles, (str, bytes)) or not isinstance(profiles, Sequence):
+        raise SignalBundleContractError(
+            "signal bundle index compatible_profiles must be a non-empty sequence"
+        )
+
+    normalized: list[str] = []
+    for profile in profiles:
+        if not isinstance(profile, str) or not profile.strip():
+            raise SignalBundleContractError(
+                "signal bundle index compatible_profiles items must be non-empty strings"
+            )
+        normalized.append(profile.strip())
+    if not normalized:
+        raise SignalBundleContractError(
+            "signal bundle index compatible_profiles must include at least one profile"
         )
     return tuple(normalized)
 

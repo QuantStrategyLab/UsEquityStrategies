@@ -64,6 +64,77 @@ def _load_bundle() -> dict[str, object]:
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
 
+def _sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_signal_bundle_candidate(
+    root: Path,
+    *,
+    relative_dir: Path,
+    as_of: str,
+    compatible_profiles: list[str],
+) -> tuple[Path, dict[str, object]]:
+    candidate_dir = root / relative_dir
+    candidate_dir.mkdir(parents=True)
+    provider_timestamp = f"{as_of}T00:00:00Z"
+    generated_at = f"{as_of}T00:15:00Z"
+
+    bundle = copy.deepcopy(_load_bundle())
+    bundle["bundle_id"] = f"crypto.btc.derived_indicators.{as_of}"
+    bundle["as_of"] = as_of
+    bundle["generated_at"] = generated_at
+    consumer_contract = bundle["consumer_contract"]
+    assert isinstance(consumer_contract, dict)
+    consumer_contract["compatible_profiles"] = compatible_profiles
+    freshness = bundle["freshness"]
+    assert isinstance(freshness, dict)
+    freshness["provider_timestamp"] = provider_timestamp
+    derived_indicators = bundle["derived_indicators"]
+    assert isinstance(derived_indicators, dict)
+    payload = derived_indicators["BTC-USD"]
+    assert isinstance(payload, dict)
+    payload["provider_timestamp"] = provider_timestamp
+
+    bundle_path = candidate_dir / "signal_bundle.json"
+    bundle_path.write_text(
+        json.dumps(bundle, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    manifest = json.loads(FIXTURE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "bundle_id": bundle["bundle_id"],
+            "as_of": as_of,
+            "generated_at": generated_at,
+            "provider_timestamp": provider_timestamp,
+            "bundle_sha256": _sha256_path(bundle_path),
+            "compatible_profiles": compatible_profiles,
+        }
+    )
+    manifest_path = candidate_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path, bundle
+
+
+def _signal_bundle_index_entry(root: Path, manifest_path: Path) -> dict[str, object]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {
+        "manifest_path": manifest_path.relative_to(root).as_posix(),
+        "manifest_sha256": _sha256_path(manifest_path),
+        "bundle_id": manifest["bundle_id"],
+        "as_of": manifest["as_of"],
+        "canonical_input": manifest["canonical_input"],
+        "compatible_profiles": manifest["compatible_profiles"],
+        "freshness_status": manifest["freshness_status"],
+        "bundle_schema_version": manifest["bundle_schema_version"],
+    }
+
+
 def _consumer_contract_registry() -> dict[str, object]:
     return {
         "schema_version": "market_signal_consumer_contracts.v1",
@@ -311,6 +382,65 @@ def test_extracts_market_data_after_consumer_contract_validation() -> None:
     assert index_market_data == expected_market_data
 
 
+def test_consumer_index_resolution_filters_incompatible_newer_bundle(tmp_path) -> None:
+    consumer = "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    compatible_profiles = [
+        "us_equity:ibit_smart_dca",
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        consumer,
+    ]
+    compatible_manifest_path, compatible_bundle = _write_signal_bundle_candidate(
+        tmp_path,
+        relative_dir=Path("compatible"),
+        as_of="2026-06-19",
+        compatible_profiles=compatible_profiles,
+    )
+    incompatible_manifest_path, incompatible_bundle = _write_signal_bundle_candidate(
+        tmp_path,
+        relative_dir=Path("incompatible"),
+        as_of="2026-06-20",
+        compatible_profiles=["research:other_consumer"],
+    )
+    index_path = tmp_path / "index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_index.v1",
+                "generated_at": "2026-06-21T00:00:00Z",
+                "bundles": [
+                    _signal_bundle_index_entry(tmp_path, incompatible_manifest_path),
+                    _signal_bundle_index_entry(tmp_path, compatible_manifest_path),
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    latest_manifest_path = resolve_signal_bundle_manifest_from_index(
+        index_path,
+        as_of="2026-06-21",
+    )
+    market_data = extract_canonical_input_from_index_for_consumer(
+        index_path,
+        consumer=consumer,
+        as_of="2026-06-21",
+    )
+    consumer_summary = signal_bundle_consumer_audit_summary_from_index(
+        index_path,
+        consumer=consumer,
+        as_of="2026-06-21",
+    )
+
+    assert latest_manifest_path == incompatible_manifest_path.resolve()
+    assert incompatible_bundle["bundle_id"] == "crypto.btc.derived_indicators.2026-06-20"
+    assert consumer_summary["bundle_id"] == compatible_bundle["bundle_id"]
+    assert consumer_summary["manifest_path"] == str(compatible_manifest_path.resolve())
+    assert market_data["derived_indicators"]["BTC-USD"]["ahr999_sma"] == 0.75
+
+
 def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     summary = signal_bundle_audit_summary(_load_bundle())
     manifest_summary = signal_bundle_audit_summary_from_manifest(FIXTURE_MANIFEST_PATH)
@@ -550,7 +680,7 @@ def test_index_resolves_latest_fresh_manifest_for_platform_loader() -> None:
 
     assert index["schema_version"] == "market_signal_index.v1"
     assert index["bundles"][0]["manifest_sha256"] == (
-        "e52973cf388208d0d5acae06c97278685d9a5258156100418b311a25a754bd35"
+        "e77dd70004d9d47a47b5a7904764dd98355114d013814be1c44a4eab8cd0f42e"
     )
     assert manifest_path == FIXTURE_MANIFEST_PATH.resolve()
     assert bundle["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"

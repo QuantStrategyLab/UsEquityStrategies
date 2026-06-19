@@ -5,6 +5,11 @@
   "bundle_sha256": "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45",
   "bundle_schema_version": "market_signal_bundle.v1",
   "canonical_input": "derived_indicators",
+  "compatible_profiles": [
+    "us_equity:ibit_smart_dca",
+    "research:ibit_btc_ahr999_mayer_precomputed",
+    "research:ibit_btc_ahr999_mayer_precomputed_variants"
+  ],
   "as_of": "2026-06-19",
   "generated_at": "2026-06-19T00:15:00Z",
   "freshness_status": "fresh",
