@@ -30,13 +30,23 @@ def _expensive_history() -> pd.Series:
     return _series([20.0 + i * 0.12 for i in range(260)])
 
 
-def _portfolio(*, total_equity: float = 10000.0, buying_power: float = 5000.0, ibit_value: float = 100.0):
+def _portfolio(
+    *,
+    total_equity: float = 10000.0,
+    buying_power: float = 5000.0,
+    ibit_value: float = 100.0,
+    boxx_value: float = 0.0,
+    metadata: dict | None = None,
+):
+    positions = [Position(symbol="IBIT", quantity=2, market_value=ibit_value)]
+    if boxx_value:
+        positions.append(Position(symbol="BOXX", quantity=1, market_value=boxx_value))
     return PortfolioSnapshot(
         as_of=pd.Timestamp("2026-05-26").to_pydatetime(),
         total_equity=total_equity,
         buying_power=buying_power,
-        positions=(Position(symbol="IBIT", quantity=2, market_value=ibit_value),),
-        metadata={"account_hash": "demo"},
+        positions=tuple(positions),
+        metadata=metadata or {"account_hash": "demo"},
     )
 
 
@@ -107,6 +117,63 @@ def test_ibit_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount()
     assert plan["planned_investment_usd"] == 0.0
     assert plan["cash_capped"] is True
     assert plan["cash_shortfall_usd"] == 450.0
+    assert plan["target_values"] == {}
+
+
+def test_ibit_smart_dca_sells_boxx_cash_substitute_to_fund_dca() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=900.0),
+        as_of="2026-05-26",
+        base_investment_usd=1000.0,
+    )
+
+    assert plan["actionable"] is True
+    assert plan["planned_investment_usd"] == 1000.0
+    assert plan["cash_capped"] is False
+    assert plan["cash_shortfall_usd"] == 800.0
+    assert plan["cash_substitute_symbol"] == "BOXX"
+    assert plan["cash_substitute_value_usd"] == 900.0
+    assert plan["cash_substitute_used_usd"] == 800.0
+    assert plan["cash_substitute_funding_shortfall_usd"] == 0.0
+    assert plan["target_values"] == {"BOXX": 100.0, "IBIT": 2000.0}
+    assert plan["managed_symbols"] == ("IBIT", "BOXX")
+
+
+def test_ibit_smart_dca_skips_when_cash_and_boxx_are_both_insufficient() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=300.0),
+        as_of="2026-05-26",
+        base_investment_usd=1000.0,
+    )
+
+    assert plan["actionable"] is False
+    assert plan["skip_reason"] == "insufficient_cash"
+    assert plan["planned_investment_usd"] == 0.0
+    assert plan["cash_capped"] is True
+    assert plan["cash_shortfall_usd"] == 800.0
+    assert plan["cash_substitute_value_usd"] == 300.0
+    assert plan["cash_substitute_used_usd"] == 0.0
+    assert plan["cash_substitute_funding_shortfall_usd"] == 500.0
+    assert plan["target_values"] == {}
+
+
+def test_ibit_smart_dca_can_disable_boxx_cash_substitute_for_dca() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=900.0),
+        as_of="2026-05-26",
+        base_investment_usd=1000.0,
+        cash_substitute_for_dca_enabled=False,
+    )
+
+    assert plan["actionable"] is False
+    assert plan["skip_reason"] == "insufficient_cash"
+    assert plan["cash_substitute_for_dca_enabled"] is False
+    assert plan["cash_substitute_symbol"] == ""
+    assert plan["cash_substitute_value_usd"] == 0.0
+    assert plan["cash_substitute_used_usd"] == 0.0
     assert plan["target_values"] == {}
 
 
@@ -294,6 +361,215 @@ def test_ibit_smart_dca_disables_platform_rebalance_threshold_by_default() -> No
 
     assert catalog_config["execution_rebalance_threshold_ratio"] == 0.0
     assert manifest_config["execution_rebalance_threshold_ratio"] == 0.0
+    assert catalog_config["ibit_zscore_exit_enabled"] is False
+    assert manifest_config["ibit_zscore_exit_enabled"] is False
+    assert catalog_config["ibit_zscore_exit_mode"] == "live"
+    assert manifest_config["ibit_zscore_exit_mode"] == "live"
+    assert catalog_config["ibit_zscore_exit_parking_symbol"] == "BOXX"
+    assert manifest_config["ibit_zscore_exit_parking_symbol"] == "BOXX"
+    assert catalog_config["cash_substitute_for_dca_enabled"] is True
+    assert manifest_config["cash_substitute_for_dca_enabled"] is True
+    assert catalog_config["cash_substitute_symbol"] == "BOXX"
+    assert manifest_config["cash_substitute_symbol"] == "BOXX"
+
+
+def test_ibit_zscore_exit_paper_mode_does_not_change_targets() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(ibit_value=1000.0),
+        as_of="2026-05-26",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="paper",
+        ibit_zscore_exit_context={
+            "plugin": "ibit_zscore_exit",
+            "schema_version": "ibit_zscore_exit.v1",
+            "canonical_route": "risk_reduced",
+            "position_control": {
+                "target_allocations": {"IBIT": 0.50, "BOXX": 0.50},
+                "reason_codes": ["mvrv_zscore_above_dynamic_soft_exit"],
+            },
+            "metrics": {"mvrv_zscore": 7.2},
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["target_values"] == {"IBIT": 2000.0}
+    assert plan["ibit_zscore_exit"]["found"] is True
+    assert plan["ibit_zscore_exit"]["enabled"] is True
+    assert plan["ibit_zscore_exit"]["applied"] is False
+    assert plan["ibit_zscore_exit"]["mode"] == "paper"
+
+
+def test_ibit_zscore_exit_enabled_defaults_to_live_consumption() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=1000.0, ibit_value=1000.0),
+        as_of="2026-05-30",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_context={
+            "plugin": "ibit_zscore_exit",
+            "schema_version": "ibit_zscore_exit.v1",
+            "mode": "shadow",
+            "canonical_route": "risk_off",
+            "execution_controls": {
+                "position_control_allowed": True,
+                "consumption_evidence_status": "automation_approved",
+            },
+            "position_control": {
+                "final_route": "risk_off",
+                "target_allocations": {"IBIT": 0.25, "BOXX": 0.75},
+            },
+        },
+    )
+
+    assert plan["target_values"] == {"IBIT": 250.0, "BOXX": 750.0}
+    assert plan["ibit_zscore_exit"]["mode"] == "live"
+    assert plan["ibit_zscore_exit"]["applied"] is True
+
+
+def test_ibit_zscore_exit_live_rebalances_to_parking_inside_monthly_window() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=1000.0, ibit_value=1000.0),
+        as_of="2026-05-26",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="live",
+        ibit_zscore_exit_context={
+            "plugin": "ibit_zscore_exit",
+            "schema_version": "ibit_zscore_exit.v1",
+            "mode": "live",
+            "position_control": {
+                "final_route": "risk_reduced",
+                "target_allocations": {"IBIT": 0.50, "BOXX": 0.50},
+                "reason_codes": ["mvrv_zscore_above_dynamic_soft_exit"],
+            },
+            "metrics": {"mvrv_zscore": 7.2},
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["skip_reason"] is None
+    assert plan["planned_investment_usd"] == 1000.0
+    assert plan["target_values"] == {"IBIT": 1000.0, "BOXX": 1000.0}
+    assert plan["managed_symbols"] == ("IBIT", "BOXX")
+    assert plan["ibit_zscore_exit"]["applied"] is True
+    assert plan["ibit_zscore_exit"]["target_ibit_exposure"] == 0.50
+    assert plan["ibit_zscore_exit"]["parking_symbol"] == "BOXX"
+
+
+def test_ibit_zscore_exit_live_can_rebalance_outside_monthly_window() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=1000.0, ibit_value=1000.0),
+        as_of="2026-05-30",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="live",
+        ibit_zscore_exit_context={
+            "plugin": "ibit_zscore_exit",
+            "schema_version": "ibit_zscore_exit.v1",
+            "mode": "live",
+            "position_control": {
+                "final_route": "risk_off",
+                "target_allocations": {"IBIT": 0.25, "BOXX": 0.75},
+                "reason_codes": ["mvrv_zscore_above_dynamic_hard_exit"],
+            },
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["skip_reason"] is None
+    assert plan["in_execution_window"] is False
+    assert plan["planned_investment_usd"] == 0.0
+    assert plan["target_values"] == {"IBIT": 250.0, "BOXX": 750.0}
+    assert plan["ibit_zscore_exit"]["applied"] is True
+    assert plan["ibit_zscore_exit"]["route"] == "risk_off"
+
+
+def test_ibit_zscore_exit_live_accepts_shadow_artifact_when_position_control_is_approved() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=1000.0, ibit_value=1000.0),
+        as_of="2026-05-30",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="live",
+        ibit_zscore_exit_context={
+            "plugin": "ibit_zscore_exit",
+            "schema_version": "ibit_zscore_exit.v1",
+            "mode": "shadow",
+            "canonical_route": "risk_off",
+            "execution_controls": {
+                "position_control_allowed": True,
+                "consumption_evidence_status": "automation_approved",
+            },
+            "position_control": {
+                "final_route": "risk_off",
+                "target_allocations": {"IBIT": 0.25, "BOXX": 0.75},
+            },
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["target_values"] == {"IBIT": 250.0, "BOXX": 750.0}
+    assert plan["ibit_zscore_exit"]["payload_mode"] == "shadow"
+    assert plan["ibit_zscore_exit"]["position_control_authorized"] is True
+    assert plan["ibit_zscore_exit"]["applied"] is True
+
+
+def test_ibit_zscore_exit_live_ignores_artifact_without_automation_approval() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(ibit_value=1000.0),
+        as_of="2026-05-26",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="live",
+        ibit_zscore_exit_context={
+            "plugin": "ibit_zscore_exit",
+            "schema_version": "ibit_zscore_exit.v1",
+            "mode": "shadow",
+            "canonical_route": "risk_off",
+            "execution_controls": {
+                "position_control_allowed": True,
+                "consumption_evidence_status": "notification_only",
+            },
+            "position_control": {
+                "final_route": "risk_off",
+                "target_allocations": {"IBIT": 0.25, "BOXX": 0.75},
+            },
+        },
+    )
+
+    assert plan["target_values"] == {"IBIT": 2000.0}
+    assert plan["ibit_zscore_exit"]["position_control_authorized"] is False
+    assert plan["ibit_zscore_exit"]["applied"] is False
+
+
+def test_ibit_zscore_exit_ignores_unrelated_strategy_plugin_position_control() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(
+            ibit_value=1000.0,
+            metadata={
+                "account_hash": "demo",
+                "strategy_plugins": [
+                    {
+                        "plugin": "market_regime_control",
+                        "mode": "live",
+                        "position_control": {
+                            "final_route": "risk_off",
+                            "target_allocations": {"IBIT": 0.0, "BOXX": 1.0},
+                        },
+                    }
+                ],
+            },
+        ),
+        as_of="2026-05-26",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="live",
+    )
+
+    assert plan["target_values"] == {"IBIT": 2000.0}
+    assert plan["ibit_zscore_exit"]["found"] is False
+    assert plan["ibit_zscore_exit"]["applied"] is False
 
 
 def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> None:
@@ -337,6 +613,27 @@ def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -
     assert target_full_decision.risk_flags == ("no_execute",)
 
 
+def test_ibit_smart_dca_entrypoint_emits_boxx_sell_target_for_cash_substitute_dca() -> None:
+    entrypoint = get_strategy_entrypoint("ibit_smart_dca")
+
+    decision = entrypoint.evaluate(
+        StrategyContext(
+            as_of="2026-05-26",
+            market_data={"derived_indicators": {}},
+            portfolio=_portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=900.0),
+            runtime_config={"investment_amount_mode": "fixed"},
+        )
+    )
+
+    targets = {position.symbol: position.target_value for position in decision.positions}
+    roles = {position.symbol: position.role for position in decision.positions}
+    assert decision.risk_flags == ()
+    assert targets == {"BOXX": 100.0, "IBIT": 2000.0}
+    assert roles["BOXX"] == "safe_haven"
+    assert decision.diagnostics["cash_substitute_used_usd"] == 800.0
+    assert decision.diagnostics["execution_annotations"]["cash_substitute_used_usd"] == 800.0
+
+
 def test_ibit_smart_dca_entrypoint_uses_derived_indicators_for_ahr999() -> None:
     entrypoint = get_strategy_entrypoint("ibit_smart_dca")
 
@@ -365,6 +662,46 @@ def test_ibit_smart_dca_entrypoint_uses_derived_indicators_for_ahr999() -> None:
     assert decision.diagnostics["multiplier"] == 3.0
     assert decision.diagnostics["ahr999"] == 0.40
     assert decision.diagnostics["cycle_indicator_source"] == "derived_indicators"
+
+
+def test_ibit_smart_dca_entrypoint_consumes_zscore_exit_plugin_metadata() -> None:
+    entrypoint = get_strategy_entrypoint("ibit_smart_dca")
+
+    decision = entrypoint.evaluate(
+        StrategyContext(
+            as_of="2026-05-30",
+            market_data={"derived_indicators": {}},
+            portfolio=_portfolio(
+                buying_power=1000.0,
+                ibit_value=1000.0,
+                metadata={
+                    "account_hash": "demo",
+                    "strategy_plugins": [
+                        {
+                            "plugin": "ibit_zscore_exit",
+                            "schema_version": "ibit_zscore_exit.v1",
+                            "mode": "live",
+                            "position_control": {
+                                "final_route": "risk_off",
+                                "target_allocations": {"IBIT": 0.25, "BOXX": 0.75},
+                            },
+                        }
+                    ],
+                },
+            ),
+            runtime_config={
+                "ibit_zscore_exit_enabled": True,
+                "ibit_zscore_exit_mode": "live",
+            },
+        )
+    )
+
+    targets = {position.symbol: position.target_value for position in decision.positions}
+    assert decision.risk_flags == ()
+    assert targets == {"BOXX": 750.0, "IBIT": 250.0}
+    assert decision.diagnostics["planned_investment_usd"] == 0.0
+    assert decision.diagnostics["ibit_zscore_exit"]["applied"] is True
+    assert decision.diagnostics["ibit_zscore_exit"]["source"] == "portfolio.metadata.strategy_plugins"
 
 
 def test_ibit_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
