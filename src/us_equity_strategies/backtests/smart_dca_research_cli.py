@@ -579,6 +579,15 @@ def _manifest_record(
             expected_artifact_type=expected_artifact_type,
             required_signal_fields=required_signal_fields,
         )
+    declared_quality_report = _research_manifest_quality_report_record(
+        path,
+        manifest,
+        role=role,
+        required=(
+            role == "signal"
+            and expected_artifact_type == "us_equity_context_research_csv"
+        ),
+    )
 
     return {
         **_file_record(path),
@@ -601,6 +610,7 @@ def _manifest_record(
         "declared_output_csv_size_bytes": declared_output_size,
         "linked_csv_sha256_verified": True,
         "linked_csv_size_bytes_verified": declared_output_size is not None,
+        **declared_quality_report,
     }
 
 
@@ -612,6 +622,7 @@ def _signal_quality_report_record(
 ) -> dict[str, object]:
     report = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(report, path="signal_quality_report")
+    file_record = _file_record(path)
     schema_version = str(report.get("schema_version", "")).strip()
     artifact_type = str(report.get("artifact_type", "")).strip()
     if expected_artifact_type != "us_equity_context_research_csv":
@@ -658,8 +669,16 @@ def _signal_quality_report_record(
                 "signal quality report as_of must not be after signal manifest as_of: "
                 f"{report_as_of} > {manifest_as_of}"
             )
+    if signal_manifest is not None and bool(
+        signal_manifest.get("declared_quality_report_present")
+    ):
+        _validate_signal_quality_report_matches_manifest(
+            path,
+            file_record=file_record,
+            signal_manifest=signal_manifest,
+        )
     return {
-        **_file_record(path),
+        **file_record,
         "schema_version": schema_version,
         "artifact_type": artifact_type,
         "quality_status": quality_status,
@@ -668,7 +687,101 @@ def _signal_quality_report_record(
         "as_of": report_as_of,
         "signal_manifest_as_of": manifest_as_of,
         "quality_status_accepted": True,
+        "matches_signal_manifest_quality_report": bool(
+            signal_manifest
+            and signal_manifest.get("declared_quality_report_present")
+        ),
     }
+
+
+def _research_manifest_quality_report_record(
+    manifest_path: Path,
+    manifest: dict[str, object],
+    *,
+    role: str,
+    required: bool,
+) -> dict[str, object]:
+    quality_report = manifest.get("quality_report")
+    if quality_report is None:
+        if required:
+            raise ValueError(
+                f"{role} research export manifest missing quality_report"
+            )
+        return {"declared_quality_report_present": False}
+    if not isinstance(quality_report, dict):
+        raise ValueError(f"{role} research export manifest quality_report must be an object")
+
+    raw_path = str(quality_report.get("path", "")).strip()
+    expected_sha256 = str(quality_report.get("sha256", "")).strip().lower()
+    expected_size = quality_report.get("size_bytes")
+    if not raw_path:
+        raise ValueError(
+            f"{role} research export manifest quality_report.path is required"
+        )
+    if not expected_sha256:
+        raise ValueError(
+            f"{role} research export manifest quality_report.sha256 is required"
+        )
+    quality_report_path = _resolve_research_manifest_file_path(
+        manifest_path,
+        raw_path,
+        role=role,
+        field="quality_report.path",
+    )
+    actual_sha256 = _sha256_file(quality_report_path)
+    if actual_sha256 != expected_sha256:
+        raise ValueError(
+            f"{role} manifest quality_report.sha256 mismatch: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    actual_size = quality_report_path.stat().st_size
+    if (
+        not isinstance(expected_size, int)
+        or isinstance(expected_size, bool)
+        or expected_size != actual_size
+    ):
+        raise ValueError(
+            f"{role} manifest quality_report.size_bytes mismatch: "
+            f"expected {actual_size}, got {expected_size!r}"
+        )
+    return {
+        "declared_quality_report_present": True,
+        "declared_quality_report_path": str(quality_report_path),
+        "declared_quality_report_sha256": expected_sha256,
+        "declared_quality_report_size_bytes": expected_size,
+        "declared_quality_report_sha256_verified": True,
+        "declared_quality_report_size_bytes_verified": True,
+    }
+
+
+def _validate_signal_quality_report_matches_manifest(
+    path: Path,
+    *,
+    file_record: dict[str, object],
+    signal_manifest: dict[str, object],
+) -> None:
+    declared_path = Path(
+        str(signal_manifest.get("declared_quality_report_path", ""))
+    ).resolve()
+    if path.resolve() != declared_path:
+        raise ValueError(
+            "signal quality report does not match signal manifest quality_report.path: "
+            f"expected {declared_path}, got {path.resolve()}"
+        )
+    declared_sha256 = str(
+        signal_manifest.get("declared_quality_report_sha256", "")
+    ).strip().lower()
+    if str(file_record["sha256"]) != declared_sha256:
+        raise ValueError(
+            "signal quality report does not match signal manifest "
+            "quality_report.sha256"
+        )
+    declared_size = signal_manifest.get("declared_quality_report_size_bytes")
+    if file_record["size_bytes"] != declared_size:
+        raise ValueError(
+            "signal quality report does not match signal manifest "
+            "quality_report.size_bytes"
+        )
 
 
 def _source_catalog_manifest_record(
@@ -1008,6 +1121,31 @@ def _resolve_manifest_artifact_path(
     if not artifact_path.exists():
         raise ValueError(f"{role} {field} does not exist: {value}")
     return artifact_path
+
+
+def _resolve_research_manifest_file_path(
+    manifest_path: Path,
+    value: str,
+    *,
+    role: str,
+    field: str,
+) -> Path:
+    raw_path = Path(str(value).strip())
+    if not str(value).strip():
+        raise ValueError(f"{role} {field} must not be empty")
+    if raw_path.is_absolute():
+        if raw_path.exists():
+            return raw_path.resolve()
+        raise ValueError(f"{role} {field} does not exist: {value}")
+    manifest_relative_path = (manifest_path.parent / raw_path).resolve()
+    if manifest_relative_path.exists():
+        return manifest_relative_path
+    cwd_relative_path = raw_path.resolve()
+    if cwd_relative_path.exists():
+        return cwd_relative_path
+    raise ValueError(
+        f"{role} {field} does not exist relative to manifest or cwd: {value}"
+    )
 
 
 def _validate_manifest_expectations(

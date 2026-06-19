@@ -64,27 +64,33 @@ def _write_research_manifest(
     first_date: str,
     last_date: str,
     row_count: int,
+    quality_report_path: Path | None = None,
 ) -> None:
+    manifest = {
+        "schema_version": "research_export.v1",
+        "artifact_type": artifact_type,
+        "transform": transform,
+        "source_version": "0.1.0",
+        "as_of": as_of,
+        "min_history": 1,
+        "row_count": row_count,
+        "first_date": first_date,
+        "last_date": last_date,
+        "columns": columns,
+        "output_csv": {
+            "path": str(csv_path),
+            "sha256": _sha256_file(csv_path),
+            "size_bytes": csv_path.stat().st_size,
+        },
+    }
+    if quality_report_path is not None:
+        manifest["quality_report"] = {
+            "path": str(quality_report_path),
+            "sha256": _sha256_file(quality_report_path),
+            "size_bytes": quality_report_path.stat().st_size,
+        }
     path.write_text(
-        json.dumps(
-            {
-                "schema_version": "research_export.v1",
-                "artifact_type": artifact_type,
-                "transform": transform,
-                "source_version": "0.1.0",
-                "as_of": as_of,
-                "min_history": 1,
-                "row_count": row_count,
-                "first_date": first_date,
-                "last_date": last_date,
-                "columns": columns,
-                "output_csv": {
-                    "path": str(csv_path),
-                    "sha256": _sha256_file(csv_path),
-                    "size_bytes": csv_path.stat().st_size,
-                },
-            }
-        ),
+        json.dumps(manifest),
         encoding="utf-8",
     )
 
@@ -438,39 +444,29 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
             "close": prices * 0.50,
         }
     ).to_csv(trade_csv, index=False)
-    signal_manifest.write_text(
-        json.dumps(
-            {
-                "schema_version": "research_export.v1",
-                "artifact_type": "us_equity_context_research_csv",
-                "transform": "us_equity.nasdaq_sp500.context.v1",
-                "source_version": "0.1.0",
-                "as_of": str(dates[-1].date()),
-                "min_history": 1,
-                "row_count": len(dates),
-                "first_date": str(dates[0].date()),
-                "last_date": str(dates[-1].date()),
-                "columns": [
-                    "date",
-                    "QQQ",
-                    "SPY",
-                    "cape_percentile",
-                    "vix_percentile",
-                    "breadth_above_sma200_pct",
-                ],
-                "output_csv": {
-                    "path": str(signal_csv),
-                    "sha256": _sha256_file(signal_csv),
-                    "size_bytes": signal_csv.stat().st_size,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
     _write_us_equity_quality_report(
         signal_quality_report,
         as_of=str(dates[-1].date()),
         warning_reasons=["missing_provider_timestamp_column"],
+    )
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=[
+            "date",
+            "QQQ",
+            "SPY",
+            "cape_percentile",
+            "vix_percentile",
+            "breadth_above_sma200_pct",
+        ],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+        quality_report_path=signal_quality_report,
     )
 
     result = main(
@@ -509,6 +505,10 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
     signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
     assert signal_manifest_record["artifact_type"] == "us_equity_context_research_csv"
     assert signal_manifest_record["transform"] == "us_equity.nasdaq_sp500.context.v1"
+    assert signal_manifest_record["declared_quality_report_sha256"] == _sha256_file(
+        signal_quality_report
+    )
+    assert signal_manifest_record["declared_quality_report_sha256_verified"] is True
     quality_report_record = summary["metadata"]["input_artifacts"][
         "signal_quality_report"
     ]
@@ -516,6 +516,7 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
         "us_equity_context_availability_report.v1"
     )
     assert quality_report_record["quality_status"] == "pass"
+    assert quality_report_record["matches_signal_manifest_quality_report"] is True
     assert "nasdaq_sp500_precomputed_valuation_guard" in (
         output_dir / "monthly_day_15" / "metrics.csv"
     ).read_text(encoding="utf-8")
@@ -546,6 +547,11 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
             "close": prices * 0.50,
         }
     ).to_csv(trade_csv, index=False)
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+    )
     _write_research_manifest(
         signal_manifest,
         csv_path=signal_csv,
@@ -556,11 +562,7 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
         first_date=str(dates[0].date()),
         last_date=str(dates[-1].date()),
         row_count=len(dates),
-    )
-    _write_us_equity_quality_report(
-        signal_quality_report,
-        as_of=str(dates[-1].date()),
-        public=True,
+        quality_report_path=signal_quality_report,
     )
 
     result = main(
@@ -598,6 +600,9 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
     assert summary["metadata"]["input_artifacts"]["signal_quality_report"][
         "schema_version"
     ] == "us_equity_public_context_availability_report.v1"
+    assert summary["metadata"]["input_artifacts"]["signal_quality_report"][
+        "matches_signal_manifest_quality_report"
+    ] is True
     assert "nasdaq_sp500_precomputed_cape_vix_guard" in (
         output_dir / "monthly_day_15" / "metrics.csv"
     ).read_text(encoding="utf-8")
@@ -657,6 +662,138 @@ def test_smart_dca_research_cli_requires_context_quality_report(
     assert "require --signal-quality-report" in capsys.readouterr().err
 
 
+def test_smart_dca_research_cli_requires_manifest_pinned_quality_report(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    signal_csv = tmp_path / "us_equity_public_context.csv"
+    signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    signal_quality_report = tmp_path / "us_equity_public_context.quality.json"
+    trade_csv = tmp_path / "trade.csv"
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": [50.0 + index for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+    )
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "cape_percentile", "vix_percentile"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-quality-report",
+            str(signal_quality_report),
+            "--output-dir",
+            str(tmp_path / "missing-pinned-quality-report-artifacts"),
+            "--candidate-set",
+            "nasdaq_sp500_cape_vix_precomputed_variants",
+            "--signal-columns",
+            "cape_percentile,vix_percentile",
+        ]
+    )
+
+    assert result == 2
+    assert "missing quality_report" in capsys.readouterr().err
+
+
+def test_smart_dca_research_cli_rejects_unpinned_quality_report(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    signal_csv = tmp_path / "us_equity_public_context.csv"
+    signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    pinned_quality_report = tmp_path / "us_equity_public_context.quality.json"
+    other_quality_report = tmp_path / "other_us_equity_public_context.quality.json"
+    trade_csv = tmp_path / "trade.csv"
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": [50.0 + index for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_us_equity_quality_report(
+        pinned_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+    )
+    _write_us_equity_quality_report(
+        other_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+        warning_reasons=["different_report"],
+    )
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "cape_percentile", "vix_percentile"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+        quality_report_path=pinned_quality_report,
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-quality-report",
+            str(other_quality_report),
+            "--output-dir",
+            str(tmp_path / "unpinned-quality-report-artifacts"),
+            "--candidate-set",
+            "nasdaq_sp500_cape_vix_precomputed_variants",
+            "--signal-columns",
+            "cape_percentile,vix_percentile",
+        ]
+    )
+
+    assert result == 2
+    assert "quality_report.path" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("mutation", "as_of_offset", "expected_error"),
     (
@@ -708,6 +845,10 @@ def test_smart_dca_research_cli_rejects_bad_us_equity_context_signal_csv(
         }
     ).to_csv(trade_csv, index=False)
     as_of_index = len(frame) - 1 + int(as_of_offset)
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(frame.iloc[as_of_index]["date"]),
+    )
     _write_research_manifest(
         signal_manifest,
         csv_path=signal_csv,
@@ -718,10 +859,7 @@ def test_smart_dca_research_cli_rejects_bad_us_equity_context_signal_csv(
         first_date=str(frame.iloc[0]["date"]),
         last_date=str(frame.iloc[-1]["date"]),
         row_count=len(frame),
-    )
-    _write_us_equity_quality_report(
-        signal_quality_report,
-        as_of=str(frame.iloc[as_of_index]["date"]),
+        quality_report_path=signal_quality_report,
     )
 
     result = main(

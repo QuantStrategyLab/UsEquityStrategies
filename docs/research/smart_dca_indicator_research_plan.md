@@ -324,10 +324,12 @@ sha256、文件大小、候选集信号来源模式和 `compatible_signal_consum
   进入候选选择流程。
 - 当 CLI 使用 Nasdaq/S&P external context 候选并传入
   `artifact_type=us_equity_context_research_csv` 的 `--signal-manifest` 时，必须同时传入
-  `--signal-quality-report`。该报告可以是完整 breadth context 的
+  `--signal-quality-report`，且 research manifest 必须用 `quality_report` 记录 pin 住同一份
+  报告的路径、SHA-256 和文件大小。该报告可以是完整 breadth context 的
   `us_equity_context_availability_report.v1`，也可以是 public CAPE/VIX context 的
   `us_equity_public_context_availability_report.v1`；CLI 会拒绝 `quality_status=fail`
-  或带 failure reasons 的报告，并检查 report `as_of` 不晚于 signal manifest `as_of`。
+  或带 failure reasons 的报告，并检查 report `as_of` 不晚于 signal manifest `as_of`，同时拒绝
+  与 manifest 声明不一致的临时替换报告。
 - 当 CLI 传入 `--signal-source-family-catalog-manifest` 时，会校验 catalog manifest
   schema、相对 catalog 路径、catalog SHA-256/size、敏感字段、预期 transform 和当前候选集
   需要的 compatible consumers，并把 matched family 和 catalog coverage 摘要写进
