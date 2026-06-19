@@ -53,6 +53,11 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
 
     assert summary["passed"] is True
     assert summary["matrix_count"] == 2
+    assert summary["promotion_blocker_counts"]["effect_size_gate_failed"] == 2
+    assert summary["promotion_blocker_counts"]["robustness_gate_failed"] == 1
+    assert summary["performance_diagnosis_counts"][
+        "terminal_edge_non_negative"
+    ] == 2
     assert summary["profile_rollups"][0]["profile"] == "ibit_smart_dca"
     assert summary["profile_rollups"][0][
         "runtime_default_recommendations"
@@ -79,6 +84,9 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     markdown = smart_dca_decision_summary_markdown(summary)
     assert "# Smart DCA Promotion Gate / Default Decision" in markdown
     assert "## Profile Rollup" in markdown
+    assert "## Overall Diagnostics" in markdown
+    assert "robustness_gate_failed: 1" in markdown
+    assert "terminal_edge_non_negative: 2" in markdown
     assert "Promotion blockers" in markdown
     assert "default_change_not_allowed_by_research" in markdown
     assert "## Profile Evidence" in markdown

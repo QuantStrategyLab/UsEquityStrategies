@@ -52,6 +52,10 @@ def summarize_smart_dca_decision_matrices(
         "failure_reasons": failure_reasons,
         "matrix_count": len(matrices),
         "profiles": selected_profiles,
+        "promotion_blocker_counts": _promotion_blocker_counts(profile_rollups),
+        "performance_diagnosis_counts": _performance_diagnosis_counts(
+            profile_rollups
+        ),
         "profile_rollups": profile_rollups,
         "matrices": matrices,
     }
@@ -119,6 +123,25 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
             )
             + " |"
         )
+    lines.extend(
+        [
+            "",
+            "## Overall Diagnostics",
+            "",
+            "| Type | Counts |",
+            "| --- | --- |",
+            "| Promotion blockers | "
+            + _markdown_cell(
+                _format_counts(summary.get("promotion_blocker_counts", {}))
+            )
+            + " |",
+            "| Performance diagnoses | "
+            + _markdown_cell(
+                _format_counts(summary.get("performance_diagnosis_counts", {}))
+            )
+            + " |",
+        ]
+    )
     lines.extend(
         [
             "",
@@ -397,6 +420,11 @@ def _profile_rollup(
         row.get("default_change_allowed_by_research") is True
         for row in rows
     )
+    observed_best_evidence = tuple(
+        _observed_best_evidence(matrix, row)
+        for matrix, row in matrix_rows
+        if str(row.get("observed_best_candidate", "")).strip()
+    )
     return {
         "profile": profile,
         "matrix_count": len(rows),
@@ -409,11 +437,7 @@ def _profile_rollup(
             for row in rows
             if str(row.get("observed_best_candidate", "")).strip()
         ),
-        "observed_best_evidence": tuple(
-            _observed_best_evidence(matrix, row)
-            for matrix, row in matrix_rows
-            if str(row.get("observed_best_candidate", "")).strip()
-        ),
+        "observed_best_evidence": observed_best_evidence,
         "promotion_blockers": _profile_promotion_blockers(rows),
     }
 
@@ -495,6 +519,41 @@ def _observed_best_evidence(
     }
 
 
+def _promotion_blocker_counts(
+    profile_rollups: Iterable[Mapping[str, Any]],
+) -> dict[str, int]:
+    values = [
+        str(blocker)
+        for profile in profile_rollups
+        for blocker in profile.get("promotion_blockers", ())
+        if str(blocker).strip()
+    ]
+    return _count_values(values)
+
+
+def _performance_diagnosis_counts(
+    profile_rollups: Iterable[Mapping[str, Any]],
+) -> dict[str, int]:
+    values = [
+        str(diagnosis)
+        for profile in profile_rollups
+        for evidence in profile.get("observed_best_evidence", ())
+        for diagnosis in evidence.get("observed_best_performance_diagnoses", ())
+        if str(diagnosis).strip()
+    ]
+    return _count_values(values)
+
+
+def _count_values(values: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return {
+        key: counts[key]
+        for key in sorted(counts)
+    }
+
+
 def _normalize_profiles(profiles: Iterable[str]) -> tuple[str, ...]:
     normalized = tuple(str(profile or "").strip() for profile in profiles)
     if not normalized or any(not profile for profile in normalized):
@@ -529,6 +588,15 @@ def _format_decimal(value: object) -> str:
     if value in (None, ""):
         return ""
     return f"{float(value):.2f}"
+
+
+def _format_counts(value: object) -> str:
+    if not isinstance(value, Mapping) or not value:
+        return ""
+    return ", ".join(
+        f"{key}: {int(count)}"
+        for key, count in value.items()
+    )
 
 
 def _markdown_cell(value: object) -> str:
