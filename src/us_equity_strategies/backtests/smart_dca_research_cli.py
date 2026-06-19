@@ -542,6 +542,14 @@ def _manifest_record(
         expected_artifact_type=expected_artifact_type,
         expected_transform=expected_transform,
     )
+    if role == "signal":
+        _validate_signal_research_csv_contract(
+            linked_csv_path,
+            manifest=manifest,
+            linked_csv_shape=linked_csv_shape,
+            date_column=date_column,
+            expected_artifact_type=expected_artifact_type,
+        )
 
     return {
         **_file_record(path),
@@ -993,6 +1001,91 @@ def _validate_research_export_manifest(
             f"{role} research export manifest last_date mismatch: "
             f"expected {linked_csv_shape['last_date']!r}, got {last_date!r}"
         )
+
+
+def _validate_signal_research_csv_contract(
+    path: Path,
+    *,
+    manifest: dict[str, object],
+    linked_csv_shape: dict[str, object],
+    date_column: str,
+    expected_artifact_type: str | None,
+) -> None:
+    if expected_artifact_type not in {
+        "btc_cycle_research_csv",
+        "us_equity_context_research_csv",
+    }:
+        return
+
+    frame = pd.read_csv(path)
+    if date_column not in frame.columns:
+        raise ValueError(f"signal CSV missing date column {date_column!r}: {path}")
+    dates = pd.to_datetime(frame[date_column], errors="coerce", utc=True)
+    if dates.isna().any():
+        raise ValueError(f"signal CSV contains invalid dates in {date_column!r}: {path}")
+    normalized_dates = pd.DatetimeIndex(dates).tz_convert(None).normalize()
+    if normalized_dates.duplicated().any():
+        raise ValueError("signal CSV contains duplicate dates")
+    if not normalized_dates.is_monotonic_increasing:
+        raise ValueError("signal CSV dates must be monotonically increasing")
+
+    as_of = str(manifest.get("as_of", "")).strip()
+    if not as_of:
+        raise ValueError("signal research export manifest as_of is required")
+    last_date = str(linked_csv_shape["last_date"])
+    if pd.Timestamp(last_date).normalize() > pd.Timestamp(as_of).normalize():
+        raise ValueError(
+            "signal CSV last_date must not be after manifest as_of: "
+            f"{last_date} > {as_of}"
+        )
+
+    if expected_artifact_type == "us_equity_context_research_csv":
+        _validate_us_equity_context_signal_columns(frame)
+    if expected_artifact_type == "btc_cycle_research_csv":
+        _validate_btc_cycle_signal_columns(frame)
+
+
+def _validate_us_equity_context_signal_columns(frame: pd.DataFrame) -> None:
+    for column in (
+        "cape_percentile",
+        "vix_percentile",
+        "breadth_above_sma200_pct",
+    ):
+        values = _finite_numeric_column(frame, column, role="signal CSV")
+        if not values.between(0.0, 1.0).all():
+            raise ValueError(f"signal CSV column {column!r} must be between 0 and 1")
+
+
+def _validate_btc_cycle_signal_columns(frame: pd.DataFrame) -> None:
+    for column in ("ahr999", "ahr999_sma", "mayer_multiple"):
+        if column in frame.columns:
+            values = _finite_numeric_column(frame, column, role="signal CSV")
+            if not (values > 0.0).all():
+                raise ValueError(f"signal CSV column {column!r} must be positive")
+    for column in ("ahr999_365d_percentile", "mayer_multiple_365d_percentile"):
+        if column in frame.columns:
+            values = _finite_numeric_column(frame, column, role="signal CSV")
+            if not values.between(0.0, 1.0).all():
+                raise ValueError(
+                    f"signal CSV column {column!r} must be between 0 and 1"
+                )
+    if "ahr999_30d_slope" in frame.columns:
+        _finite_numeric_column(frame, "ahr999_30d_slope", role="signal CSV")
+
+
+def _finite_numeric_column(
+    frame: pd.DataFrame,
+    column: str,
+    *,
+    role: str,
+) -> pd.Series:
+    if column not in frame.columns:
+        raise ValueError(f"{role} missing required column: {column}")
+    values = pd.to_numeric(frame[column], errors="coerce")
+    finite = values.notna() & (values != float("inf")) & (values != float("-inf"))
+    if not finite.all():
+        raise ValueError(f"{role} column {column!r} must contain finite numbers")
+    return values.astype(float)
 
 
 def _csv_shape_record(path: Path, *, date_column: str) -> dict[str, object]:

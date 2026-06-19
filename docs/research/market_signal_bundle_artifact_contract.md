@@ -158,7 +158,9 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 
 该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
 unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
-secret / signed URL key。
+secret / signed URL key。当前已知 consumer 包括 IBIT runtime AHR999-only、
+IBIT AHR999 helper variants、IBIT Mayer variants，以及 Nasdaq/S&P external context
+research consumer。
 
 若 `MarketSignalSources` 发布了 `market_signal_platform_handoff.v1`，平台或策略仓 CI
 应优先校验 handoff manifest。它会同时 pin 住 signal bundle manifest、source family
@@ -232,3 +234,7 @@ provenance 摘要，不记录指标数值。
 研究回测不直接依赖 vendor。`MarketSignalSources` 或人工下载流程应先把历史价格/指标
 导出为本地 CSV，再由智能定投研究 CLI 读取。这样可以把 provider 可用性、指标公式和
 策略 ranking 分开审计，避免在回测脚本里隐藏数据选择和参数搜索。
+当传入 `--signal-manifest` 且候选集使用 precomputed signal 时，CLI 会拒绝重复日期、
+非单调日期、`last_date > as_of`、Nasdaq context 百分位越界、非正 AHR999/Mayer 值、
+越界 helper percentile 或非有限 slope。这个 gate 不是完整点时数据证明，但能阻止明显
+不合格的研究 CSV 进入 robustness matrix。

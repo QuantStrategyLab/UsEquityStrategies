@@ -322,6 +322,12 @@ CANDIDATE_SIGNAL_CONSUMERS: dict[str, tuple[str, ...]] = {
     "ibit_btc_precomputed_ahr999_sma_mayer_cycle": (
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ),
+    "ibit_btc_precomputed_ahr999_percentile_cycle": (
+        "research:ibit_btc_ahr999_helper_precomputed_variants",
+    ),
+    "ibit_btc_precomputed_ahr999_guarded_cycle": (
+        "research:ibit_btc_ahr999_helper_precomputed_variants",
+    ),
 }
 
 

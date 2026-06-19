@@ -1282,6 +1282,7 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
         "us_equity:ibit_smart_dca",
     )
     assert candidate_set_signal_consumers("ibit_btc_ahr999_helper_precomputed_variants") == (
+        "research:ibit_btc_ahr999_helper_precomputed_variants",
         "research:ibit_btc_ahr999_precomputed",
         "us_equity:ibit_smart_dca",
     )
@@ -1293,8 +1294,12 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     assert candidate_signal_consumers(
         "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle"
     ) == ("research:ibit_btc_ahr999_mayer_precomputed",)
-    assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_percentile_cycle") == ()
-    assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_guarded_cycle") == ()
+    assert candidate_signal_consumers(
+        "ibit_btc_precomputed_ahr999_percentile_cycle"
+    ) == ("research:ibit_btc_ahr999_helper_precomputed_variants",)
+    assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_guarded_cycle") == (
+        "research:ibit_btc_ahr999_helper_precomputed_variants",
+    )
 
     rows = candidate_summaries_to_rows(
         (
@@ -1321,8 +1326,19 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     helper_summary = candidate_summaries_to_rows(
         ("ibit_btc_precomputed_ahr999_percentile_cycle",)
     )[0]
-    assert helper_summary["compatible_signal_consumers"] == ""
+    assert helper_summary["compatible_signal_consumers"] == (
+        "research:ibit_btc_ahr999_helper_precomputed_variants"
+    )
     assert helper_summary["signal_symbols"] == "ahr999_365d_percentile"
+    assert required_indicator_fields_for_consumer(
+        "research:ibit_btc_ahr999_helper_precomputed_variants"
+    ) == {
+        "BTC-USD": (
+            "ahr999",
+            "ahr999_365d_percentile",
+            "ahr999_30d_slope",
+        )
+    }
 
     nasdaq_external_summary = candidate_summaries_to_rows(
         ("nasdaq_sp500_precomputed_valuation_guard",)

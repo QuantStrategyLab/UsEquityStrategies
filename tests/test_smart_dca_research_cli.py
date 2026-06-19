@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from us_equity_strategies.backtests.smart_dca_research_cli import main
 
@@ -50,6 +51,42 @@ def _write_runtime_signal_bundle_manifest(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return manifest_path
+
+
+def _write_research_manifest(
+    path: Path,
+    *,
+    csv_path: Path,
+    artifact_type: str,
+    transform: str,
+    as_of: str,
+    columns: list[str],
+    first_date: str,
+    last_date: str,
+    row_count: int,
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "artifact_type": artifact_type,
+                "transform": transform,
+                "source_version": "0.1.0",
+                "as_of": as_of,
+                "min_history": 1,
+                "row_count": row_count,
+                "first_date": first_date,
+                "last_date": last_date,
+                "columns": columns,
+                "output_csv": {
+                    "path": str(csv_path),
+                    "sha256": _sha256_file(csv_path),
+                    "size_bytes": csv_path.stat().st_size,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> None:
@@ -372,7 +409,7 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
                 "artifact_type": "us_equity_context_research_csv",
                 "transform": "us_equity.nasdaq_sp500.context.v1",
                 "source_version": "0.1.0",
-                "as_of": "2025-06-18",
+                "as_of": str(dates[-1].date()),
                 "min_history": 1,
                 "row_count": len(dates),
                 "first_date": str(dates[0].date()),
@@ -432,6 +469,155 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
     assert "nasdaq_sp500_precomputed_valuation_guard" in (
         output_dir / "monthly_day_15" / "metrics.csv"
     ).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "as_of_offset", "expected_error"),
+    (
+        ("duplicate_date", 0, "duplicate dates"),
+        ("non_monotonic_date", 0, "monotonically increasing"),
+        ("last_date_after_as_of", -1, "last_date must not be after manifest as_of"),
+        ("out_of_range_percentile", 0, "must be between 0 and 1"),
+    ),
+)
+def test_smart_dca_research_cli_rejects_bad_us_equity_context_signal_csv(
+    tmp_path,
+    capsys,
+    mutation,
+    as_of_offset,
+    expected_error,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
+    frame = pd.DataFrame(
+        {
+            "date": list(dates.date),
+            "QQQ": prices,
+            "SPY": prices * 0.94,
+            "cape_percentile": [0.90 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+            "breadth_above_sma200_pct": [0.35 for _ in dates],
+        }
+    )
+    if mutation == "duplicate_date":
+        frame.loc[10, "date"] = frame.loc[9, "date"]
+    if mutation == "non_monotonic_date":
+        frame.loc[10, "date"], frame.loc[11, "date"] = (
+            frame.loc[11, "date"],
+            frame.loc[10, "date"],
+        )
+    if mutation == "out_of_range_percentile":
+        frame.loc[10, "cape_percentile"] = 1.20
+
+    signal_csv = tmp_path / "us_equity_context.csv"
+    signal_manifest = tmp_path / "us_equity_context.manifest.json"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / f"nasdaq-context-artifacts-{mutation}"
+    frame.to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+    as_of_index = len(frame) - 1 + int(as_of_offset)
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(frame.iloc[as_of_index]["date"]),
+        columns=list(frame.columns),
+        first_date=str(frame.iloc[0]["date"]),
+        last_date=str(frame.iloc[-1]["date"]),
+        row_count=len(frame),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_external_precomputed_variants",
+            "--signal-columns",
+            "QQQ,SPY,cape_percentile,vix_percentile,breadth_above_sma200_pct",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+        ]
+    )
+
+    assert result == 2
+    assert expected_error in capsys.readouterr().err
+
+
+def test_smart_dca_research_cli_rejects_bad_precomputed_ibit_signal_csv(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signal_csv = tmp_path / "btc_cycle.csv"
+    signal_manifest = tmp_path / "btc_cycle.manifest.json"
+    trade_csv = tmp_path / "ibit.csv"
+    output_dir = tmp_path / "ibit-bad-signal-artifacts"
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ahr999": [-1.0 for _ in dates],
+            "ahr999_sma": [1.4 for _ in dates],
+            "mayer_multiple": [2.5 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="btc_cycle_research_csv",
+        transform="crypto.btc.ahr999.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "ahr999", "ahr999_sma", "mayer_multiple"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed",
+            "--signal-columns",
+            "ahr999,ahr999_sma,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+        ]
+    )
+
+    assert result == 2
+    assert "signal CSV column 'ahr999' must be positive" in capsys.readouterr().err
 
 
 def test_smart_dca_research_cli_standard_preset_expands_robustness_matrix(
@@ -615,7 +801,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "artifact_type": "btc_cycle_research_csv",
                 "transform": "crypto.btc.ahr999.v1",
                 "source_version": "0.1.0",
-                "as_of": "2025-06-18",
+                "as_of": str(dates[-1].date()),
                 "min_history": 200,
                 "row_count": len(dates),
                 "first_date": str(dates[0].date()),
@@ -729,8 +915,9 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 2,
-                "known_consumer_count": 5,
+                "known_consumer_count": 6,
                 "missing_known_consumers": [
+                    "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_precomputed",
                     "research:nasdaq_sp500_external_context_precomputed",
                     "us_equity:ibit_smart_dca",
@@ -1140,8 +1327,9 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 1,
-                "known_consumer_count": 5,
+                "known_consumer_count": 6,
                 "missing_known_consumers": [
+                    "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                     "research:ibit_btc_ahr999_precomputed",
                     "research:nasdaq_sp500_external_context_precomputed",

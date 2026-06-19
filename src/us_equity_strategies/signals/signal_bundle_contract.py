@@ -41,6 +41,9 @@ REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
     "research:ibit_btc_ahr999_precomputed": {
         "BTC-USD": ("ahr999",),
     },
+    "research:ibit_btc_ahr999_helper_precomputed_variants": {
+        "BTC-USD": ("ahr999", "ahr999_365d_percentile", "ahr999_30d_slope"),
+    },
     "research:ibit_btc_ahr999_mayer_precomputed": {
         "BTC-USD": ("ahr999", "mayer_multiple"),
     },

@@ -118,6 +118,17 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
             "required_indicator_fields_by_symbol": {"BTC-USD": ["ahr999"]},
         },
         {
+            "consumer": "research:ibit_btc_ahr999_helper_precomputed_variants",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "BTC-USD": [
+                    "ahr999",
+                    "ahr999_365d_percentile",
+                    "ahr999_30d_slope",
+                ]
+            },
+        },
+        {
             "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
             "canonical_input": "derived_indicators",
             "required_indicator_fields_by_symbol": {
@@ -167,8 +178,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 5,
-                "known_consumer_count": 5,
+                "consumer_count": 6,
+                "known_consumer_count": 6,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -210,7 +221,7 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
-                "consumer_contract_count": 5,
+                "consumer_contract_count": 6,
                 "consumer_contracts": [
                     str(contract["consumer"])
                     for contract in contracts
@@ -359,7 +370,7 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 5
+    assert summary["consumer_contract_count"] == 6
     assert summary["all_known_consumers_present"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
@@ -465,6 +476,19 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                         },
                     },
                     {
+                        "consumer": (
+                            "research:ibit_btc_ahr999_helper_precomputed_variants"
+                        ),
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": [
+                                "ahr999",
+                                "ahr999_365d_percentile",
+                                "ahr999_30d_slope",
+                            ],
+                        },
+                    },
+                    {
                         "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
@@ -518,8 +542,8 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 5,
-                "known_consumer_count": 5,
+                "consumer_count": 6,
+                "known_consumer_count": 6,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -549,7 +573,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     assert summary["registry_sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
-    assert summary["consumer_count"] == 5
+    assert summary["consumer_count"] == 6
     assert summary["all_known_consumers_present"] is True
 
 
