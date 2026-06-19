@@ -296,6 +296,7 @@ def _research_metadata(
 def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, object]]:
     records: dict[str, dict[str, object]] = {}
     signal_manifest_expectations = _signal_manifest_expectations(args.candidate_set)
+    required_consumers = candidate_set_signal_consumers(args.candidate_set)
     if args.signal_manifest is not None:
         records["signal_manifest"] = _manifest_record(
             args.signal_manifest,
@@ -317,14 +318,16 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
     if args.signal_source_family_catalog_manifest is not None:
         records["signal_source_family_catalog_manifest"] = (
             _source_catalog_manifest_record(
-                args.signal_source_family_catalog_manifest
+                args.signal_source_family_catalog_manifest,
+                required_consumers=required_consumers,
+                expected_transform=signal_manifest_expectations["transform"],
             )
         )
     if args.signal_consumer_contract_registry_manifest is not None:
         records["signal_consumer_contract_registry_manifest"] = (
             _consumer_contract_registry_manifest_record(
                 args.signal_consumer_contract_registry_manifest,
-                required_consumers=candidate_set_signal_consumers(args.candidate_set),
+                required_consumers=required_consumers,
             )
         )
     return records
@@ -433,7 +436,12 @@ def _manifest_record(
     }
 
 
-def _source_catalog_manifest_record(path: Path) -> dict[str, object]:
+def _source_catalog_manifest_record(
+    path: Path,
+    *,
+    required_consumers: tuple[str, ...],
+    expected_transform: str | None,
+) -> dict[str, object]:
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(
         manifest,
@@ -479,6 +487,41 @@ def _source_catalog_manifest_record(path: Path) -> dict[str, object]:
             "signal source family catalog manifest catalog_size_bytes mismatch: "
             f"expected {actual_catalog_size}, got {expected_catalog_size!r}"
         )
+    catalog = _read_manifest(catalog_path)
+    _validate_no_sensitive_manifest_fields(
+        catalog,
+        path="signal_source_family_catalog",
+    )
+    catalog_schema_version = str(catalog.get("schema_version", "")).strip()
+    if catalog_schema_version != "market_signal_source_families.v1":
+        raise ValueError(
+            "signal source family catalog schema_version must be "
+            "'market_signal_source_families.v1'"
+        )
+    manifest_catalog_schema_version = str(
+        manifest.get("catalog_schema_version", "")
+    ).strip()
+    if (
+        manifest_catalog_schema_version
+        and manifest_catalog_schema_version != catalog_schema_version
+    ):
+        raise ValueError(
+            "signal source family catalog manifest catalog_schema_version mismatch: "
+            f"{manifest_catalog_schema_version!r} != {catalog_schema_version!r}"
+        )
+    families = catalog.get("families")
+    if not isinstance(families, list) or not families:
+        raise ValueError("signal source family catalog families must be a non-empty list")
+    matched_families = _matching_source_catalog_families(
+        families,
+        required_consumers=required_consumers,
+        expected_transform=expected_transform,
+    )
+    if required_consumers and not matched_families:
+        raise ValueError(
+            "signal source family catalog missing family for required consumers: "
+            + ", ".join(required_consumers)
+        )
     return {
         **_file_record(path),
         "schema_version": schema_version,
@@ -486,13 +529,20 @@ def _source_catalog_manifest_record(path: Path) -> dict[str, object]:
         "catalog_path": str(catalog_path),
         "catalog_sha256": expected_catalog_sha256,
         "catalog_size_bytes": expected_catalog_size,
-        "catalog_schema_version": str(manifest.get("catalog_schema_version", "")),
+        "catalog_schema_version": catalog_schema_version,
         "family_count": manifest.get("family_count"),
         "known_family_count": manifest.get("known_family_count"),
         "missing_known_families": tuple(
             str(family)
             for family in manifest.get("missing_known_families", ()) or ()
         ),
+        "expected_transform": expected_transform or "",
+        "required_signal_consumers": required_consumers,
+        "required_signal_consumer_count": len(required_consumers),
+        "matched_family_count": len(matched_families),
+        "matched_families": matched_families,
+        "required_signal_consumers_present": not required_consumers
+        or bool(matched_families),
         "all_known_families_present": bool(
             manifest.get("all_known_families_present", False)
         ),
@@ -502,6 +552,28 @@ def _source_catalog_manifest_record(path: Path) -> dict[str, object]:
         "catalog_sha256_verified": True,
         "catalog_size_bytes_verified": True,
     }
+
+
+def _matching_source_catalog_families(
+    families: list[object],
+    *,
+    required_consumers: tuple[str, ...],
+    expected_transform: str | None,
+) -> tuple[str, ...]:
+    matched: list[str] = []
+    for record in families:
+        if not isinstance(record, dict):
+            raise ValueError("signal source family catalog records must be objects")
+        family = str(record.get("family", "")).strip()
+        if not family:
+            raise ValueError("signal source family catalog record family is required")
+        transform = str(record.get("transform", "")).strip()
+        if expected_transform is not None and transform != expected_transform:
+            continue
+        compatible_profiles = _string_tuple(record.get("compatible_profiles"))
+        if all(consumer in compatible_profiles for consumer in required_consumers):
+            matched.append(family)
+    return tuple(matched)
 
 
 def _consumer_contract_registry_manifest_record(
@@ -548,6 +620,12 @@ def _consumer_contract_registry_manifest_record(
         "registry_size_bytes_verified": True,
         "registry_contract_fields_verified": True,
     }
+
+
+def _string_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
 
 
 def _resolve_manifest_artifact_path(

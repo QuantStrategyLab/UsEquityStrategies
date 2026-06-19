@@ -602,6 +602,15 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert source_catalog_manifest_record["catalog_sha256_verified"] is True
     assert source_catalog_manifest_record["catalog_size_bytes_verified"] is True
     assert source_catalog_manifest_record["all_consumer_contracts_satisfied"] is True
+    assert source_catalog_manifest_record["expected_transform"] == "crypto.btc.ahr999.v1"
+    assert source_catalog_manifest_record["required_signal_consumers"] == [
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ]
+    assert source_catalog_manifest_record["matched_families"] == [
+        "crypto.btc_cycle_daily"
+    ]
+    assert source_catalog_manifest_record["required_signal_consumers_present"] is True
     consumer_contract_registry_record = summary["metadata"]["input_artifacts"][
         "signal_consumer_contract_registry_manifest"
     ]
@@ -662,6 +671,48 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ]["registry_sha256"]
         == _sha256_file(consumer_contract_registry)
     )
+
+    source_catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
+    source_catalog_payload["families"][0]["compatible_profiles"] = [
+        "research:ibit_btc_ahr999_mayer_precomputed"
+    ]
+    source_catalog.write_text(
+        json.dumps(source_catalog_payload, sort_keys=True),
+        encoding="utf-8",
+    )
+    source_catalog_manifest_payload = json.loads(
+        source_catalog_manifest.read_text(encoding="utf-8")
+    )
+    source_catalog_manifest_payload["catalog_sha256"] = _sha256_file(source_catalog)
+    source_catalog_manifest_payload["catalog_size_bytes"] = source_catalog.stat().st_size
+    source_catalog_manifest.write_text(
+        json.dumps(source_catalog_manifest_payload),
+        encoding="utf-8",
+    )
+    missing_catalog_consumer_result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-source-family-catalog-manifest",
+            str(source_catalog_manifest),
+            "--output-dir",
+            str(tmp_path / "missing-catalog-consumer-artifacts"),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_sma,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+        ]
+    )
+    assert missing_catalog_consumer_result == 2
+    assert "source family catalog missing family" in capsys.readouterr().err
 
     consumer_contract_registry.write_text(
         json.dumps(
