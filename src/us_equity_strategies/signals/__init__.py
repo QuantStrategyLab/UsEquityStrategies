@@ -64,6 +64,15 @@ from .signal_bundle_contract import (
     validate_signal_bundle_for_consumer,
     validate_signal_bundle_indicator_fields,
 )
+from .runtime_market_signal_inputs import (
+    IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER,
+    MARKET_SIGNAL_REFERENCE_CONSUMPTION_AUDIT,
+    MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF,
+    MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX,
+    SUPPORTED_MARKET_SIGNAL_REFERENCE_TYPES,
+    extract_consumer_market_signal_inputs_from_reference,
+    normalize_market_signal_reference_type,
+)
 
 __all__ = [
     "CANONICAL_INPUT_DERIVED_INDICATORS",
@@ -128,4 +137,11 @@ __all__ = [
     "validate_signal_consumer_contract_registry",
     "validate_signal_bundle_for_consumer",
     "validate_signal_bundle_indicator_fields",
+    "IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER",
+    "MARKET_SIGNAL_REFERENCE_CONSUMPTION_AUDIT",
+    "MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF",
+    "MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX",
+    "SUPPORTED_MARKET_SIGNAL_REFERENCE_TYPES",
+    "extract_consumer_market_signal_inputs_from_reference",
+    "normalize_market_signal_reference_type",
 ]
