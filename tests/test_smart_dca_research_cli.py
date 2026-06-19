@@ -367,6 +367,10 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     signal_manifest = tmp_path / "btc_cycle.manifest.json"
     source_catalog = tmp_path / "signal_source_families.json"
     source_catalog_manifest = tmp_path / "signal_source_families.manifest.json"
+    consumer_contract_registry = tmp_path / "market_signal_consumers.json"
+    consumer_contract_registry_manifest = (
+        tmp_path / "market_signal_consumers.manifest.json"
+    )
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
 
@@ -461,6 +465,61 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ),
         encoding="utf-8",
     )
+    consumer_contract_registry.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "contracts": [
+                    {
+                        "consumer": (
+                            "research:ibit_btc_ahr999_mayer_precomputed"
+                        ),
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": ["ahr999", "mayer_multiple"],
+                        },
+                    },
+                    {
+                        "consumer": (
+                            "research:ibit_btc_ahr999_mayer_precomputed_variants"
+                        ),
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "BTC-USD": [
+                                "ahr999",
+                                "ahr999_sma",
+                                "mayer_multiple",
+                            ],
+                        },
+                    },
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    consumer_contract_registry_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contract_manifest.v1",
+                "artifact_type": "market_signal_consumer_contract_registry",
+                "registry_path": consumer_contract_registry.name,
+                "registry_sha256": _sha256_file(consumer_contract_registry),
+                "registry_size_bytes": consumer_contract_registry.stat().st_size,
+                "registry_schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "consumer_count": 2,
+                "known_consumer_count": 4,
+                "missing_known_consumers": [
+                    "research:ibit_btc_ahr999_precomputed",
+                    "us_equity:ibit_smart_dca",
+                ],
+                "all_known_consumers_present": False,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = main(
         [
@@ -472,6 +531,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             str(signal_manifest),
             "--signal-source-family-catalog-manifest",
             str(source_catalog_manifest),
+            "--signal-consumer-contract-registry-manifest",
+            str(consumer_contract_registry_manifest),
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -541,6 +602,21 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert source_catalog_manifest_record["catalog_sha256_verified"] is True
     assert source_catalog_manifest_record["catalog_size_bytes_verified"] is True
     assert source_catalog_manifest_record["all_consumer_contracts_satisfied"] is True
+    consumer_contract_registry_record = summary["metadata"]["input_artifacts"][
+        "signal_consumer_contract_registry_manifest"
+    ]
+    assert consumer_contract_registry_record["schema_version"] == (
+        "market_signal_consumer_contract_manifest.v1"
+    )
+    assert consumer_contract_registry_record["artifact_type"] == (
+        "market_signal_consumer_contract_registry"
+    )
+    assert consumer_contract_registry_record["registry_sha256"] == (
+        _sha256_file(consumer_contract_registry)
+    )
+    assert consumer_contract_registry_record["canonical_input"] == "derived_indicators"
+    assert consumer_contract_registry_record["registry_sha256_verified"] is True
+    assert consumer_contract_registry_record["registry_size_bytes_verified"] is True
     scenario_manifest = json.loads(
         (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
     )
@@ -573,6 +649,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             "signal_source_family_catalog_manifest"
         ]["catalog_sha256"]
         == _sha256_file(source_catalog)
+    )
+    assert (
+        scenario_manifest["metadata"]["input_artifacts"][
+            "signal_consumer_contract_registry_manifest"
+        ]["registry_sha256"]
+        == _sha256_file(consumer_contract_registry)
     )
 
 
