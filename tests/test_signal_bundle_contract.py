@@ -339,7 +339,7 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     assert "64000.0" not in summary_json
     assert "78000.0" not in summary_json
     assert manifest_summary["bundle_sha256"] == (
-        "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500"
+        "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
     )
     assert index_summary["index_schema_version"] == "market_signal_index.v1"
     assert index_summary["index_bundle_count"] == 1
@@ -375,13 +375,35 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
         "research:ibit_btc_ahr999_mayer_precomputed_variants"
     ) == {"BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")}
     assert summary["consumer"] == "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    assert summary["consumer_profile_compatible"] is True
+    assert "research:ibit_btc_ahr999_mayer_precomputed_variants" in summary[
+        "compatible_profiles"
+    ]
     assert summary["required_indicator_fields_by_symbol"] == {
         "BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")
     }
     assert manifest_summary["bundle_sha256"] == (
-        "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500"
+        "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
     )
     assert index_summary["manifest_path"] == str(FIXTURE_MANIFEST_PATH.resolve())
+
+
+def test_signal_bundle_rejects_incompatible_consumer_profile() -> None:
+    bundle = _load_bundle()
+    consumer_contract = copy.deepcopy(bundle["consumer_contract"])
+    consumer_contract["compatible_profiles"] = ["us_equity:ibit_smart_dca"]
+    bundle["consumer_contract"] = consumer_contract
+
+    with pytest.raises(SignalBundleContractError, match="compatible_profiles"):
+        validate_signal_bundle_for_consumer(
+            bundle,
+            consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        )
+    with pytest.raises(SignalBundleContractError, match="compatible_profiles"):
+        extract_canonical_input_for_consumer(
+            bundle,
+            consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        )
 
 
 def test_signal_bundle_rejects_missing_consumer_required_indicator_fields() -> None:
@@ -514,7 +536,7 @@ def test_index_resolves_latest_fresh_manifest_for_platform_loader() -> None:
 
     assert index["schema_version"] == "market_signal_index.v1"
     assert index["bundles"][0]["manifest_sha256"] == (
-        "2b85d0852f369986285022796427371809b58b16dcb3c79846267fcabb388e05"
+        "e52973cf388208d0d5acae06c97278685d9a5258156100418b311a25a754bd35"
     )
     assert manifest_path == FIXTURE_MANIFEST_PATH.resolve()
     assert bundle["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"

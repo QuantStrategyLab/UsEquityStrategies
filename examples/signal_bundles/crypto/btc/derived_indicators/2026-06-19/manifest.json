@@ -2,7 +2,7 @@
   "schema_version": "market_signal_manifest.v1",
   "bundle_id": "crypto.btc.derived_indicators.2026-06-19",
   "bundle_path": "signal_bundle.json",
-  "bundle_sha256": "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500",
+  "bundle_sha256": "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45",
   "bundle_schema_version": "market_signal_bundle.v1",
   "canonical_input": "derived_indicators",
   "as_of": "2026-06-19",

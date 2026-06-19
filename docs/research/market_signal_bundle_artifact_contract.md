@@ -171,7 +171,7 @@ token / signed URL / cookie / secret。
 
 平台 adapter 如果要直接构造 `StrategyContext.market_data`，应优先使用 consumer-aware
 提取入口。它会在返回 payload 前同时完成 manifest/index、bundle freshness 和 consumer
-字段覆盖校验：
+profile compatibility / 字段覆盖校验：
 
 ```python
 from us_equity_strategies.signals import extract_canonical_input_from_index_for_consumer

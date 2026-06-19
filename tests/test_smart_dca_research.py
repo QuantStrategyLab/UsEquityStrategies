@@ -164,9 +164,17 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert summary_row["name"] == "nasdaq_sp500_price_defensive"
     assert summary_row["family"] == "nasdaq_sp500_price"
     assert summary_row["rule_type"] == "trend_drawdown"
+    assert summary_row["signal_source_mode"] == "market_history_price_indicators"
     assert summary_row["parameter_count"] == 15
     assert summary_row["open_parameter_search"] is False
     assert len(str(summary_row["candidate_definition_sha256"])) == 64
+
+    precomputed_summary = candidate_summaries_to_rows(
+        ("ibit_btc_precomputed_ahr999_sma_mayer_cycle",)
+    )[0]
+    assert precomputed_summary["signal_source_mode"] == (
+        "external_precomputed_derived_indicators"
+    )
 
     artifact_paths = write_research_artifacts(tmp_path, result, evaluations=evaluations)
     assert set(artifact_paths) == {

@@ -240,6 +240,7 @@ def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[st
                 "name": candidate.name,
                 "family": candidate.family,
                 "rule_type": candidate.rule_type,
+                "signal_source_mode": _candidate_signal_source_mode(candidate),
                 "signal_symbols": ",".join(candidate.signal_symbols),
                 "signal_symbol_count": len(candidate.signal_symbols),
                 "min_history": candidate.min_history,
@@ -267,6 +268,14 @@ def _candidate_multiplier_values(candidate: SmartDcaCandidate) -> tuple[float, .
         for parameter_name, value in sorted(candidate.parameters.items())
         if parameter_name.endswith("_multiplier")
     )
+
+
+def _candidate_signal_source_mode(candidate: SmartDcaCandidate) -> str:
+    if candidate.rule_type.startswith("precomputed_"):
+        return "external_precomputed_derived_indicators"
+    if "ahr999" in candidate.rule_type:
+        return "internal_btc_price_derived_indicators"
+    return "market_history_price_indicators"
 
 
 def _normalize_symbol(symbol: object) -> str:

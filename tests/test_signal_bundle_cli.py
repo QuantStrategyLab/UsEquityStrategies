@@ -33,7 +33,7 @@ def test_signal_bundle_cli_prints_non_sensitive_audit_summary(capsys) -> None:
     summary = json.loads(output)
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["bundle_sha256"] == (
-        "3da3996095f134151019c38cb1bee9acc111978aa93dd5a613e1960385d41500"
+        "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
     )
     assert summary["symbols"] == ["BTC-USD"]
     assert summary["indicator_fields_by_symbol"]["BTC-USD"] == [
@@ -80,6 +80,10 @@ def test_signal_bundle_cli_validates_consumer_indicator_fields(capsys) -> None:
     assert result == 0
     summary = json.loads(capsys.readouterr().out)
     assert summary["consumer"] == "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    assert summary["consumer_profile_compatible"] is True
+    assert "research:ibit_btc_ahr999_mayer_precomputed_variants" in summary[
+        "compatible_profiles"
+    ]
     assert summary["required_indicator_fields_by_symbol"] == {
         "BTC-USD": ["ahr999", "ahr999_sma", "mayer_multiple"]
     }

@@ -4,7 +4,7 @@
   "bundles": [
     {
       "manifest_path": "crypto/btc/derived_indicators/2026-06-19/manifest.json",
-      "manifest_sha256": "2b85d0852f369986285022796427371809b58b16dcb3c79846267fcabb388e05",
+      "manifest_sha256": "e52973cf388208d0d5acae06c97278685d9a5258156100418b311a25a754bd35",
       "bundle_id": "crypto.btc.derived_indicators.2026-06-19",
       "as_of": "2026-06-19",
       "canonical_input": "derived_indicators",

@@ -5,7 +5,11 @@
   "domain": "crypto",
   "consumer_contract": {
     "canonical_input": "derived_indicators",
-    "compatible_profiles": ["us_equity:ibit_smart_dca"],
+    "compatible_profiles": [
+      "us_equity:ibit_smart_dca",
+      "research:ibit_btc_ahr999_mayer_precomputed",
+      "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    ],
     "min_strategy_contract": "derived_indicators+portfolio_snapshot"
   },
   "as_of": "2026-06-19",
