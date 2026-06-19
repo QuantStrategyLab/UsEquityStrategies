@@ -463,6 +463,11 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
                 expected_transform=signal_manifest_expectations["transform"],
             )
         )
+        if "signal_quality_report" in records:
+            _validate_signal_quality_report_source_lag_policies(
+                records["signal_quality_report"],
+                source_catalog=records["signal_source_family_catalog_manifest"],
+            )
     if args.signal_consumer_contract_registry_manifest is not None:
         records["signal_consumer_contract_registry_manifest"] = (
             _consumer_contract_registry_manifest_record(
@@ -654,6 +659,7 @@ def _signal_quality_report_record(
         raise ValueError("signal quality report quality_status is invalid")
     failure_reasons = _string_tuple(report.get("failure_reasons"))
     warning_reasons = _string_tuple(report.get("warning_reasons"))
+    input_sources = _quality_report_input_sources(report)
     if quality_status == "fail" or failure_reasons:
         raise ValueError(
             "signal quality report failed: "
@@ -684,6 +690,8 @@ def _signal_quality_report_record(
         "quality_status": quality_status,
         "failure_reasons": failure_reasons,
         "warning_reasons": warning_reasons,
+        "input_sources": input_sources,
+        "input_source_count": len(input_sources),
         "as_of": report_as_of,
         "signal_manifest_as_of": manifest_as_of,
         "quality_status_accepted": True,
@@ -692,6 +700,33 @@ def _signal_quality_report_record(
             and signal_manifest.get("declared_quality_report_present")
         ),
     }
+
+
+def _quality_report_input_sources(report: dict[str, object]) -> tuple[dict[str, object], ...]:
+    raw_sources = report.get("input_sources")
+    if raw_sources is None:
+        return ()
+    if not isinstance(raw_sources, list):
+        raise ValueError("signal quality report input_sources must be a list")
+    sources: list[dict[str, object]] = []
+    for raw_source in raw_sources:
+        if not isinstance(raw_source, dict):
+            raise ValueError("signal quality report input_sources records must be objects")
+        source_id = str(raw_source.get("source_id", "")).strip()
+        if not source_id:
+            raise ValueError("signal quality report input_sources source_id is required")
+        source_record: dict[str, object] = {"source_id": source_id}
+        for field in ("latest_observation_lag_days", "max_allowed_lag_days"):
+            value = raw_source.get(field)
+            if value is not None:
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    raise ValueError(
+                        "signal quality report input_sources "
+                        f"{source_id} {field} must be a non-negative integer"
+                    )
+                source_record[field] = value
+        sources.append(source_record)
+    return tuple(sources)
 
 
 def _research_manifest_quality_report_record(
@@ -860,16 +895,23 @@ def _source_catalog_manifest_record(
     families = catalog.get("families")
     if not isinstance(families, list) or not families:
         raise ValueError("signal source family catalog families must be a non-empty list")
-    matched_families = _matching_source_catalog_families(
+    matched_family_records = _matching_source_catalog_family_records(
         families,
         required_consumers=required_consumers,
         expected_transform=expected_transform,
+    )
+    matched_families = tuple(
+        str(record["family"])
+        for record in matched_family_records
     )
     if required_consumers and not matched_families:
         raise ValueError(
             "signal source family catalog missing family for required consumers: "
             + ", ".join(required_consumers)
         )
+    matched_source_lag_policies = _source_lag_policies_for_matched_families(
+        matched_family_records
+    )
     return {
         **_file_record(path),
         "schema_version": schema_version,
@@ -889,6 +931,8 @@ def _source_catalog_manifest_record(
         "required_signal_consumer_count": len(required_consumers),
         "matched_family_count": len(matched_families),
         "matched_families": matched_families,
+        "matched_source_profile_lag_policy_count": len(matched_source_lag_policies),
+        "matched_source_profile_lag_policies": matched_source_lag_policies,
         "required_signal_consumers_present": not required_consumers
         or bool(matched_families),
         "all_known_families_present": bool(
@@ -902,13 +946,13 @@ def _source_catalog_manifest_record(
     }
 
 
-def _matching_source_catalog_families(
+def _matching_source_catalog_family_records(
     families: list[object],
     *,
     required_consumers: tuple[str, ...],
     expected_transform: str | None,
-) -> tuple[str, ...]:
-    matched: list[str] = []
+) -> tuple[dict[str, object], ...]:
+    matched: list[dict[str, object]] = []
     for record in families:
         if not isinstance(record, dict):
             raise ValueError("signal source family catalog records must be objects")
@@ -920,8 +964,122 @@ def _matching_source_catalog_families(
             continue
         compatible_profiles = _string_tuple(record.get("compatible_profiles"))
         if all(consumer in compatible_profiles for consumer in required_consumers):
-            matched.append(family)
+            matched.append(record)
     return tuple(matched)
+
+
+def _source_lag_policies_for_matched_families(
+    records: tuple[dict[str, object], ...],
+) -> tuple[dict[str, object], ...]:
+    policies: list[dict[str, object]] = []
+    for record in records:
+        family = str(record.get("family", "")).strip()
+        source_profiles = record.get("source_profiles")
+        if source_profiles is None:
+            continue
+        if not isinstance(source_profiles, list):
+            raise ValueError(
+                f"signal source family catalog {family} source_profiles must be a list"
+            )
+        for raw_profile in source_profiles:
+            if not isinstance(raw_profile, dict):
+                raise ValueError(
+                    f"signal source family catalog {family} source_profiles "
+                    "records must be objects"
+                )
+            source_id = str(raw_profile.get("source_id", "")).strip()
+            if not source_id:
+                raise ValueError(
+                    f"signal source family catalog {family} source_profiles "
+                    "source_id is required"
+                )
+            max_allowed_lag_days = raw_profile.get("max_allowed_lag_days")
+            if max_allowed_lag_days is None:
+                continue
+            if (
+                not isinstance(max_allowed_lag_days, int)
+                or isinstance(max_allowed_lag_days, bool)
+                or max_allowed_lag_days < 0
+            ):
+                raise ValueError(
+                    f"signal source family catalog {family} source profile "
+                    f"{source_id} max_allowed_lag_days must be a non-negative integer"
+                )
+            policies.append(
+                {
+                    "family": family,
+                    "source_id": source_id,
+                    "max_allowed_lag_days": max_allowed_lag_days,
+                }
+            )
+    return tuple(policies)
+
+
+def _validate_signal_quality_report_source_lag_policies(
+    signal_quality_report: dict[str, object],
+    *,
+    source_catalog: dict[str, object],
+) -> None:
+    policies = source_catalog.get("matched_source_profile_lag_policies")
+    if not isinstance(policies, tuple) or not policies:
+        return
+    input_sources = signal_quality_report.get("input_sources")
+    if not isinstance(input_sources, tuple):
+        input_sources = ()
+    if (
+        signal_quality_report.get("schema_version")
+        == "us_equity_public_context_availability_report.v1"
+        and not input_sources
+    ):
+        raise ValueError(
+            "signal quality report input_sources are required when source catalog "
+            "declares source lag policies"
+        )
+    if not input_sources:
+        return
+    report_sources = {
+        str(source["source_id"]): source
+        for source in input_sources
+        if isinstance(source, dict) and str(source.get("source_id", "")).strip()
+    }
+    for policy in policies:
+        if not isinstance(policy, dict):
+            continue
+        source_id = str(policy.get("source_id", "")).strip()
+        if not source_id:
+            continue
+        if source_id not in report_sources:
+            raise ValueError(
+                "signal quality report missing source freshness proof for "
+                f"{source_id}"
+            )
+        catalog_max_lag = int(policy["max_allowed_lag_days"])
+        report_source = report_sources[source_id]
+        report_max_lag = report_source.get("max_allowed_lag_days")
+        if not isinstance(report_max_lag, int) or isinstance(report_max_lag, bool):
+            raise ValueError(
+                "signal quality report source freshness missing max_allowed_lag_days "
+                f"for {source_id}"
+            )
+        if report_max_lag > catalog_max_lag:
+            raise ValueError(
+                "signal quality report source freshness policy exceeds catalog "
+                f"max_allowed_lag_days for {source_id}: "
+                f"{report_max_lag} > {catalog_max_lag}"
+            )
+        latest_lag = report_source.get("latest_observation_lag_days")
+        if latest_lag is not None:
+            if not isinstance(latest_lag, int) or isinstance(latest_lag, bool):
+                raise ValueError(
+                    "signal quality report source freshness latest_observation_lag_days "
+                    f"for {source_id} must be a non-negative integer"
+                )
+            if latest_lag > catalog_max_lag:
+                raise ValueError(
+                    "signal quality report source latest observation exceeds catalog "
+                    f"max_allowed_lag_days for {source_id}: "
+                    f"{latest_lag} > {catalog_max_lag}"
+                )
 
 
 def _consumer_contract_registry_manifest_record(

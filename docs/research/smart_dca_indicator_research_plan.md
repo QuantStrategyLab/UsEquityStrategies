@@ -330,6 +330,10 @@ sha256、文件大小、候选集信号来源模式和 `compatible_signal_consum
   `us_equity_public_context_availability_report.v1`；CLI 会拒绝 `quality_status=fail`
   或带 failure reasons 的报告，并检查 report `as_of` 不晚于 signal manifest `as_of`，同时拒绝
   与 manifest 声明不一致的临时替换报告。
+- 当 public CAPE/VIX quality report 和 `--signal-source-family-catalog-manifest`
+  同时传入时，CLI 会把 report `input_sources[].max_allowed_lag_days` 与 catalog
+  `source_profiles[].max_allowed_lag_days` 对齐校验，禁止研究运行临时放宽 Shiller CAPE
+  或 FRED VIX 的 stale-source 门槛。
 - 当 CLI 传入 `--signal-source-family-catalog-manifest` 时，会校验 catalog manifest
   schema、相对 catalog 路径、catalog SHA-256/size、敏感字段、预期 transform 和当前候选集
   需要的 compatible consumers，并把 matched family 和 catalog coverage 摘要写进

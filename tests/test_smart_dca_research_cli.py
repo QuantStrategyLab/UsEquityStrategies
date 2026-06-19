@@ -103,6 +103,7 @@ def _write_us_equity_quality_report(
     quality_status: str = "pass",
     failure_reasons: list[str] | None = None,
     warning_reasons: list[str] | None = None,
+    input_sources: list[dict[str, object]] | None = None,
 ) -> None:
     schema_version = (
         "us_equity_public_context_availability_report.v1"
@@ -114,20 +115,109 @@ def _write_us_equity_quality_report(
         if public
         else "us_equity_context_availability_report"
     )
-    path.write_text(
+    report = {
+        "schema_version": schema_version,
+        "artifact_type": artifact_type,
+        "quality_status": quality_status,
+        "failure_reasons": failure_reasons or [],
+        "warning_reasons": warning_reasons or [],
+        "as_of": as_of,
+    }
+    if input_sources is not None:
+        report["input_sources"] = input_sources
+    path.write_text(json.dumps(report, sort_keys=True), encoding="utf-8")
+
+
+def _public_context_quality_sources(
+    *,
+    fred_lag_days: int = 0,
+    fred_max_lag_days: int = 10,
+    shiller_lag_days: int = 1,
+    shiller_max_lag_days: int = 120,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "source_id": "fred.vixcls",
+            "latest_observation_lag_days": fred_lag_days,
+            "max_allowed_lag_days": fred_max_lag_days,
+        },
+        {
+            "source_id": "shiller.cape_monthly",
+            "latest_observation_lag_days": shiller_lag_days,
+            "max_allowed_lag_days": shiller_max_lag_days,
+        },
+    ]
+
+
+def _write_public_context_source_catalog_manifest(
+    tmp_path: Path,
+    *,
+    fred_max_lag_days: int = 10,
+    shiller_max_lag_days: int = 120,
+) -> Path:
+    source_catalog = tmp_path / "signal_source_families.json"
+    source_catalog_manifest = tmp_path / "signal_source_families.manifest.json"
+    source_catalog.write_text(
         json.dumps(
             {
-                "schema_version": schema_version,
-                "artifact_type": artifact_type,
-                "quality_status": quality_status,
-                "failure_reasons": failure_reasons or [],
-                "warning_reasons": warning_reasons or [],
-                "as_of": as_of,
+                "schema_version": "market_signal_source_families.v1",
+                "families": [
+                    {
+                        "family": "us_equity.nasdaq_sp500_public_context_daily",
+                        "domain": "us_equity",
+                        "bundle_type": "derived_indicators",
+                        "bundle_id_prefix": "us_equity.nasdaq_sp500.public_context",
+                        "canonical_input": "derived_indicators",
+                        "transform": "us_equity.nasdaq_sp500.context.v1",
+                        "provider_dataset": "nasdaq_sp500_public_context_daily",
+                        "freshness_policy": "us_equity_research_context_t_plus_1",
+                        "minimum_history_rows": 1,
+                        "symbols": ["US-EQUITY-CONTEXT"],
+                        "derived_indicator_fields": [
+                            "cape_percentile",
+                            "provider_timestamp",
+                            "vix_percentile",
+                        ],
+                        "source_profiles": [
+                            {
+                                "source_id": "fred.vixcls",
+                                "max_allowed_lag_days": fred_max_lag_days,
+                            },
+                            {
+                                "source_id": "shiller.cape_monthly",
+                                "max_allowed_lag_days": shiller_max_lag_days,
+                            },
+                        ],
+                        "compatible_profiles": [
+                            "research:nasdaq_sp500_cape_vix_external_context_precomputed",
+                        ],
+                    }
+                ],
             },
             sort_keys=True,
         ),
         encoding="utf-8",
     )
+    source_catalog_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_source_family_catalog_manifest.v1",
+                "artifact_type": "market_signal_source_family_catalog",
+                "catalog_path": source_catalog.name,
+                "catalog_sha256": _sha256_file(source_catalog),
+                "catalog_size_bytes": source_catalog.stat().st_size,
+                "catalog_schema_version": "market_signal_source_families.v1",
+                "family_count": 1,
+                "known_family_count": 1,
+                "missing_known_families": [],
+                "all_known_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return source_catalog_manifest
 
 
 def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> None:
@@ -606,6 +696,164 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
     assert "nasdaq_sp500_precomputed_cape_vix_guard" in (
         output_dir / "monthly_day_15" / "metrics.csv"
     ).read_text(encoding="utf-8")
+
+
+def test_smart_dca_research_cli_accepts_public_context_source_lag_policy_catalog(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
+    signal_csv = tmp_path / "us_equity_public_context.csv"
+    signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    signal_quality_report = tmp_path / "us_equity_public_context.quality.json"
+    source_catalog_manifest = _write_public_context_source_catalog_manifest(tmp_path)
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "nasdaq-cape-vix-source-catalog-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+        input_sources=_public_context_quality_sources(),
+    )
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "cape_percentile", "vix_percentile"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+        quality_report_path=signal_quality_report,
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-quality-report",
+            str(signal_quality_report),
+            "--signal-source-family-catalog-manifest",
+            str(source_catalog_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_cape_vix_precomputed_variants",
+            "--signal-columns",
+            "cape_percentile,vix_percentile",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    input_artifacts = summary["metadata"]["input_artifacts"]
+    assert input_artifacts["signal_quality_report"]["input_sources"][1][
+        "max_allowed_lag_days"
+    ] == 120
+    source_catalog_record = input_artifacts["signal_source_family_catalog_manifest"]
+    assert source_catalog_record["matched_source_profile_lag_policies"][1] == {
+        "family": "us_equity.nasdaq_sp500_public_context_daily",
+        "source_id": "shiller.cape_monthly",
+        "max_allowed_lag_days": 120,
+    }
+
+
+def test_smart_dca_research_cli_rejects_relaxed_public_context_source_lag_policy(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
+    signal_csv = tmp_path / "us_equity_public_context.csv"
+    signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    signal_quality_report = tmp_path / "us_equity_public_context.quality.json"
+    source_catalog_manifest = _write_public_context_source_catalog_manifest(tmp_path)
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "nasdaq-cape-vix-relaxed-source-policy-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+        input_sources=_public_context_quality_sources(
+            shiller_lag_days=130,
+            shiller_max_lag_days=999,
+        ),
+    )
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "cape_percentile", "vix_percentile"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+        quality_report_path=signal_quality_report,
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-quality-report",
+            str(signal_quality_report),
+            "--signal-source-family-catalog-manifest",
+            str(source_catalog_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_cape_vix_precomputed_variants",
+            "--signal-columns",
+            "cape_percentile,vix_percentile",
+        ]
+    )
+
+    assert result == 2
+    assert "exceeds catalog max_allowed_lag_days" in capsys.readouterr().err
 
 
 def test_smart_dca_research_cli_requires_context_quality_report(
