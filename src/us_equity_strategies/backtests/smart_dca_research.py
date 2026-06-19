@@ -381,6 +381,21 @@ def candidate_set_signal_source_modes(candidate_set: str | Iterable[str]) -> tup
     )
 
 
+def candidate_set_signal_consumers(candidate_set: str | Iterable[str]) -> tuple[str, ...]:
+    """Return signal bundle consumers compatible with a frozen candidate set."""
+
+    names = _resolve_candidate_names(candidate_set)
+    return tuple(
+        sorted(
+            {
+                consumer
+                for name in names
+                for consumer in candidate_signal_consumers(name)
+            }
+        )
+    )
+
+
 def _candidate_multiplier_values(candidate: SmartDcaCandidate) -> tuple[float, ...]:
     return tuple(
         float(value)

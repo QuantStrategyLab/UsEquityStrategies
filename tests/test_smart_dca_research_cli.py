@@ -69,6 +69,10 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert summary["cadences"] == ["weekly", "monthly", "quarterly"]
     assert summary["start_dates"] == ["2025-01-02", "2025-04-01"]
     assert summary["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price_variants"
+    assert summary["metadata"]["research_config"]["signal_source_modes"] == [
+        "market_history_price_indicators"
+    ]
+    assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == []
     assert summary["metadata"]["research_config"]["min_review_scenarios"] == 3
     assert summary["metadata"]["research_config"]["cadences"] == [
         "weekly",
@@ -192,6 +196,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "max_terminal_cash_ratio_pct" in robustness_summary
     assert scenario_manifest["min_review_scenarios"] == 3
     assert scenario_manifest["metadata"]["research_config"]["execution_days"] == [1, 25]
+    assert scenario_manifest["metadata"]["research_config"][
+        "compatible_signal_consumers"
+    ] == []
     assert scenario_manifest["metadata"]["research_config"]["cadences"] == [
         "weekly",
         "monthly",
@@ -359,6 +366,13 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert "precomputed_derived_indicators" in decision_log
     assert "precomputed_ahr999_mayer" in candidate_summary
     summary = json.loads(capsys.readouterr().out)
+    assert summary["metadata"]["research_config"]["signal_source_modes"] == [
+        "external_precomputed_derived_indicators"
+    ]
+    assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == [
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ]
     signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
     assert signal_manifest_record["schema_version"] == "research_export.v1"
     assert signal_manifest_record["transform"] == "crypto.btc.ahr999.v1"
@@ -380,6 +394,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     scenario_manifest = json.loads(
         (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
     )
+    assert scenario_manifest["metadata"]["research_config"][
+        "compatible_signal_consumers"
+    ] == [
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ]
     assert (
         scenario_manifest["metadata"]["input_artifacts"]["signal_manifest"][
             "linked_csv_sha256"

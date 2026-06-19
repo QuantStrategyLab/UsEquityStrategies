@@ -11,6 +11,7 @@ import sys
 import pandas as pd
 
 from .smart_dca_research import (
+    candidate_set_signal_consumers,
     candidate_set_signal_source_modes,
     compare_execution_day_contribution_scenarios,
     compare_monthly_execution_day_scenarios,
@@ -223,6 +224,12 @@ def _research_metadata(
     return {
         "research_config": {
             "candidate_set": args.candidate_set,
+            "signal_source_modes": candidate_set_signal_source_modes(
+                args.candidate_set
+            ),
+            "compatible_signal_consumers": candidate_set_signal_consumers(
+                args.candidate_set
+            ),
             "date_column": args.date_column,
             "signal_columns": _parse_column_list(args.signal_columns),
             "trade_column": args.trade_column,

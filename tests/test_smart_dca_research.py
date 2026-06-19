@@ -6,6 +6,7 @@ import pandas as pd
 from us_equity_strategies.backtests.smart_dca_research import (
     DcaResearchResult,
     available_candidate_names,
+    candidate_set_signal_consumers,
     candidate_signal_consumers,
     candidate_summaries_to_rows,
     candidate_specs_to_rows,
@@ -1068,6 +1069,17 @@ def test_production_equivalent_candidates_match_strategy_defaults() -> None:
 
 
 def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
+    assert candidate_set_signal_consumers("nasdaq_sp500_price_variants") == ()
+    assert candidate_set_signal_consumers("ibit_btc_ahr999_precomputed") == (
+        "research:ibit_btc_ahr999_precomputed",
+        "us_equity:ibit_smart_dca",
+    )
+    assert candidate_set_signal_consumers("ibit_btc_ahr999_precomputed_variants") == (
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+        "research:ibit_btc_ahr999_precomputed",
+        "us_equity:ibit_smart_dca",
+    )
     assert candidate_signal_consumers("nasdaq_sp500_price_no_skip") == ()
     assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_cycle") == (
         "us_equity:ibit_smart_dca",
