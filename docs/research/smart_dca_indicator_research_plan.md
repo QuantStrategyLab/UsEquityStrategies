@@ -24,6 +24,24 @@ Run date: 2026-06-19.
 | `nasdaq_sp500_smart_dca` | `market_history` 里的 QQQ/SPY 日线 | 价格回撤 / SMA200 gap / RSI 规则已存在，但默认关闭；最近 price-only sweep 未战胜固定定投 | 把 CAPE、VIX、breadth、利率/流动性作为外部信号研究，先验证稳健性，不直接上线 |
 | `ibit_smart_dca` | 优先 `derived_indicators` 的 AHR999；缺失时回退 BTC price-history | AHR999 GMA gate-tier 已替代 price-only 作为智能模式候选，但默认仍关闭 | 在 AHR999 后继续比较可稳定复现的 BTC 价格/周期指标与需要外部供应的链上/情绪指标 |
 
+## Current Evidence Ledger
+
+This table is the current handoff between research runs. It separates
+machine-checkable artifacts from older summary-only notes so the next iteration
+does not overfit around whichever input happened to be easiest to rerun.
+
+| Profile | Evidence | Current decision | Main diagnosis | Reproducibility status |
+| --- | --- | --- | --- | --- |
+| `nasdaq_sp500_smart_dca` price-only baseline | `docs/research/nasdaq_sp500_smart_dca.md` 2017-06-20 through 2026-06-17 FRED `NASDAQ100`/`SP500` 50/50 proxy summary | keep fixed DCA default; no-skip smart remains explicit smart-mode baseline | best smart variant still lagged fixed by `0.80%`; small drawdown relief did not offset terminal value drag | summary is committed, but the original `NASDAQ100`/`SP500` CSV inputs are not present under `/home/ubuntu/Projects/dca_research_runs`; next rerun must persist those input files, SHA-256 records, and scenario artifacts |
+| `nasdaq_sp500_smart_dca` public CAPE/VIX | `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics` | do not promote; keep fixed DCA default | `terminal_underperformance_vs_fixed`, `below_fixed_average_multiplier`, `lower_deployment_rate`; max skipped-buy ratio is `0.0` | full local artifacts exist and are documented in `docs/research/nasdaq_public_cape_vix_matrix_2026-06-19.md` |
+| `ibit_smart_dca` AHR999 helper variants | `/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics` | do not promote helper variants; keep fixed DCA default and retain AHR999 baseline for explicit smart-mode comparison | guarded helper lowers skip/cash drag, but worst 2020-cycle scenario still underperforms fixed by `4.46%`; percentile helper directly underperforms fixed | full local artifacts exist and are documented in `docs/research/ibit_ahr999_helper_matrix_2026-06-18.md` |
+
+Next research should first close the reproducibility gap for the Nasdaq
+price-only baseline, then rerun it through the same `robustness_summary.csv`,
+`selection_summary.csv`, and `review_decision.json` gates now used by the
+CAPE/VIX and IBIT helper matrices. Until that is done, the committed price-only
+summary remains directional evidence, not a fully pinned artifact chain.
+
 ## Shared Research Rules
 
 下一轮研究先产出证据，再决定是否进入策略代码。研究脚本可以新增或扩展，
