@@ -1,7 +1,7 @@
 # mega_cap_leader_rotation research brief
 
 Status: the static `mag7` / `expanded` variants remain research/backtest only.
-`russell_top50_leader_rotation_aggressive` is the retained runtime-enabled
+`russell_top50_leader_rotation` is the retained runtime-enabled
 Top50 candidate. Narrow Top20 and aggressive Top50 profile exposure was removed
 after comparison against the balanced Top50 route.
 
@@ -16,7 +16,7 @@ This is intentionally different from the other runtime profiles:
 - `russell_1000_multi_factor_defensive`: broad Russell 1000 stock selection.
 - `tech_communication_pullback_enhancement`: tech/communication pullback entry
   with an explicit cash buffer.
-- `russell_top50_leader_rotation_aggressive`: the current runtime-enabled Top50
+- `russell_top50_leader_rotation`: the current runtime-enabled Top50
   leader-rotation candidate.
 
 ## Research And Runtime Scope
@@ -49,14 +49,14 @@ The research script ranks eligible names using price-derived features:
 
 ## Retained Runtime Shape
 
-`russell_top50_leader_rotation_aggressive` keeps the Top50 candidate universe and
+`russell_top50_leader_rotation` keeps the Top50 candidate universe and
 uses a fixed sleeve blend:
 
 - 50% sleeve: top 2 names, 50% single-name cap.
 - 50% sleeve: top 4 names, 25% single-name cap.
 - safe haven: `BOXX`.
 - feature snapshot input:
-  `russell_top50_leader_rotation_aggressive.feature_snapshot.v1`.
+  `russell_top50_leader_rotation.feature_snapshot.v1`.
 - historical execution window: first 3 NYSE trading days after the monthly
   snapshot date.
 

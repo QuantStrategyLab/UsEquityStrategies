@@ -7,7 +7,7 @@ INCOME_LAYER_RATIO_MODE = "log_total_drawdown_budget"
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
-RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE = "russell_top50_leader_rotation_aggressive"
+RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
 
 INCOME_LAYER_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {
     GLOBAL_ETF_ROTATION_PROFILE: {
@@ -70,7 +70,7 @@ INCOME_LAYER_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {
             "QQQI": 0.01,
         },
     },
-    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: {
+    RUSSELL_TOP50_LEADER_ROTATION_PROFILE: {
         "income_layer_enabled": True,
         "income_layer_start_usd": 300000.0,
         "income_layer_max_ratio": 0.25,

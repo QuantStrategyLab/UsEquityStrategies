@@ -37,7 +37,7 @@ These profiles depend on artifacts produced by `UsEquitySnapshotPipelines` befor
 
 | Profile | Name | Notes |
 | --- | --- | --- |
-| `russell_top50_leader_rotation_aggressive` | Russell Top50 Leader Rotation Aggressive | runtime-enabled feature-snapshot Russell Top50 leader rotation. |
+| `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | runtime-enabled feature-snapshot Russell Top50 leader rotation. |
 
 ### Research-only candidates
 

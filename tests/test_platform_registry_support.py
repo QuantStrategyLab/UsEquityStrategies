@@ -9,7 +9,7 @@ from us_equity_strategies.platform_registry_support import (
 
 class PlatformRegistrySupportTest(unittest.TestCase):
     def test_get_enabled_profiles_for_platform_filters_by_platform(self):
-        enabled = frozenset({"russell_top50_leader_rotation_aggressive"})
+        enabled = frozenset({"russell_top50_leader_rotation"})
         self.assertEqual(
             get_enabled_profiles_for_platform(
                 "ibkr",
@@ -30,27 +30,27 @@ class PlatformRegistrySupportTest(unittest.TestCase):
     def test_build_platform_profile_matrix_uses_metadata(self):
         rows = build_platform_profile_matrix(
             platform_id="ibkr",
-            enabled_profiles=frozenset({"russell_top50_leader_rotation_aggressive"}),
+            enabled_profiles=frozenset({"russell_top50_leader_rotation"}),
             default_profile="global_etf_rotation",
             rollback_profile="global_etf_rotation",
         )
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["canonical_profile"], "russell_top50_leader_rotation_aggressive")
-        self.assertEqual(rows[0]["display_name"], "Russell Top50 Leader Rotation Aggressive")
+        self.assertEqual(rows[0]["canonical_profile"], "russell_top50_leader_rotation")
+        self.assertEqual(rows[0]["display_name"], "Russell Top50 Leader Rotation")
         self.assertEqual(rows[0]["aliases"], ())
         self.assertFalse(rows[0]["is_default"])
         self.assertFalse(rows[0]["is_rollback"])
 
     def test_resolve_platform_strategy_definition_supports_canonical_profile(self):
         definition = resolve_platform_strategy_definition(
-            "russell_top50_leader_rotation_aggressive",
+            "russell_top50_leader_rotation",
             platform_id="ibkr",
             expected_platform_id="ibkr",
-            enabled_profiles=frozenset({"russell_top50_leader_rotation_aggressive"}),
+            enabled_profiles=frozenset({"russell_top50_leader_rotation"}),
             platform_supported_domains={"ibkr": frozenset({"us_equity"})},
             require_explicit=True,
         )
-        self.assertEqual(definition.profile, "russell_top50_leader_rotation_aggressive")
+        self.assertEqual(definition.profile, "russell_top50_leader_rotation")
 
 
 class PlatformRegistryAliasSupportTest(unittest.TestCase):
@@ -60,7 +60,7 @@ class PlatformRegistryAliasSupportTest(unittest.TestCase):
                 "r1000_multifactor_defensive",
                 platform_id="ibkr",
                 expected_platform_id="ibkr",
-                enabled_profiles=frozenset({"russell_top50_leader_rotation_aggressive"}),
+                enabled_profiles=frozenset({"russell_top50_leader_rotation"}),
                 platform_supported_domains={"ibkr": frozenset({"us_equity"})},
                 require_explicit=True,
             )

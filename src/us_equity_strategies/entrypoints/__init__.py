@@ -20,7 +20,7 @@ from us_equity_strategies.ai_extensions import (
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     ibit_smart_dca_manifest,
-    russell_top50_leader_rotation_aggressive_manifest,
+    russell_top50_leader_rotation_manifest,
     nasdaq_sp500_smart_dca_manifest,
     soxl_soxx_trend_income_manifest,
     tqqq_growth_income_manifest,
@@ -973,10 +973,10 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     )
 
 
-def evaluate_russell_top50_leader_rotation_aggressive(ctx: StrategyContext) -> StrategyDecision:
+def evaluate_russell_top50_leader_rotation(ctx: StrategyContext) -> StrategyDecision:
     return _evaluate_mega_cap_leader_rotation_snapshot_profile(
         ctx,
-        manifest=russell_top50_leader_rotation_aggressive_manifest,
+        manifest=russell_top50_leader_rotation_manifest,
     )
 
 
@@ -1223,9 +1223,9 @@ soxl_soxx_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=soxl_soxx_trend_income_manifest,
     _evaluate=evaluate_soxl_soxx_trend_income,
 )
-russell_top50_leader_rotation_aggressive_entrypoint = CallableStrategyEntrypoint(
-    manifest=russell_top50_leader_rotation_aggressive_manifest,
-    _evaluate=evaluate_russell_top50_leader_rotation_aggressive,
+russell_top50_leader_rotation_entrypoint = CallableStrategyEntrypoint(
+    manifest=russell_top50_leader_rotation_manifest,
+    _evaluate=evaluate_russell_top50_leader_rotation,
 )
 nasdaq_sp500_smart_dca_entrypoint = CallableStrategyEntrypoint(
     manifest=nasdaq_sp500_smart_dca_manifest,
@@ -1241,13 +1241,13 @@ __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
-    "russell_top50_leader_rotation_aggressive_entrypoint",
+    "russell_top50_leader_rotation_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
     "ibit_smart_dca_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
-    "evaluate_russell_top50_leader_rotation_aggressive",
+    "evaluate_russell_top50_leader_rotation",
     "evaluate_nasdaq_sp500_smart_dca",
     "evaluate_ibit_smart_dca",
 ]

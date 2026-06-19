@@ -16,7 +16,7 @@ The current runtime-enabled US equity profiles are:
 - `global_etf_rotation`
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
-- `russell_top50_leader_rotation_aggressive`
+- `russell_top50_leader_rotation`
 - `nasdaq_sp500_smart_dca`
 - `ibit_smart_dca`
 
@@ -51,7 +51,7 @@ comparison with runtime-enabled peers:
 - `dynamic_mega_leveraged_pullback`
 - `tech_communication_pullback_enhancement`
 
-`mega_cap_leader_rotation_top50_balanced` was renamed to `russell_top50_leader_rotation_aggressive`; the weaker defensive and dynamic profiles were retired instead of kept as runtime-compatible aliases.
+`mega_cap_leader_rotation_top50_balanced` was renamed to `russell_top50_leader_rotation`; the weaker defensive and dynamic profiles were retired instead of kept as runtime-compatible aliases.
 The 2x dynamic Russell Top50/MAGS route added more product and input complexity
 without a better promoted profile result.
 `tech_communication_pullback_enhancement` stayed as an archived research
@@ -79,7 +79,7 @@ New US equity profiles should use only these canonical `required_inputs`:
 | `global_etf_rotation` | `weight` | `market_history` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Quarterly top-2 ETF rotation with daily canary defense. |
 | `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
-| `russell_top50_leader_rotation_aggressive` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Retained Russell Top50 leader-rotation path. |
+| `russell_top50_leader_rotation` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Retained Russell Top50 leader-rotation path. |
 | `nasdaq_sp500_smart_dca` | `value` | `market_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Buy-only Nasdaq 100 / S&P 500 smart DCA using market-history indicators and cash availability. |
 | `ibit_smart_dca` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Buy-only spot Bitcoin ETF smart DCA using derived indicators and portfolio cash availability. |
 
