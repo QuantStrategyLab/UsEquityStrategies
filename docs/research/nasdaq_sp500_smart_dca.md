@@ -145,6 +145,18 @@ warm-up, fixed DCA as the benchmark. The proxy is price-only and does not
 include ETF expense ratios, spreads, taxes, dividends, or total-return
 reinvestment.
 
+This summary predates a committed hash-pinned price input artifact. The next
+rerun should export local FRED `NASDAQ100` and `SP500` snapshots through
+`market_signal_sources.cli.export_us_equity_price_proxy_research_csv`, retain the
+resulting `us_equity_price_proxy_research_csv` manifest, then use that exported
+`QQQ`/`SPY` CSV as the strategy research price input with `--price-manifest`.
+
+Follow-up: `docs/research/nasdaq_price_proxy_matrix_2026-06-19.md` records the
+hash-pinned rerun. It used the new price proxy manifest path and a 99-scenario
+matrix through 2026-06-18. `nasdaq_sp500_price_no_skip` matched fixed DCA but
+had `0.00%` median terminal edge, so it failed the `1.00%` effect-size gate;
+`nasdaq_sp500_price_defensive` failed robustness. The default remains fixed DCA.
+
 | Smart variant | Terminal | Vs fixed | Max DD | DD delta |
 | --- | ---: | ---: | ---: | ---: |
 | Fixed DCA benchmark | $249,508 | 0.00% | 28.25% | 0.00% |
@@ -158,6 +170,42 @@ in pullbacks. It still did not beat fixed DCA terminal value, so
 `smart_multiplier_enabled` remains disabled by default. These multipliers are
 the recommended parameters only when a deployment explicitly enables smart
 sizing, not evidence that smart sizing should replace ordinary fixed DCA.
+
+For research artifact naming, the production-equivalent smart candidate is
+`nasdaq_sp500_price_no_skip` and the direct candidate set is
+`nasdaq_sp500_production_equivalent`. The defensive candidate that reduces or
+skips buys in expensive regimes is retained only as a research variant.
+
+The next external-signal research entry is
+`nasdaq_sp500_external_precomputed_variants`. It keeps
+`nasdaq_sp500_price_no_skip` as the current smart baseline and adds two
+research-only precomputed context variants:
+
+- `nasdaq_sp500_precomputed_valuation_guard`, using `cape_percentile` to reduce
+  this period's contribution to `0.75x` only in high-valuation regimes.
+- `nasdaq_sp500_precomputed_vol_breadth_stress`, using `vix_percentile` and
+  `breadth_above_sma200_pct` to raise this period's contribution to `1.25x`
+  only when volatility stress and weak breadth coincide.
+- `nasdaq_sp500_precomputed_cape_vix_guard`, available through the separate
+  `nasdaq_sp500_cape_vix_precomputed_variants` set, using only
+  `cape_percentile` and `vix_percentile`. It prioritizes a `0.75x` high-CAPE
+  guard before using a `1.25x` high-VIX stress add, so it can be tested with
+  public FRED/Shiller context while breadth remains unavailable.
+
+These candidates require point-in-time external context CSVs or future signal
+source artifacts. In the strategy research helper they are tied to the
+`research:nasdaq_sp500_external_context_precomputed` consumer contract, which
+expects `US-EQUITY-CONTEXT` fields for `cape_percentile`, `vix_percentile`, and
+`breadth_above_sma200_pct`. The input CSV should also carry a signal-source
+availability report that checks field presence, date validity, percentile
+ranges, duplicate dates, and gaps before any robustness matrix is reviewed.
+The CAPE/VIX-only variant is tied to
+`research:nasdaq_sp500_cape_vix_external_context_precomputed`, which requires
+only `cape_percentile` and `vix_percentile`; it does not satisfy the full
+breadth-aware consumer.
+They are not production defaults, and they should not be enabled unless a
+robustness matrix beats fixed DCA under the same review gates used for the
+price-only sweep.
 
 ## Execution Contract
 

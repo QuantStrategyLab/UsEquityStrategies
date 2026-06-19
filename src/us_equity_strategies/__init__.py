@@ -1,6 +1,7 @@
 __all__ = [
     "STRATEGY_CATALOG",
     "STRATEGY_DEFINITIONS",
+    "audit_smart_dca_runtime_default_contract",
     "get_compatible_platforms",
     "get_profile_aliases",
     "get_strategy_catalog",
@@ -21,6 +22,7 @@ def __getattr__(name: str):
     if name in {
         "STRATEGY_CATALOG",
         "STRATEGY_DEFINITIONS",
+        "audit_smart_dca_runtime_default_contract",
         "get_profile_aliases",
         "get_compatible_platforms",
         "get_strategy_catalog",

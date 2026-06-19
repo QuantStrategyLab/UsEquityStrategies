@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from quant_platform_kit.common.strategies import (
     StrategyCatalog,
     StrategyComponentDefinition,
@@ -28,6 +30,9 @@ RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensi
 MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
+SMART_DCA_RUNTIME_DEFAULT_CONTRACT_SCHEMA_VERSION = (
+    "smart_dca_runtime_default_contract.v1"
+)
 FULL_SHARED_PLATFORM_MATRIX = frozenset(
     {"ibkr", "schwab", "longbridge", "firstrade", "paper_signal"}
 )
@@ -51,6 +56,36 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
     IBIT_SMART_DCA_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
+}
+SMART_DCA_RUNTIME_DEFAULT_CONTRACT_PROFILES = (
+    NASDAQ_SP500_SMART_DCA_PROFILE,
+    IBIT_SMART_DCA_PROFILE,
+)
+SMART_DCA_RUNTIME_DEFAULT_REQUIRED_VALUES = {
+    "base_investment_usd": 1000.0,
+    "investment_amount_mode": "fixed",
+    "smart_multiplier_enabled": False,
+    "cadence": "monthly",
+    "cash_reserve_usd": 0.0,
+    "max_investment_usd": None,
+    "min_investment_usd": 5.0,
+    "monthly_day": 25,
+    "monthly_window_calendar_days": 5,
+    "weekly_day": 4,
+    "weekly_window_calendar_days": 4,
+    "quarterly_months": (1, 4, 7, 10),
+    "quarterly_day": 25,
+    "quarterly_window_calendar_days": 5,
+    "execution_cash_reserve_ratio": 0.0,
+    "execution_rebalance_threshold_ratio": 0.0,
+}
+SMART_DCA_RUNTIME_DEFAULT_REQUIRED_INPUTS = {
+    NASDAQ_SP500_SMART_DCA_PROFILE: frozenset(
+        {"market_history", "portfolio_snapshot"}
+    ),
+    IBIT_SMART_DCA_PROFILE: frozenset(
+        {"derived_indicators", "portfolio_snapshot"}
+    ),
 }
 
 STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
@@ -533,6 +568,74 @@ def get_strategy_entrypoint(profile: str):
     definition = get_strategy_definition(profile)
     metadata = get_strategy_metadata(profile)
     return load_strategy_entrypoint(definition, metadata=metadata)
+
+
+def audit_smart_dca_runtime_default_contract(
+    profiles: Iterable[str] = SMART_DCA_RUNTIME_DEFAULT_CONTRACT_PROFILES,
+) -> dict[str, object]:
+    """Return a machine-readable guard for production smart-DCA defaults."""
+
+    selected_profiles = tuple(str(profile or "").strip() for profile in profiles)
+    profile_contracts = tuple(
+        _smart_dca_runtime_default_profile_contract(profile)
+        for profile in selected_profiles
+    )
+    failure_reasons = tuple(
+        reason
+        for profile_contract in profile_contracts
+        for reason in profile_contract["failure_reasons"]
+    )
+    return {
+        "schema_version": SMART_DCA_RUNTIME_DEFAULT_CONTRACT_SCHEMA_VERSION,
+        "artifact_type": "smart_dca_runtime_default_contract",
+        "passed": not failure_reasons,
+        "failure_reasons": failure_reasons,
+        "profiles": selected_profiles,
+        "profile_contracts": profile_contracts,
+    }
+
+
+def _smart_dca_runtime_default_profile_contract(profile: str) -> dict[str, object]:
+    definition = get_strategy_definition(profile)
+    metadata = get_strategy_metadata(profile)
+    config = definition.default_config
+    expected_inputs = SMART_DCA_RUNTIME_DEFAULT_REQUIRED_INPUTS.get(
+        profile,
+        frozenset(),
+    )
+    failure_reasons: list[str] = []
+    actual_values = {
+        field: config.get(field)
+        for field in SMART_DCA_RUNTIME_DEFAULT_REQUIRED_VALUES
+    }
+    for field, expected in SMART_DCA_RUNTIME_DEFAULT_REQUIRED_VALUES.items():
+        if config.get(field) != expected:
+            failure_reasons.append(f"{profile}:{field}_mismatch")
+    if "available_cash_investment_ratio" in config:
+        failure_reasons.append(f"{profile}:available_cash_ratio_enabled")
+    if definition.target_mode != "value":
+        failure_reasons.append(f"{profile}:target_mode_not_value")
+    if definition.required_inputs != expected_inputs:
+        failure_reasons.append(f"{profile}:required_inputs_mismatch")
+    if metadata.status != "runtime_enabled":
+        failure_reasons.append(f"{profile}:metadata_status_not_runtime_enabled")
+    if metadata.cadence != "monthly":
+        failure_reasons.append(f"{profile}:metadata_cadence_not_monthly")
+    return {
+        "profile": profile,
+        "passed": not failure_reasons,
+        "failure_reasons": tuple(failure_reasons),
+        "required_values": dict(SMART_DCA_RUNTIME_DEFAULT_REQUIRED_VALUES),
+        "actual_values": actual_values,
+        "available_cash_ratio_absent": (
+            "available_cash_investment_ratio" not in config
+        ),
+        "target_mode": definition.target_mode,
+        "required_inputs": tuple(sorted(definition.required_inputs)),
+        "expected_required_inputs": tuple(sorted(expected_inputs)),
+        "metadata_status": metadata.status,
+        "metadata_cadence": metadata.cadence,
+    }
 
 
 def get_strategy_index_rows() -> list[dict[str, object]]:

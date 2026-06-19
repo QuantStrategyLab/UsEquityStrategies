@@ -1,7 +1,13 @@
+import io
+import json
+from contextlib import redirect_stdout
 import unittest
 
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
+from us_equity_strategies.backtests.smart_dca_runtime_default_contract_cli import (
+    main as runtime_default_contract_cli_main,
+)
 from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
@@ -11,6 +17,7 @@ from us_equity_strategies.catalog import (
     TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
+    audit_smart_dca_runtime_default_contract,
     get_compatible_platforms,
     get_profile_aliases,
     get_runtime_enabled_profiles,
@@ -303,6 +310,88 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(ibit_config["ahr999_accumulation_multiplier"], 2.25)
         self.assertEqual(ibit_config["ahr999_dca_multiplier"], 1.50)
         self.assertEqual(ibit_config["ahr999_expensive_multiplier"], 0.0)
+
+    def test_dca_runtime_default_contract_matches_catalog_defaults(self):
+        summary = audit_smart_dca_runtime_default_contract()
+
+        self.assertEqual(
+            summary["schema_version"],
+            "smart_dca_runtime_default_contract.v1",
+        )
+        self.assertTrue(summary["passed"])
+        self.assertEqual(summary["failure_reasons"], ())
+        self.assertEqual(
+            summary["profiles"],
+            (NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE),
+        )
+        for profile_contract in summary["profile_contracts"]:
+            with self.subTest(profile=profile_contract["profile"]):
+                self.assertTrue(profile_contract["passed"])
+                self.assertEqual(
+                    profile_contract["actual_values"]["investment_amount_mode"],
+                    "fixed",
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["base_investment_usd"],
+                    1000.0,
+                )
+                self.assertIs(
+                    profile_contract["actual_values"]["smart_multiplier_enabled"],
+                    False,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["cadence"],
+                    "monthly",
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["monthly_day"],
+                    25,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["monthly_window_calendar_days"],
+                    5,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["weekly_day"],
+                    4,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["weekly_window_calendar_days"],
+                    4,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["quarterly_months"],
+                    (1, 4, 7, 10),
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["quarterly_day"],
+                    25,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["quarterly_window_calendar_days"],
+                    5,
+                )
+                self.assertTrue(profile_contract["available_cash_ratio_absent"])
+                self.assertEqual(profile_contract["target_mode"], "value")
+
+    def test_dca_runtime_default_contract_cli_reports_passed_audit(self):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = runtime_default_contract_cli_main(["--pretty"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            payload["schema_version"],
+            "smart_dca_runtime_default_contract.v1",
+        )
+        self.assertTrue(payload["passed"])
+        self.assertEqual(payload["failure_reasons"], [])
+        self.assertEqual(
+            payload["profiles"],
+            [NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE],
+        )
 
     def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
         self.assertIs(

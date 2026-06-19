@@ -107,12 +107,14 @@ freshness mismatch，以及任何包含敏感字段名的 manifest。
 2. 如果从 index 选择，按 canonical input、as_of、freshness 和可选 bundle id 定位
    manifest，先校验 `manifest_sha256`，再校验 index entry 与 manifest 一致。
 3. 校验 manifest schema、相对路径和敏感字段。
-4. 读取 `signal_bundle.json` 并校验 SHA-256。
-5. 校验 bundle schema、canonical input、symbols、freshness、provenance。
-6. 对 `smart_multiplier_enabled=True` 的策略，只允许 `fresh` bundle 注入。
-7. 把 `bundle["derived_indicators"]` 注入
+4. 若 manifest 声明 `quality_report_path`，读取 `quality_report.json`，校验
+   `quality_report_sha256`、schema、敏感字段，并拒绝 `quality_status=fail`。
+5. 读取 `signal_bundle.json` 并校验 SHA-256。
+6. 校验 bundle schema、canonical input、symbols、freshness、provenance。
+7. 对 `smart_multiplier_enabled=True` 的策略，只允许 `fresh` bundle 注入。
+8. 把 `bundle["derived_indicators"]` 注入
    `StrategyContext.market_data["derived_indicators"]`。
-8. 日志只写 `bundle_id`、`schema_version`、`provider_timestamp`、`source_version`、
+9. 日志只写 `bundle_id`、`schema_version`、`provider_timestamp`、`source_version`、
    `code_commit`、`transform`、`bundle_sha256`、每个 symbol 的指标字段名和字段数量。
    不写 `close`、`ahr999`、`mayer_multiple` 等指标的具体数值。
 
@@ -133,6 +135,176 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --pretty
 ```
 
+平台或策略仓 CI 也应校验 `MarketSignalSources` 发布的 consumer contract registry artifact，
+确认上游声明的字段集合没有和本策略仓的本地契约漂移：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --consumer-contract-registry ./data/output/market_signal_consumers.json \
+  --require-all-known-consumers \
+  --pretty
+```
+
+若 `MarketSignalSources` 同时发布了 registry manifest，平台或策略仓 CI 应优先校验 manifest
+和其指向的 registry，以确认 registry 文件路径、sha256、schema、大小和 consumer coverage
+没有漂移：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --consumer-contract-registry-manifest ./data/output/contracts/market_signal_consumers.manifest.json \
+  --require-all-known-consumers \
+  --pretty
+```
+
+Python 调用方也可以用
+`signal_consumer_contract_registry_payload()` 取得策略仓本地完整 contract payload，
+再和 `MarketSignalSources` 发布的 registry 做 JSON 级 drift 检查。
+命令行调用方可以直接导出同一份本地 payload：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --local-consumer-contract-registry \
+  --pretty
+```
+
+registry 校验摘要会输出 `canonical_registry_payload_sha256`、
+`local_registry_payload_sha256` 和 `local_contract_registry_verified`。前两个 digest
+会忽略 JSON 格式和 contract 顺序差异；当 `--require-all-known-consumers` 同时通过且
+`local_contract_registry_verified=true` 时，才能证明发布侧 registry 与本策略仓当前完整
+consumer contract 表一致。
+
+该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
+unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
+secret / signed URL key。当前已知 consumer 包括 IBIT runtime AHR999-only、
+IBIT AHR999 helper variants、IBIT Mayer variants，以及 Nasdaq/S&P external context
+research consumers。其中
+`research:nasdaq_sp500_cape_vix_external_context_precomputed` 只要求
+`US-EQUITY-CONTEXT.cape_percentile` 和 `US-EQUITY-CONTEXT.vix_percentile`，
+用于 public-data-only CAPE/VIX 候选；完整
+`research:nasdaq_sp500_external_context_precomputed` 仍要求额外的
+`breadth_above_sma200_pct`。Nasdaq/S&P price proxy rerun 使用
+`research:nasdaq_sp500_price_proxy`，要求 `US-EQUITY-PRICE-PROXY.QQQ` 和
+`US-EQUITY-PRICE-PROXY.SPY`。
+
+若 `MarketSignalSources` 发布了 `market_signal_platform_handoff.v1`，平台或策略仓 CI
+应优先校验 handoff manifest。它会同时 pin 住 signal bundle manifest、source family
+catalog manifest 和 consumer contract registry manifest，并在本策略仓侧复算三份 linked
+manifest 的 SHA-256、bundle consumer 字段覆盖、source family consumer coverage，以及
+consumer registry 与本地 contract 是否漂移：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --platform-handoff-manifest ./data/output/platform_handoff.json \
+  --consumer us_equity:ibit_smart_dca \
+  --require-all-known-families \
+  --require-all-known-consumers \
+  --require-runtime-consumer-coverage \
+  --pretty
+```
+
+若发布侧提供的是 handoff index，平台 CI 可以让策略仓按 consumer 和 `as_of` 解析最新
+handoff，再执行同一套 linked manifest 校验：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --platform-handoff-index ./data/output/platform_handoff_index.json \
+  --consumer us_equity:ibit_smart_dca \
+  --as-of 2026-06-20 \
+  --require-all-known-families \
+  --require-all-known-consumers \
+  --require-runtime-consumer-coverage \
+  --pretty
+```
+
+运行时注入可使用 `extract_canonical_input_from_platform_handoff_for_consumer()`：
+它先验证 handoff 和全部 linked manifest，再只返回
+`StrategyContext.market_data["derived_indicators"]` 需要的 canonical input。
+
+如果 `MarketSignalSources` 同时发布
+`market_signal_platform_handoff_index.v1`，平台可以先用
+`resolve_platform_signal_handoff_manifest_from_index()` 按 consumer、canonical input、
+freshness 和 `as_of` 选出最新匹配 handoff manifest，再走同一套 handoff 校验。直接注入时
+可使用 `extract_canonical_input_from_platform_handoff_index_for_consumer()`；该入口不会信任
+index 中的摘要字段，仍会校验 handoff manifest 的 SHA-256、linked manifest SHA-256、
+bundle freshness 和 consumer 字段覆盖。
+
+platform handoff / index 校验摘要会透出并在 artifact 带字段时复核
+`matched_source_family_count`、`matched_source_families`、
+`all_known_source_families_present`、`all_consumer_contracts_satisfied`、
+`all_runtime_consumers_covered`、`all_known_consumers_present`、
+`canonical_registry_payload_sha256`、`local_registry_payload_sha256` 和
+`local_contract_registry_verified`。这样 UES 策略仓能独立确认源仓发布的 source family、
+consumer registry 和 runtime consumer 覆盖证据没有在 handoff/index 层漂移。
+
+若部署流程保存了 `market_signal_consumption_audit.v1`，策略平台可以在 deploy 或
+startup gate 再校验这份决策记录。该校验不会替代 handoff 生成侧的发布门禁；它用于确认
+保存的 audit 仍指向同一份 signal bundle manifest，`ready_for_runtime_injection=true`，
+`runtime_injection_allowed=true`，并且在需要时
+`all_runtime_consumers_covered=true`。当 audit 同时保存 source family catalog manifest、
+consumer contract registry manifest 和 registry identity digest 时，策略仓会复算这些
+linked manifest 的 SHA-256，并要求 `local_contract_registry_verified=true`：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --consumption-audit-json ./deploy/ibit_smart_dca.audit.json \
+  --consumer us_equity:ibit_smart_dca \
+  --require-all-known-families \
+  --require-all-known-consumers \
+  --require-runtime-consumer-coverage \
+  --pretty
+```
+
+直接注入时可使用
+`extract_canonical_input_from_consumption_audit_for_consumer()`。它先验证保存的 audit、
+linked signal bundle manifest SHA-256、bundle identity、consumer 字段覆盖和 runtime
+coverage，再返回 `StrategyContext.market_data["derived_indicators"]` 需要的 payload。
+
+研究 CSV 不应通过 platform runtime handoff 注入。若 `MarketSignalSources` 发布的是
+`market_signal_research_handoff.v1`，策略仓或 CI 应先校验 research handoff，再把 CSV
+交给智能定投研究 CLI。该 handoff pin 住 `research_export.v1` manifest、source family
+catalog manifest 和 consumer contract registry manifest；策略仓侧会复算三份 linked
+manifest 的 SHA-256，验证 research output CSV / quality report 的 SHA-256 与 size，
+确认 source catalog 至少有一个 family 匹配 export transform 和目标 research consumer，
+并确认 registry 中的 consumer contract 与本地策略契约一致：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --research-handoff-manifest ./data/output/research_handoff.json \
+  --consumer research:ibit_btc_ahr999_precomputed \
+  --research-artifact-type btc_cycle_research_csv \
+  --require-all-known-consumers \
+  --pretty
+```
+
+智能定投研究 CLI 也可以在回测运行时接收同一份 research handoff，并把校验摘要写入
+`scenario_manifest.json`：
+
+```bash
+python -m us_equity_strategies.backtests.smart_dca_research_cli \
+  ... \
+  --research-signal-handoff-manifest ./data/output/research_handoff.json \
+  --research-signal-handoff-consumer research:ibit_btc_ahr999_precomputed \
+  --require-runtime-consumer-coverage
+```
+
+When that flag is set, the research CLI rejects a linked source catalog or
+handoff whose manifest does not prove `all_runtime_consumers_covered=true`, and
+records the coverage result in `scenario_manifest.json`.
+
+如果只拿到 `research_export.v1` manifest，也可以先做单文件校验。这个入口验证 output
+CSV 和可选 quality report，但不要求策略仓持有原始 vendor 输入快照：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --research-export-manifest ./data/output/research/btc_cycle_indicators.manifest.json \
+  --research-artifact-type btc_cycle_research_csv \
+  --research-transform crypto.btc.ahr999.v1 \
+  --pretty
+```
+
+这些 research 校验入口只输出审计摘要，不返回 `StrategyContext.market_data`，也不会把
+研究 CSV 当成可直接运行时注入的 `market_signal_bundle.v1`。
+
 该审计输出会包含：
 
 - `indicator_fields_by_symbol`：例如 `BTC-USD` 下有哪些字段名，包括 `ahr999`、
@@ -142,8 +314,34 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 审计输出只暴露字段名和 provenance 摘要，不暴露指标数值、provider 原始响应或任何
 token / signed URL / cookie / secret。
 
+平台 adapter 如果要直接构造 `StrategyContext.market_data`，应优先使用 consumer-aware
+提取入口。它会在返回 payload 前同时完成 manifest/index、bundle freshness 和 consumer
+profile compatibility / 字段覆盖校验：
+
+```python
+from us_equity_strategies.signals import extract_canonical_input_from_index_for_consumer
+
+market_data = extract_canonical_input_from_index_for_consumer(
+    "examples/signal_bundles/index.json",
+    consumer="us_equity:ibit_smart_dca",
+    as_of="2026-06-20",
+)
+```
+
+返回值形如 `{"derived_indicators": {"BTC-USD": {...}}}`，可以直接注入
+`StrategyContext.market_data`。平台日志仍应使用 audit summary，只记录字段名、hash 和
+provenance 摘要，不记录指标数值。
+
 ## Research Compatibility
 
 研究回测不直接依赖 vendor。`MarketSignalSources` 或人工下载流程应先把历史价格/指标
 导出为本地 CSV，再由智能定投研究 CLI 读取。这样可以把 provider 可用性、指标公式和
 策略 ranking 分开审计，避免在回测脚本里隐藏数据选择和参数搜索。
+当传入 `--signal-manifest` 且候选集使用 precomputed signal 时，CLI 会拒绝重复日期、
+非单调日期、`last_date > as_of`、Nasdaq context 百分位越界、非正 AHR999/Mayer 值、
+越界 helper percentile 或非有限 slope。这个 gate 不是完整点时数据证明，但能阻止明显
+不合格的研究 CSV 进入 robustness matrix。
+对 Nasdaq/S&P context research CSV，CLI 还要求 `--signal-quality-report`，并接受完整
+`us_equity_context_availability_report.v1` 或 public CAPE/VIX
+`us_equity_public_context_availability_report.v1`；`quality_status=fail` 或 failure
+reasons 会阻止矩阵运行。
