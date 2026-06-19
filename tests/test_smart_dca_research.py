@@ -6,6 +6,7 @@ import pandas as pd
 from us_equity_strategies.backtests.smart_dca_research import (
     DcaResearchResult,
     available_candidate_names,
+    candidate_signal_consumers,
     candidate_summaries_to_rows,
     candidate_specs_to_rows,
     compare_execution_day_contribution_scenarios,
@@ -25,6 +26,7 @@ from us_equity_strategies.backtests.smart_dca_research import (
     write_research_artifacts,
     write_scenario_research_artifacts,
 )
+from us_equity_strategies.signals import required_indicator_fields_for_consumer
 from us_equity_strategies.strategies.ibit_smart_dca import (
     build_rebalance_plan as build_ibit_smart_dca_plan,
 )
@@ -195,6 +197,9 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert precomputed_summary["signal_source_mode"] == (
         "external_precomputed_derived_indicators"
     )
+    assert precomputed_summary["compatible_signal_consumers"] == (
+        "research:ibit_btc_ahr999_mayer_precomputed_variants"
+    )
 
     artifact_paths = write_research_artifacts(tmp_path, result, evaluations=evaluations)
     assert set(artifact_paths) == {
@@ -220,6 +225,9 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert "unique_multiplier_count" in artifact_paths["candidate_summary"].read_text(
         encoding="utf-8"
     )
+    assert "compatible_signal_consumers" in artifact_paths[
+        "candidate_summary"
+    ].read_text(encoding="utf-8")
     assert "candidate_definition_sha256" in artifact_paths["candidate_summary"].read_text(
         encoding="utf-8"
     )
@@ -1057,6 +1065,39 @@ def test_production_equivalent_candidates_match_strategy_defaults() -> None:
         row["production_equivalent_profile"]
         for row in summaries
     } == {NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE}
+
+
+def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
+    assert candidate_signal_consumers("nasdaq_sp500_price_no_skip") == ()
+    assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_cycle") == (
+        "us_equity:ibit_smart_dca",
+        "research:ibit_btc_ahr999_precomputed",
+    )
+    assert candidate_signal_consumers(
+        "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle"
+    ) == ("research:ibit_btc_ahr999_mayer_precomputed",)
+
+    rows = candidate_summaries_to_rows(
+        (
+            "ibit_btc_precomputed_ahr999_cycle",
+            "ibit_btc_precomputed_ahr999_mayer_cycle",
+            "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
+        )
+    )
+
+    for row in rows:
+        compatible_consumers = tuple(
+            consumer
+            for consumer in str(row["compatible_signal_consumers"]).split(",")
+            if consumer
+        )
+        assert compatible_consumers
+        signal_symbols = set(str(row["signal_symbols"]).split(","))
+        for consumer in compatible_consumers:
+            required_fields = required_indicator_fields_for_consumer(consumer)
+            assert consumer.startswith(("us_equity:", "research:"))
+            for fields in required_fields.values():
+                assert signal_symbols.issubset(set(fields))
 
 
 def test_ibit_production_equivalent_candidate_ignores_mayer_conflict() -> None:

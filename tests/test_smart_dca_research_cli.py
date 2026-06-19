@@ -225,6 +225,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "open_parameter_search" in candidate_summary
     assert "unique_multiplier_count" in candidate_summary
     assert "candidate_definition_sha256" in candidate_summary
+    assert "compatible_signal_consumers" in candidate_summary
 
 
 def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> None:

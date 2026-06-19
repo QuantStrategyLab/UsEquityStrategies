@@ -232,6 +232,21 @@ PRODUCTION_EQUIVALENT_CANDIDATES: dict[str, str] = {
     "nasdaq_sp500_smart_dca": "nasdaq_sp500_price_no_skip",
     "ibit_smart_dca": "ibit_btc_precomputed_ahr999_cycle",
 }
+CANDIDATE_SIGNAL_CONSUMERS: dict[str, tuple[str, ...]] = {
+    "ibit_btc_precomputed_ahr999_cycle": (
+        "us_equity:ibit_smart_dca",
+        "research:ibit_btc_ahr999_precomputed",
+    ),
+    "ibit_btc_precomputed_ahr999_mayer_cycle": (
+        "research:ibit_btc_ahr999_mayer_precomputed",
+    ),
+    "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle": (
+        "research:ibit_btc_ahr999_mayer_precomputed",
+    ),
+    "ibit_btc_precomputed_ahr999_sma_mayer_cycle": (
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ),
+}
 
 
 def available_candidate_names() -> tuple[str, ...]:
@@ -248,6 +263,15 @@ def production_equivalent_candidate_name(profile: str) -> str:
         return PRODUCTION_EQUIVALENT_CANDIDATES[normalized]
     except KeyError as exc:
         raise ValueError(f"unknown production smart DCA profile: {profile!r}") from exc
+
+
+def candidate_signal_consumers(candidate_name: str) -> tuple[str, ...]:
+    """Return signal bundle consumers compatible with a frozen research candidate."""
+
+    normalized = str(candidate_name or "").strip()
+    if normalized not in PRESET_CANDIDATES:
+        raise ValueError(f"unknown smart DCA candidate: {candidate_name!r}")
+    return CANDIDATE_SIGNAL_CONSUMERS.get(normalized, ())
 
 
 def _candidate_production_equivalent_profile(name: str) -> str:
@@ -319,6 +343,9 @@ def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[st
                 "family": candidate.family,
                 "rule_type": candidate.rule_type,
                 "signal_source_mode": _candidate_signal_source_mode(candidate),
+                "compatible_signal_consumers": ",".join(
+                    candidate_signal_consumers(candidate.name)
+                ),
                 "signal_symbols": ",".join(candidate.signal_symbols),
                 "signal_symbol_count": len(candidate.signal_symbols),
                 "min_history": candidate.min_history,
