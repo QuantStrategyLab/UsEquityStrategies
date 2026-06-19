@@ -12,6 +12,7 @@ import pandas as pd
 
 from us_equity_strategies.signals import (
     SignalBundleContractError,
+    signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
     signal_consumer_contract_registry_audit_summary_from_manifest,
 )
@@ -176,6 +177,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Optional MarketSignalSources platform handoff manifest pinning the "
             "signal bundle, source-family catalog, and consumer registry manifests."
+        ),
+    )
+    parser.add_argument(
+        "--platform-signal-handoff-index",
+        type=Path,
+        help=(
+            "Optional MarketSignalSources handoff index. The CLI resolves the latest "
+            "matching handoff manifest for the candidate-set consumers before "
+            "validating linked signal artifacts."
         ),
     )
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -344,6 +354,13 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             args.platform_signal_handoff_manifest,
             required_consumers=required_consumers,
             expected_transform=signal_manifest_expectations["transform"],
+        )
+    if args.platform_signal_handoff_index is not None:
+        records["platform_signal_handoff_index"] = _platform_handoff_index_record(
+            args.platform_signal_handoff_index,
+            required_consumers=required_consumers,
+            expected_transform=signal_manifest_expectations["transform"],
+            as_of=args.end_date,
         )
     return records
 
@@ -657,6 +674,74 @@ def _platform_handoff_manifest_record(
         "size_bytes": summary["size_bytes"],
         "schema_version": summary["schema_version"],
         "artifact_type": summary["artifact_type"],
+        "consumer": summary["consumer"],
+        "required_signal_consumers": required_consumers,
+        "canonical_input": summary["canonical_input"],
+        "bundle_id": summary["bundle_id"],
+        "as_of": summary["as_of"],
+        "freshness_status": summary["freshness_status"],
+        "signal_bundle_manifest_path": summary["signal_bundle_manifest_path"],
+        "signal_bundle_manifest_sha256": summary["signal_bundle_manifest_sha256"],
+        "source_family_catalog_manifest_path": summary[
+            "source_family_catalog_manifest_path"
+        ],
+        "source_family_catalog_manifest_sha256": summary[
+            "source_family_catalog_manifest_sha256"
+        ],
+        "consumer_contract_registry_manifest_path": summary[
+            "consumer_contract_registry_manifest_path"
+        ],
+        "consumer_contract_registry_manifest_sha256": summary[
+            "consumer_contract_registry_manifest_sha256"
+        ],
+        "source_family_count": summary["source_family_count"],
+        "source_families": summary["source_families"],
+        "matched_source_families": summary["matched_source_families"],
+        "all_known_source_families_present": summary[
+            "all_known_source_families_present"
+        ],
+        "all_consumer_contracts_satisfied": summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "consumer_contract_count": summary["consumer_contract_count"],
+        "consumer_contracts": summary["consumer_contracts"],
+        "all_known_consumers_present": summary["all_known_consumers_present"],
+        "handoff_linked_manifest_sha256s_verified": summary[
+            "handoff_linked_manifest_sha256s_verified"
+        ],
+        "consumer_registry_contract_fields_verified": summary[
+            "consumer_registry_contract_fields_verified"
+        ],
+    }
+
+
+def _platform_handoff_index_record(
+    path: Path,
+    *,
+    required_consumers: tuple[str, ...],
+    expected_transform: str | None,
+    as_of: str | None,
+) -> dict[str, object]:
+    try:
+        summary = signal_platform_handoff_audit_summary_from_index(
+            path,
+            required_consumers=required_consumers,
+            expected_source_transform=expected_transform,
+            as_of=as_of,
+        )
+    except SignalBundleContractError as exc:
+        raise ValueError(str(exc)) from exc
+    return {
+        "path": summary["index_path"],
+        "sha256": _sha256_file(path),
+        "size_bytes": path.stat().st_size,
+        "schema_version": summary["index_schema_version"],
+        "artifact_type": summary["index_artifact_type"],
+        "handoff_count": summary["index_handoff_count"],
+        "resolved_handoff_manifest_path": summary["handoff_manifest_path"],
+        "resolved_handoff_manifest_sha256": summary["handoff_manifest_sha256"],
+        "resolved_handoff_schema_version": summary["schema_version"],
+        "resolved_handoff_artifact_type": summary["artifact_type"],
         "consumer": summary["consumer"],
         "required_signal_consumers": required_consumers,
         "canonical_input": summary["canonical_input"],

@@ -20,6 +20,9 @@ MARKET_SIGNAL_SOURCE_FAMILY_CATALOG_MANIFEST_SCHEMA_VERSION = (
     "market_signal_source_family_catalog_manifest.v1"
 )
 MARKET_SIGNAL_PLATFORM_HANDOFF_SCHEMA_VERSION = "market_signal_platform_handoff.v1"
+MARKET_SIGNAL_PLATFORM_HANDOFF_INDEX_SCHEMA_VERSION = (
+    "market_signal_platform_handoff_index.v1"
+)
 QUALITY_REPORT_SCHEMA_VERSION = "market_signal_quality_report.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
@@ -578,6 +581,168 @@ def extract_canonical_input_from_platform_handoff_for_consumer(
     summary = signal_platform_handoff_audit_summary_from_manifest(
         path,
         consumer=consumer,
+    )
+    return extract_canonical_input_from_manifest_for_consumer(
+        summary["signal_bundle_manifest_path"],
+        consumer=consumer,
+    )
+
+
+def load_platform_signal_handoff_index(path: str | PathLike[str]) -> dict[str, Any]:
+    """Load and validate a MarketSignalSources platform handoff index."""
+
+    index_path = Path(path)
+    with index_path.open(encoding="utf-8") as file_obj:
+        index = json.load(file_obj)
+    if not isinstance(index, Mapping):
+        raise SignalBundleContractError(
+            "platform signal handoff index JSON root must be a mapping"
+        )
+    index_dict = dict(index)
+    _validate_no_sensitive_fields(index_dict, path="platform_signal_handoff_index")
+    if (
+        index_dict.get("schema_version")
+        != MARKET_SIGNAL_PLATFORM_HANDOFF_INDEX_SCHEMA_VERSION
+    ):
+        raise SignalBundleContractError(
+            "unsupported platform signal handoff index schema_version: "
+            f"{index_dict.get('schema_version')!r}"
+        )
+    if index_dict.get("artifact_type") != "market_signal_platform_handoff_index":
+        raise SignalBundleContractError(
+            "platform signal handoff index artifact_type mismatch: "
+            f"{index_dict.get('artifact_type')!r}"
+        )
+    handoffs = index_dict.get("handoffs")
+    if not _is_non_string_sequence(handoffs) or not handoffs:
+        raise SignalBundleContractError(
+            "platform signal handoff index handoffs must be a non-empty sequence"
+        )
+    for raw_entry in handoffs:
+        _validate_platform_handoff_index_entry(raw_entry)
+    return index_dict
+
+
+def resolve_platform_signal_handoff_manifest_from_index(
+    path: str | PathLike[str],
+    *,
+    consumer: str | None = None,
+    required_consumers: Iterable[str] = (),
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    as_of: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+) -> Path:
+    """Resolve the latest matching platform handoff manifest from an index."""
+
+    index_path = Path(path)
+    index = load_platform_signal_handoff_index(index_path)
+    accepted = {str(item).strip().lower() for item in accepted_freshness_statuses}
+    target_as_of = str(as_of).strip() if as_of is not None else None
+    target_consumers = _required_handoff_index_consumers(
+        consumer=consumer,
+        required_consumers=required_consumers,
+    )
+    candidates: list[Mapping[str, Any]] = []
+
+    for raw_entry in index["handoffs"]:
+        entry = dict(raw_entry)
+        entry_canonical_input = str(entry.get("canonical_input", "")).strip()
+        entry_freshness = str(entry.get("freshness_status", "")).strip().lower()
+        entry_as_of = str(entry.get("as_of", "")).strip()
+        if entry_canonical_input != expected_canonical_input:
+            continue
+        if entry_freshness not in accepted:
+            continue
+        if target_as_of is not None and entry_as_of > target_as_of:
+            continue
+        if target_consumers and not _handoff_index_entry_matches_consumers(
+            entry,
+            target_consumers,
+        ):
+            continue
+        candidates.append(entry)
+
+    if not candidates:
+        raise SignalBundleContractError(
+            "platform signal handoff index has no matching handoff manifest entry"
+        )
+
+    selected = max(candidates, key=lambda entry: str(entry.get("as_of", "")))
+    resolved_handoff_path = _resolve_relative_artifact_path(
+        index_path.parent.resolve(),
+        selected["handoff_manifest_path"],
+        owner="platform signal handoff index",
+        field="handoff_manifest_path",
+    )
+    expected_handoff_sha256 = str(selected["handoff_manifest_sha256"]).strip().lower()
+    actual_handoff_sha256 = _sha256_file(resolved_handoff_path)
+    if actual_handoff_sha256 != expected_handoff_sha256:
+        raise SignalBundleContractError(
+            "platform signal handoff index handoff_manifest_sha256 mismatch: "
+            f"expected {expected_handoff_sha256}, got {actual_handoff_sha256}"
+        )
+    handoff = _load_platform_signal_handoff_manifest(resolved_handoff_path)
+    _validate_handoff_index_manifest_consistency(selected, handoff)
+    return resolved_handoff_path
+
+
+def signal_platform_handoff_audit_summary_from_index(
+    path: str | PathLike[str],
+    *,
+    consumer: str | None = None,
+    required_consumers: Iterable[str] = (),
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    expected_source_transform: str | None = None,
+    as_of: str | None = None,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    require_all_known_families: bool = False,
+    require_all_known_consumers: bool = False,
+) -> dict[str, Any]:
+    """Resolve a handoff index entry and validate the linked handoff manifest."""
+
+    index_path = Path(path)
+    index = load_platform_signal_handoff_index(index_path)
+    handoff_path = resolve_platform_signal_handoff_manifest_from_index(
+        index_path,
+        consumer=consumer,
+        required_consumers=required_consumers,
+        expected_canonical_input=expected_canonical_input,
+        as_of=as_of,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+    )
+    summary = signal_platform_handoff_audit_summary_from_manifest(
+        handoff_path,
+        consumer=consumer,
+        required_consumers=required_consumers,
+        expected_source_transform=expected_source_transform,
+        require_all_known_families=require_all_known_families,
+        require_all_known_consumers=require_all_known_consumers,
+    )
+    summary.update(
+        {
+            "index_path": str(index_path.resolve()),
+            "index_schema_version": str(index.get("schema_version", "")),
+            "index_artifact_type": str(index.get("artifact_type", "")),
+            "index_handoff_count": len(index.get("handoffs", ()) or ()),
+            "handoff_manifest_path": str(handoff_path.resolve()),
+            "handoff_manifest_sha256": _sha256_file(handoff_path),
+        }
+    )
+    return summary
+
+
+def extract_canonical_input_from_platform_handoff_index_for_consumer(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+    as_of: str | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Validate an index-selected handoff and return consumer market_data."""
+
+    summary = signal_platform_handoff_audit_summary_from_index(
+        path,
+        consumer=consumer,
+        as_of=as_of,
     )
     return extract_canonical_input_from_manifest_for_consumer(
         summary["signal_bundle_manifest_path"],
@@ -1665,6 +1830,117 @@ def _validate_platform_handoff_consistency(
         if actual != expected:
             raise SignalBundleContractError(
                 f"platform signal handoff {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
+
+
+def _validate_platform_handoff_index_entry(raw_entry: object) -> None:
+    if not isinstance(raw_entry, Mapping):
+        raise SignalBundleContractError(
+            "platform signal handoff index entries must be mappings"
+        )
+    entry = dict(raw_entry)
+    for field in (
+        "handoff_manifest_path",
+        "handoff_manifest_sha256",
+        "consumer",
+        "canonical_input",
+        "bundle_id",
+        "as_of",
+        "freshness_status",
+        "source_families",
+        "consumer_contracts",
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "all_known_consumers_present",
+    ):
+        if field not in entry:
+            raise SignalBundleContractError(
+                f"platform signal handoff index entry missing field: {field}"
+            )
+    for field in (
+        "handoff_manifest_path",
+        "handoff_manifest_sha256",
+        "canonical_input",
+        "bundle_id",
+        "as_of",
+        "freshness_status",
+    ):
+        if not _has_non_empty_value(entry, field):
+            raise SignalBundleContractError(
+                f"platform signal handoff index entry missing field: {field}"
+            )
+    if not _is_string_sequence(entry["source_families"]):
+        raise SignalBundleContractError(
+            "platform signal handoff index source_families must be strings"
+        )
+    if not _is_string_sequence(entry["consumer_contracts"]):
+        raise SignalBundleContractError(
+            "platform signal handoff index consumer_contracts must be strings"
+        )
+    for field in (
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "all_known_consumers_present",
+    ):
+        if not isinstance(entry[field], bool):
+            raise SignalBundleContractError(
+                f"platform signal handoff index {field} must be a bool"
+            )
+
+
+def _required_handoff_index_consumers(
+    *,
+    consumer: str | None,
+    required_consumers: Iterable[str],
+) -> tuple[str, ...]:
+    consumers: list[str] = []
+    for raw_consumer in (consumer, *tuple(required_consumers)):
+        normalized = str(raw_consumer or "").strip()
+        if normalized and normalized not in consumers:
+            consumers.append(normalized)
+    return tuple(consumers)
+
+
+def _handoff_index_entry_matches_consumers(
+    entry: Mapping[str, Any],
+    consumers: tuple[str, ...],
+) -> bool:
+    entry_consumer = str(entry.get("consumer", "")).strip()
+    entry_consumers = {entry_consumer} if entry_consumer else set()
+    entry_consumers.update(_string_tuple(entry.get("consumer_contracts")))
+    return all(consumer in entry_consumers for consumer in consumers)
+
+
+def _validate_handoff_index_manifest_consistency(
+    entry: Mapping[str, Any],
+    handoff: Mapping[str, Any],
+) -> None:
+    expected_values = {
+        "consumer": str(handoff.get("consumer", "")).strip(),
+        "canonical_input": str(handoff.get("canonical_input", "")).strip(),
+        "bundle_id": str(handoff.get("bundle_id", "")).strip(),
+        "as_of": str(handoff.get("as_of", "")).strip(),
+        "freshness_status": str(handoff.get("freshness_status", "")).strip(),
+        "source_families": tuple(handoff.get("source_families", ()) or ()),
+        "consumer_contracts": tuple(handoff.get("consumer_contracts", ()) or ()),
+        "all_known_source_families_present": handoff.get(
+            "all_known_source_families_present"
+        ),
+        "all_consumer_contracts_satisfied": handoff.get(
+            "all_consumer_contracts_satisfied"
+        ),
+        "all_known_consumers_present": handoff.get("all_known_consumers_present"),
+    }
+    for field, expected in expected_values.items():
+        actual: object = entry.get(field)
+        if field in {"source_families", "consumer_contracts"}:
+            actual = tuple(actual or ())
+        if field == "consumer":
+            actual = str(actual or "").strip()
+        if actual != expected:
+            raise SignalBundleContractError(
+                f"platform signal handoff index {field} mismatch: "
                 f"{actual!r} != {expected!r}"
             )
 

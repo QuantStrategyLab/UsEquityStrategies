@@ -419,6 +419,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         tmp_path / "market_signal_consumers.manifest.json"
     )
     platform_handoff_manifest = tmp_path / "platform_handoff.json"
+    platform_handoff_index = tmp_path / "platform_handoff_index.json"
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
 
@@ -619,6 +620,50 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ),
         encoding="utf-8",
     )
+    platform_handoff = json.loads(
+        platform_handoff_manifest.read_text(encoding="utf-8")
+    )
+    platform_handoff_index.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_platform_handoff_index.v1",
+                "artifact_type": "market_signal_platform_handoff_index",
+                "generated_at": "2026-06-19T00:30:00Z",
+                "handoffs": [
+                    {
+                        "handoff_manifest_path": (
+                            platform_handoff_manifest.relative_to(
+                                tmp_path
+                            ).as_posix()
+                        ),
+                        "handoff_manifest_sha256": _sha256_file(
+                            platform_handoff_manifest
+                        ),
+                        "consumer": platform_handoff["consumer"],
+                        "canonical_input": platform_handoff["canonical_input"],
+                        "bundle_id": platform_handoff["bundle_id"],
+                        "as_of": platform_handoff["as_of"],
+                        "freshness_status": platform_handoff["freshness_status"],
+                        "source_families": platform_handoff["source_families"],
+                        "consumer_contracts": platform_handoff[
+                            "consumer_contracts"
+                        ],
+                        "all_known_source_families_present": platform_handoff[
+                            "all_known_source_families_present"
+                        ],
+                        "all_consumer_contracts_satisfied": platform_handoff[
+                            "all_consumer_contracts_satisfied"
+                        ],
+                        "all_known_consumers_present": platform_handoff[
+                            "all_known_consumers_present"
+                        ],
+                    }
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     result = main(
         [
@@ -802,6 +847,53 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ]["consumer_contract_registry_manifest_sha256"]
         == _sha256_file(consumer_contract_registry_manifest)
     )
+
+    index_result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--platform-signal-handoff-index",
+            str(platform_handoff_index),
+            "--output-dir",
+            str(tmp_path / "ibit-precomputed-index-artifacts"),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_sma,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+        ]
+    )
+
+    assert index_result == 0
+    index_summary = json.loads(capsys.readouterr().out)
+    handoff_index_record = index_summary["metadata"]["input_artifacts"][
+        "platform_signal_handoff_index"
+    ]
+    assert handoff_index_record["schema_version"] == (
+        "market_signal_platform_handoff_index.v1"
+    )
+    assert handoff_index_record["artifact_type"] == (
+        "market_signal_platform_handoff_index"
+    )
+    assert handoff_index_record["sha256"] == _sha256_file(platform_handoff_index)
+    assert handoff_index_record["size_bytes"] == platform_handoff_index.stat().st_size
+    assert handoff_index_record["handoff_count"] == 1
+    assert handoff_index_record["resolved_handoff_manifest_sha256"] == (
+        _sha256_file(platform_handoff_manifest)
+    )
+    assert handoff_index_record["consumer_contracts"] == [
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ]
 
     source_catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
     source_catalog_payload["families"][0]["compatible_profiles"] = [

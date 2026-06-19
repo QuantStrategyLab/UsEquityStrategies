@@ -17,6 +17,7 @@ from us_equity_strategies.signals import (
     extract_canonical_input_from_index_for_consumer,
     extract_canonical_input_from_manifest,
     extract_canonical_input_from_manifest_for_consumer,
+    extract_canonical_input_from_platform_handoff_index_for_consumer,
     extract_canonical_input_from_platform_handoff_for_consumer,
     load_signal_consumer_contract_registry,
     load_signal_bundle,
@@ -24,11 +25,14 @@ from us_equity_strategies.signals import (
     load_signal_bundle_from_manifest,
     load_signal_bundle_index,
     load_signal_bundle_manifest,
+    load_platform_signal_handoff_index,
+    resolve_platform_signal_handoff_manifest_from_index,
     resolve_signal_bundle_manifest_from_index,
     required_indicator_fields_for_consumer,
     signal_consumer_contract_registry_audit_summary,
     signal_consumer_contract_registry_audit_summary_from_file,
     signal_consumer_contract_registry_audit_summary_from_manifest,
+    signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
     signal_source_family_catalog_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary,
@@ -353,6 +357,49 @@ def _write_platform_handoff_manifest(
         encoding="utf-8",
     )
     return handoff_path
+
+
+def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    index_path = tmp_path / "platform_handoff_index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_platform_handoff_index.v1",
+                "artifact_type": "market_signal_platform_handoff_index",
+                "generated_at": "2026-06-19T00:30:00Z",
+                "handoffs": [
+                    {
+                        "handoff_manifest_path": handoff_path.relative_to(
+                            tmp_path
+                        ).as_posix(),
+                        "handoff_manifest_sha256": _sha256_path(handoff_path),
+                        "consumer": handoff["consumer"],
+                        "canonical_input": handoff["canonical_input"],
+                        "bundle_id": handoff["bundle_id"],
+                        "as_of": handoff["as_of"],
+                        "freshness_status": handoff["freshness_status"],
+                        "source_families": handoff["source_families"],
+                        "consumer_contracts": handoff["consumer_contracts"],
+                        "all_known_source_families_present": handoff[
+                            "all_known_source_families_present"
+                        ],
+                        "all_consumer_contracts_satisfied": handoff[
+                            "all_consumer_contracts_satisfied"
+                        ],
+                        "all_known_consumers_present": handoff[
+                            "all_known_consumers_present"
+                        ],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return index_path
 
 
 def _write_signal_bundle_manifest_with_quality_report(
@@ -861,6 +908,68 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
             handoff_path,
             consumer="us_equity:ibit_smart_dca",
         )
+
+
+def test_platform_handoff_index_resolves_matching_handoff_manifest(tmp_path) -> None:
+    _, signal_manifest_path, _ = _write_signal_bundle_manifest_with_quality_report(
+        tmp_path
+    )
+    _, source_catalog_manifest_path = _write_source_family_catalog_manifest(tmp_path)
+    _, registry_manifest_path = _write_consumer_contract_registry_manifest(
+        tmp_path,
+        _complete_consumer_contract_registry(),
+    )
+    handoff_path = _write_platform_handoff_manifest(
+        tmp_path,
+        signal_bundle_manifest_path=signal_manifest_path,
+        source_family_catalog_manifest_path=source_catalog_manifest_path,
+        consumer_contract_registry_manifest_path=registry_manifest_path,
+        consumers=(
+            "us_equity:ibit_smart_dca",
+            "research:ibit_btc_ahr999_precomputed",
+            "research:ibit_btc_ahr999_mayer_precomputed",
+            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+        ),
+    )
+    index_path = _write_platform_handoff_index(tmp_path, handoff_path)
+
+    index = load_platform_signal_handoff_index(index_path)
+    resolved_handoff_path = resolve_platform_signal_handoff_manifest_from_index(
+        index_path,
+        consumer="us_equity:ibit_smart_dca",
+    )
+    summary = signal_platform_handoff_audit_summary_from_index(
+        index_path,
+        consumer="us_equity:ibit_smart_dca",
+        require_all_known_consumers=True,
+    )
+    market_data = extract_canonical_input_from_platform_handoff_index_for_consumer(
+        index_path,
+        consumer="us_equity:ibit_smart_dca",
+    )
+
+    assert index["schema_version"] == "market_signal_platform_handoff_index.v1"
+    assert resolved_handoff_path == handoff_path.resolve()
+    assert summary["index_schema_version"] == (
+        "market_signal_platform_handoff_index.v1"
+    )
+    assert summary["index_artifact_type"] == "market_signal_platform_handoff_index"
+    assert summary["index_handoff_count"] == 1
+    assert summary["handoff_manifest_path"] == str(handoff_path.resolve())
+    assert summary["handoff_manifest_sha256"] == _sha256_path(handoff_path)
+    assert summary["signal_bundle_manifest_sha256"] == _sha256_path(
+        signal_manifest_path
+    )
+    assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
+
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    payload["handoffs"][0]["handoff_manifest_sha256"] = "0" * 64
+    index_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(
+        SignalBundleContractError,
+        match="handoff_manifest_sha256",
+    ):
+        resolve_platform_signal_handoff_manifest_from_index(index_path)
 
 
 def test_external_consumer_contract_registry_can_require_all_known_consumers() -> None:

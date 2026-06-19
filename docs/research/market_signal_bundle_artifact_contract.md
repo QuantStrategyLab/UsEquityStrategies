@@ -179,6 +179,14 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 它先验证 handoff 和全部 linked manifest，再只返回
 `StrategyContext.market_data["derived_indicators"]` 需要的 canonical input。
 
+如果 `MarketSignalSources` 同时发布
+`market_signal_platform_handoff_index.v1`，平台可以先用
+`resolve_platform_signal_handoff_manifest_from_index()` 按 consumer、canonical input、
+freshness 和 `as_of` 选出最新匹配 handoff manifest，再走同一套 handoff 校验。直接注入时
+可使用 `extract_canonical_input_from_platform_handoff_index_for_consumer()`；该入口不会信任
+index 中的摘要字段，仍会校验 handoff manifest 的 SHA-256、linked manifest SHA-256、
+bundle freshness 和 consumer 字段覆盖。
+
 该审计输出会包含：
 
 - `indicator_fields_by_symbol`：例如 `BTC-USD` 下有哪些字段名，包括 `ahr999`、
