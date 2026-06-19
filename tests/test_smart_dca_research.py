@@ -1112,6 +1112,43 @@ def test_ibit_btc_precomputed_variants_use_exported_ahr999_sma() -> None:
     assert sma.last_signal_metrics["ahr999_selected"] == 0.7
 
 
+def test_ibit_btc_precomputed_helper_variants_use_percentile_and_slope() -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signals = pd.DataFrame(
+        {
+            "ahr999": [1.5 for _ in dates],
+            "ahr999_365d_percentile": [0.40 for _ in dates],
+            "ahr999_30d_slope": [-0.01 for _ in dates],
+        },
+        index=dates,
+    )
+    ibit = pd.Series([50.0 + i * 0.02 for i in range(len(dates))], index=dates)
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=ibit,
+        candidate_set="ibit_btc_ahr999_helper_precomputed_variants",
+        monthly_contribution_usd=500.0,
+    )
+
+    assert set(result) == {
+        "fixed",
+        "ibit_btc_precomputed_ahr999_cycle",
+        "ibit_btc_precomputed_ahr999_percentile_cycle",
+        "ibit_btc_precomputed_ahr999_guarded_cycle",
+    }
+    production_equivalent = result["ibit_btc_precomputed_ahr999_cycle"]
+    percentile = result["ibit_btc_precomputed_ahr999_percentile_cycle"]
+    guarded = result["ibit_btc_precomputed_ahr999_guarded_cycle"]
+    assert production_equivalent.skipped_count > 0
+    assert percentile.trades[0]["regime"] == "ahr999_percentile_dca"
+    assert percentile.trades[0]["multiplier"] == 1.5
+    assert percentile.last_signal_metrics["ahr999_metric"] == "ahr999_365d_percentile"
+    assert guarded.trades[0]["regime"] == "ahr999_expensive_guarded_dca"
+    assert guarded.trades[0]["multiplier"] == 1.0
+    assert guarded.last_signal_metrics["ahr999_30d_slope"] == -0.01
+
+
 def _candidate_parameters(name: str) -> dict[str, float]:
     return {
         str(row["parameter_name"]): float(row["parameter_value"])
@@ -1192,6 +1229,10 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
         "research:ibit_btc_ahr999_precomputed",
         "us_equity:ibit_smart_dca",
     )
+    assert candidate_set_signal_consumers("ibit_btc_ahr999_helper_precomputed_variants") == (
+        "research:ibit_btc_ahr999_precomputed",
+        "us_equity:ibit_smart_dca",
+    )
     assert candidate_signal_consumers("nasdaq_sp500_price_no_skip") == ()
     assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_cycle") == (
         "us_equity:ibit_smart_dca",
@@ -1200,6 +1241,8 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     assert candidate_signal_consumers(
         "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle"
     ) == ("research:ibit_btc_ahr999_mayer_precomputed",)
+    assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_percentile_cycle") == ()
+    assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_guarded_cycle") == ()
 
     rows = candidate_summaries_to_rows(
         (
@@ -1222,6 +1265,12 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
             assert consumer.startswith(("us_equity:", "research:"))
             for fields in required_fields.values():
                 assert signal_symbols.issubset(set(fields))
+
+    helper_summary = candidate_summaries_to_rows(
+        ("ibit_btc_precomputed_ahr999_percentile_cycle",)
+    )[0]
+    assert helper_summary["compatible_signal_consumers"] == ""
+    assert helper_summary["signal_symbols"] == "ahr999_365d_percentile"
 
 
 def test_ibit_production_equivalent_candidate_ignores_mayer_conflict() -> None:
@@ -1265,4 +1314,6 @@ def test_candidate_universe_is_named_and_bounded() -> None:
         "ibit_btc_precomputed_ahr999_mayer_cycle",
         "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
         "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_percentile_cycle",
+        "ibit_btc_precomputed_ahr999_guarded_cycle",
     )

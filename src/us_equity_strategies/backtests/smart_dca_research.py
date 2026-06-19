@@ -85,6 +85,23 @@ IBIT_AHR999_MAYER_NO_SKIP_PARAMETERS: dict[str, float] = {
     **IBIT_AHR999_MAYER_PARAMETERS,
     "ahr999_expensive_multiplier": 1.0,
 }
+IBIT_AHR999_PERCENTILE_PARAMETERS: dict[str, float] = {
+    "ahr999_bottom_percentile_threshold": 0.10,
+    "ahr999_accumulation_percentile_threshold": 0.25,
+    "ahr999_dca_percentile_threshold": 0.50,
+    "ahr999_expensive_percentile_threshold": 0.80,
+    "base_multiplier": 1.0,
+    "ahr999_bottom_multiplier": 3.0,
+    "ahr999_accumulation_multiplier": 2.25,
+    "ahr999_dca_multiplier": 1.50,
+    "ahr999_expensive_multiplier": 0.0,
+}
+IBIT_AHR999_GUARDED_PARAMETERS: dict[str, float] = {
+    **IBIT_AHR999_PARAMETERS,
+    "ahr999_high_percentile_threshold": 0.80,
+    "ahr999_rising_slope_threshold": 0.0,
+    "guarded_expensive_multiplier": 1.0,
+}
 NASDAQ_SP500_PRICE_PARAMETERS: dict[str, float] = {
     "mild_drawdown_threshold": 0.08,
     "deep_drawdown_threshold": 0.15,
@@ -190,6 +207,22 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         min_history=1,
         parameters=IBIT_AHR999_MAYER_PARAMETERS,
     ),
+    "ibit_btc_precomputed_ahr999_percentile_cycle": SmartDcaCandidate(
+        name="ibit_btc_precomputed_ahr999_percentile_cycle",
+        family="ibit_btc_ahr999_precomputed_variant",
+        rule_type="precomputed_ahr999_percentile",
+        signal_symbols=("ahr999_365d_percentile",),
+        min_history=1,
+        parameters=IBIT_AHR999_PERCENTILE_PARAMETERS,
+    ),
+    "ibit_btc_precomputed_ahr999_guarded_cycle": SmartDcaCandidate(
+        name="ibit_btc_precomputed_ahr999_guarded_cycle",
+        family="ibit_btc_ahr999_precomputed_variant",
+        rule_type="precomputed_ahr999_guarded",
+        signal_symbols=("ahr999", "ahr999_365d_percentile", "ahr999_30d_slope"),
+        min_history=1,
+        parameters=IBIT_AHR999_GUARDED_PARAMETERS,
+    ),
 }
 
 CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
@@ -218,6 +251,11 @@ CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
         "ibit_btc_precomputed_ahr999_mayer_cycle",
         "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
         "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
+    ),
+    "ibit_btc_ahr999_helper_precomputed_variants": (
+        "ibit_btc_precomputed_ahr999_cycle",
+        "ibit_btc_precomputed_ahr999_percentile_cycle",
+        "ibit_btc_precomputed_ahr999_guarded_cycle",
     ),
     "ibit_btc_ahr999_mayer_precomputed": ("ibit_btc_precomputed_ahr999_mayer_cycle",),
     "ibit_btc_ahr999_mayer_precomputed_variants": (
@@ -416,7 +454,7 @@ def _normalize_symbol(symbol: object) -> str:
     return str(symbol or "").strip().upper().removesuffix(".US")
 
 
-def _close_series(values: Any) -> pd.Series:
+def _close_series(values: Any, *, positive_only: bool = True) -> pd.Series:
     if isinstance(values, pd.Series):
         series = values.copy()
     elif isinstance(values, pd.DataFrame):
@@ -426,7 +464,8 @@ def _close_series(values: Any) -> pd.Series:
     else:
         series = pd.Series(values)
     series = pd.to_numeric(series, errors="coerce").dropna().astype(float)
-    series = series[series > 0.0]
+    if positive_only:
+        series = series[series > 0.0]
     if series.empty:
         return pd.Series(dtype=float)
     series.index = pd.to_datetime(series.index).tz_localize(None).normalize()
@@ -436,21 +475,26 @@ def _close_series(values: Any) -> pd.Series:
 def _price_frame(values: Any) -> pd.DataFrame:
     if isinstance(values, Mapping):
         columns = {
-            _normalize_symbol(symbol): _close_series(series)
+            _normalize_symbol(symbol): _close_series(series, positive_only=False)
             for symbol, series in values.items()
         }
         frame = pd.DataFrame(columns)
     elif isinstance(values, pd.DataFrame):
         if "close" in values.columns and len(values.columns) == 1:
-            frame = pd.DataFrame({"SIGNAL": _close_series(values["close"])})
+            frame = pd.DataFrame(
+                {"SIGNAL": _close_series(values["close"], positive_only=False)}
+            )
         else:
             columns = {
-                _normalize_symbol(column): _close_series(values[column])
+                _normalize_symbol(column): _close_series(
+                    values[column],
+                    positive_only=False,
+                )
                 for column in values.columns
             }
             frame = pd.DataFrame(columns)
     else:
-        frame = pd.DataFrame({"SIGNAL": _close_series(values)})
+        frame = pd.DataFrame({"SIGNAL": _close_series(values, positive_only=False)})
     return frame.dropna(how="all").sort_index()
 
 
@@ -707,6 +751,77 @@ def _precomputed_ahr999_multiplier(
     return multiplier, regime, metrics
 
 
+def _precomputed_ahr999_percentile_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    latest = signal_history.iloc[-1]
+    percentile = float(latest[_normalize_symbol("ahr999_365d_percentile")])
+    metrics: dict[str, object] = {
+        "ahr999_365d_percentile": percentile,
+        "ahr999_metric": "ahr999_365d_percentile",
+        "ahr999_selected": percentile,
+        "cycle_indicator_source": "precomputed_derived_indicators",
+    }
+
+    if percentile <= parameters["ahr999_bottom_percentile_threshold"]:
+        return (
+            float(parameters["ahr999_bottom_multiplier"]),
+            "ahr999_percentile_bottom",
+            metrics,
+        )
+    if percentile <= parameters["ahr999_accumulation_percentile_threshold"]:
+        return (
+            float(parameters["ahr999_accumulation_multiplier"]),
+            "ahr999_percentile_accumulation",
+            metrics,
+        )
+    if percentile <= parameters["ahr999_dca_percentile_threshold"]:
+        return (
+            float(parameters["ahr999_dca_multiplier"]),
+            "ahr999_percentile_dca",
+            metrics,
+        )
+    if percentile >= parameters["ahr999_expensive_percentile_threshold"]:
+        return (
+            float(parameters["ahr999_expensive_multiplier"]),
+            "ahr999_percentile_expensive",
+            metrics,
+        )
+    return float(parameters["base_multiplier"]), "ahr999_percentile_normal", metrics
+
+
+def _precomputed_ahr999_guarded_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    latest = signal_history.iloc[-1]
+    ahr999 = float(latest[_normalize_symbol("ahr999")])
+    percentile = float(latest[_normalize_symbol("ahr999_365d_percentile")])
+    slope = float(latest[_normalize_symbol("ahr999_30d_slope")])
+    multiplier, regime = _ahr999_regime_multiplier(ahr999, parameters)
+    metrics: dict[str, object] = {
+        "ahr999": ahr999,
+        "ahr999_365d_percentile": percentile,
+        "ahr999_30d_slope": slope,
+        "ahr999_metric": "ahr999",
+        "ahr999_selected": ahr999,
+        "cycle_indicator_source": "precomputed_derived_indicators",
+    }
+    if regime != "ahr999_expensive":
+        return multiplier, regime, metrics
+
+    high_percentile = percentile >= parameters["ahr999_high_percentile_threshold"]
+    rising = slope >= parameters["ahr999_rising_slope_threshold"]
+    if high_percentile and rising:
+        return multiplier, "ahr999_expensive_high_percentile_rising", metrics
+    return (
+        float(parameters["guarded_expensive_multiplier"]),
+        "ahr999_expensive_guarded_dca",
+        metrics,
+    )
+
+
 def _ahr999_regime_multiplier(
     ahr999: float,
     parameters: Mapping[str, float],
@@ -750,6 +865,16 @@ def _candidate_multiplier(
             signal_history,
             candidate.parameters,
             ahr999_column="ahr999_sma",
+        )
+    if candidate.rule_type == "precomputed_ahr999_percentile":
+        return _precomputed_ahr999_percentile_multiplier(
+            signal_history,
+            candidate.parameters,
+        )
+    if candidate.rule_type == "precomputed_ahr999_guarded":
+        return _precomputed_ahr999_guarded_multiplier(
+            signal_history,
+            candidate.parameters,
         )
     raise ValueError(f"unsupported smart DCA rule_type: {candidate.rule_type}")
 

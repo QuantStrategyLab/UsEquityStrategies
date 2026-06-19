@@ -143,6 +143,13 @@ field from `derived_indicators` and does not let Mayer Multiple change the
 regime. Mayer-based candidates remain research variants / sanity checks, not the
 current production smart-mode contract.
 
+Additional Tier 1 helper candidates are available through
+`ibit_btc_ahr999_helper_precomputed_variants`. They use precomputed
+`ahr999_365d_percentile` and `ahr999_30d_slope` fields from the external BTC
+cycle signal source to compare percentile-tier sizing and an expensive-zone
+skip guard. These are research-only variants and do not change the production
+equivalent candidate.
+
 | Smart variant | Terminal | Vs fixed | Max DD | DD delta |
 | --- | ---: | ---: | ---: | ---: |
 | Fixed DCA benchmark | $386,795 | 0.00% | 74.40% | 0.00% |

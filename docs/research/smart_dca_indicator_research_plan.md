@@ -157,6 +157,12 @@ pullback 只是兼容 fallback。后续研究应围绕两件事展开：
 | Sentiment | Fear & Greed、funding rate、perp basis、social/news sentiment | Tier 3: 外部供应且定义可能变化 | 只能作为观察项；不得用不可审计历史优化阈值 |
 | Market structure | BTC dominance、stablecoin supply、ETF flow、IBIT premium/discount、spot volume/liquidity | Tier 2/3: 多源数据，字段定义差异大 | 先用于解释 skip / add 行为，不直接驱动倍率 |
 
+当前固定研究候选集 `ibit_btc_ahr999_helper_precomputed_variants` 只使用
+Tier 1 预计算字段：`ahr999_365d_percentile` 和 `ahr999_30d_slope`。它包含
+一个 AHR999 365 日分位分层候选，以及一个在 AHR999 绝对值偏贵时用分位和
+斜率确认 skip 的保护候选。该候选集只用于研究比较，不改变
+`ibit_smart_dca` 的生产等价候选或默认 fixed DCA 行为。
+
 Tier 定义：
 
 - Tier 1: 只依赖缓存 BTC 日线 OHLCV 和固定公式，可在本仓库或 signal-source
