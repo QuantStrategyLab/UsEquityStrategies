@@ -28,6 +28,43 @@ validation is scoped to the actual matrix window, 2018-04-25 through
 2026-06-18, so the first 30 warm-up rows for `ahr999_30d_slope` are not part of
 the required finite-value validation set.
 
+## Research Handoff
+
+The same BTC cycle CSV has also been re-exported through the current
+`MarketSignalSources` research handoff path. The current-format artifacts are
+local and not committed:
+
+`/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/research_handoff_current/`
+
+Key hashes:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `research/btc_cycle_indicators.csv` | `bf732d771cfe89c0627f48363e1793878816aa08091bcc9ed7b58347571a8518` |
+| `research/btc_cycle_indicators.manifest.json` | `05b6ad6c1de0c8dcebe41e9676637456fcf361fa513e92b2c38d4cd5902f8318` |
+| `source_catalog/signal_source_families.manifest.json` | `e2bbb551ed11eddb0f29df5c8ed18e274d1c0d4727d6abd7da5fb6920ebdbe36` |
+| `contracts/market_signal_consumers.manifest.json` | `ec06fe646482a9ce350de94ea106cf1a5a49321c0a9d35a6ab45c7893fa51361` |
+
+The handoff pins `artifact_type=btc_cycle_research_csv`,
+`transform=crypto.btc.ahr999.v1`, `as_of=2026-06-18`, 3,029 rows, and source
+family `crypto.btc_cycle_daily`. It covers these consumers:
+
+| Consumer | Handoff SHA-256 | Audit result |
+| --- | --- | --- |
+| `us_equity:ibit_smart_dca` | `6286db0b8c73779f64fdaf180cb6d31533c722f0a85845757db308f01b12c96a` | research-ready, runtime injection not allowed |
+| `research:ibit_btc_ahr999_precomputed` | `4c541c5b79214d666abbf982c3014d7c469aca0e01f80a9c5f31d6139de43675` | research-ready, runtime injection not allowed |
+| `research:ibit_btc_ahr999_helper_precomputed_variants` | `2ca3438bcdb67a52c906bf64c57af91e656eca43453ff00d1a9e60718a102f7e` | research-ready, runtime injection not allowed |
+| `research:ibit_btc_ahr999_mayer_precomputed` | `cc43298e11ed171d94ba6e12481e26e09022c12a5d22fac898c61562bbee6187` | research-ready, runtime injection not allowed |
+| `research:ibit_btc_ahr999_mayer_precomputed_variants` | `1106f7b0fb1e11bb394714303c007a0ff1a25ec7ba9e30dbc7a15232b8a8dc29` | research-ready, runtime injection not allowed |
+
+Validation summary:
+
+- every handoff validates linked manifest SHA-256 values
+- every audit returns `ready_for_consumption=true`
+- every audit returns `ready_for_research_consumption=true`
+- every audit returns `runtime_injection_allowed=false`
+- every audit verifies the source catalog and consumer contract
+
 ## Matrix
 
 - Candidate set: `ibit_btc_ahr999_helper_precomputed_variants`.
