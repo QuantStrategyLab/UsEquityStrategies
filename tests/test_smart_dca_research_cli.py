@@ -338,6 +338,102 @@ def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> Non
     assert "ibit_btc_ahr999_mayer_cycle" in metrics
 
 
+def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
+    signal_csv = tmp_path / "us_equity_context.csv"
+    signal_manifest = tmp_path / "us_equity_context.manifest.json"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "nasdaq-context-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "QQQ": prices,
+            "SPY": prices * 0.94,
+            "cape_percentile": [0.90 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+            "breadth_above_sma200_pct": [0.35 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+    signal_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "artifact_type": "us_equity_context_research_csv",
+                "transform": "us_equity.nasdaq_sp500.context.v1",
+                "source_version": "0.1.0",
+                "as_of": "2025-06-18",
+                "min_history": 1,
+                "row_count": len(dates),
+                "first_date": str(dates[0].date()),
+                "last_date": str(dates[-1].date()),
+                "columns": [
+                    "date",
+                    "QQQ",
+                    "SPY",
+                    "cape_percentile",
+                    "vix_percentile",
+                    "breadth_above_sma200_pct",
+                ],
+                "output_csv": {
+                    "path": str(signal_csv),
+                    "sha256": _sha256_file(signal_csv),
+                    "size_bytes": signal_csv.stat().st_size,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_external_precomputed_variants",
+            "--signal-columns",
+            "QQQ,SPY,cape_percentile,vix_percentile,breadth_above_sma200_pct",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["metadata"]["research_config"]["signal_source_modes"] == [
+        "external_precomputed_us_equity_context",
+        "market_history_price_indicators",
+    ]
+    assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == [
+        "research:nasdaq_sp500_external_context_precomputed"
+    ]
+    signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
+    assert signal_manifest_record["artifact_type"] == "us_equity_context_research_csv"
+    assert signal_manifest_record["transform"] == "us_equity.nasdaq_sp500.context.v1"
+    assert "nasdaq_sp500_precomputed_valuation_guard" in (
+        output_dir / "monthly_day_15" / "metrics.csv"
+    ).read_text(encoding="utf-8")
+
+
 def test_smart_dca_research_cli_standard_preset_expands_robustness_matrix(
     tmp_path,
     capsys,
@@ -633,9 +729,10 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 2,
-                "known_consumer_count": 4,
+                "known_consumer_count": 5,
                 "missing_known_consumers": [
                     "research:ibit_btc_ahr999_precomputed",
+                    "research:nasdaq_sp500_external_context_precomputed",
                     "us_equity:ibit_smart_dca",
                 ],
                 "all_known_consumers_present": False,
@@ -1043,10 +1140,11 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 1,
-                "known_consumer_count": 4,
+                "known_consumer_count": 5,
                 "missing_known_consumers": [
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                     "research:ibit_btc_ahr999_precomputed",
+                    "research:nasdaq_sp500_external_context_precomputed",
                     "us_equity:ibit_smart_dca",
                 ],
                 "all_known_consumers_present": False,

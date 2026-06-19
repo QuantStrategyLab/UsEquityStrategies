@@ -31,6 +31,13 @@ REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
     "us_equity:ibit_smart_dca": {
         "BTC-USD": ("ahr999",),
     },
+    "research:nasdaq_sp500_external_context_precomputed": {
+        "US-EQUITY-CONTEXT": (
+            "breadth_above_sma200_pct",
+            "cape_percentile",
+            "vix_percentile",
+        ),
+    },
     "research:ibit_btc_ahr999_precomputed": {
         "BTC-USD": ("ahr999",),
     },

@@ -1264,7 +1264,7 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     assert candidate_set_signal_consumers("nasdaq_sp500_price_variants") == ()
     assert candidate_set_signal_consumers(
         "nasdaq_sp500_external_precomputed_variants"
-    ) == ()
+    ) == ("research:nasdaq_sp500_external_context_precomputed",)
     assert candidate_set_signal_source_modes(
         "nasdaq_sp500_external_precomputed_variants"
     ) == (
@@ -1327,11 +1327,22 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     nasdaq_external_summary = candidate_summaries_to_rows(
         ("nasdaq_sp500_precomputed_valuation_guard",)
     )[0]
-    assert nasdaq_external_summary["compatible_signal_consumers"] == ""
+    assert nasdaq_external_summary["compatible_signal_consumers"] == (
+        "research:nasdaq_sp500_external_context_precomputed"
+    )
     assert nasdaq_external_summary["signal_source_mode"] == (
         "external_precomputed_us_equity_context"
     )
     assert nasdaq_external_summary["open_parameter_search"] is False
+    assert required_indicator_fields_for_consumer(
+        "research:nasdaq_sp500_external_context_precomputed"
+    ) == {
+        "US-EQUITY-CONTEXT": (
+            "breadth_above_sma200_pct",
+            "cape_percentile",
+            "vix_percentile",
+        )
+    }
 
 
 def test_ibit_production_equivalent_candidate_ignores_mayer_conflict() -> None:

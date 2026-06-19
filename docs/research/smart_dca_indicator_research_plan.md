@@ -99,7 +99,10 @@ context 回测留入口，不改变生产等价候选或默认普通定投行为
 
 这两个候选必须使用外部信号仓库产出的 point-in-time 研究 CSV 或后续
 `derived_indicators` artifact；在完成跨样本、执行日、贡献金额和 cadence
-矩阵前，不得进入 runtime 默认配置。
+矩阵前，不得进入 runtime 默认配置。策略侧研究工具将这两个候选标记为兼容
+`research:nasdaq_sp500_external_context_precomputed`，对应信号仓库字段为
+`US-EQUITY-CONTEXT.cape_percentile`、`US-EQUITY-CONTEXT.vix_percentile` 和
+`US-EQUITY-CONTEXT.breadth_above_sma200_pct`。
 
 ### Data Source Requirements
 

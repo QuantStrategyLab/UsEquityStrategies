@@ -477,6 +477,11 @@ def _contribution_values_arg_for_preset(args: argparse.Namespace) -> str | None:
 
 def _signal_manifest_expectations(candidate_set: str) -> dict[str, str | None]:
     modes = candidate_set_signal_source_modes(candidate_set)
+    if "external_precomputed_us_equity_context" in modes:
+        return {
+            "artifact_type": "us_equity_context_research_csv",
+            "transform": "us_equity.nasdaq_sp500.context.v1",
+        }
     if "external_precomputed_derived_indicators" in modes:
         return {
             "artifact_type": "btc_cycle_research_csv",
