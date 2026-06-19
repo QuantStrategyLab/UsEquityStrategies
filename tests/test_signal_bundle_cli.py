@@ -297,6 +297,76 @@ def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
     return index_path
 
 
+def _write_runtime_consumption_audit(
+    tmp_path: Path,
+    handoff_path: Path,
+    index_path: Path,
+) -> Path:
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    manifest_path = tmp_path / handoff["signal_bundle_manifest_path"]
+    audit_path = tmp_path / "consumption_audit.json"
+    audit_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumption_audit.v1",
+                "artifact_type": "market_signal_consumption_audit",
+                "consumption_mode": "runtime_platform",
+                "handoff_source": "platform_handoff_index",
+                "consumer": "us_equity:ibit_smart_dca",
+                "consumer_role": "runtime",
+                "ready_for_consumption": True,
+                "ready_for_runtime_injection": True,
+                "ready_for_research_consumption": False,
+                "runtime_injection_allowed": True,
+                "research_csv_runtime_injection_allowed": False,
+                "runtime_market_data_key": "derived_indicators",
+                "runtime_payload_field": "derived_indicators",
+                "canonical_input": handoff["canonical_input"],
+                "bundle_id": handoff["bundle_id"],
+                "as_of": handoff["as_of"],
+                "lookup_as_of": "2026-06-20",
+                "freshness_status": handoff["freshness_status"],
+                "handoff_manifest_path": str(handoff_path.resolve()),
+                "handoff_manifest_sha256": _sha256_path(handoff_path),
+                "index_path": str(index_path.resolve()),
+                "index_handoff_count": 1,
+                "signal_bundle_manifest_path": str(manifest_path.resolve()),
+                "signal_bundle_manifest_sha256": _sha256_path(manifest_path),
+                "source_family_catalog_manifest_path": str(
+                    tmp_path / handoff["source_family_catalog_manifest_path"]
+                ),
+                "source_family_catalog_manifest_sha256": handoff[
+                    "source_family_catalog_manifest_sha256"
+                ],
+                "consumer_contract_registry_manifest_path": str(
+                    tmp_path / handoff["consumer_contract_registry_manifest_path"]
+                ),
+                "consumer_contract_registry_manifest_sha256": handoff[
+                    "consumer_contract_registry_manifest_sha256"
+                ],
+                "source_family_count": handoff["source_family_count"],
+                "source_families": handoff["source_families"],
+                "matched_source_family_count": 1,
+                "matched_source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_count": handoff["consumer_contract_count"],
+                "consumer_contracts": handoff["consumer_contracts"],
+                "all_known_consumers_present": True,
+                "all_runtime_consumers_covered": True,
+                "linked_manifest_sha256s_verified": True,
+                "consumer_contract_verified": True,
+                "source_catalog_verified": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return audit_path
+
+
 def _write_research_handoff_inputs(tmp_path: Path) -> tuple[Path, Path]:
     _write_platform_handoff_inputs(tmp_path)
     research_dir = tmp_path / "research"
@@ -553,6 +623,51 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
     assert summary["source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
+
+
+def test_signal_bundle_cli_validates_runtime_consumption_audit(
+    tmp_path,
+    capsys,
+) -> None:
+    handoff_path = _write_platform_handoff_inputs(tmp_path)
+    index_path = _write_platform_handoff_index(tmp_path, handoff_path)
+    audit_path = _write_runtime_consumption_audit(tmp_path, handoff_path, index_path)
+
+    result = main(
+        [
+            "--consumption-audit-json",
+            str(audit_path),
+            "--consumer",
+            "us_equity:ibit_smart_dca",
+            "--require-runtime-consumer-coverage",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["schema_version"] == "market_signal_consumption_audit.v1"
+    assert summary["consumption_mode"] == "runtime_platform"
+    assert summary["consumer"] == "us_equity:ibit_smart_dca"
+    assert summary["lookup_as_of"] == "2026-06-20"
+    assert summary["all_runtime_consumers_covered"] is True
+    assert summary["bundle_identity_verified"] is True
+
+    bad_audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    bad_audit["all_runtime_consumers_covered"] = False
+    audit_path.write_text(json.dumps(bad_audit), encoding="utf-8")
+    bad_result = main(
+        [
+            "--consumption-audit-json",
+            str(audit_path),
+            "--consumer",
+            "us_equity:ibit_smart_dca",
+            "--require-runtime-consumer-coverage",
+        ]
+    )
+
+    assert bad_result == 2
+    assert "runtime consumer coverage" in capsys.readouterr().err
 
 
 def test_signal_bundle_cli_validates_research_export_manifest(

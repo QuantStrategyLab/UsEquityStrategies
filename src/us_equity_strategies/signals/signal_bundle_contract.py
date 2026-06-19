@@ -24,6 +24,9 @@ MARKET_SIGNAL_PLATFORM_HANDOFF_INDEX_SCHEMA_VERSION = (
     "market_signal_platform_handoff_index.v1"
 )
 MARKET_SIGNAL_RESEARCH_HANDOFF_SCHEMA_VERSION = "market_signal_research_handoff.v1"
+MARKET_SIGNAL_CONSUMPTION_AUDIT_SCHEMA_VERSION = (
+    "market_signal_consumption_audit.v1"
+)
 RESEARCH_EXPORT_SCHEMA_VERSION = "research_export.v1"
 QUALITY_REPORT_SCHEMA_VERSION = "market_signal_quality_report.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
@@ -1028,6 +1031,126 @@ def extract_canonical_input_from_platform_handoff_index_for_consumer(
         path,
         consumer=consumer,
         as_of=as_of,
+    )
+    return extract_canonical_input_from_manifest_for_consumer(
+        summary["signal_bundle_manifest_path"],
+        consumer=consumer,
+    )
+
+
+def load_signal_consumption_audit(path: str | PathLike[str]) -> dict[str, Any]:
+    """Load and validate a MarketSignalSources consumption audit artifact shape."""
+
+    audit_path = Path(path)
+    audit = _load_json_mapping(audit_path, label="signal consumption audit")
+    _validate_signal_consumption_audit_shape(audit)
+    return audit
+
+
+def signal_consumption_audit_summary_from_file(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+    expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
+    accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    require_runtime_consumer_coverage: bool = False,
+) -> dict[str, Any]:
+    """Validate a saved runtime consumption audit and its linked bundle manifest."""
+
+    audit_path = Path(path)
+    audit = load_signal_consumption_audit(audit_path)
+    target_consumer = str(consumer or "").strip()
+    if not target_consumer:
+        raise SignalBundleContractError("signal consumption audit consumer is required")
+    if str(audit["consumer"]).strip() != target_consumer:
+        raise SignalBundleContractError(
+            "signal consumption audit consumer mismatch: "
+            f"{audit['consumer']!r} != {target_consumer!r}"
+        )
+    canonical_input = str(audit["canonical_input"]).strip()
+    if canonical_input != expected_canonical_input:
+        raise SignalBundleContractError(
+            "signal consumption audit canonical_input mismatch: "
+            f"{canonical_input!r} != {expected_canonical_input!r}"
+        )
+    accepted = {str(item).strip().lower() for item in accepted_freshness_statuses}
+    freshness_status = str(audit["freshness_status"]).strip().lower()
+    if freshness_status not in accepted:
+        raise SignalBundleContractError(
+            "signal consumption audit freshness_status is not accepted: "
+            f"{audit['freshness_status']!r}"
+        )
+    if (
+        require_runtime_consumer_coverage
+        and audit.get("all_runtime_consumers_covered") is not True
+    ):
+        raise SignalBundleContractError(
+            "signal consumption audit runtime consumer coverage is incomplete"
+        )
+    signal_bundle_manifest_path = _resolve_consumption_audit_artifact_path(
+        audit_path.parent.resolve(),
+        audit["signal_bundle_manifest_path"],
+        owner="signal consumption audit",
+        field="signal_bundle_manifest_path",
+    )
+    _validate_consumption_audit_linked_sha256(
+        signal_bundle_manifest_path,
+        audit["signal_bundle_manifest_sha256"],
+        field="signal_bundle_manifest_sha256",
+    )
+    bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
+        signal_bundle_manifest_path,
+        consumer=target_consumer,
+    )
+    _validate_consumption_audit_bundle_identity(
+        audit,
+        bundle_summary=bundle_summary,
+        signal_bundle_manifest_path=signal_bundle_manifest_path,
+    )
+    return {
+        "path": str(audit_path.resolve()),
+        "schema_version": str(audit["schema_version"]),
+        "artifact_type": str(audit["artifact_type"]),
+        "sha256": _sha256_file(audit_path),
+        "size_bytes": audit_path.stat().st_size,
+        "consumption_mode": str(audit["consumption_mode"]),
+        "handoff_source": str(audit["handoff_source"]),
+        "consumer": target_consumer,
+        "canonical_input": canonical_input,
+        "bundle_id": str(audit["bundle_id"]),
+        "as_of": str(audit["as_of"]),
+        "lookup_as_of": str(audit.get("lookup_as_of", "") or ""),
+        "freshness_status": str(audit["freshness_status"]),
+        "runtime_market_data_key": str(audit["runtime_market_data_key"]),
+        "runtime_payload_field": str(audit["runtime_payload_field"]),
+        "signal_bundle_manifest_path": str(signal_bundle_manifest_path.resolve()),
+        "signal_bundle_manifest_sha256": _sha256_file(signal_bundle_manifest_path),
+        "handoff_manifest_path": str(audit["handoff_manifest_path"]),
+        "handoff_manifest_sha256": str(audit["handoff_manifest_sha256"]).lower(),
+        "source_families": tuple(str(item) for item in audit["source_families"]),
+        "matched_source_families": tuple(
+            str(item) for item in audit["matched_source_families"]
+        ),
+        "consumer_contracts": tuple(str(item) for item in audit["consumer_contracts"]),
+        "all_runtime_consumers_covered": audit.get("all_runtime_consumers_covered"),
+        "ready_for_runtime_injection": True,
+        "runtime_injection_allowed": True,
+        "linked_manifest_sha256s_verified": True,
+        "bundle_identity_verified": True,
+    }
+
+
+def extract_canonical_input_from_consumption_audit_for_consumer(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Validate a saved consumption audit and return consumer market_data."""
+
+    summary = signal_consumption_audit_summary_from_file(
+        path,
+        consumer=consumer,
+        require_runtime_consumer_coverage=True,
     )
     return extract_canonical_input_from_manifest_for_consumer(
         summary["signal_bundle_manifest_path"],
@@ -2135,6 +2258,143 @@ def _load_json_mapping(path: Path, *, label: str) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise SignalBundleContractError(f"{label} JSON root must be a mapping")
     return dict(payload)
+
+
+def _validate_signal_consumption_audit_shape(audit: Mapping[str, Any]) -> None:
+    _validate_no_sensitive_fields(audit, path="signal_consumption_audit")
+    if audit.get("schema_version") != MARKET_SIGNAL_CONSUMPTION_AUDIT_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported signal consumption audit schema_version: "
+            f"{audit.get('schema_version')!r}"
+        )
+    if audit.get("artifact_type") != "market_signal_consumption_audit":
+        raise SignalBundleContractError(
+            "signal consumption audit artifact_type mismatch: "
+            f"{audit.get('artifact_type')!r}"
+        )
+    required_fields = (
+        "consumption_mode",
+        "handoff_source",
+        "consumer",
+        "consumer_role",
+        "canonical_input",
+        "bundle_id",
+        "as_of",
+        "freshness_status",
+        "runtime_market_data_key",
+        "runtime_payload_field",
+        "signal_bundle_manifest_path",
+        "signal_bundle_manifest_sha256",
+        "handoff_manifest_path",
+        "handoff_manifest_sha256",
+        "source_families",
+        "matched_source_families",
+        "consumer_contracts",
+    )
+    for field in required_fields:
+        if not _has_non_empty_value(audit, field):
+            raise SignalBundleContractError(
+                f"signal consumption audit missing field: {field}"
+            )
+    if audit["consumption_mode"] != "runtime_platform":
+        raise SignalBundleContractError(
+            "signal consumption audit must be runtime_platform"
+        )
+    if audit["consumer_role"] != "runtime":
+        raise SignalBundleContractError("signal consumption audit consumer_role mismatch")
+    if audit["runtime_market_data_key"] != audit["canonical_input"]:
+        raise SignalBundleContractError(
+            "signal consumption audit runtime_market_data_key mismatch"
+        )
+    if audit["runtime_payload_field"] != audit["canonical_input"]:
+        raise SignalBundleContractError(
+            "signal consumption audit runtime_payload_field mismatch"
+        )
+    if audit.get("ready_for_consumption") is not True:
+        raise SignalBundleContractError("signal consumption audit is not ready")
+    if audit.get("ready_for_runtime_injection") is not True:
+        raise SignalBundleContractError(
+            "signal consumption audit is not runtime-injectable"
+        )
+    if audit.get("runtime_injection_allowed") is not True:
+        raise SignalBundleContractError(
+            "signal consumption audit does not allow runtime injection"
+        )
+    if audit.get("ready_for_research_consumption") is not False:
+        raise SignalBundleContractError(
+            "signal consumption audit is marked research-ready"
+        )
+    for field in (
+        "linked_manifest_sha256s_verified",
+        "consumer_contract_verified",
+        "source_catalog_verified",
+    ):
+        if audit.get(field) is not True:
+            raise SignalBundleContractError(
+                f"signal consumption audit {field} is not true"
+            )
+    if "all_runtime_consumers_covered" in audit and not isinstance(
+        audit["all_runtime_consumers_covered"],
+        bool,
+    ):
+        raise SignalBundleContractError(
+            "signal consumption audit all_runtime_consumers_covered must be a bool"
+        )
+    for field in ("source_families", "matched_source_families", "consumer_contracts"):
+        if not _is_string_sequence(audit[field]):
+            raise SignalBundleContractError(
+                f"signal consumption audit {field} must be strings"
+            )
+
+
+def _resolve_consumption_audit_artifact_path(
+    root: Path,
+    value: object,
+    *,
+    owner: str,
+    field: str,
+) -> Path:
+    raw_path = Path(str(value))
+    if raw_path.is_absolute():
+        return raw_path
+    return _resolve_relative_artifact_path(root, value, owner=owner, field=field)
+
+
+def _validate_consumption_audit_linked_sha256(
+    path: Path,
+    expected: object,
+    *,
+    field: str,
+) -> None:
+    expected_sha256 = str(expected).strip().lower()
+    actual_sha256 = _sha256_file(path)
+    if actual_sha256 != expected_sha256:
+        raise SignalBundleContractError(
+            f"signal consumption audit {field} mismatch: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+
+
+def _validate_consumption_audit_bundle_identity(
+    audit: Mapping[str, Any],
+    *,
+    bundle_summary: Mapping[str, Any],
+    signal_bundle_manifest_path: Path,
+) -> None:
+    expected_values = {
+        "canonical_input": bundle_summary["canonical_input"],
+        "bundle_id": bundle_summary["bundle_id"],
+        "as_of": bundle_summary["as_of"],
+        "freshness_status": bundle_summary["freshness_status"],
+        "signal_bundle_manifest_sha256": _sha256_file(signal_bundle_manifest_path),
+    }
+    for field, expected in expected_values.items():
+        actual = str(audit.get(field, "")).strip()
+        if actual != str(expected):
+            raise SignalBundleContractError(
+                f"signal consumption audit {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
 
 
 def _validate_research_handoff_shape(handoff: Mapping[str, Any]) -> None:

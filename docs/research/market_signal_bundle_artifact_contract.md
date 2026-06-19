@@ -209,6 +209,25 @@ freshness 和 `as_of` 选出最新匹配 handoff manifest，再走同一套 hand
 index 中的摘要字段，仍会校验 handoff manifest 的 SHA-256、linked manifest SHA-256、
 bundle freshness 和 consumer 字段覆盖。
 
+若部署流程保存了 `market_signal_consumption_audit.v1`，策略平台可以在 deploy 或
+startup gate 再校验这份决策记录。该校验不会替代 handoff 生成侧的发布门禁；它用于确认
+保存的 audit 仍指向同一份 signal bundle manifest，`ready_for_runtime_injection=true`，
+`runtime_injection_allowed=true`，并且在需要时
+`all_runtime_consumers_covered=true`：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --consumption-audit-json ./deploy/ibit_smart_dca.audit.json \
+  --consumer us_equity:ibit_smart_dca \
+  --require-runtime-consumer-coverage \
+  --pretty
+```
+
+直接注入时可使用
+`extract_canonical_input_from_consumption_audit_for_consumer()`。它先验证保存的 audit、
+linked signal bundle manifest SHA-256、bundle identity、consumer 字段覆盖和 runtime
+coverage，再返回 `StrategyContext.market_data["derived_indicators"]` 需要的 payload。
+
 研究 CSV 不应通过 platform runtime handoff 注入。若 `MarketSignalSources` 发布的是
 `market_signal_research_handoff.v1`，策略仓或 CI 应先校验 research handoff，再把 CSV
 交给智能定投研究 CLI。该 handoff pin 住 `research_export.v1` manifest、source family

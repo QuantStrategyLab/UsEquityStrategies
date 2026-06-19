@@ -10,6 +10,7 @@ from .signal_bundle_contract import (
     CANONICAL_INPUT_DERIVED_INDICATORS,
     SignalBundleContractError,
     research_export_audit_summary_from_manifest,
+    signal_consumption_audit_summary_from_file,
     signal_research_handoff_audit_summary_from_manifest,
     signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
@@ -27,7 +28,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if args.platform_handoff_manifest is not None:
+        if args.consumption_audit_json is not None:
+            if (
+                args.platform_handoff_manifest is not None
+                or args.platform_handoff_index is not None
+                or args.research_handoff_manifest is not None
+                or args.research_export_manifest is not None
+                or args.consumer_contract_registry_manifest is not None
+                or args.consumer_contract_registry is not None
+                or args.index is not None
+                or args.manifest is not None
+                or args.as_of
+                or args.bundle_id
+                or args.research_artifact_type
+                or args.research_transform
+                or args.require_all_known_families
+                or args.require_all_known_consumers
+            ):
+                raise SignalBundleContractError(
+                    "provide --consumption-audit-json without handoff, research, "
+                    "registry, bundle, index, as-of, bundle-id, or require-all options"
+                )
+            summary = signal_consumption_audit_summary_from_file(
+                args.consumption_audit_json,
+                consumer=args.consumer,
+                expected_canonical_input=args.canonical_input,
+                require_runtime_consumer_coverage=(
+                    args.require_runtime_consumer_coverage
+                ),
+            )
+        elif args.platform_handoff_manifest is not None:
             if (
                 args.platform_handoff_index is not None
                 or args.research_handoff_manifest is not None
@@ -197,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SignalBundleContractError(
                 "--require-runtime-consumer-coverage is only valid with "
                 "--platform-handoff-manifest, --platform-handoff-index, "
-                "or --research-handoff-manifest"
+                "--research-handoff-manifest, or --consumption-audit-json"
             )
         elif args.index is not None:
             if args.consumer:
@@ -227,7 +257,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SignalBundleContractError(
                 "provide a manifest path, --index, --consumer-contract-registry, "
                 "--platform-handoff-manifest, --platform-handoff-index, "
-                "--research-export-manifest, or --research-handoff-manifest"
+                "--research-export-manifest, --research-handoff-manifest, "
+                "or --consumption-audit-json"
             )
     except (OSError, SignalBundleContractError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -273,6 +304,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Resolve and validate the latest matching MarketSignalSources platform "
             "handoff manifest from a handoff index."
+        ),
+    )
+    parser.add_argument(
+        "--consumption-audit-json",
+        type=Path,
+        help=(
+            "Validate a saved MarketSignalSources runtime consumption audit "
+            "and its linked signal bundle manifest."
         ),
     )
     parser.add_argument(
