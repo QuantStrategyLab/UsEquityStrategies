@@ -96,6 +96,11 @@ context 回测留入口，不改变生产等价候选或默认普通定投行为
 - `nasdaq_sp500_precomputed_vol_breadth_stress`：只使用 `vix_percentile` 与
   `breadth_above_sma200_pct`，在高波动且广度疲弱时把本期投入提高到
   `1.25x`，否则保持 `1.0x`。
+- `nasdaq_sp500_precomputed_cape_vix_guard`：只使用 `cape_percentile` 与
+  `vix_percentile`，当 CAPE 高于 `0.85` 分位时优先降到 `0.75x`，否则在 VIX
+  高于 `0.80` 分位时提高到 `1.25x`，其余保持 `1.0x`。这个候选通过
+  `nasdaq_sp500_cape_vix_precomputed_variants` 单独运行，避免在 breadth 缺失时
+  混入需要 breadth 或价格列的候选。
 
 这两个候选必须使用外部信号仓库产出的 point-in-time 研究 CSV 或后续
 `derived_indicators` artifact；在完成跨样本、执行日、贡献金额和 cadence
@@ -108,6 +113,10 @@ context 回测留入口，不改变生产等价候选或默认普通定投行为
 `--signal-manifest` 后还会拒绝重复日期、非单调日期、`last_date > as_of`、
 Nasdaq context 百分位越界，以及不可有限化的数值，避免 point-in-time 研究 CSV
 在进入 robustness matrix 前已经有明显看未来或字段污染。
+CAPE/VIX-only 候选绑定
+`research:nasdaq_sp500_cape_vix_external_context_precomputed`，只要求
+`US-EQUITY-CONTEXT.cape_percentile` 与 `US-EQUITY-CONTEXT.vix_percentile`；
+它不能满足 full context consumer，也不能替代 breadth 候选的结论。
 
 ### Data Source Requirements
 

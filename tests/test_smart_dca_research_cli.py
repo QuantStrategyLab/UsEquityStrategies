@@ -471,6 +471,77 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
     ).read_text(encoding="utf-8")
 
 
+def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
+    signal_csv = tmp_path / "us_equity_public_context.csv"
+    signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "nasdaq-cape-vix-context-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "cape_percentile", "vix_percentile"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_cape_vix_precomputed_variants",
+            "--signal-columns",
+            "cape_percentile,vix_percentile",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["metadata"]["research_config"]["signal_source_modes"] == [
+        "external_precomputed_us_equity_context",
+    ]
+    assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == [
+        "research:nasdaq_sp500_cape_vix_external_context_precomputed"
+    ]
+    assert "nasdaq_sp500_precomputed_cape_vix_guard" in (
+        output_dir / "monthly_day_15" / "metrics.csv"
+    ).read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     ("mutation", "as_of_offset", "expected_error"),
     (
@@ -915,10 +986,11 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 2,
-                "known_consumer_count": 6,
+                "known_consumer_count": 7,
                 "missing_known_consumers": [
                     "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_precomputed",
+                    "research:nasdaq_sp500_cape_vix_external_context_precomputed",
                     "research:nasdaq_sp500_external_context_precomputed",
                     "us_equity:ibit_smart_dca",
                 ],
@@ -1327,11 +1399,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 1,
-                "known_consumer_count": 6,
+                "known_consumer_count": 7,
                 "missing_known_consumers": [
                     "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                     "research:ibit_btc_ahr999_precomputed",
+                    "research:nasdaq_sp500_cape_vix_external_context_precomputed",
                     "research:nasdaq_sp500_external_context_precomputed",
                     "us_equity:ibit_smart_dca",
                 ],

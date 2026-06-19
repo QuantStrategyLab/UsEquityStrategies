@@ -143,6 +143,16 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
             },
         },
         {
+            "consumer": "research:nasdaq_sp500_cape_vix_external_context_precomputed",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "US-EQUITY-CONTEXT": [
+                    "cape_percentile",
+                    "vix_percentile",
+                ]
+            },
+        },
+        {
             "consumer": "research:nasdaq_sp500_external_context_precomputed",
             "canonical_input": "derived_indicators",
             "required_indicator_fields_by_symbol": {
@@ -178,8 +188,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 6,
-                "known_consumer_count": 6,
+                "consumer_count": 7,
+                "known_consumer_count": 7,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -221,7 +231,7 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
-                "consumer_contract_count": 6,
+                "consumer_contract_count": len(contracts),
                 "consumer_contracts": [
                     str(contract["consumer"])
                     for contract in contracts
@@ -370,7 +380,7 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 6
+    assert summary["consumer_contract_count"] == 7
     assert summary["all_known_consumers_present"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
@@ -510,6 +520,18 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                     },
                     {
                         "consumer": (
+                            "research:nasdaq_sp500_cape_vix_external_context_precomputed"
+                        ),
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "US-EQUITY-CONTEXT": [
+                                "cape_percentile",
+                                "vix_percentile",
+                            ],
+                        },
+                    },
+                    {
+                        "consumer": (
                             "research:nasdaq_sp500_external_context_precomputed"
                         ),
                         "canonical_input": "derived_indicators",
@@ -542,8 +564,8 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 6,
-                "known_consumer_count": 6,
+                "consumer_count": 7,
+                "known_consumer_count": 7,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -573,7 +595,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     assert summary["registry_sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
-    assert summary["consumer_count"] == 6
+    assert summary["consumer_count"] == 7
     assert summary["all_known_consumers_present"] is True
 
 

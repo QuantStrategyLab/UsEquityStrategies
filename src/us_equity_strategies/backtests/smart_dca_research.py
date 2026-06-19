@@ -135,6 +135,13 @@ NASDAQ_SP500_VOL_BREADTH_STRESS_PARAMETERS: dict[str, float] = {
     "base_multiplier": 1.0,
     "stress_pullback_multiplier": 1.25,
 }
+NASDAQ_SP500_CAPE_VIX_GUARD_PARAMETERS: dict[str, float] = {
+    "cape_expensive_percentile_threshold": 0.85,
+    "vix_stress_percentile_threshold": 0.80,
+    "base_multiplier": 1.0,
+    "valuation_guard_multiplier": 0.75,
+    "vix_stress_multiplier": 1.25,
+}
 
 
 PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
@@ -169,6 +176,14 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         signal_symbols=("vix_percentile", "breadth_above_sma200_pct"),
         min_history=1,
         parameters=NASDAQ_SP500_VOL_BREADTH_STRESS_PARAMETERS,
+    ),
+    "nasdaq_sp500_precomputed_cape_vix_guard": SmartDcaCandidate(
+        name="nasdaq_sp500_precomputed_cape_vix_guard",
+        family="nasdaq_sp500_external_precomputed_context",
+        rule_type="precomputed_nasdaq_sp500_cape_vix_guard",
+        signal_symbols=("cape_percentile", "vix_percentile"),
+        min_history=1,
+        parameters=NASDAQ_SP500_CAPE_VIX_GUARD_PARAMETERS,
     ),
     "ibit_btc_ahr999_cycle": SmartDcaCandidate(
         name="ibit_btc_ahr999_cycle",
@@ -264,6 +279,9 @@ CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
         "nasdaq_sp500_precomputed_valuation_guard",
         "nasdaq_sp500_precomputed_vol_breadth_stress",
     ),
+    "nasdaq_sp500_cape_vix_precomputed_variants": (
+        "nasdaq_sp500_precomputed_cape_vix_guard",
+    ),
     "ibit_btc_ahr999_price": ("ibit_btc_ahr999_cycle",),
     "ibit_btc_ahr999_price_variants": (
         "ibit_btc_ahr999_cycle",
@@ -308,6 +326,9 @@ CANDIDATE_SIGNAL_CONSUMERS: dict[str, tuple[str, ...]] = {
     ),
     "nasdaq_sp500_precomputed_vol_breadth_stress": (
         "research:nasdaq_sp500_external_context_precomputed",
+    ),
+    "nasdaq_sp500_precomputed_cape_vix_guard": (
+        "research:nasdaq_sp500_cape_vix_external_context_precomputed",
     ),
     "ibit_btc_precomputed_ahr999_cycle": (
         "us_equity:ibit_smart_dca",
@@ -694,6 +715,33 @@ def _precomputed_nasdaq_sp500_vol_breadth_stress_multiplier(
     return float(parameters["base_multiplier"]), "volatility_breadth_normal", metrics
 
 
+def _precomputed_nasdaq_sp500_cape_vix_guard_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    latest = signal_history.iloc[-1]
+    cape_percentile = float(latest[_normalize_symbol("cape_percentile")])
+    vix_percentile = float(latest[_normalize_symbol("vix_percentile")])
+    metrics: dict[str, object] = {
+        "cape_percentile": cape_percentile,
+        "vix_percentile": vix_percentile,
+        "cycle_indicator_source": "external_precomputed_us_equity_context",
+    }
+    if cape_percentile >= parameters["cape_expensive_percentile_threshold"]:
+        return (
+            float(parameters["valuation_guard_multiplier"]),
+            "cape_vix_valuation_expensive_guard",
+            metrics,
+        )
+    if vix_percentile >= parameters["vix_stress_percentile_threshold"]:
+        return (
+            float(parameters["vix_stress_multiplier"]),
+            "cape_vix_volatility_stress_add",
+            metrics,
+        )
+    return float(parameters["base_multiplier"]), "cape_vix_normal", metrics
+
+
 def _bitcoin_age_estimate_price(as_of: object) -> float:
     timestamp = pd.Timestamp(as_of)
     if timestamp.tzinfo is not None:
@@ -940,6 +988,11 @@ def _candidate_multiplier(
         )
     if candidate.rule_type == "precomputed_nasdaq_sp500_vol_breadth_stress":
         return _precomputed_nasdaq_sp500_vol_breadth_stress_multiplier(
+            signal_history,
+            candidate.parameters,
+        )
+    if candidate.rule_type == "precomputed_nasdaq_sp500_cape_vix_guard":
+        return _precomputed_nasdaq_sp500_cape_vix_guard_multiplier(
             signal_history,
             candidate.parameters,
         )

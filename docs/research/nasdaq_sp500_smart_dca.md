@@ -174,6 +174,11 @@ research-only precomputed context variants:
 - `nasdaq_sp500_precomputed_vol_breadth_stress`, using `vix_percentile` and
   `breadth_above_sma200_pct` to raise this period's contribution to `1.25x`
   only when volatility stress and weak breadth coincide.
+- `nasdaq_sp500_precomputed_cape_vix_guard`, available through the separate
+  `nasdaq_sp500_cape_vix_precomputed_variants` set, using only
+  `cape_percentile` and `vix_percentile`. It prioritizes a `0.75x` high-CAPE
+  guard before using a `1.25x` high-VIX stress add, so it can be tested with
+  public FRED/Shiller context while breadth remains unavailable.
 
 These candidates require point-in-time external context CSVs or future signal
 source artifacts. In the strategy research helper they are tied to the
@@ -182,6 +187,10 @@ expects `US-EQUITY-CONTEXT` fields for `cape_percentile`, `vix_percentile`, and
 `breadth_above_sma200_pct`. The input CSV should also carry a signal-source
 availability report that checks field presence, date validity, percentile
 ranges, duplicate dates, and gaps before any robustness matrix is reviewed.
+The CAPE/VIX-only variant is tied to
+`research:nasdaq_sp500_cape_vix_external_context_precomputed`, which requires
+only `cape_percentile` and `vix_percentile`; it does not satisfy the full
+breadth-aware consumer.
 They are not production defaults, and they should not be enabled unless a
 robustness matrix beats fixed DCA under the same review gates used for the
 price-only sweep.

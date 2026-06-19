@@ -12,6 +12,7 @@ import pandas as pd
 
 from us_equity_strategies.signals import (
     SignalBundleContractError,
+    required_indicator_fields_for_consumer,
     signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
     signal_consumer_contract_registry_audit_summary_from_manifest,
@@ -418,6 +419,9 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             date_column=args.date_column,
             expected_artifact_type=signal_manifest_expectations["artifact_type"],
             expected_transform=signal_manifest_expectations["transform"],
+            required_signal_fields=_required_us_equity_context_fields(
+                required_consumers
+            ),
         )
     if args.trade_manifest is not None:
         records["trade_manifest"] = _manifest_record(
@@ -498,6 +502,7 @@ def _manifest_record(
     date_column: str,
     expected_artifact_type: str | None,
     expected_transform: str | None,
+    required_signal_fields: tuple[str, ...] = (),
 ) -> dict[str, object]:
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
@@ -549,6 +554,7 @@ def _manifest_record(
             linked_csv_shape=linked_csv_shape,
             date_column=date_column,
             expected_artifact_type=expected_artifact_type,
+            required_signal_fields=required_signal_fields,
         )
 
     return {
@@ -1010,6 +1016,7 @@ def _validate_signal_research_csv_contract(
     linked_csv_shape: dict[str, object],
     date_column: str,
     expected_artifact_type: str | None,
+    required_signal_fields: tuple[str, ...] = (),
 ) -> None:
     if expected_artifact_type not in {
         "btc_cycle_research_csv",
@@ -1040,17 +1047,36 @@ def _validate_signal_research_csv_contract(
         )
 
     if expected_artifact_type == "us_equity_context_research_csv":
-        _validate_us_equity_context_signal_columns(frame)
+        _validate_us_equity_context_signal_columns(
+            frame,
+            required_columns=required_signal_fields,
+        )
     if expected_artifact_type == "btc_cycle_research_csv":
         _validate_btc_cycle_signal_columns(frame)
 
 
-def _validate_us_equity_context_signal_columns(frame: pd.DataFrame) -> None:
-    for column in (
+def _required_us_equity_context_fields(consumers: tuple[str, ...]) -> tuple[str, ...]:
+    fields: set[str] = set()
+    for consumer in consumers:
+        for symbol, required_fields in required_indicator_fields_for_consumer(
+            consumer
+        ).items():
+            if symbol == "US-EQUITY-CONTEXT":
+                fields.update(str(field) for field in required_fields)
+    return tuple(sorted(fields))
+
+
+def _validate_us_equity_context_signal_columns(
+    frame: pd.DataFrame,
+    *,
+    required_columns: tuple[str, ...] = (),
+) -> None:
+    columns = required_columns or (
         "cape_percentile",
         "vix_percentile",
         "breadth_above_sma200_pct",
-    ):
+    )
+    for column in columns:
         values = _finite_numeric_column(frame, column, role="signal CSV")
         if not values.between(0.0, 1.0).all():
             raise ValueError(f"signal CSV column {column!r} must be between 0 and 1")

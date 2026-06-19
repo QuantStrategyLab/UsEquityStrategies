@@ -1192,6 +1192,35 @@ def test_nasdaq_external_precomputed_candidates_use_context_columns() -> None:
     assert stress.last_signal_metrics["breadth_above_sma200_pct"] == 0.35
 
 
+def test_nasdaq_cape_vix_precomputed_candidate_runs_without_breadth() -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    signals = pd.DataFrame(
+        {
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        },
+        index=dates,
+    )
+    trade_prices = pd.Series(
+        [50.0 + i * 0.03 for i in range(len(dates))],
+        index=dates,
+    )
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=trade_prices,
+        candidate_set="nasdaq_sp500_cape_vix_precomputed_variants",
+        monthly_contribution_usd=500.0,
+    )
+
+    assert set(result) == {"fixed", "nasdaq_sp500_precomputed_cape_vix_guard"}
+    candidate = result["nasdaq_sp500_precomputed_cape_vix_guard"]
+    assert candidate.trades[0]["regime"] == "cape_vix_volatility_stress_add"
+    assert candidate.trades[0]["multiplier"] == 1.25
+    assert candidate.last_signal_metrics["cape_percentile"] == 0.70
+    assert candidate.last_signal_metrics["vix_percentile"] == 0.85
+
+
 def _candidate_parameters(name: str) -> dict[str, float]:
     return {
         str(row["parameter_name"]): float(row["parameter_value"])
@@ -1271,6 +1300,12 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
         "external_precomputed_us_equity_context",
         "market_history_price_indicators",
     )
+    assert candidate_set_signal_consumers(
+        "nasdaq_sp500_cape_vix_precomputed_variants"
+    ) == ("research:nasdaq_sp500_cape_vix_external_context_precomputed",)
+    assert candidate_set_signal_source_modes(
+        "nasdaq_sp500_cape_vix_precomputed_variants"
+    ) == ("external_precomputed_us_equity_context",)
     assert candidate_set_signal_consumers("ibit_btc_ahr999_precomputed") == (
         "research:ibit_btc_ahr999_precomputed",
         "us_equity:ibit_smart_dca",
@@ -1359,6 +1394,21 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
             "vix_percentile",
         )
     }
+    cape_vix_summary = candidate_summaries_to_rows(
+        ("nasdaq_sp500_precomputed_cape_vix_guard",)
+    )[0]
+    assert cape_vix_summary["compatible_signal_consumers"] == (
+        "research:nasdaq_sp500_cape_vix_external_context_precomputed"
+    )
+    assert cape_vix_summary["signal_symbols"] == "cape_percentile,vix_percentile"
+    assert required_indicator_fields_for_consumer(
+        "research:nasdaq_sp500_cape_vix_external_context_precomputed"
+    ) == {
+        "US-EQUITY-CONTEXT": (
+            "cape_percentile",
+            "vix_percentile",
+        )
+    }
 
 
 def test_ibit_production_equivalent_candidate_ignores_mayer_conflict() -> None:
@@ -1396,6 +1446,7 @@ def test_candidate_universe_is_named_and_bounded() -> None:
         "nasdaq_sp500_price_no_skip",
         "nasdaq_sp500_precomputed_valuation_guard",
         "nasdaq_sp500_precomputed_vol_breadth_stress",
+        "nasdaq_sp500_precomputed_cape_vix_guard",
         "ibit_btc_ahr999_cycle",
         "ibit_btc_ahr999_mayer_cycle",
         "ibit_btc_ahr999_mayer_no_skip_cycle",
