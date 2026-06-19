@@ -1479,6 +1479,76 @@ def _max_scheduled_multiplier(result: DcaResearchResult) -> float:
     return float(max(values)) if values else 0.0
 
 
+def _performance_diagnoses(row: Mapping[str, object]) -> tuple[str, ...]:
+    """Return explanatory, non-gating diagnostics for fixed-vs-smart results."""
+
+    if bool(row.get("is_fixed_benchmark", False)):
+        return ("fixed_benchmark",)
+
+    relative_terminal = _float_value(row.get("relative_terminal_value_pct"))
+    drawdown_delta = _float_value(row.get("max_drawdown_delta_pct_points"))
+    deployment_delta = _float_value(row.get("deployment_rate_delta_pct_points"))
+    skipped_ratio = _float_value(row.get("skipped_buy_ratio"))
+    terminal_cash_ratio = _float_value(row.get("terminal_cash_ratio_pct"))
+    scheduled_count = int(_float_value(row.get("scheduled_decision_count")))
+    average_multiplier = _float_value(row.get("average_scheduled_multiplier"))
+
+    diagnoses: list[str] = []
+    if relative_terminal >= 0.0:
+        diagnoses.append("terminal_edge_non_negative")
+    else:
+        diagnoses.append("terminal_underperformance_vs_fixed")
+        if skipped_ratio > 0.05:
+            diagnoses.append("skipped_buy_cash_drag")
+        if deployment_delta < -1.0:
+            diagnoses.append("lower_deployment_rate")
+        if terminal_cash_ratio > 5.0:
+            diagnoses.append("excess_terminal_cash")
+        if scheduled_count > 0 and average_multiplier < 0.95:
+            diagnoses.append("below_fixed_average_multiplier")
+        if drawdown_delta <= -2.0:
+            diagnoses.append("paid_terminal_value_for_drawdown_relief")
+        if len(diagnoses) == 1:
+            diagnoses.append("no_clear_capital_drag_signal")
+
+    if drawdown_delta > 1.0:
+        diagnoses.append("drawdown_worse_than_fixed")
+    elif drawdown_delta < -1.0:
+        diagnoses.append("drawdown_better_than_fixed")
+    return tuple(dict.fromkeys(diagnoses))
+
+
+def _dominant_csv_value(
+    rows: Iterable[Mapping[str, object]],
+    field: str,
+) -> str:
+    counts: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
+    for row in rows:
+        for value in str(row.get(field, "")).split(","):
+            normalized = value.strip()
+            if not normalized:
+                continue
+            first_seen.setdefault(normalized, len(first_seen))
+            counts[normalized] = counts.get(normalized, 0) + 1
+    if not counts:
+        return ""
+    return sorted(
+        counts,
+        key=lambda value: (-counts[value], first_seen[value], value),
+    )[0]
+
+
+def _float_value(value: object) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if math.isnan(result):
+        return 0.0
+    return result
+
+
 def evaluate_candidate_results(
     results: Mapping[str, DcaResearchResult],
     *,
@@ -1669,6 +1739,9 @@ def results_to_metrics_rows(
                     "rank_score": 0.0,
                 }
             )
+        diagnoses = _performance_diagnoses(row)
+        row["primary_performance_diagnosis"] = diagnoses[0] if diagnoses else ""
+        row["performance_diagnoses"] = ",".join(diagnoses)
         rows.append(row)
     return tuple(rows)
 
@@ -1757,6 +1830,13 @@ def scenario_results_to_robustness_rows(
                 "passed_all_scenarios": robustness_gate_passed,
                 "failed_scenarios": scenario_count - passed_count,
                 "failure_reasons": ",".join(failure_reasons),
+                "dominant_performance_diagnosis": _dominant_csv_value(
+                    values,
+                    "performance_diagnoses",
+                ),
+                "performance_diagnoses": ",".join(
+                    _union_csv_values(values, "performance_diagnoses")
+                ),
                 "weakest_scenario": _scenario_for_min_metric(values, "rank_score"),
                 "worst_terminal_scenario": _scenario_for_min_metric(
                     values,
@@ -2091,6 +2171,12 @@ def scenario_results_to_selection_rows(
                 "selected_regime_count": selected["regime_count"],
                 "selected_regimes_seen": selected["regimes_seen"],
                 "selected_failure_reasons": selected["failure_reasons"],
+                "selected_dominant_performance_diagnosis": selected[
+                    "dominant_performance_diagnosis"
+                ],
+                "selected_performance_diagnoses": selected[
+                    "performance_diagnoses"
+                ],
                 "candidate_count": len(ordered_candidate_names),
                 "compared_candidates": ",".join(ordered_candidate_names),
                 "compared_candidate_definition_sha256s": ",".join(
@@ -2199,6 +2285,12 @@ def scenario_results_to_review_decision(
                     row["selected_median_relative_terminal_value_pct"]
                 ),
                 "min_rank_score": float(row["selected_min_rank_score"]),
+                "dominant_performance_diagnosis": str(
+                    row["selected_dominant_performance_diagnosis"]
+                ),
+                "performance_diagnoses": _csv_values_tuple(
+                    row["selected_performance_diagnoses"]
+                ),
                 "compared_candidates": _csv_values_tuple(row["compared_candidates"]),
                 "compared_candidate_definition_sha256s": _csv_values_tuple(
                     row["compared_candidate_definition_sha256s"]
@@ -2297,6 +2389,8 @@ def _production_profile_decision_rows(
                     "observed_best_candidate_definition_sha256": "",
                     "observed_best_status": "not_evaluated",
                     "observed_best_reason": "profile_not_in_candidate_universe",
+                    "observed_best_dominant_performance_diagnosis": "",
+                    "observed_best_performance_diagnoses": "",
                     "runtime_default_recommendation": "fixed_dca",
                     "runtime_default_change_policy": (
                         "manual_review_required_no_auto_enable"
@@ -2325,6 +2419,12 @@ def _production_profile_decision_rows(
                 ),
                 "observed_best_status": str(row["recommendation_status"]),
                 "observed_best_reason": str(row["recommendation_reason"]),
+                "observed_best_dominant_performance_diagnosis": str(
+                    row["selected_dominant_performance_diagnosis"]
+                ),
+                "observed_best_performance_diagnoses": str(
+                    row["selected_performance_diagnoses"]
+                ),
                 "runtime_default_recommendation": "fixed_dca",
                 "runtime_default_change_policy": (
                     "manual_review_required_no_auto_enable"

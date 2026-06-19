@@ -442,6 +442,8 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert "max_average_cash_ratio_pct" in robustness_rows[0]
     assert "max_zero_multiplier_ratio" in robustness_rows[0]
     assert "max_boosted_multiplier_ratio" in robustness_rows[0]
+    assert "dominant_performance_diagnosis" in robustness_rows[0]
+    assert "performance_diagnoses" in robustness_rows[0]
     assert "regimes_seen" in robustness_rows[0]
     assert "worst_max_drawdown_delta_pct_points" in robustness_rows[0]
     assert selection_rows[0]["selection_group"] == "nasdaq_sp500_price"
@@ -484,6 +486,8 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert "selected_median_relative_terminal_value_pct" in selection_rows[0]
     assert "selected_max_zero_multiplier_ratio" in selection_rows[0]
     assert "selected_max_boosted_multiplier_ratio" in selection_rows[0]
+    assert "selected_dominant_performance_diagnosis" in selection_rows[0]
+    assert "selected_performance_diagnoses" in selection_rows[0]
     assert "selected_regimes_seen" in selection_rows[0]
     assert selection_rows[0]["max_effect_terminal_cash_ratio_pct"] == 35.0
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
@@ -538,6 +542,12 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert review_decision["observed_best_smart_candidates"][0]["selection_group"] == (
         "nasdaq_sp500_price"
     )
+    assert "dominant_performance_diagnosis" in (
+        review_decision["observed_best_smart_candidates"][0]
+    )
+    assert "performance_diagnoses" in (
+        review_decision["observed_best_smart_candidates"][0]
+    )
     assert len(
         review_decision["observed_best_smart_candidates"][0][
             "candidate_definition_sha256"
@@ -557,6 +567,9 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert profile_decisions[NASDAQ_SP500_SMART_DCA_PROFILE][
         "default_change_allowed_by_research"
     ] is False
+    assert "observed_best_dominant_performance_diagnosis" in (
+        profile_decisions[NASDAQ_SP500_SMART_DCA_PROFILE]
+    )
     assert profile_decisions[IBIT_SMART_DCA_PROFILE][
         "observed_best_status"
     ] == "not_evaluated"
@@ -596,6 +609,78 @@ def test_selection_rows_hold_fixed_when_no_variant_passes() -> None:
     )
     assert rows[0]["recommendation_reason"] == "no_candidate_passed_robustness_gate"
     assert "nasdaq_sp500_price_no_skip" in rows[0]["compared_candidates"]
+
+
+def test_performance_diagnosis_flags_cash_drag_without_changing_gates() -> None:
+    scenarios = {
+        "monthly_day_1": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=970.0,
+                skipped_count=2,
+                deployment_rate=0.70,
+                cash=200.0,
+            ),
+        },
+        "monthly_day_25": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=965.0,
+                skipped_count=1,
+                deployment_rate=0.75,
+                cash=175.0,
+            ),
+        },
+    }
+
+    metrics_rows = results_to_metrics_rows(scenarios["monthly_day_1"])
+    smart_metrics = {
+        row["name"]: row
+        for row in metrics_rows
+    }["nasdaq_sp500_price_no_skip"]
+    robustness_rows = scenario_results_to_robustness_rows(scenarios)
+    selection_rows = scenario_results_to_selection_rows(
+        scenarios,
+        min_review_scenarios=1,
+    )
+    review_decision = scenario_results_to_review_decision(
+        scenarios,
+        min_review_scenarios=1,
+    )
+
+    assert smart_metrics["primary_performance_diagnosis"] == (
+        "terminal_underperformance_vs_fixed"
+    )
+    assert "skipped_buy_cash_drag" in smart_metrics["performance_diagnoses"]
+    assert "lower_deployment_rate" in smart_metrics["performance_diagnoses"]
+    assert "excess_terminal_cash" in smart_metrics["performance_diagnoses"]
+    assert robustness_rows[0]["dominant_performance_diagnosis"] == (
+        "terminal_underperformance_vs_fixed"
+    )
+    assert "skipped_buy_cash_drag" in robustness_rows[0]["performance_diagnoses"]
+    assert selection_rows[0]["selected_dominant_performance_diagnosis"] == (
+        "terminal_underperformance_vs_fixed"
+    )
+    observed = review_decision["observed_best_smart_candidates"][0]
+    assert observed["dominant_performance_diagnosis"] == (
+        "terminal_underperformance_vs_fixed"
+    )
+    assert "lower_deployment_rate" in observed["performance_diagnoses"]
+    profile_decisions = {
+        row["profile"]: row
+        for row in review_decision["production_profile_decisions"]
+    }
+    nasdaq_profile = profile_decisions[NASDAQ_SP500_SMART_DCA_PROFILE]
+    assert nasdaq_profile["observed_best_dominant_performance_diagnosis"] == (
+        "terminal_underperformance_vs_fixed"
+    )
+    assert "excess_terminal_cash" in nasdaq_profile[
+        "observed_best_performance_diagnoses"
+    ]
+    assert selection_rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert review_decision["runtime_default_recommendation"] == "fixed_dca"
 
 
 def test_review_decision_keeps_fixed_default_while_naming_manual_review_candidate() -> None:

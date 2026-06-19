@@ -482,12 +482,15 @@ metrics 目前会包含 `max_underwater_days`、`worst_relative_value_gap_after_
 `worst_relative_value_gap_after_2y_pct`、`worst_relative_value_gap_after_3y_pct` 和
 `money_weighted_return_pct`，以及 `average_cash_ratio_pct`、`max_cash_ratio_pct`、
 `terminal_cash_ratio_pct`、`scheduled_decision_count`、zero/boosted multiplier 占比和
-`regimes_seen`，
+`regimes_seen`，以及 `primary_performance_diagnosis` / `performance_diagnoses`，
 用于先筛掉长期显著落后 fixed DCA 的候选；这些列不是完整 rolling-start 回测的替代品，
 后续仍需要按季度或年度起点重跑样本外窗口。
 顶层 `robustness_summary.csv` 会按候选聚合所有场景，报告 `pass_rate`、`passed_count`、
 `review_status`、`review_rank`、最差终值差距、最差回撤差距、最大跳过比例、最差
 rolling gap、最差和中位 money-weighted return、最大现金占比、`weakest_scenario` 和失败原因。
+它也会聚合 `dominant_performance_diagnosis` 和 `performance_diagnoses`，用于解释智能定投
+跑输 fixed DCA 是来自跳过买入/现金拖累、较低 deployment、长期保留现金、还是为了回撤改善付出
+终值代价。该诊断只用于研究解释，不参与排序、阈值或参数选择。
 `review_status` 只表达矩阵内所有场景是否
 都通过 promotion gate，不自动上线策略；智能定投候选进入下一轮人工评审前，应优先看这个
 汇总，而不是只挑单个最优场景。
@@ -516,7 +519,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 它还会复制固定候选宇宙的 policy、候选定义 SHA-256 和参与比较候选的定义 SHA-256，
 用来证明本次选择只在预先命名的 preset 中比较，没有按回测结果临时搜索参数。
 它还会复制被选候选跨场景的 zero/boosted multiplier 占比、scheduled multiplier 范围和
-`selected_regimes_seen`，便于确认候选不是只靠某一个 regime 或跳过买入路径胜出。
+`selected_regimes_seen`，以及 `selected_dominant_performance_diagnosis` /
+`selected_performance_diagnoses`，便于确认候选不是只靠某一个 regime 或跳过买入路径胜出，
+并能解释失败主因。
 `selection_summary.csv` 还会执行固定 effect-size gate：候选最差相对终值不能低于 fixed，
 中位相对终值至少要高于 fixed `1%`，最差 `rank_score` 不能为负，且终值现金占比不能超过
 `35%`；这些阈值是预先固定的反过拟合门槛，不会按回测结果搜索。未达标时会保持
