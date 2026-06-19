@@ -56,6 +56,12 @@ production defaults aligned with this research decision: both smart DCA profiles
 must remain fixed-amount monthly DCA by default, with smart multipliers disabled,
 no available-cash ratio mode, no cash reserve, and fractional-friendly minimums.
 
+Runtime CI can audit the live catalog defaults without rerunning backtests:
+
+```bash
+python -m us_equity_strategies.backtests.smart_dca_runtime_default_contract_cli --pretty
+```
+
 ## Profile Evidence
 
 | Profile | Matrix | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Min rank score | Robustness gate | Effect gate | Diagnosis | Hold reason |

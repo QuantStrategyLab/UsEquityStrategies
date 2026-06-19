@@ -1,7 +1,13 @@
+import io
+import json
+from contextlib import redirect_stdout
 import unittest
 
 from quant_platform_kit.common.strategies import get_strategy_component_map
 from us_equity_strategies import get_strategy_definitions
+from us_equity_strategies.backtests.smart_dca_runtime_default_contract_cli import (
+    main as runtime_default_contract_cli_main,
+)
 from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
@@ -331,6 +337,25 @@ class CatalogTest(unittest.TestCase):
                 )
                 self.assertTrue(profile_contract["available_cash_ratio_absent"])
                 self.assertEqual(profile_contract["target_mode"], "value")
+
+    def test_dca_runtime_default_contract_cli_reports_passed_audit(self):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = runtime_default_contract_cli_main(["--pretty"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            payload["schema_version"],
+            "smart_dca_runtime_default_contract.v1",
+        )
+        self.assertTrue(payload["passed"])
+        self.assertEqual(payload["failure_reasons"], [])
+        self.assertEqual(
+            payload["profiles"],
+            [NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE],
+        )
 
     def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
         self.assertIs(
