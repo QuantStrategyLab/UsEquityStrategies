@@ -29,10 +29,12 @@ from us_equity_strategies.signals import (
     load_signal_bundle_index,
     load_signal_bundle_manifest,
     load_platform_signal_handoff_index,
+    known_signal_consumers,
     resolve_platform_signal_handoff_manifest_from_index,
     resolve_signal_bundle_manifest_from_index,
     research_export_audit_summary_from_manifest,
     required_indicator_fields_for_consumer,
+    signal_consumer_contract_registry_payload,
     signal_consumer_contract_registry_audit_summary,
     signal_consumer_contract_registry_audit_summary_from_file,
     signal_consumer_contract_registry_audit_summary_from_manifest,
@@ -1476,6 +1478,7 @@ def test_platform_handoff_index_resolves_matching_handoff_manifest(tmp_path) -> 
 def test_external_consumer_contract_registry_can_require_all_known_consumers() -> None:
     incomplete_registry = _consumer_contract_registry()
     complete_registry = _complete_consumer_contract_registry()
+    local_registry = signal_consumer_contract_registry_payload()
 
     with pytest.raises(SignalBundleContractError, match="missing known consumers"):
         validate_signal_consumer_contract_registry(
@@ -1483,14 +1486,40 @@ def test_external_consumer_contract_registry_can_require_all_known_consumers() -
             require_all_known_consumers=True,
         )
 
+    assert known_signal_consumers() == (
+        "research:ibit_btc_ahr999_helper_precomputed_variants",
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+        "research:ibit_btc_ahr999_precomputed",
+        "research:nasdaq_sp500_cape_vix_external_context_precomputed",
+        "research:nasdaq_sp500_external_context_precomputed",
+        "research:nasdaq_sp500_price_proxy",
+        "us_equity:ibit_smart_dca",
+    )
+    assert [
+        contract["consumer"]
+        for contract in local_registry["contracts"]
+    ] == list(known_signal_consumers())
+    assert local_registry["contracts"][6] == {
+        "consumer": "research:nasdaq_sp500_price_proxy",
+        "canonical_input": "derived_indicators",
+        "required_indicator_fields_by_symbol": {
+            "US-EQUITY-PRICE-PROXY": ["QQQ", "SPY"]
+        },
+    }
     validate_signal_consumer_contract_registry(
         complete_registry,
         require_all_known_consumers=True,
     )
-    summary = signal_consumer_contract_registry_audit_summary(
-        complete_registry,
+    validate_signal_consumer_contract_registry(
+        local_registry,
         require_all_known_consumers=True,
     )
+    summary = signal_consumer_contract_registry_audit_summary(
+        local_registry,
+        require_all_known_consumers=True,
+    )
+    assert summary["consumer_count"] == 8
     assert summary["all_known_consumers_present"] is True
     assert summary["missing_known_consumers"] == ()
 

@@ -210,6 +210,33 @@ def required_indicator_fields_for_consumer(
     }
 
 
+def known_signal_consumers() -> tuple[str, ...]:
+    """Return known signal consumer identifiers in stable order."""
+
+    return tuple(sorted(REQUIRED_INDICATOR_FIELDS_BY_CONSUMER))
+
+
+def signal_consumer_contract_registry_payload(
+    *,
+    consumers: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Return the local JSON-safe consumer registry contract payload."""
+
+    selected_consumers = (
+        tuple(consumers)
+        if consumers is not None
+        else known_signal_consumers()
+    )
+    return {
+        "schema_version": MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION,
+        "canonical_input": CANONICAL_INPUT_DERIVED_INDICATORS,
+        "contracts": [
+            _signal_consumer_contract_record(consumer)
+            for consumer in selected_consumers
+        ],
+    }
+
+
 def validate_signal_consumer_contract_registry(
     registry: Mapping[str, Any],
     *,
@@ -2916,6 +2943,18 @@ def _validate_signal_consumer_contract_record(
         raise SignalBundleContractError(
             f"consumer contract {consumer} required fields drift from local contract"
         )
+
+
+def _signal_consumer_contract_record(consumer: str) -> dict[str, Any]:
+    required_fields = required_indicator_fields_for_consumer(consumer)
+    return {
+        "consumer": str(consumer),
+        "canonical_input": CANONICAL_INPUT_DERIVED_INDICATORS,
+        "required_indicator_fields_by_symbol": {
+            symbol: list(fields)
+            for symbol, fields in required_fields.items()
+        },
+    }
 
 
 def _normalize_symbol(symbol: object) -> str:
