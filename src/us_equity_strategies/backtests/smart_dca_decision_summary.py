@@ -90,8 +90,8 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
         "",
         "## Profile Rollup",
         "",
-        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for profile in summary.get("profile_rollups", ()):
         lines.append(
@@ -111,6 +111,9 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
                     ),
                     _markdown_cell(
                         ", ".join(profile.get("observed_best_candidates", ()))
+                    ),
+                    _markdown_cell(
+                        ", ".join(profile.get("promotion_blockers", ()))
                     ),
                 )
             )
@@ -411,7 +414,51 @@ def _profile_rollup(
             for matrix, row in matrix_rows
             if str(row.get("observed_best_candidate", "")).strip()
         ),
+        "promotion_blockers": _profile_promotion_blockers(rows),
     }
+
+
+def _profile_promotion_blockers(rows: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
+    blocker_set: set[str] = set()
+    materialized_rows = tuple(rows)
+    if not materialized_rows:
+        return ("profile_not_evaluated",)
+    if any(row.get("passed") is not True for row in materialized_rows):
+        blocker_set.add("promotion_gate_audit_failed")
+    observed_rows = tuple(
+        row
+        for row in materialized_rows
+        if str(row.get("observed_best_candidate", "")).strip()
+    )
+    if not observed_rows:
+        blocker_set.add("no_observed_smart_candidate")
+    if not any(
+        row.get("default_change_allowed_by_research") is True
+        for row in materialized_rows
+    ):
+        blocker_set.add("default_change_not_allowed_by_research")
+    if any(
+        row.get("manual_review_required_before_default_change") is True
+        for row in materialized_rows
+    ):
+        blocker_set.add("manual_review_required_before_default_change")
+    smart_statuses = {
+        str(row.get("smart_mode_enablement_status", "")).strip()
+        for row in materialized_rows
+    }
+    if smart_statuses <= {"not_evaluated", "not_recommended_for_enablement"}:
+        blocker_set.add("smart_mode_not_recommended_for_enablement")
+    for row in observed_rows:
+        if row.get("observed_best_robustness_gate_passed") is False:
+            blocker_set.add("robustness_gate_failed")
+        if row.get("observed_best_effect_size_gate_passed") is False:
+            blocker_set.add("effect_size_gate_failed")
+        reason = str(row.get("observed_best_reason", "")).strip()
+        if reason == "insufficient_effect_size_vs_fixed_dca":
+            blocker_set.add("effect_size_gate_failed")
+        elif reason == "no_candidate_passed_robustness_gate":
+            blocker_set.add("robustness_gate_failed")
+    return tuple(sorted(blocker_set))
 
 
 def _observed_best_evidence(

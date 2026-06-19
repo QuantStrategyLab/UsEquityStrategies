@@ -24,10 +24,10 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 
 ## Profile Rollup
 
-| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates |
-| --- | --- | --- | --- | --- | --- |
-| `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` |
-| `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` |
+| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers |
+| --- | --- | --- | --- | --- | --- | --- |
+| `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` | `default_change_not_allowed_by_research`, `effect_size_gate_failed`, `manual_review_required_before_default_change`, `smart_mode_not_recommended_for_enablement` |
+| `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` | `default_change_not_allowed_by_research`, `effect_size_gate_failed`, `manual_review_required_before_default_change`, `robustness_gate_failed`, `smart_mode_not_recommended_for_enablement` |
 
 ## Profile Evidence
 
