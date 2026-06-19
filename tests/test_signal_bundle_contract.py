@@ -159,7 +159,15 @@ def _consumer_contract_registry() -> dict[str, object]:
                 "consumer": "us_equity:ibit_smart_dca",
                 "canonical_input": "derived_indicators",
                 "required_indicator_fields_by_symbol": {
-                    "BTC-USD": ["ahr999"],
+                    "BTC-USD": [
+                        "close",
+                        "sma200",
+                        "sma200_gap",
+                        "rsi14",
+                        "ahr999",
+                        "ahr999_sma",
+                        "mayer_multiple",
+                    ],
                 },
             },
             {
@@ -180,6 +188,33 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
     contracts.insert(
         1,
         {
+            "consumer": "us_equity:nasdaq_sp500_smart_dca",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "QQQ": [
+                    "close",
+                    "sma50",
+                    "sma200",
+                    "high252",
+                    "drawdown_252d",
+                    "sma200_gap",
+                    "rsi14",
+                ],
+                "SPY": [
+                    "close",
+                    "sma50",
+                    "sma200",
+                    "high252",
+                    "drawdown_252d",
+                    "sma200_gap",
+                    "rsi14",
+                ],
+            },
+        },
+    )
+    contracts.insert(
+        2,
+        {
             "consumer": "research:nasdaq_sp500_external_context_precomputed",
             "canonical_input": "derived_indicators",
             "required_indicator_fields_by_symbol": {
@@ -192,7 +227,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        2,
+        3,
         {
             "consumer": "research:nasdaq_sp500_cape_vix_external_context_precomputed",
             "canonical_input": "derived_indicators",
@@ -205,7 +240,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        3,
+        4,
         {
             "consumer": "research:nasdaq_sp500_price_proxy",
             "canonical_input": "derived_indicators",
@@ -218,7 +253,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        4,
+        5,
         {
             "consumer": "research:ibit_btc_ahr999_precomputed",
             "canonical_input": "derived_indicators",
@@ -228,7 +263,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        5,
+        6,
         {
             "consumer": "research:ibit_btc_ahr999_helper_precomputed_variants",
             "canonical_input": "derived_indicators",
@@ -242,7 +277,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        6,
+        7,
         {
             "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
             "canonical_input": "derived_indicators",
@@ -269,6 +304,7 @@ def _write_consumer_contract_registry_manifest(
     missing_consumers = sorted(
         {
             "us_equity:ibit_smart_dca",
+            "us_equity:nasdaq_sp500_smart_dca",
             "research:ibit_btc_ahr999_precomputed",
             "research:ibit_btc_ahr999_helper_precomputed_variants",
             "research:ibit_btc_ahr999_mayer_precomputed",
@@ -293,7 +329,7 @@ def _write_consumer_contract_registry_manifest(
                 "registry_schema_version": registry["schema_version"],
                 "canonical_input": registry["canonical_input"],
                 "consumer_count": len(contracts),
-                "known_consumer_count": 8,
+                "known_consumer_count": 9,
                 "missing_known_consumers": missing_consumers,
                 "all_known_consumers_present": not missing_consumers,
             },
@@ -326,6 +362,10 @@ def _source_family_catalog() -> dict[str, object]:
                     "ahr999_365d_percentile",
                     "ahr999_30d_slope",
                     "ahr999_sma",
+                    "close",
+                    "rsi14",
+                    "sma200",
+                    "sma200_gap",
                     "mayer_multiple",
                 ],
                 "compatible_profiles": [
@@ -342,7 +382,31 @@ def _source_family_catalog() -> dict[str, object]:
                     "research:ibit_btc_ahr999_mayer_precomputed",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                 ],
-            }
+            },
+            {
+                "family": "us_equity.technical_daily",
+                "domain": "us_equity",
+                "bundle_type": "derived_indicators",
+                "bundle_id_prefix": "us_equity.technical.daily",
+                "canonical_input": "derived_indicators",
+                "transform": "technical.daily_ohlcv.v1",
+                "provider_dataset": "us_equity_daily_ohlcv",
+                "freshness_policy": "us_equity_daily_close_t_plus_1",
+                "minimum_history_rows": 252,
+                "symbols": ["QQQ", "SPY"],
+                "derived_indicator_fields": [
+                    "close",
+                    "sma50",
+                    "sma200",
+                    "high252",
+                    "drawdown_252d",
+                    "sma200_gap",
+                    "rsi14",
+                ],
+                "compatible_profiles": ["us_equity:nasdaq_sp500_smart_dca"],
+                "runtime_consumers": ["us_equity:nasdaq_sp500_smart_dca"],
+                "research_consumers": [],
+            },
         ],
     }
 
@@ -363,8 +427,8 @@ def _write_source_family_catalog_manifest(tmp_path: Path) -> tuple[Path, Path]:
                 "catalog_sha256": _sha256_path(catalog_path),
                 "catalog_size_bytes": catalog_path.stat().st_size,
                 "catalog_schema_version": "market_signal_source_families.v1",
-                "family_count": 1,
-                "known_family_count": 1,
+                "family_count": 2,
+                "known_family_count": 2,
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
@@ -442,7 +506,7 @@ def _write_platform_handoff_manifest(
                 "all_runtime_consumers_covered": True,
                 "consumer_contract_count": len(consumers),
                 "consumer_contracts": list(consumers),
-                "all_known_consumers_present": len(consumers) == 8,
+                "all_known_consumers_present": len(consumers) == 9,
                 "canonical_registry_payload_sha256": registry_summary[
                     "canonical_registry_payload_sha256"
                 ],
@@ -745,7 +809,7 @@ def _write_research_handoff_manifest(
                 ),
                 "consumer_contract_count": len(consumers),
                 "consumer_contracts": list(consumers),
-                "all_known_consumers_present": len(consumers) == 8,
+                "all_known_consumers_present": len(consumers) == 9,
                 "canonical_registry_payload_sha256": registry_summary[
                     "canonical_registry_payload_sha256"
                 ],
@@ -1153,6 +1217,7 @@ def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -
         "research:nasdaq_sp500_cape_vix_external_context_precomputed",
         "research:nasdaq_sp500_external_context_precomputed",
         "research:nasdaq_sp500_price_proxy",
+        "us_equity:nasdaq_sp500_smart_dca",
     )
     assert summary["local_contract_registry_verified"] is True
     assert summary["canonical_registry_payload_sha256"] == summary[
@@ -1190,7 +1255,7 @@ def test_external_consumer_contract_registry_manifest_matches_local_contracts(
         registry_path.read_bytes()
     ).hexdigest()
     assert summary["registry_schema_version"] == "market_signal_consumer_contracts.v1"
-    assert summary["consumer_count"] == 8
+    assert summary["consumer_count"] == 9
     assert summary["all_known_consumers_present"] is True
     assert summary["local_contract_registry_verified"] is True
     assert summary["canonical_registry_payload_sha256"] == summary[
@@ -1219,7 +1284,10 @@ def test_source_family_catalog_manifest_matches_required_consumers(tmp_path) -> 
     assert summary["manifest_path"] == str(manifest_path.resolve())
     assert summary["catalog_path"] == str(catalog_path.resolve())
     assert summary["catalog_sha256"] == _sha256_path(catalog_path)
-    assert summary["families"] == ("crypto.btc_cycle_daily",)
+    assert summary["families"] == (
+        "crypto.btc_cycle_daily",
+        "us_equity.technical_daily",
+    )
     assert summary["matched_families"] == ("crypto.btc_cycle_daily",)
     assert summary["required_signal_consumers_present"] is True
     assert summary["runtime_consumer_coverage_present"] is True
@@ -1269,7 +1337,7 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
     )
     source_manifest["catalog_sha256"] = _sha256_path(source_catalog_path)
     source_manifest["catalog_size_bytes"] = source_catalog_path.stat().st_size
-    source_manifest["family_count"] = 2
+    source_manifest["family_count"] = 3
     source_catalog_manifest_path.write_text(
         json.dumps(source_manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -1317,11 +1385,12 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
     )
     assert summary["source_families"] == (
         "crypto.btc_cycle_daily",
+        "us_equity.technical_daily",
         "us_equity.nasdaq_sp500_context_daily",
     )
     assert summary["matched_source_family_count"] == 1
     assert summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
-    assert summary["consumer_contract_count"] == 8
+    assert summary["consumer_contract_count"] == 9
     assert summary["all_known_source_families_present"] is True
     assert summary["all_consumer_contracts_satisfied"] is True
     assert summary["all_known_consumers_present"] is True
@@ -1396,9 +1465,9 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
     assert summary["consumer"] == "us_equity:ibit_smart_dca"
     assert summary["lookup_as_of"] == "2026-06-20"
     assert summary["as_of"] == "2026-06-19"
-    assert summary["source_family_count"] == 1
+    assert summary["source_family_count"] == 2
     assert summary["matched_source_family_count"] == 1
-    assert summary["consumer_contract_count"] == 8
+    assert summary["consumer_contract_count"] == 9
     assert summary["all_known_source_families_present"] is True
     assert summary["all_consumer_contracts_satisfied"] is True
     assert summary["all_known_consumers_present"] is True
@@ -1542,7 +1611,7 @@ def test_research_handoff_manifest_validates_linked_research_export(
     assert handoff_summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
     assert handoff_summary["source_family_count"] == 1
     assert handoff_summary["source_families"] == ("crypto.btc_cycle_daily",)
-    assert handoff_summary["consumer_contract_count"] == 8
+    assert handoff_summary["consumer_contract_count"] == 9
     assert handoff_summary["all_runtime_consumers_covered"] is True
     assert handoff_summary["canonical_registry_payload_sha256"] == handoff_summary[
         "local_registry_payload_sha256"
@@ -1581,6 +1650,7 @@ def test_platform_handoff_index_resolves_matching_handoff_manifest(tmp_path) -> 
         consumer_contract_registry_manifest_path=registry_manifest_path,
         consumers=(
             "us_equity:ibit_smart_dca",
+            "us_equity:nasdaq_sp500_smart_dca",
             "research:nasdaq_sp500_external_context_precomputed",
             "research:nasdaq_sp500_cape_vix_external_context_precomputed",
             "research:nasdaq_sp500_price_proxy",
@@ -1656,6 +1726,7 @@ def test_external_consumer_contract_registry_can_require_all_known_consumers() -
         "research:nasdaq_sp500_external_context_precomputed",
         "research:nasdaq_sp500_price_proxy",
         "us_equity:ibit_smart_dca",
+        "us_equity:nasdaq_sp500_smart_dca",
     )
     assert [
         contract["consumer"]
@@ -1680,7 +1751,7 @@ def test_external_consumer_contract_registry_can_require_all_known_consumers() -
         local_registry,
         require_all_known_consumers=True,
     )
-    assert summary["consumer_count"] == 8
+    assert summary["consumer_count"] == 9
     assert summary["all_known_consumers_present"] is True
     assert summary["missing_known_consumers"] == ()
     assert summary["local_contract_registry_verified"] is True

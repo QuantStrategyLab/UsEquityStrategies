@@ -1657,8 +1657,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             {
                 "schema_version": "market_signal_source_families.v1",
                 "families": [
-                    {
-                        "family": "crypto.btc_cycle_daily",
+                        {
+                            "family": "crypto.btc_cycle_daily",
                         "domain": "crypto",
                         "bundle_type": "derived_indicators",
                         "bundle_id_prefix": "crypto.btc.derived_indicators",
@@ -1668,11 +1668,15 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                         "freshness_policy": "crypto_daily_close_t_plus_1",
                         "minimum_history_rows": 200,
                         "symbols": ["BTC-USD"],
-                        "derived_indicator_fields": [
-                            "ahr999",
-                            "ahr999_sma",
-                            "mayer_multiple",
-                        ],
+                            "derived_indicator_fields": [
+                                "ahr999",
+                                "ahr999_sma",
+                                "close",
+                                "mayer_multiple",
+                                "rsi14",
+                                "sma200",
+                                "sma200_gap",
+                            ],
                         "compatible_profiles": [
                             "us_equity:ibit_smart_dca",
                             "research:ibit_btc_ahr999_precomputed",
@@ -1684,10 +1688,38 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                             "research:ibit_btc_ahr999_precomputed",
                             "research:ibit_btc_ahr999_mayer_precomputed",
                             "research:ibit_btc_ahr999_mayer_precomputed_variants",
-                        ],
-                    }
-                ],
-            },
+                            ],
+                        },
+                        {
+                            "family": "us_equity.technical_daily",
+                            "domain": "us_equity",
+                            "bundle_type": "derived_indicators",
+                            "bundle_id_prefix": "us_equity.technical.daily",
+                            "canonical_input": "derived_indicators",
+                            "transform": "technical.daily_ohlcv.v1",
+                            "provider_dataset": "us_equity_daily_ohlcv",
+                            "freshness_policy": "us_equity_daily_close_t_plus_1",
+                            "minimum_history_rows": 252,
+                            "symbols": ["QQQ", "SPY"],
+                            "derived_indicator_fields": [
+                                "close",
+                                "sma50",
+                                "sma200",
+                                "high252",
+                                "drawdown_252d",
+                                "sma200_gap",
+                                "rsi14",
+                            ],
+                            "compatible_profiles": [
+                                "us_equity:nasdaq_sp500_smart_dca",
+                            ],
+                            "runtime_consumers": [
+                                "us_equity:nasdaq_sp500_smart_dca",
+                            ],
+                            "research_consumers": [],
+                        },
+                    ],
+                },
             sort_keys=True,
         ),
         encoding="utf-8",
@@ -1703,8 +1735,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "catalog_sha256": _sha256_file(source_catalog),
                 "catalog_size_bytes": source_catalog.stat().st_size,
                 "catalog_schema_version": "market_signal_source_families.v1",
-                "family_count": 1,
-                "known_family_count": 1,
+                "family_count": 2,
+                "known_family_count": 2,
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
@@ -1758,7 +1790,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 2,
-                "known_consumer_count": 8,
+                "known_consumer_count": 9,
                 "missing_known_consumers": [
                     "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_precomputed",
@@ -1766,6 +1798,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                     "research:nasdaq_sp500_external_context_precomputed",
                     "research:nasdaq_sp500_price_proxy",
                     "us_equity:ibit_smart_dca",
+                    "us_equity:nasdaq_sp500_smart_dca",
                 ],
                 "all_known_consumers_present": False,
             }
@@ -1855,8 +1888,11 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "consumer_contract_registry_manifest_sha256": _sha256_file(
                     consumer_contract_registry_manifest
                 ),
-                "source_family_count": 1,
-                "source_families": ["crypto.btc_cycle_daily"],
+                "source_family_count": 2,
+                "source_families": [
+                    "crypto.btc_cycle_daily",
+                    "us_equity.technical_daily",
+                ],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
                 "consumer_contract_count": len(contract_consumers),
@@ -1950,8 +1986,11 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "consumer_contract_registry_manifest_sha256": _sha256_file(
                     consumer_contract_registry_manifest
                 ),
-                "source_family_count": 1,
-                "source_families": ["crypto.btc_cycle_daily"],
+                "source_family_count": 2,
+                "source_families": [
+                    "crypto.btc_cycle_daily",
+                    "us_equity.technical_daily",
+                ],
                 "matched_source_family_count": 1,
                 "matched_source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
@@ -2133,7 +2172,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "crypto.btc.derived_indicators.2026-06-19"
     )
     assert platform_handoff_record["source_families"] == [
-        "crypto.btc_cycle_daily"
+        "crypto.btc_cycle_daily",
+        "us_equity.technical_daily",
     ]
     assert platform_handoff_record["matched_source_families"] == [
         "crypto.btc_cycle_daily"
@@ -2439,7 +2479,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
                 "consumer_count": 1,
-                "known_consumer_count": 8,
+                "known_consumer_count": 9,
                 "missing_known_consumers": [
                     "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
@@ -2448,6 +2488,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                     "research:nasdaq_sp500_external_context_precomputed",
                     "research:nasdaq_sp500_price_proxy",
                     "us_equity:ibit_smart_dca",
+                    "us_equity:nasdaq_sp500_smart_dca",
                 ],
                 "all_known_consumers_present": False,
             }

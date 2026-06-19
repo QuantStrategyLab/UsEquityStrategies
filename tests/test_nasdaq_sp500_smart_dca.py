@@ -110,6 +110,45 @@ def test_smart_dca_skips_when_too_expensive_and_overbought() -> None:
     assert plan["target_values"] == {}
 
 
+def test_smart_dca_uses_external_technical_indicator_snapshot() -> None:
+    def unavailable_history(_client, _symbol):
+        raise AssertionError("external indicators should avoid market_history")
+
+    plan = build_rebalance_plan(
+        unavailable_history,
+        _portfolio(),
+        as_of="2026-05-26",
+        smart_multiplier_enabled=True,
+        technical_indicator_snapshot={
+            "QQQ": {
+                "close": 90.0,
+                "sma50": 95.0,
+                "sma200": 100.0,
+                "high252": 120.0,
+                "drawdown_252d": 0.20,
+                "sma200_gap": -0.10,
+                "rsi14": 42.0,
+            },
+            "SPY": {
+                "close": 180.0,
+                "sma50": 190.0,
+                "sma200": 200.0,
+                "high252": 240.0,
+                "drawdown_252d": 0.20,
+                "sma200_gap": -0.10,
+                "rsi14": 44.0,
+            },
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["regime"] == "deep_pullback"
+    assert plan["multiplier"] == 1.25
+    assert plan["avg_sma200_gap"] == pytest.approx(-0.10)
+    assert plan["avg_drawdown_252d"] == pytest.approx(0.20)
+    assert plan["signal_symbols"] == ("QQQ", "SPY")
+
+
 def test_smart_dca_waits_when_cash_is_below_minimum() -> None:
     history = {"QQQ": _normal_history(), "SPY": _normal_history()}
 
@@ -215,7 +254,7 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
     targets = {position.symbol: position.target_value for position in decision.positions}
     assert decision.risk_flags == ()
     assert targets == {"QQQM": 1500.0, "SPLG": 1700.0}
-    assert decision.diagnostics["signal_source"] == "market_history+portfolio_snapshot"
+    assert decision.diagnostics["signal_source"] == "derived_indicators/market_history+portfolio_snapshot"
     assert decision.diagnostics["investment_amount_mode"] == "fixed"
     assert decision.diagnostics["smart_multiplier_enabled"] is False
     assert "普通定投" in decision.diagnostics["signal_description"]
@@ -239,6 +278,47 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
     )
     assert expensive_decision.positions == ()
     assert expensive_decision.risk_flags == ("no_execute",)
+
+
+def test_smart_dca_entrypoint_accepts_unified_derived_indicators() -> None:
+    entrypoint = get_strategy_entrypoint("nasdaq_sp500_smart_dca")
+    decision = entrypoint.evaluate(
+        StrategyContext(
+            as_of="2026-05-26",
+            market_data={
+                "derived_indicators": {
+                    "QQQ": {
+                        "close": 90.0,
+                        "sma50": 95.0,
+                        "sma200": 100.0,
+                        "high252": 120.0,
+                        "drawdown_252d": 0.20,
+                        "sma200_gap": -0.10,
+                        "rsi14": 42.0,
+                    },
+                    "SPY": {
+                        "close": 180.0,
+                        "sma50": 190.0,
+                        "sma200": 200.0,
+                        "high252": 240.0,
+                        "drawdown_252d": 0.20,
+                        "sma200_gap": -0.10,
+                        "rsi14": 44.0,
+                    },
+                }
+            },
+            portfolio=_portfolio(),
+            runtime_config={
+                "investment_amount_mode": "fixed",
+                "smart_multiplier_enabled": True,
+            },
+        )
+    )
+
+    targets = {position.symbol: position.target_value for position in decision.positions}
+    assert targets == {"QQQM": 1625.0, "SPLG": 1825.0}
+    assert decision.diagnostics["regime"] == "deep_pullback"
+    assert decision.diagnostics["avg_sma200_gap"] == pytest.approx(-0.10)
 
 
 def test_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:

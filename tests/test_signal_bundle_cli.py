@@ -61,6 +61,10 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                         "symbols": ["BTC-USD"],
                         "derived_indicator_fields": [
                             "ahr999",
+                            "close",
+                            "rsi14",
+                            "sma200",
+                            "sma200_gap",
                             "ahr999_sma",
                             "mayer_multiple",
                         ],
@@ -76,7 +80,29 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                             "research:ibit_btc_ahr999_mayer_precomputed",
                             "research:ibit_btc_ahr999_mayer_precomputed_variants",
                         ],
-                    }
+                    },
+                    {
+                        "family": "us_equity.technical_daily",
+                        "canonical_input": "derived_indicators",
+                        "transform": "technical.daily_ohlcv.v1",
+                        "symbols": ["QQQ", "SPY"],
+                        "derived_indicator_fields": [
+                            "close",
+                            "sma50",
+                            "sma200",
+                            "high252",
+                            "drawdown_252d",
+                            "sma200_gap",
+                            "rsi14",
+                        ],
+                        "compatible_profiles": [
+                            "us_equity:nasdaq_sp500_smart_dca",
+                        ],
+                        "runtime_consumers": [
+                            "us_equity:nasdaq_sp500_smart_dca",
+                        ],
+                        "research_consumers": [],
+                    },
                 ],
             },
             indent=2,
@@ -97,8 +123,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "catalog_sha256": _sha256_path(source_catalog_path),
                 "catalog_size_bytes": source_catalog_path.stat().st_size,
                 "catalog_schema_version": "market_signal_source_families.v1",
-                "family_count": 1,
-                "known_family_count": 1,
+                "family_count": 2,
+                "known_family_count": 2,
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
@@ -117,7 +143,41 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
         {
             "consumer": "us_equity:ibit_smart_dca",
             "canonical_input": "derived_indicators",
-            "required_indicator_fields_by_symbol": {"BTC-USD": ["ahr999"]},
+            "required_indicator_fields_by_symbol": {
+                "BTC-USD": [
+                    "close",
+                    "sma200",
+                    "sma200_gap",
+                    "rsi14",
+                    "ahr999",
+                    "ahr999_sma",
+                    "mayer_multiple",
+                ]
+            },
+        },
+        {
+            "consumer": "us_equity:nasdaq_sp500_smart_dca",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "QQQ": [
+                    "close",
+                    "sma50",
+                    "sma200",
+                    "high252",
+                    "drawdown_252d",
+                    "sma200_gap",
+                    "rsi14",
+                ],
+                "SPY": [
+                    "close",
+                    "sma50",
+                    "sma200",
+                    "high252",
+                    "drawdown_252d",
+                    "sma200_gap",
+                    "rsi14",
+                ],
+            },
         },
         {
             "consumer": "research:ibit_btc_ahr999_precomputed",
@@ -205,8 +265,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 8,
-                "known_consumer_count": 8,
+                "consumer_count": 9,
+                "known_consumer_count": 9,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -244,8 +304,11 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "consumer_contract_registry_manifest_sha256": _sha256_path(
                     registry_manifest_path
                 ),
-                "source_family_count": 1,
-                "source_families": ["crypto.btc_cycle_daily"],
+                "source_family_count": 2,
+                "source_families": [
+                    "crypto.btc_cycle_daily",
+                    "us_equity.technical_daily",
+                ],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
                 "consumer_contract_count": len(contracts),
@@ -588,9 +651,12 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["schema_version"] == "market_signal_platform_handoff.v1"
     assert summary["consumer"] == "us_equity:ibit_smart_dca"
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
-    assert summary["source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["source_families"] == [
+        "crypto.btc_cycle_daily",
+        "us_equity.technical_daily",
+    ]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 8
+    assert summary["consumer_contract_count"] == 9
     assert summary["all_known_consumers_present"] is True
     assert summary["all_runtime_consumers_covered"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
@@ -630,7 +696,10 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
     assert summary["consumer"] == "us_equity:ibit_smart_dca"
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["all_runtime_consumers_covered"] is True
-    assert summary["source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["source_families"] == [
+        "crypto.btc_cycle_daily",
+        "us_equity.technical_daily",
+    ]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
@@ -733,7 +802,7 @@ def test_signal_bundle_cli_validates_research_handoff_manifest(
     assert summary["research_artifact_type"] == "btc_cycle_research_csv"
     assert summary["research_transform"] == "crypto.btc.ahr999.v1"
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 8
+    assert summary["consumer_contract_count"] == 9
     assert summary["research_export_output_csv_verified"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
@@ -745,7 +814,7 @@ def test_signal_bundle_cli_prints_local_consumer_contract_registry(capsys) -> No
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "market_signal_consumer_contracts.v1"
     assert payload["canonical_input"] == "derived_indicators"
-    assert len(payload["contracts"]) == 8
+    assert len(payload["contracts"]) == 9
     consumers = [contract["consumer"] for contract in payload["contracts"]]
     assert "research:nasdaq_sp500_price_proxy" in consumers
     price_proxy_contract = next(
@@ -784,7 +853,15 @@ def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys
                         "consumer": "us_equity:ibit_smart_dca",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
-                            "BTC-USD": ["ahr999"],
+                            "BTC-USD": [
+                                "close",
+                                "sma200",
+                                "sma200_gap",
+                                "rsi14",
+                                "ahr999",
+                                "ahr999_sma",
+                                "mayer_multiple",
+                            ],
                         },
                     }
                 ],
@@ -830,7 +907,39 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                         "consumer": "us_equity:ibit_smart_dca",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
-                            "BTC-USD": ["ahr999"],
+                            "BTC-USD": [
+                                "close",
+                                "sma200",
+                                "sma200_gap",
+                                "rsi14",
+                                "ahr999",
+                                "ahr999_sma",
+                                "mayer_multiple",
+                            ],
+                        },
+                    },
+                    {
+                        "consumer": "us_equity:nasdaq_sp500_smart_dca",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "QQQ": [
+                                "close",
+                                "sma50",
+                                "sma200",
+                                "high252",
+                                "drawdown_252d",
+                                "sma200_gap",
+                                "rsi14",
+                            ],
+                            "SPY": [
+                                "close",
+                                "sma50",
+                                "sma200",
+                                "high252",
+                                "drawdown_252d",
+                                "sma200_gap",
+                                "rsi14",
+                            ],
                         },
                     },
                     {
@@ -929,8 +1038,8 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 8,
-                "known_consumer_count": 8,
+                "consumer_count": 9,
+                "known_consumer_count": 9,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -960,7 +1069,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     assert summary["registry_sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
-    assert summary["consumer_count"] == 8
+    assert summary["consumer_count"] == 9
     assert summary["all_known_consumers_present"] is True
     assert summary["local_contract_registry_verified"] is True
     assert summary["canonical_registry_payload_sha256"] == summary[
@@ -980,7 +1089,15 @@ def test_signal_bundle_cli_can_require_complete_consumer_contract_registry(tmp_p
                         "consumer": "us_equity:ibit_smart_dca",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
-                            "BTC-USD": ["ahr999"],
+                            "BTC-USD": [
+                                "close",
+                                "sma200",
+                                "sma200_gap",
+                                "rsi14",
+                                "ahr999",
+                                "ahr999_sma",
+                                "mayer_multiple",
+                            ],
                         },
                     }
                 ],

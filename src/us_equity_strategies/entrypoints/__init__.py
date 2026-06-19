@@ -243,7 +243,12 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
-    market_history = require_market_data(ctx, "market_history")
+    market_history = ctx.market_data.get("market_history")
+    if market_history is None:
+        def _empty_market_history(_client, _symbol):
+            return ()
+
+        market_history = _empty_market_history
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
     weights, signal_desc, is_emergency, canary_str = legacy_global_etf_rotation.compute_signals(
@@ -995,7 +1000,16 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     config.pop("pacing_sec", None)
     reserved_cash_policy = pop_reserved_cash_policy_config(config)
     pop_execution_only_config(config)
-    market_history = require_market_data(ctx, "market_history")
+    market_history = ctx.market_data.get("market_history")
+    if market_history is None:
+        def _empty_market_history(_client, _symbol):
+            return ()
+
+        market_history = _empty_market_history
+    technical_indicator_snapshot = (
+        ctx.market_data.get("technical_indicator_snapshot")
+        or ctx.market_data.get("derived_indicators")
+    )
     portfolio = require_portfolio(ctx)
     apply_reserved_cash_policy_to_usd_config(
         config,
@@ -1006,6 +1020,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         market_history,
         portfolio,
         as_of=ctx.as_of,
+        technical_indicator_snapshot=technical_indicator_snapshot,
         broker_client=ctx.capabilities.get("broker_client"),
         translator=translator,
         **config,

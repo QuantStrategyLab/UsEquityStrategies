@@ -8,7 +8,7 @@ import pandas as pd
 
 
 STATUS_ICON = "🧺"
-SIGNAL_SOURCE = "market_history+portfolio_snapshot"
+SIGNAL_SOURCE = "derived_indicators/market_history+portfolio_snapshot"
 DEFAULT_SIGNAL_SYMBOLS = ("QQQ", "SPY")
 DEFAULT_TRADE_ALLOCATIONS = {"QQQM": 0.50, "SPLG": 0.50}
 DEFAULT_MANAGED_SYMBOLS = tuple(DEFAULT_TRADE_ALLOCATIONS)
@@ -163,6 +163,86 @@ def _normalize_allocations(raw_allocations: Mapping[str, object] | None) -> dict
     if total <= 0.0:
         raise ValueError("trade_allocations must contain at least one positive allocation")
     return {symbol: weight / total for symbol, weight in allocations.items()}
+
+
+def _payload_numeric(payload: Mapping[str, object], *keys: str) -> float:
+    lowered = {str(key).strip().lower(): value for key, value in payload.items()}
+    for key in keys:
+        value = lowered.get(key.lower())
+        numeric = _coerce_float(value, default=float("nan"))
+        if not pd.isna(numeric):
+            return numeric
+    return float("nan")
+
+
+def _resolve_indicator_payload(
+    indicator_snapshot: Mapping[str, object] | None,
+    symbol: str,
+) -> Mapping[str, object] | None:
+    if not isinstance(indicator_snapshot, Mapping):
+        return None
+    if any(
+        str(key).lower()
+        in {
+            "close",
+            "price",
+            "sma200",
+            "sma_200",
+            "sma200_gap",
+            "rsi14",
+            "rsi_14",
+        }
+        for key in indicator_snapshot
+    ):
+        return indicator_snapshot
+
+    candidates = {
+        symbol,
+        symbol.upper(),
+        symbol.removesuffix(".US"),
+        symbol.upper().removesuffix(".US"),
+    }
+    for key in candidates:
+        value = indicator_snapshot.get(key)
+        if isinstance(value, Mapping):
+            return value
+    normalized_snapshot = {
+        _normalize_symbol(key): value
+        for key, value in indicator_snapshot.items()
+    }
+    value = normalized_snapshot.get(_normalize_symbol(symbol))
+    return value if isinstance(value, Mapping) else None
+
+
+def _indicator_from_payload(symbol: str, payload: Mapping[str, object]) -> SymbolIndicator | None:
+    price = _payload_numeric(payload, "close", "price", "last", "last_price")
+    sma200 = _payload_numeric(payload, "sma200", "ma200", "sma_200")
+    high252 = _payload_numeric(payload, "high252", "high_252", "high252d", "high_252d")
+    if pd.isna(price) or pd.isna(sma200):
+        return None
+    sma50 = _payload_numeric(payload, "sma50", "ma50", "sma_50")
+    if pd.isna(sma50):
+        sma50 = sma200
+    if pd.isna(high252):
+        high252 = max(price, sma200)
+    drawdown = _payload_numeric(payload, "drawdown_252d", "drawdown252", "drawdown")
+    if pd.isna(drawdown):
+        drawdown = 0.0 if high252 <= 0.0 else max(0.0, 1.0 - price / high252)
+    sma_gap = _payload_numeric(payload, "sma200_gap", "gap_vs_sma200", "price_vs_sma200")
+    if pd.isna(sma_gap):
+        sma_gap = 0.0 if sma200 <= 0.0 else price / sma200 - 1.0
+    rsi14 = _payload_numeric(payload, "rsi14", "rsi_14", "rsi")
+    return SymbolIndicator(
+        symbol=symbol,
+        price=float(price),
+        sma50=float(sma50),
+        sma200=float(sma200),
+        high252=float(high252),
+        drawdown_252d=float(drawdown),
+        sma200_gap=float(sma_gap),
+        rsi14=None if pd.isna(rsi14) else float(rsi14),
+        trend_positive=bool(price >= sma200 and sma50 >= sma200),
+    )
 
 
 def _extract_close_series(price_history: Any) -> pd.Series:
@@ -450,6 +530,7 @@ def build_rebalance_plan(
     severe_pullback_multiplier: float = 1.50,
     expensive_multiplier: float = 1.0,
     very_expensive_multiplier: float = 1.0,
+    technical_indicator_snapshot: Mapping[str, object] | None = None,
     broker_client=None,
     translator=None,
 ) -> dict[str, object]:
@@ -481,6 +562,11 @@ def build_rebalance_plan(
             continue
         resolved_signal_symbols.append(symbol)
         if smart_enabled:
+            payload = _resolve_indicator_payload(technical_indicator_snapshot, symbol)
+            payload_indicator = _indicator_from_payload(symbol, payload) if payload else None
+            if payload_indicator is not None:
+                indicators.append(payload_indicator)
+                continue
             history = market_history(broker_client, symbol)
             indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
 
