@@ -175,6 +175,19 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --pretty
 ```
 
+若发布侧提供的是 handoff index，平台 CI 可以让策略仓按 consumer 和 `as_of` 解析最新
+handoff，再执行同一套 linked manifest 校验：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --platform-handoff-index ./data/output/platform_handoff_index.json \
+  --consumer us_equity:ibit_smart_dca \
+  --as-of 2026-06-20 \
+  --require-all-known-families \
+  --require-all-known-consumers \
+  --pretty
+```
+
 运行时注入可使用 `extract_canonical_input_from_platform_handoff_for_consumer()`：
 它先验证 handoff 和全部 linked manifest，再只返回
 `StrategyContext.market_data["derived_indicators"]` 需要的 canonical input。

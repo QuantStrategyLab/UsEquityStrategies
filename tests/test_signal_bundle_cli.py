@@ -215,6 +215,49 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
     return handoff_path
 
 
+def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    index_path = tmp_path / "platform_handoff_index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_platform_handoff_index.v1",
+                "artifact_type": "market_signal_platform_handoff_index",
+                "generated_at": "2026-06-19T00:30:00Z",
+                "handoffs": [
+                    {
+                        "handoff_manifest_path": handoff_path.relative_to(
+                            tmp_path
+                        ).as_posix(),
+                        "handoff_manifest_sha256": _sha256_path(handoff_path),
+                        "consumer": handoff["consumer"],
+                        "canonical_input": handoff["canonical_input"],
+                        "bundle_id": handoff["bundle_id"],
+                        "as_of": handoff["as_of"],
+                        "freshness_status": handoff["freshness_status"],
+                        "source_families": handoff["source_families"],
+                        "consumer_contracts": handoff["consumer_contracts"],
+                        "all_known_source_families_present": handoff[
+                            "all_known_source_families_present"
+                        ],
+                        "all_consumer_contracts_satisfied": handoff[
+                            "all_consumer_contracts_satisfied"
+                        ],
+                        "all_known_consumers_present": handoff[
+                            "all_known_consumers_present"
+                        ],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return index_path
+
+
 def test_signal_bundle_cli_prints_non_sensitive_audit_summary(capsys) -> None:
     result = main([str(FIXTURE_MANIFEST_PATH), "--pretty"])
 
@@ -307,6 +350,43 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["consumer_contract_count"] == 4
     assert summary["all_known_consumers_present"] is True
+    assert summary["handoff_linked_manifest_sha256s_verified"] is True
+
+
+def test_signal_bundle_cli_validates_platform_handoff_index(
+    tmp_path,
+    capsys,
+) -> None:
+    handoff_path = _write_platform_handoff_inputs(tmp_path)
+    index_path = _write_platform_handoff_index(tmp_path, handoff_path)
+
+    result = main(
+        [
+            "--platform-handoff-index",
+            str(index_path),
+            "--consumer",
+            "us_equity:ibit_smart_dca",
+            "--as-of",
+            "2026-06-20",
+            "--require-all-known-families",
+            "--require-all-known-consumers",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["index_schema_version"] == (
+        "market_signal_platform_handoff_index.v1"
+    )
+    assert summary["index_artifact_type"] == "market_signal_platform_handoff_index"
+    assert summary["index_handoff_count"] == 1
+    assert summary["handoff_manifest_path"] == str(handoff_path.resolve())
+    assert summary["handoff_manifest_sha256"] == _sha256_path(handoff_path)
+    assert summary["consumer"] == "us_equity:ibit_smart_dca"
+    assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
+    assert summary["source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
 
