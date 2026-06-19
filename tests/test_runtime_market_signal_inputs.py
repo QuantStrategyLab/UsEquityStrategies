@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from us_equity_strategies.signals import runtime_market_signal_inputs as runtime_inputs
@@ -64,7 +62,19 @@ def test_extract_consumer_market_signal_inputs_uses_last_valid_on_failure(monkey
         raise RuntimeError("signal source unavailable")
 
     def fake_extract(path, *, consumer, as_of=None):
-        return {"derived_indicators": {"BTC-USD": {"ahr999": 0.8}}}
+        return {
+            "derived_indicators": {
+                "BTC-USD": {
+                    "close": 64000.0,
+                    "sma200": 59000.0,
+                    "sma200_gap": 0.08,
+                    "rsi14": 54.0,
+                    "ahr999": 0.8,
+                    "ahr999_sma": 0.82,
+                    "mayer_multiple": 1.08,
+                }
+            }
+        }
 
     monkeypatch.setattr(
         runtime_inputs,
@@ -94,7 +104,7 @@ def test_extract_consumer_market_signal_inputs_uses_last_valid_on_failure(monkey
         fallback_mode="last_valid",
     )
 
-    assert first_inputs == {"derived_indicators": {"BTC-USD": {"ahr999": 0.8}}}
+    assert first_inputs["derived_indicators"]["BTC-USD"]["ahr999"] == 0.8
     assert first_metadata["materialized_count"] == 3
     assert fallback_inputs == first_inputs
     assert fallback_metadata["artifact_fallback_used"] is True

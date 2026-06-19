@@ -22,6 +22,7 @@ from .signal_bundle_contract import (
 
 
 IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER = "us_equity:ibit_smart_dca"
+NASDAQ_SP500_SMART_DCA_MARKET_SIGNAL_CONSUMER = "us_equity:nasdaq_sp500_smart_dca"
 MARKET_SIGNAL_REFERENCE_CONSUMPTION_AUDIT = "consumption_audit"
 MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF = "platform_handoff"
 MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX = "platform_handoff_index"

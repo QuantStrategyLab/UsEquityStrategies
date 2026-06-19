@@ -34,7 +34,35 @@ FRESHNESS_FRESH = "fresh"
 
 REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
     "us_equity:ibit_smart_dca": {
-        "BTC-USD": ("ahr999",),
+        "BTC-USD": (
+            "close",
+            "sma200",
+            "sma200_gap",
+            "rsi14",
+            "ahr999",
+            "ahr999_sma",
+            "mayer_multiple",
+        ),
+    },
+    "us_equity:nasdaq_sp500_smart_dca": {
+        "QQQ": (
+            "close",
+            "sma50",
+            "sma200",
+            "high252",
+            "drawdown_252d",
+            "sma200_gap",
+            "rsi14",
+        ),
+        "SPY": (
+            "close",
+            "sma50",
+            "sma200",
+            "high252",
+            "drawdown_252d",
+            "sma200_gap",
+            "rsi14",
+        ),
     },
     "research:nasdaq_sp500_external_context_precomputed": {
         "US-EQUITY-CONTEXT": (
