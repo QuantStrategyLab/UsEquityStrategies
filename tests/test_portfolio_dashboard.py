@@ -64,7 +64,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertNotIn("跟踪股票池", dashboard)
 
     def test_snapshot_entrypoint_attaches_strategy_portfolio_dashboard(self) -> None:
-        entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation_aggressive")
+        entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation")
         snapshot = PortfolioSnapshot(
             as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
             total_equity=12500.0,
@@ -97,7 +97,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BOXX: $1,000.00 / 10股", dashboard)
 
     def test_snapshot_entrypoint_accepts_runtime_helpers_and_attaches_dashboard(self) -> None:
-        entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation_aggressive")
+        entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation")
         snapshot = PortfolioSnapshot(
             as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
             total_equity=25000.0,
@@ -126,7 +126,7 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BOXX: $2,000.00 / 20股", dashboard)
 
     def test_snapshot_entrypoint_renders_structured_monthly_waiting_text_in_zh(self) -> None:
-        entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation_aggressive")
+        entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation")
         snapshot = PortfolioSnapshot(
             as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
             total_equity=12500.0,

@@ -19,7 +19,7 @@ def test_min_recommended_equity_is_profile_specific() -> None:
     assert get_min_recommended_equity_usd("soxl_soxx_trend_income") == 1_000.0
     assert get_min_recommended_equity_usd("qqq_tech_enhancement") is None
     assert get_min_recommended_equity_usd("tech_communication_pullback_enhancement") is None
-    assert get_min_recommended_equity_usd("russell_top50_leader_rotation_aggressive") == 10_000.0
+    assert get_min_recommended_equity_usd("russell_top50_leader_rotation") == 10_000.0
     assert get_min_recommended_equity_usd("nasdaq_sp500_smart_dca") == 1_000.0
     assert get_min_recommended_equity_usd("ibit_smart_dca") == 1_000.0
     assert get_min_recommended_equity_usd("russell_1000_multi_factor_defensive") is None
@@ -28,7 +28,7 @@ def test_min_recommended_equity_is_profile_specific() -> None:
 
 def test_account_size_diagnostics_warn_below_recommended_equity() -> None:
     diagnostics = build_account_size_diagnostics(
-        "russell_top50_leader_rotation_aggressive",
+        "russell_top50_leader_rotation",
         1_000.0,
     )
 
@@ -64,7 +64,7 @@ def test_account_size_warning_uses_translator_when_available() -> None:
 
 def test_account_size_diagnostics_do_not_warn_at_recommended_equity() -> None:
     diagnostics = build_account_size_diagnostics(
-        "russell_top50_leader_rotation_aggressive",
+        "russell_top50_leader_rotation",
         10_000.0,
     )
 
@@ -73,7 +73,7 @@ def test_account_size_diagnostics_do_not_warn_at_recommended_equity() -> None:
 
 
 def test_entrypoint_appends_small_account_warning_to_signal_description() -> None:
-    entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation_aggressive")
+    entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation")
     portfolio = PortfolioSnapshot(
         as_of=pd.Timestamp("2026-04-01").to_pydatetime(),
         total_equity=1_000.0,

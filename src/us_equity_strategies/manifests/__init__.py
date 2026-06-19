@@ -6,7 +6,7 @@ from us_equity_strategies.ai_extensions import build_default_ai_extension_config
 from us_equity_strategies.income_layer_defaults import income_layer_default_config
 
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
-RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE = "russell_top50_leader_rotation_aggressive"
+RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
@@ -193,9 +193,9 @@ soxl_soxx_trend_income_manifest = _manifest(
     },
 )
 
-russell_top50_leader_rotation_aggressive_manifest = _manifest(
-    profile=RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
-    display_name="Russell Top50 Leader Rotation Aggressive",
+russell_top50_leader_rotation_manifest = _manifest(
+    profile=RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
+    display_name="Russell Top50 Leader Rotation",
     description="Balanced monthly Russell Top50 leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
     aliases=(),
     required_inputs=frozenset({"feature_snapshot"}),
@@ -221,7 +221,7 @@ russell_top50_leader_rotation_aggressive_manifest = _manifest(
         "min_adv20_usd": 20000000.0,
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
-        **income_layer_default_config(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE),
+        **income_layer_default_config(RUSSELL_TOP50_LEADER_ROTATION_PROFILE),
         "option_growth_overlay_enabled": True,
         "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 1000000.0,
@@ -339,7 +339,7 @@ MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
     soxl_soxx_trend_income_manifest.profile: soxl_soxx_trend_income_manifest,
-    russell_top50_leader_rotation_aggressive_manifest.profile: russell_top50_leader_rotation_aggressive_manifest,
+    russell_top50_leader_rotation_manifest.profile: russell_top50_leader_rotation_manifest,
     nasdaq_sp500_smart_dca_manifest.profile: nasdaq_sp500_smart_dca_manifest,
     ibit_smart_dca_manifest.profile: ibit_smart_dca_manifest,
 }
@@ -362,7 +362,7 @@ __all__ = [
     "global_etf_rotation_manifest",
     "tqqq_growth_income_manifest",
     "soxl_soxx_trend_income_manifest",
-    "russell_top50_leader_rotation_aggressive_manifest",
+    "russell_top50_leader_rotation_manifest",
     "nasdaq_sp500_smart_dca_manifest",
     "ibit_smart_dca_manifest",
 ]

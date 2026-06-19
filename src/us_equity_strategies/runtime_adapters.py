@@ -12,7 +12,7 @@ from quant_platform_kit.strategy_contracts import (
 
 from us_equity_strategies.catalog import (
     IBIT_SMART_DCA_PROFILE,
-    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+    RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
     get_strategy_definition,
     get_strategy_definitions,
@@ -62,18 +62,18 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         status_icon="🐤",
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
     ),
-    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: StrategyRuntimeAdapter(
+    RUSSELL_TOP50_LEADER_ROTATION_PROFILE: StrategyRuntimeAdapter(
         status_icon=mega_cap_leader_rotation_strategy.STATUS_ICON,
         required_feature_columns=mega_cap_leader_rotation_strategy.REQUIRED_FEATURE_COLUMNS,
         snapshot_date_columns=mega_cap_leader_rotation_strategy.SNAPSHOT_DATE_COLUMNS,
         max_snapshot_month_lag=mega_cap_leader_rotation_strategy.MAX_SNAPSHOT_MONTH_LAG,
         require_snapshot_manifest=mega_cap_leader_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-        snapshot_contract_version="russell_top50_leader_rotation_aggressive.feature_snapshot.v1",
+        snapshot_contract_version="russell_top50_leader_rotation.feature_snapshot.v1",
         managed_symbols_extractor=mega_cap_leader_rotation_strategy.extract_managed_symbols,
         artifact_contract=StrategyArtifactContract(
             requires_snapshot_artifacts=True,
             requires_snapshot_manifest_path=mega_cap_leader_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
-            snapshot_contract_version="russell_top50_leader_rotation_aggressive.feature_snapshot.v1",
+            snapshot_contract_version="russell_top50_leader_rotation.feature_snapshot.v1",
         ),
     ),
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyRuntimeAdapter(

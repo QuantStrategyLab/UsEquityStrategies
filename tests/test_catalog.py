@@ -12,7 +12,7 @@ from us_equity_strategies.catalog import (
     FULL_SHARED_PLATFORM_MATRIX,
     GLOBAL_ETF_ROTATION_PROFILE,
     IBIT_SMART_DCA_PROFILE,
-    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+    RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
@@ -66,13 +66,13 @@ class CatalogTest(unittest.TestCase):
             frozenset({"derived_indicators", "portfolio_snapshot"}),
         )
 
-        self.assertIn(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE, catalog)
+        self.assertIn(RUSSELL_TOP50_LEADER_ROTATION_PROFILE, catalog)
         self.assertEqual(
-            get_compatible_platforms(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE),
+            get_compatible_platforms(RUSSELL_TOP50_LEADER_ROTATION_PROFILE),
             FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(
-            catalog[RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE].required_inputs,
+            catalog[RUSSELL_TOP50_LEADER_ROTATION_PROFILE].required_inputs,
             frozenset({"feature_snapshot"}),
         )
 
@@ -140,8 +140,8 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.soxl_soxx_trend_income",
         )
 
-        balanced_definition = get_strategy_definition("russell_top50_leader_rotation_aggressive")
-        self.assertEqual(balanced_definition.profile, RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE)
+        balanced_definition = get_strategy_definition("russell_top50_leader_rotation")
+        self.assertEqual(balanced_definition.profile, RUSSELL_TOP50_LEADER_ROTATION_PROFILE)
         balanced_module = get_strategy_component_map(balanced_definition)["signal_logic"]
         self.assertEqual(
             balanced_module.module_path,
@@ -200,11 +200,11 @@ class CatalogTest(unittest.TestCase):
             "runtime_enabled",
         )
         self.assertEqual(
-            metadata_map[RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE].role,
+            metadata_map[RUSSELL_TOP50_LEADER_ROTATION_PROFILE].role,
             "aggressive_leader_rotation",
         )
         self.assertEqual(
-            compatibility[RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE],
+            compatibility[RUSSELL_TOP50_LEADER_ROTATION_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
         )
         self.assertEqual(metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].role, "buy_only_smart_dca")
@@ -246,7 +246,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(soxl["option_income_overlay_start_usd"], 1000000.0)
         self.assertEqual(soxl["option_income_overlay_nav_risk_ratio"], 0.01)
 
-        mega = get_strategy_definition(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE).default_config
+        mega = get_strategy_definition(RUSSELL_TOP50_LEADER_ROTATION_PROFILE).default_config
         self.assertIs(mega["option_growth_overlay_enabled"], True)
         self.assertEqual(mega["option_growth_overlay_recipe"], "qqq_leaps_growth_v1")
         self.assertEqual(mega["option_growth_overlay_start_usd"], 1000000.0)
@@ -394,7 +394,7 @@ class CatalogTest(unittest.TestCase):
 
         promotion_pending_profiles = (
             GLOBAL_ETF_ROTATION_PROFILE,
-            RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+            RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
         )
         for profile in promotion_pending_profiles:
             config = get_strategy_definition(profile).default_config
@@ -447,7 +447,7 @@ class CatalogTest(unittest.TestCase):
                     GLOBAL_ETF_ROTATION_PROFILE,
                     TQQQ_GROWTH_INCOME_PROFILE,
                     SOXL_SOXX_TREND_INCOME_PROFILE,
-                    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+                    RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
                     NASDAQ_SP500_SMART_DCA_PROFILE,
                     IBIT_SMART_DCA_PROFILE,
                 }
