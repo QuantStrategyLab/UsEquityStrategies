@@ -14,6 +14,8 @@ source-chain validation run, not a production recommendation.
   `http://www.econ.yale.edu/~shiller/data/ie_data.xls`.
 - Run directory:
   `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619`.
+- Latest diagnostic strategy output:
+  `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics`.
 
 The downloaded Yale/Shiller file only contained CAPE data through
 `2023-09-30`, so the strategy matrix was capped at `2023-09-29`. This means the
@@ -54,7 +56,7 @@ python -m us_equity_strategies.backtests.smart_dca_research_cli \
   --trade-csv ./processed/NASDAQCOM_trade.csv \
   --signal-manifest ./signals/us_equity_public_context.manifest.json \
   --signal-quality-report ./signals/us_equity_public_context.quality.json \
-  --output-dir ./strategy/nasdaqcom_cape_vix_standard \
+  --output-dir ./strategy/nasdaqcom_cape_vix_diagnostics \
   --candidate-set nasdaq_sp500_cape_vix_precomputed_variants \
   --signal-columns cape_percentile,vix_percentile \
   --trade-column close \
@@ -86,6 +88,15 @@ gate but failed the effect-size gate against fixed DCA:
 - median relative terminal value vs fixed DCA: `-13.65%`
 - worst rank score: `-12.97`
 - max terminal cash ratio: `2.90%`
+- deployment-rate drag vs fixed DCA: `-20.00 percentage points`
+- max skipped-buy ratio: `0.0`
+- dominant performance diagnosis: `terminal_underperformance_vs_fixed`
+- performance diagnoses:
+  `below_fixed_average_multiplier`,
+  `drawdown_better_than_fixed`,
+  `lower_deployment_rate`,
+  `paid_terminal_value_for_drawdown_relief`,
+  `terminal_underperformance_vs_fixed`
 - regimes observed:
   `cape_vix_normal`,
   `cape_vix_valuation_expensive_guard`,
@@ -97,6 +108,10 @@ The review decision was:
 - `runtime_default_recommendation=fixed_dca`
 - `smart_mode_enablement_status=not_recommended_for_enablement`
 - blocking reason: `insufficient_effect_size_vs_fixed_dca`
+- effect-size failure reasons:
+  `worst_terminal_edge_below_min_effect_size`,
+  `median_terminal_edge_below_min_effect_size`,
+  `worst_rank_score_below_min_effect_size`
 
 ## Interpretation
 
@@ -105,6 +120,14 @@ on the auditable FRED/Yale public dataset. The rule spends most periods below
 the fixed baseline multiplier, with average scheduled multiplier around `0.80`.
 That cash drag is consistent with the broader finding that valuation guards tend
 to underperform fixed DCA in long rising equity markets.
+
+The diagnostic rerun also confirms the underperformance is not primarily a
+failed-order or skip-frequency problem: the max skipped-buy ratio is zero. The
+rule buys every scheduled period, but it routinely buys less than fixed DCA in
+high-CAPE regimes. It buys some volatility stress periods at `1.25x`, yet that
+does not offset the long-horizon deployment drag. This makes open-ended
+threshold tuning a poor next step unless a richer point-in-time breadth or
+macro source changes the economic hypothesis.
 
 The next useful research step is not to tune this rule open-ended. It is to
 improve the data-source layer first:
