@@ -331,9 +331,45 @@ class CatalogTest(unittest.TestCase):
                     profile_contract["actual_values"]["investment_amount_mode"],
                     "fixed",
                 )
+                self.assertEqual(
+                    profile_contract["actual_values"]["base_investment_usd"],
+                    1000.0,
+                )
                 self.assertIs(
                     profile_contract["actual_values"]["smart_multiplier_enabled"],
                     False,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["cadence"],
+                    "monthly",
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["monthly_day"],
+                    25,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["monthly_window_calendar_days"],
+                    5,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["weekly_day"],
+                    4,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["weekly_window_calendar_days"],
+                    4,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["quarterly_months"],
+                    (1, 4, 7, 10),
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["quarterly_day"],
+                    25,
+                )
+                self.assertEqual(
+                    profile_contract["actual_values"]["quarterly_window_calendar_days"],
+                    5,
                 )
                 self.assertTrue(profile_contract["available_cash_ratio_absent"])
                 self.assertEqual(profile_contract["target_mode"], "value")

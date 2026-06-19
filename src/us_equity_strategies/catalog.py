@@ -62,13 +62,20 @@ SMART_DCA_RUNTIME_DEFAULT_CONTRACT_PROFILES = (
     IBIT_SMART_DCA_PROFILE,
 )
 SMART_DCA_RUNTIME_DEFAULT_REQUIRED_VALUES = {
+    "base_investment_usd": 1000.0,
     "investment_amount_mode": "fixed",
     "smart_multiplier_enabled": False,
     "cadence": "monthly",
     "cash_reserve_usd": 0.0,
     "max_investment_usd": None,
     "min_investment_usd": 5.0,
+    "monthly_day": 25,
     "monthly_window_calendar_days": 5,
+    "weekly_day": 4,
+    "weekly_window_calendar_days": 4,
+    "quarterly_months": (1, 4, 7, 10),
+    "quarterly_day": 25,
+    "quarterly_window_calendar_days": 5,
     "execution_cash_reserve_ratio": 0.0,
     "execution_rebalance_threshold_ratio": 0.0,
 }

@@ -60,7 +60,10 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 `audit_smart_dca_runtime_default_contract()` in the strategy catalog keeps the
 production defaults aligned with this research decision: both smart DCA profiles
 must remain fixed-amount monthly DCA by default, with smart multipliers disabled,
-no available-cash ratio mode, no cash reserve, and fractional-friendly minimums.
+`base_investment_usd=1000`, no available-cash ratio mode, no cash reserve, and
+fractional-friendly minimums. The same audit also pins the supported weekly,
+monthly, and quarterly execution-window defaults so retry-window configuration
+cannot drift silently.
 
 Runtime CI can audit the live catalog defaults without rerunning backtests:
 
