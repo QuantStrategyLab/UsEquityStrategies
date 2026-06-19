@@ -89,6 +89,41 @@ def _write_research_manifest(
     )
 
 
+def _write_us_equity_quality_report(
+    path: Path,
+    *,
+    as_of: str,
+    public: bool = False,
+    quality_status: str = "pass",
+    failure_reasons: list[str] | None = None,
+    warning_reasons: list[str] | None = None,
+) -> None:
+    schema_version = (
+        "us_equity_public_context_availability_report.v1"
+        if public
+        else "us_equity_context_availability_report.v1"
+    )
+    artifact_type = (
+        "us_equity_public_context_availability_report"
+        if public
+        else "us_equity_context_availability_report"
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": schema_version,
+                "artifact_type": artifact_type,
+                "quality_status": quality_status,
+                "failure_reasons": failure_reasons or [],
+                "warning_reasons": warning_reasons or [],
+                "as_of": as_of,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> None:
     dates = pd.date_range("2024-01-02", periods=360, freq="B")
     prices = pd.Series([100.0 + index * 0.15 for index in range(len(dates))])
@@ -383,6 +418,7 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
     prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
     signal_csv = tmp_path / "us_equity_context.csv"
     signal_manifest = tmp_path / "us_equity_context.manifest.json"
+    signal_quality_report = tmp_path / "us_equity_context.quality.json"
     trade_csv = tmp_path / "trade.csv"
     output_dir = tmp_path / "nasdaq-context-artifacts"
 
@@ -431,6 +467,11 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
         ),
         encoding="utf-8",
     )
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(dates[-1].date()),
+        warning_reasons=["missing_provider_timestamp_column"],
+    )
 
     result = main(
         [
@@ -440,6 +481,8 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
             str(trade_csv),
             "--signal-manifest",
             str(signal_manifest),
+            "--signal-quality-report",
+            str(signal_quality_report),
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -466,6 +509,13 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
     signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
     assert signal_manifest_record["artifact_type"] == "us_equity_context_research_csv"
     assert signal_manifest_record["transform"] == "us_equity.nasdaq_sp500.context.v1"
+    quality_report_record = summary["metadata"]["input_artifacts"][
+        "signal_quality_report"
+    ]
+    assert quality_report_record["schema_version"] == (
+        "us_equity_context_availability_report.v1"
+    )
+    assert quality_report_record["quality_status"] == "pass"
     assert "nasdaq_sp500_precomputed_valuation_guard" in (
         output_dir / "monthly_day_15" / "metrics.csv"
     ).read_text(encoding="utf-8")
@@ -479,6 +529,7 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
     prices = pd.Series([100.0 + index * 0.08 for index in range(len(dates))])
     signal_csv = tmp_path / "us_equity_public_context.csv"
     signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    signal_quality_report = tmp_path / "us_equity_public_context.quality.json"
     trade_csv = tmp_path / "trade.csv"
     output_dir = tmp_path / "nasdaq-cape-vix-context-artifacts"
 
@@ -506,6 +557,11 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
         last_date=str(dates[-1].date()),
         row_count=len(dates),
     )
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(dates[-1].date()),
+        public=True,
+    )
 
     result = main(
         [
@@ -515,6 +571,8 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
             str(trade_csv),
             "--signal-manifest",
             str(signal_manifest),
+            "--signal-quality-report",
+            str(signal_quality_report),
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -537,9 +595,66 @@ def test_smart_dca_research_cli_accepts_cape_vix_context_without_breadth(
     assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == [
         "research:nasdaq_sp500_cape_vix_external_context_precomputed"
     ]
+    assert summary["metadata"]["input_artifacts"]["signal_quality_report"][
+        "schema_version"
+    ] == "us_equity_public_context_availability_report.v1"
     assert "nasdaq_sp500_precomputed_cape_vix_guard" in (
         output_dir / "monthly_day_15" / "metrics.csv"
     ).read_text(encoding="utf-8")
+
+
+def test_smart_dca_research_cli_requires_context_quality_report(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=40, freq="B")
+    signal_csv = tmp_path / "us_equity_public_context.csv"
+    signal_manifest = tmp_path / "us_equity_public_context.manifest.json"
+    trade_csv = tmp_path / "trade.csv"
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "cape_percentile": [0.70 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": [50.0 + index for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_context_research_csv",
+        transform="us_equity.nasdaq_sp500.context.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "cape_percentile", "vix_percentile"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(tmp_path / "missing-quality-report-artifacts"),
+            "--candidate-set",
+            "nasdaq_sp500_cape_vix_precomputed_variants",
+            "--signal-columns",
+            "cape_percentile,vix_percentile",
+        ]
+    )
+
+    assert result == 2
+    assert "require --signal-quality-report" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -582,6 +697,7 @@ def test_smart_dca_research_cli_rejects_bad_us_equity_context_signal_csv(
 
     signal_csv = tmp_path / "us_equity_context.csv"
     signal_manifest = tmp_path / "us_equity_context.manifest.json"
+    signal_quality_report = tmp_path / "us_equity_context.quality.json"
     trade_csv = tmp_path / "trade.csv"
     output_dir = tmp_path / f"nasdaq-context-artifacts-{mutation}"
     frame.to_csv(signal_csv, index=False)
@@ -603,6 +719,10 @@ def test_smart_dca_research_cli_rejects_bad_us_equity_context_signal_csv(
         last_date=str(frame.iloc[-1]["date"]),
         row_count=len(frame),
     )
+    _write_us_equity_quality_report(
+        signal_quality_report,
+        as_of=str(frame.iloc[as_of_index]["date"]),
+    )
 
     result = main(
         [
@@ -612,6 +732,8 @@ def test_smart_dca_research_cli_rejects_bad_us_equity_context_signal_csv(
             str(trade_csv),
             "--signal-manifest",
             str(signal_manifest),
+            "--signal-quality-report",
+            str(signal_quality_report),
             "--output-dir",
             str(output_dir),
             "--candidate-set",

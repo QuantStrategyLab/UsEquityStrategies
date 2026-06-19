@@ -173,6 +173,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional upstream manifest describing the signal CSV artifact.",
     )
     parser.add_argument(
+        "--signal-quality-report",
+        type=Path,
+        help=(
+            "Optional upstream quality/availability report for the signal CSV "
+            "or its source snapshots. Required when a us_equity_context "
+            "research manifest is supplied."
+        ),
+    )
+    parser.add_argument(
         "--trade-manifest",
         type=Path,
         help="Optional upstream manifest describing the trade price CSV artifact.",
@@ -411,6 +420,14 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
     records: dict[str, dict[str, object]] = {}
     signal_manifest_expectations = _signal_manifest_expectations(args.candidate_set)
     required_consumers = candidate_set_signal_consumers(args.candidate_set)
+    if (
+        signal_manifest_expectations["artifact_type"] == "us_equity_context_research_csv"
+        and args.signal_manifest is not None
+        and args.signal_quality_report is None
+    ):
+        raise ValueError(
+            "us_equity_context signal manifests require --signal-quality-report"
+        )
     if args.signal_manifest is not None:
         records["signal_manifest"] = _manifest_record(
             args.signal_manifest,
@@ -422,6 +439,12 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             required_signal_fields=_required_us_equity_context_fields(
                 required_consumers
             ),
+        )
+    if args.signal_quality_report is not None:
+        records["signal_quality_report"] = _signal_quality_report_record(
+            args.signal_quality_report,
+            expected_artifact_type=signal_manifest_expectations["artifact_type"],
+            signal_manifest=records.get("signal_manifest"),
         )
     if args.trade_manifest is not None:
         records["trade_manifest"] = _manifest_record(
@@ -578,6 +601,73 @@ def _manifest_record(
         "declared_output_csv_size_bytes": declared_output_size,
         "linked_csv_sha256_verified": True,
         "linked_csv_size_bytes_verified": declared_output_size is not None,
+    }
+
+
+def _signal_quality_report_record(
+    path: Path,
+    *,
+    expected_artifact_type: str | None,
+    signal_manifest: dict[str, object] | None,
+) -> dict[str, object]:
+    report = _read_manifest(path)
+    _validate_no_sensitive_manifest_fields(report, path="signal_quality_report")
+    schema_version = str(report.get("schema_version", "")).strip()
+    artifact_type = str(report.get("artifact_type", "")).strip()
+    if expected_artifact_type != "us_equity_context_research_csv":
+        raise ValueError(
+            "--signal-quality-report is currently supported only for "
+            "us_equity_context_research_csv signals"
+        )
+    expected_artifact_types = {
+        "us_equity_context_availability_report.v1": (
+            "us_equity_context_availability_report"
+        ),
+        "us_equity_public_context_availability_report.v1": (
+            "us_equity_public_context_availability_report"
+        ),
+    }
+    expected_report_artifact_type = expected_artifact_types.get(schema_version)
+    if expected_report_artifact_type is None:
+        raise ValueError(
+            "signal quality report schema_version must be one of: "
+            + ", ".join(sorted(expected_artifact_types))
+        )
+    if artifact_type != expected_report_artifact_type:
+        raise ValueError(
+            "signal quality report artifact_type mismatch: "
+            f"{artifact_type!r} != {expected_report_artifact_type!r}"
+        )
+    quality_status = str(report.get("quality_status", "")).strip()
+    if quality_status not in {"pass", "warn", "fail"}:
+        raise ValueError("signal quality report quality_status is invalid")
+    failure_reasons = _string_tuple(report.get("failure_reasons"))
+    warning_reasons = _string_tuple(report.get("warning_reasons"))
+    if quality_status == "fail" or failure_reasons:
+        raise ValueError(
+            "signal quality report failed: "
+            + ", ".join(failure_reasons or (quality_status,))
+        )
+    report_as_of = str(report.get("as_of", "") or "").strip()
+    manifest_as_of = "" if signal_manifest is None else str(
+        signal_manifest.get("as_of", "")
+    ).strip()
+    if report_as_of and manifest_as_of:
+        if pd.Timestamp(report_as_of).normalize() > pd.Timestamp(manifest_as_of).normalize():
+            raise ValueError(
+                "signal quality report as_of must not be after signal manifest as_of: "
+                f"{report_as_of} > {manifest_as_of}"
+            )
+    return {
+        **_file_record(path),
+        "schema_version": schema_version,
+        "artifact_type": artifact_type,
+        "quality_status": quality_status,
+        "failure_reasons": failure_reasons,
+        "warning_reasons": warning_reasons,
+        "as_of": report_as_of,
+        "signal_manifest_as_of": manifest_as_of,
+        "quality_status_accepted": True,
     }
 
 

@@ -322,6 +322,12 @@ sha256、文件大小、候选集信号来源模式和 `compatible_signal_consum
   `research_export.v1`、`artifact_type=btc_cycle_research_csv` 且
   `transform=crypto.btc.ahr999.v1`。这防止列名看似正确但 transform 版本不匹配的 CSV
   进入候选选择流程。
+- 当 CLI 使用 Nasdaq/S&P external context 候选并传入
+  `artifact_type=us_equity_context_research_csv` 的 `--signal-manifest` 时，必须同时传入
+  `--signal-quality-report`。该报告可以是完整 breadth context 的
+  `us_equity_context_availability_report.v1`，也可以是 public CAPE/VIX context 的
+  `us_equity_public_context_availability_report.v1`；CLI 会拒绝 `quality_status=fail`
+  或带 failure reasons 的报告，并检查 report `as_of` 不晚于 signal manifest `as_of`。
 - 当 CLI 传入 `--signal-source-family-catalog-manifest` 时，会校验 catalog manifest
   schema、相对 catalog 路径、catalog SHA-256/size、敏感字段、预期 transform 和当前候选集
   需要的 compatible consumers，并把 matched family 和 catalog coverage 摘要写进

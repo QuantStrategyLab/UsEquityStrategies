@@ -243,3 +243,7 @@ provenance 摘要，不记录指标数值。
 非单调日期、`last_date > as_of`、Nasdaq context 百分位越界、非正 AHR999/Mayer 值、
 越界 helper percentile 或非有限 slope。这个 gate 不是完整点时数据证明，但能阻止明显
 不合格的研究 CSV 进入 robustness matrix。
+对 Nasdaq/S&P context research CSV，CLI 还要求 `--signal-quality-report`，并接受完整
+`us_equity_context_availability_report.v1` 或 public CAPE/VIX
+`us_equity_public_context_availability_report.v1`；`quality_status=fail` 或 failure
+reasons 会阻止矩阵运行。
