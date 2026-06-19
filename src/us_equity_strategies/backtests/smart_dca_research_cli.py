@@ -255,6 +255,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "compatible research consumers."
         ),
     )
+    parser.add_argument(
+        "--require-runtime-consumer-coverage",
+        action="store_true",
+        help=(
+            "Require supplied source catalog or handoff manifests to prove every "
+            "known runtime signal consumer has an implemented source family."
+        ),
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
         "--candidate-set",
@@ -443,6 +451,9 @@ def _research_metadata(
             "align_start_after_warmup": not args.no_align_start_after_warmup,
             "min_investment_usd": args.min_investment_usd,
             "min_review_scenarios": args.min_review_scenarios,
+            "require_runtime_consumer_coverage": (
+                args.require_runtime_consumer_coverage
+            ),
         },
         "input_artifacts": {
             "signal_csv": _file_record(args.signal_csv),
@@ -532,6 +543,9 @@ def _optional_manifest_records(
                 args.signal_source_family_catalog_manifest,
                 required_consumers=required_consumers,
                 expected_transform=signal_manifest_expectations["transform"],
+                require_runtime_consumer_coverage=(
+                    args.require_runtime_consumer_coverage
+                ),
             )
         )
         if "signal_quality_report" in records:
@@ -551,6 +565,9 @@ def _optional_manifest_records(
             args.platform_signal_handoff_manifest,
             required_consumers=required_consumers,
             expected_transform=signal_manifest_expectations["transform"],
+            require_runtime_consumer_coverage=(
+                args.require_runtime_consumer_coverage
+            ),
         )
     if args.platform_signal_handoff_index is not None:
         records["platform_signal_handoff_index"] = _platform_handoff_index_record(
@@ -558,6 +575,9 @@ def _optional_manifest_records(
             required_consumers=required_consumers,
             expected_transform=signal_manifest_expectations["transform"],
             as_of=args.end_date,
+            require_runtime_consumer_coverage=(
+                args.require_runtime_consumer_coverage
+            ),
         )
     if args.research_signal_handoff_manifest is not None:
         handoff_consumer = _research_handoff_consumer(
@@ -570,6 +590,9 @@ def _optional_manifest_records(
             required_consumers=required_consumers,
             expected_artifact_type=signal_manifest_expectations["artifact_type"],
             expected_transform=signal_manifest_expectations["transform"],
+            require_runtime_consumer_coverage=(
+                args.require_runtime_consumer_coverage
+            ),
         )
         if "signal_manifest" in records:
             handoff_record = records["research_signal_handoff_manifest"]
@@ -964,6 +987,7 @@ def _source_catalog_manifest_record(
     *,
     required_consumers: tuple[str, ...],
     expected_transform: str | None,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, object]:
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(
@@ -1043,6 +1067,13 @@ def _source_catalog_manifest_record(
         raise ValueError(
             "signal source family catalog manifest all_runtime_consumers_covered "
             "must be a bool"
+        )
+    if (
+        require_runtime_consumer_coverage
+        and manifest.get("all_runtime_consumers_covered") is not True
+    ):
+        raise ValueError(
+            "signal source family catalog runtime consumer coverage is incomplete"
         )
     matched_family_records = _matching_source_catalog_family_records(
         families,
@@ -1288,12 +1319,14 @@ def _platform_handoff_manifest_record(
     *,
     required_consumers: tuple[str, ...],
     expected_transform: str | None,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, object]:
     try:
         summary = signal_platform_handoff_audit_summary_from_manifest(
             path,
             required_consumers=required_consumers,
             expected_source_transform=expected_transform,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
         )
     except SignalBundleContractError as exc:
         raise ValueError(str(exc)) from exc
@@ -1332,6 +1365,7 @@ def _platform_handoff_manifest_record(
         "all_consumer_contracts_satisfied": summary[
             "all_consumer_contracts_satisfied"
         ],
+        "all_runtime_consumers_covered": summary["all_runtime_consumers_covered"],
         "consumer_contract_count": summary["consumer_contract_count"],
         "consumer_contracts": summary["consumer_contracts"],
         "all_known_consumers_present": summary["all_known_consumers_present"],
@@ -1350,6 +1384,7 @@ def _platform_handoff_index_record(
     required_consumers: tuple[str, ...],
     expected_transform: str | None,
     as_of: str | None,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, object]:
     try:
         summary = signal_platform_handoff_audit_summary_from_index(
@@ -1357,6 +1392,7 @@ def _platform_handoff_index_record(
             required_consumers=required_consumers,
             expected_source_transform=expected_transform,
             as_of=as_of,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
         )
     except SignalBundleContractError as exc:
         raise ValueError(str(exc)) from exc
@@ -1400,6 +1436,7 @@ def _platform_handoff_index_record(
         "all_consumer_contracts_satisfied": summary[
             "all_consumer_contracts_satisfied"
         ],
+        "all_runtime_consumers_covered": summary["all_runtime_consumers_covered"],
         "consumer_contract_count": summary["consumer_contract_count"],
         "consumer_contracts": summary["consumer_contracts"],
         "all_known_consumers_present": summary["all_known_consumers_present"],
@@ -1454,12 +1491,14 @@ def _research_handoff_manifest_record(
     required_consumers: tuple[str, ...],
     expected_artifact_type: str | None,
     expected_transform: str | None,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, object]:
     try:
         summary = signal_research_handoff_audit_summary_from_manifest(
             path,
             consumer=consumer,
             expected_research_artifact_type=expected_artifact_type,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
         )
     except SignalBundleContractError as exc:
         raise ValueError(str(exc)) from exc
@@ -1511,6 +1550,7 @@ def _research_handoff_manifest_record(
         "all_consumer_contracts_satisfied": summary[
             "all_consumer_contracts_satisfied"
         ],
+        "all_runtime_consumers_covered": summary["all_runtime_consumers_covered"],
         "consumer_contract_count": summary["consumer_contract_count"],
         "consumer_contracts": summary["consumer_contracts"],
         "all_known_consumers_present": summary["all_known_consumers_present"],

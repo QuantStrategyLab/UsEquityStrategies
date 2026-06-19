@@ -1950,6 +1950,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             str(research_handoff_manifest),
             "--research-signal-handoff-consumer",
             "research:ibit_btc_ahr999_mayer_precomputed",
+            "--require-runtime-consumer-coverage",
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -1986,6 +1987,9 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "research:ibit_btc_ahr999_mayer_precomputed",
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ]
+    assert summary["metadata"]["research_config"][
+        "require_runtime_consumer_coverage"
+    ] is True
     signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
     assert signal_manifest_record["schema_version"] == "research_export.v1"
     assert signal_manifest_record["transform"] == "crypto.btc.ahr999.v1"
@@ -2074,6 +2078,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "research:ibit_btc_ahr999_mayer_precomputed",
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ]
+    assert platform_handoff_record["all_runtime_consumers_covered"] is True
     assert platform_handoff_record["handoff_linked_manifest_sha256s_verified"] is True
     research_handoff_record = summary["metadata"]["input_artifacts"][
         "research_signal_handoff_manifest"
@@ -2095,6 +2100,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert research_handoff_record["matched_source_families"] == [
         "crypto.btc_cycle_daily"
     ]
+    assert research_handoff_record["all_runtime_consumers_covered"] is True
     assert research_handoff_record["research_export_output_csv_verified"] is True
     assert (
         research_handoff_record["handoff_linked_manifest_sha256s_verified"] is True
@@ -2161,6 +2167,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             str(signal_manifest),
             "--platform-signal-handoff-index",
             str(platform_handoff_index),
+            "--require-runtime-consumer-coverage",
             "--output-dir",
             str(tmp_path / "ibit-precomputed-index-artifacts"),
             "--candidate-set",
@@ -2197,6 +2204,41 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "research:ibit_btc_ahr999_mayer_precomputed",
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ]
+    assert handoff_index_record["all_runtime_consumers_covered"] is True
+
+    source_catalog_manifest_payload = json.loads(
+        source_catalog_manifest.read_text(encoding="utf-8")
+    )
+    source_catalog_manifest_payload["all_runtime_consumers_covered"] = False
+    source_catalog_manifest.write_text(
+        json.dumps(source_catalog_manifest_payload, sort_keys=True),
+        encoding="utf-8",
+    )
+    incomplete_runtime_coverage_result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--signal-source-family-catalog-manifest",
+            str(source_catalog_manifest),
+            "--require-runtime-consumer-coverage",
+            "--output-dir",
+            str(tmp_path / "incomplete-runtime-coverage-artifacts"),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_sma,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+        ]
+    )
+    assert incomplete_runtime_coverage_result == 2
+    assert "runtime consumer coverage is incomplete" in capsys.readouterr().err
 
     source_catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
     source_catalog_payload["families"][0]["compatible_profiles"] = [

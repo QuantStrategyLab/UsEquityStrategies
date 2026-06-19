@@ -233,8 +233,13 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 python -m us_equity_strategies.backtests.smart_dca_research_cli \
   ... \
   --research-signal-handoff-manifest ./data/output/research_handoff.json \
-  --research-signal-handoff-consumer research:ibit_btc_ahr999_precomputed
+  --research-signal-handoff-consumer research:ibit_btc_ahr999_precomputed \
+  --require-runtime-consumer-coverage
 ```
+
+When that flag is set, the research CLI rejects a linked source catalog or
+handoff whose manifest does not prove `all_runtime_consumers_covered=true`, and
+records the coverage result in `scenario_manifest.json`.
 
 如果只拿到 `research_export.v1` manifest，也可以先做单文件校验。这个入口验证 output
 CSV 和可选 quality report，但不要求策略仓持有原始 vendor 输入快照：
