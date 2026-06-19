@@ -365,6 +365,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     dates = pd.date_range("2025-01-02", periods=120, freq="B")
     signal_csv = tmp_path / "btc_cycle.csv"
     signal_manifest = tmp_path / "btc_cycle.manifest.json"
+    source_catalog = tmp_path / "signal_source_families.json"
+    source_catalog_manifest = tmp_path / "signal_source_families.manifest.json"
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
 
@@ -405,6 +407,60 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ),
         encoding="utf-8",
     )
+    source_catalog.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_source_families.v1",
+                "families": [
+                    {
+                        "family": "crypto.btc_cycle_daily",
+                        "domain": "crypto",
+                        "bundle_type": "derived_indicators",
+                        "bundle_id_prefix": "crypto.btc.derived_indicators",
+                        "canonical_input": "derived_indicators",
+                        "transform": "crypto.btc.ahr999.v1",
+                        "provider_dataset": "btc_usd_daily_ohlcv",
+                        "freshness_policy": "crypto_daily_close_t_plus_1",
+                        "minimum_history_rows": 200,
+                        "symbols": ["BTC-USD"],
+                        "derived_indicator_fields": [
+                            "ahr999",
+                            "ahr999_sma",
+                            "mayer_multiple",
+                        ],
+                        "compatible_profiles": [
+                            "us_equity:ibit_smart_dca",
+                            "research:ibit_btc_ahr999_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                        ],
+                    }
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    source_catalog_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": (
+                    "market_signal_source_family_catalog_manifest.v1"
+                ),
+                "artifact_type": "market_signal_source_family_catalog",
+                "catalog_path": source_catalog.name,
+                "catalog_sha256": _sha256_file(source_catalog),
+                "catalog_size_bytes": source_catalog.stat().st_size,
+                "catalog_schema_version": "market_signal_source_families.v1",
+                "family_count": 1,
+                "known_family_count": 1,
+                "missing_known_families": [],
+                "all_known_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = main(
         [
@@ -414,6 +470,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             str(trade_csv),
             "--signal-manifest",
             str(signal_manifest),
+            "--signal-source-family-catalog-manifest",
+            str(source_catalog_manifest),
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -468,6 +526,21 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert signal_manifest_record["linked_csv_row_count"] == len(dates)
     assert signal_manifest_record["linked_csv_first_date"] == str(dates[0].date())
     assert signal_manifest_record["linked_csv_last_date"] == str(dates[-1].date())
+    source_catalog_manifest_record = summary["metadata"]["input_artifacts"][
+        "signal_source_family_catalog_manifest"
+    ]
+    assert source_catalog_manifest_record["schema_version"] == (
+        "market_signal_source_family_catalog_manifest.v1"
+    )
+    assert source_catalog_manifest_record["artifact_type"] == (
+        "market_signal_source_family_catalog"
+    )
+    assert source_catalog_manifest_record["catalog_sha256"] == (
+        _sha256_file(source_catalog)
+    )
+    assert source_catalog_manifest_record["catalog_sha256_verified"] is True
+    assert source_catalog_manifest_record["catalog_size_bytes_verified"] is True
+    assert source_catalog_manifest_record["all_consumer_contracts_satisfied"] is True
     scenario_manifest = json.loads(
         (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
     )
@@ -494,6 +567,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             "linked_csv_row_count"
         ]
         == len(dates)
+    )
+    assert (
+        scenario_manifest["metadata"]["input_artifacts"][
+            "signal_source_family_catalog_manifest"
+        ]["catalog_sha256"]
+        == _sha256_file(source_catalog)
     )
 
 

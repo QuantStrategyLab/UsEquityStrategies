@@ -148,6 +148,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional upstream manifest describing the trade price CSV artifact.",
     )
+    parser.add_argument(
+        "--signal-source-family-catalog-manifest",
+        type=Path,
+        help=(
+            "Optional MarketSignalSources family catalog manifest proving source "
+            "family and consumer-contract coverage."
+        ),
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
         "--candidate-set",
@@ -293,6 +301,12 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             expected_artifact_type=None,
             expected_transform=None,
         )
+    if args.signal_source_family_catalog_manifest is not None:
+        records["signal_source_family_catalog_manifest"] = (
+            _source_catalog_manifest_record(
+                args.signal_source_family_catalog_manifest
+            )
+        )
     return records
 
 
@@ -397,6 +411,95 @@ def _manifest_record(
         "linked_csv_sha256_verified": True,
         "linked_csv_size_bytes_verified": declared_output_size is not None,
     }
+
+
+def _source_catalog_manifest_record(path: Path) -> dict[str, object]:
+    manifest = _read_manifest(path)
+    _validate_no_sensitive_manifest_fields(
+        manifest,
+        path="signal_source_family_catalog_manifest",
+    )
+    schema_version = str(manifest.get("schema_version", "")).strip()
+    if schema_version != "market_signal_source_family_catalog_manifest.v1":
+        raise ValueError(
+            "signal source family catalog manifest schema_version must be "
+            "'market_signal_source_family_catalog_manifest.v1'"
+        )
+    artifact_type = str(manifest.get("artifact_type", "")).strip()
+    if artifact_type != "market_signal_source_family_catalog":
+        raise ValueError(
+            "signal source family catalog manifest artifact_type mismatch: "
+            f"{artifact_type!r}"
+        )
+    catalog_path = _resolve_manifest_artifact_path(
+        path,
+        str(manifest.get("catalog_path", "")),
+        role="signal source family catalog manifest",
+        field="catalog_path",
+    )
+    expected_catalog_sha256 = str(manifest.get("catalog_sha256", "")).strip().lower()
+    if not expected_catalog_sha256:
+        raise ValueError(
+            "signal source family catalog manifest catalog_sha256 is required"
+        )
+    actual_catalog_sha256 = _sha256_file(catalog_path)
+    if actual_catalog_sha256 != expected_catalog_sha256:
+        raise ValueError(
+            "signal source family catalog manifest catalog_sha256 mismatch: "
+            f"expected {expected_catalog_sha256}, got {actual_catalog_sha256}"
+        )
+    expected_catalog_size = manifest.get("catalog_size_bytes")
+    actual_catalog_size = catalog_path.stat().st_size
+    if (
+        not isinstance(expected_catalog_size, int)
+        or isinstance(expected_catalog_size, bool)
+        or expected_catalog_size != actual_catalog_size
+    ):
+        raise ValueError(
+            "signal source family catalog manifest catalog_size_bytes mismatch: "
+            f"expected {actual_catalog_size}, got {expected_catalog_size!r}"
+        )
+    return {
+        **_file_record(path),
+        "schema_version": schema_version,
+        "artifact_type": artifact_type,
+        "catalog_path": str(catalog_path),
+        "catalog_sha256": expected_catalog_sha256,
+        "catalog_size_bytes": expected_catalog_size,
+        "catalog_schema_version": str(manifest.get("catalog_schema_version", "")),
+        "family_count": manifest.get("family_count"),
+        "known_family_count": manifest.get("known_family_count"),
+        "missing_known_families": tuple(
+            str(family)
+            for family in manifest.get("missing_known_families", ()) or ()
+        ),
+        "all_known_families_present": bool(
+            manifest.get("all_known_families_present", False)
+        ),
+        "all_consumer_contracts_satisfied": bool(
+            manifest.get("all_consumer_contracts_satisfied", False)
+        ),
+        "catalog_sha256_verified": True,
+        "catalog_size_bytes_verified": True,
+    }
+
+
+def _resolve_manifest_artifact_path(
+    manifest_path: Path,
+    value: str,
+    *,
+    role: str,
+    field: str,
+) -> Path:
+    raw_path = Path(str(value).strip())
+    if not str(value).strip():
+        raise ValueError(f"{role} {field} must not be empty")
+    if raw_path.is_absolute() or ".." in raw_path.parts:
+        raise ValueError(f"{role} {field} must stay inside manifest directory")
+    artifact_path = (manifest_path.parent / raw_path).resolve()
+    if not artifact_path.exists():
+        raise ValueError(f"{role} {field} does not exist: {value}")
+    return artifact_path
 
 
 def _validate_manifest_expectations(
