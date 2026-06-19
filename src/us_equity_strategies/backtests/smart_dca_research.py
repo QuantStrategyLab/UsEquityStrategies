@@ -124,6 +124,17 @@ NASDAQ_SP500_PRICE_NO_SKIP_PARAMETERS: dict[str, float] = {
     "expensive_multiplier": 1.0,
     "very_expensive_multiplier": 1.0,
 }
+NASDAQ_SP500_VALUATION_GUARD_PARAMETERS: dict[str, float] = {
+    "cape_expensive_percentile_threshold": 0.85,
+    "base_multiplier": 1.0,
+    "valuation_guard_multiplier": 0.75,
+}
+NASDAQ_SP500_VOL_BREADTH_STRESS_PARAMETERS: dict[str, float] = {
+    "vix_stress_percentile_threshold": 0.80,
+    "breadth_weak_threshold": 0.40,
+    "base_multiplier": 1.0,
+    "stress_pullback_multiplier": 1.25,
+}
 
 
 PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
@@ -142,6 +153,22 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         signal_symbols=("QQQ", "SPY"),
         min_history=252,
         parameters=NASDAQ_SP500_PRICE_NO_SKIP_PARAMETERS,
+    ),
+    "nasdaq_sp500_precomputed_valuation_guard": SmartDcaCandidate(
+        name="nasdaq_sp500_precomputed_valuation_guard",
+        family="nasdaq_sp500_external_precomputed_context",
+        rule_type="precomputed_nasdaq_sp500_valuation_guard",
+        signal_symbols=("cape_percentile",),
+        min_history=1,
+        parameters=NASDAQ_SP500_VALUATION_GUARD_PARAMETERS,
+    ),
+    "nasdaq_sp500_precomputed_vol_breadth_stress": SmartDcaCandidate(
+        name="nasdaq_sp500_precomputed_vol_breadth_stress",
+        family="nasdaq_sp500_external_precomputed_context",
+        rule_type="precomputed_nasdaq_sp500_vol_breadth_stress",
+        signal_symbols=("vix_percentile", "breadth_above_sma200_pct"),
+        min_history=1,
+        parameters=NASDAQ_SP500_VOL_BREADTH_STRESS_PARAMETERS,
     ),
     "ibit_btc_ahr999_cycle": SmartDcaCandidate(
         name="ibit_btc_ahr999_cycle",
@@ -231,6 +258,11 @@ CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
     "nasdaq_sp500_price_variants": (
         "nasdaq_sp500_price_defensive",
         "nasdaq_sp500_price_no_skip",
+    ),
+    "nasdaq_sp500_external_precomputed_variants": (
+        "nasdaq_sp500_price_no_skip",
+        "nasdaq_sp500_precomputed_valuation_guard",
+        "nasdaq_sp500_precomputed_vol_breadth_stress",
     ),
     "ibit_btc_ahr999_price": ("ibit_btc_ahr999_cycle",),
     "ibit_btc_ahr999_price_variants": (
@@ -443,6 +475,8 @@ def _candidate_multiplier_values(candidate: SmartDcaCandidate) -> tuple[float, .
 
 
 def _candidate_signal_source_mode(candidate: SmartDcaCandidate) -> str:
+    if candidate.rule_type.startswith("precomputed_nasdaq_sp500_"):
+        return "external_precomputed_us_equity_context"
     if candidate.rule_type.startswith("precomputed_"):
         return "external_precomputed_derived_indicators"
     if "ahr999" in candidate.rule_type:
@@ -604,6 +638,48 @@ def _trend_drawdown_multiplier(
         multiplier = parameters["base_multiplier"]
 
     return float(multiplier), regime, metrics
+
+
+def _precomputed_nasdaq_sp500_valuation_guard_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    latest = signal_history.iloc[-1]
+    cape_percentile = float(latest[_normalize_symbol("cape_percentile")])
+    metrics: dict[str, object] = {
+        "cape_percentile": cape_percentile,
+        "cycle_indicator_source": "external_precomputed_us_equity_context",
+    }
+    if cape_percentile >= parameters["cape_expensive_percentile_threshold"]:
+        return (
+            float(parameters["valuation_guard_multiplier"]),
+            "valuation_expensive_guard",
+            metrics,
+        )
+    return float(parameters["base_multiplier"]), "valuation_normal", metrics
+
+
+def _precomputed_nasdaq_sp500_vol_breadth_stress_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    latest = signal_history.iloc[-1]
+    vix_percentile = float(latest[_normalize_symbol("vix_percentile")])
+    breadth = float(latest[_normalize_symbol("breadth_above_sma200_pct")])
+    metrics: dict[str, object] = {
+        "vix_percentile": vix_percentile,
+        "breadth_above_sma200_pct": breadth,
+        "cycle_indicator_source": "external_precomputed_us_equity_context",
+    }
+    stressed = vix_percentile >= parameters["vix_stress_percentile_threshold"]
+    weak_breadth = breadth <= parameters["breadth_weak_threshold"]
+    if stressed and weak_breadth:
+        return (
+            float(parameters["stress_pullback_multiplier"]),
+            "volatility_breadth_stress_add",
+            metrics,
+        )
+    return float(parameters["base_multiplier"]), "volatility_breadth_normal", metrics
 
 
 def _bitcoin_age_estimate_price(as_of: object) -> float:
@@ -845,6 +921,16 @@ def _candidate_multiplier(
         return 0.0, "insufficient_history", {"required_history": candidate.min_history}
     if candidate.rule_type == "trend_drawdown":
         return _trend_drawdown_multiplier(signal_history, candidate.parameters)
+    if candidate.rule_type == "precomputed_nasdaq_sp500_valuation_guard":
+        return _precomputed_nasdaq_sp500_valuation_guard_multiplier(
+            signal_history,
+            candidate.parameters,
+        )
+    if candidate.rule_type == "precomputed_nasdaq_sp500_vol_breadth_stress":
+        return _precomputed_nasdaq_sp500_vol_breadth_stress_multiplier(
+            signal_history,
+            candidate.parameters,
+        )
     if candidate.rule_type == "ahr999":
         return _ahr999_multiplier(signal_history, candidate.parameters, as_of=as_of)
     if candidate.rule_type == "ahr999_mayer":

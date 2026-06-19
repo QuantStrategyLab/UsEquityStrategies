@@ -216,7 +216,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Candidate set or preset name. Known sets include "
             "nasdaq_sp500_production_equivalent, nasdaq_sp500_price, "
-            "nasdaq_sp500_price_variants, ibit_btc_ahr999_price, "
+            "nasdaq_sp500_price_variants, "
+            "nasdaq_sp500_external_precomputed_variants, ibit_btc_ahr999_price, "
             "ibit_btc_ahr999_price_variants, ibit_btc_ahr999_precomputed, "
             "ibit_btc_ahr999_precomputed_variants, "
             "ibit_btc_ahr999_helper_precomputed_variants, legacy Mayer variants, "

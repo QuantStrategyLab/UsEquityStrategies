@@ -164,6 +164,22 @@ For research artifact naming, the production-equivalent smart candidate is
 `nasdaq_sp500_production_equivalent`. The defensive candidate that reduces or
 skips buys in expensive regimes is retained only as a research variant.
 
+The next external-signal research entry is
+`nasdaq_sp500_external_precomputed_variants`. It keeps
+`nasdaq_sp500_price_no_skip` as the current smart baseline and adds two
+research-only precomputed context variants:
+
+- `nasdaq_sp500_precomputed_valuation_guard`, using `cape_percentile` to reduce
+  this period's contribution to `0.75x` only in high-valuation regimes.
+- `nasdaq_sp500_precomputed_vol_breadth_stress`, using `vix_percentile` and
+  `breadth_above_sma200_pct` to raise this period's contribution to `1.25x`
+  only when volatility stress and weak breadth coincide.
+
+These candidates require point-in-time external context CSVs or future signal
+source artifacts. They are not production defaults, and they should not be
+enabled unless a robustness matrix beats fixed DCA under the same review gates
+used for the price-only sweep.
+
 ## Execution Contract
 
 The profile uses:

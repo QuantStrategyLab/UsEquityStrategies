@@ -7,6 +7,7 @@ from us_equity_strategies.backtests.smart_dca_research import (
     DcaResearchResult,
     available_candidate_names,
     candidate_set_signal_consumers,
+    candidate_set_signal_source_modes,
     candidate_signal_consumers,
     candidate_summaries_to_rows,
     candidate_specs_to_rows,
@@ -1149,6 +1150,48 @@ def test_ibit_btc_precomputed_helper_variants_use_percentile_and_slope() -> None
     assert guarded.last_signal_metrics["ahr999_30d_slope"] == -0.01
 
 
+def test_nasdaq_external_precomputed_candidates_use_context_columns() -> None:
+    dates = pd.date_range("2025-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + i * 0.05 for i in range(len(dates))], index=dates)
+    signals = pd.DataFrame(
+        {
+            "QQQ": prices,
+            "SPY": prices * 0.95,
+            "cape_percentile": [0.90 for _ in dates],
+            "vix_percentile": [0.85 for _ in dates],
+            "breadth_above_sma200_pct": [0.35 for _ in dates],
+        },
+        index=dates,
+    )
+    trade_prices = pd.Series(
+        [50.0 + i * 0.03 for i in range(len(dates))],
+        index=dates,
+    )
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=trade_prices,
+        candidate_set="nasdaq_sp500_external_precomputed_variants",
+        monthly_contribution_usd=500.0,
+    )
+
+    assert set(result) == {
+        "fixed",
+        "nasdaq_sp500_price_no_skip",
+        "nasdaq_sp500_precomputed_valuation_guard",
+        "nasdaq_sp500_precomputed_vol_breadth_stress",
+    }
+    valuation = result["nasdaq_sp500_precomputed_valuation_guard"]
+    stress = result["nasdaq_sp500_precomputed_vol_breadth_stress"]
+    assert valuation.trades[0]["regime"] == "valuation_expensive_guard"
+    assert valuation.trades[0]["multiplier"] == 0.75
+    assert valuation.last_signal_metrics["cape_percentile"] == 0.90
+    assert stress.trades[0]["regime"] == "volatility_breadth_stress_add"
+    assert stress.trades[0]["multiplier"] == 1.25
+    assert stress.last_signal_metrics["vix_percentile"] == 0.85
+    assert stress.last_signal_metrics["breadth_above_sma200_pct"] == 0.35
+
+
 def _candidate_parameters(name: str) -> dict[str, float]:
     return {
         str(row["parameter_name"]): float(row["parameter_value"])
@@ -1219,6 +1262,15 @@ def test_production_equivalent_candidates_match_strategy_defaults() -> None:
 
 def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     assert candidate_set_signal_consumers("nasdaq_sp500_price_variants") == ()
+    assert candidate_set_signal_consumers(
+        "nasdaq_sp500_external_precomputed_variants"
+    ) == ()
+    assert candidate_set_signal_source_modes(
+        "nasdaq_sp500_external_precomputed_variants"
+    ) == (
+        "external_precomputed_us_equity_context",
+        "market_history_price_indicators",
+    )
     assert candidate_set_signal_consumers("ibit_btc_ahr999_precomputed") == (
         "research:ibit_btc_ahr999_precomputed",
         "us_equity:ibit_smart_dca",
@@ -1272,6 +1324,15 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     assert helper_summary["compatible_signal_consumers"] == ""
     assert helper_summary["signal_symbols"] == "ahr999_365d_percentile"
 
+    nasdaq_external_summary = candidate_summaries_to_rows(
+        ("nasdaq_sp500_precomputed_valuation_guard",)
+    )[0]
+    assert nasdaq_external_summary["compatible_signal_consumers"] == ""
+    assert nasdaq_external_summary["signal_source_mode"] == (
+        "external_precomputed_us_equity_context"
+    )
+    assert nasdaq_external_summary["open_parameter_search"] is False
+
 
 def test_ibit_production_equivalent_candidate_ignores_mayer_conflict() -> None:
     dates = pd.date_range("2025-01-02", periods=120, freq="B")
@@ -1306,6 +1367,8 @@ def test_candidate_universe_is_named_and_bounded() -> None:
     assert available_candidate_names() == (
         "nasdaq_sp500_price_defensive",
         "nasdaq_sp500_price_no_skip",
+        "nasdaq_sp500_precomputed_valuation_guard",
+        "nasdaq_sp500_precomputed_vol_breadth_stress",
         "ibit_btc_ahr999_cycle",
         "ibit_btc_ahr999_mayer_cycle",
         "ibit_btc_ahr999_mayer_no_skip_cycle",
