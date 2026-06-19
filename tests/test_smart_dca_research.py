@@ -405,10 +405,23 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert coverage_rows[0]["scenario_contribution_amount_count"] == 2
     assert coverage_rows[0]["scenario_start_dates"] == ""
     assert coverage_rows[0]["scenario_start_date_count"] == 0
+    assert coverage_rows[0]["scenario_recognized_dimension_count"] == 3
+    assert coverage_rows[0]["scenario_varied_dimensions"] == (
+        "execution_day,contribution_amount"
+    )
+    assert coverage_rows[0]["scenario_varied_dimension_count"] == 2
+    assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
     assert selection_rows[0]["matrix_scenario_cadences"] == "monthly"
     assert selection_rows[0]["matrix_scenario_execution_days"] == "1,25"
     assert selection_rows[0]["matrix_scenario_contribution_amounts_usd"] == "500,1000"
+    assert selection_rows[0]["matrix_scenario_varied_dimensions"] == (
+        "execution_day,contribution_amount"
+    )
+    assert selection_rows[0]["matrix_scenario_dimension_coverage_gate_passed"] is True
     assert review_decision["matrix_coverage_gate_passed"] is True
+    assert review_decision["selection_gate_summary"][
+        "matrix_dimension_coverage_gate_passed"
+    ] is True
     assert review_decision["selection_groups"] == ("nasdaq_sp500_price",)
     assert review_decision["selection_count"] == 1
     assert review_decision["overall_recommendation_status"] in {
@@ -469,20 +482,34 @@ def test_selection_rows_require_minimum_robustness_scenarios() -> None:
         scenarios,
         min_review_scenarios=1,
     )
-    assert relaxed_rows[0]["recommendation_status"] == "promote_to_manual_review"
-    assert relaxed_rows[0]["recommendation_reason"] == "selected_candidate_passed_all_scenarios"
+    assert relaxed_rows[0]["matrix_coverage_gate_passed"] is False
+    assert relaxed_rows[0]["matrix_coverage_failure_reasons"] == (
+        "scenario_dimension_coverage_missing"
+    )
+    assert relaxed_rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert relaxed_rows[0]["recommendation_reason"] == (
+        "insufficient_scenario_matrix_coverage"
+    )
 
 
 def test_selection_rows_hold_fixed_when_effect_size_is_too_small() -> None:
     scenarios = {
-        "scenario_a": {
+        "monthly_day_1": {
             "fixed": _research_result("fixed", terminal_value=1000.0),
             "nasdaq_sp500_price_no_skip": _research_result(
                 "nasdaq_sp500_price_no_skip",
                 terminal_value=1001.0,
                 max_drawdown=0.10,
             ),
-        }
+        },
+        "monthly_day_25": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1001.0,
+                max_drawdown=0.10,
+            ),
+        },
     }
 
     rows = scenario_results_to_selection_rows(
@@ -497,6 +524,7 @@ def test_selection_rows_hold_fixed_when_effect_size_is_too_small() -> None:
     assert rows[0]["selected_robustness_gate_passed"] is True
     assert rows[0]["review_scenario_gate_passed"] is True
     assert rows[0]["matrix_coverage_gate_passed"] is True
+    assert rows[0]["matrix_scenario_dimension_coverage_gate_passed"] is True
     assert rows[0]["selected_effect_size_gate_passed"] is False
     assert rows[0]["selected_median_relative_terminal_value_pct"] < 1.0
     assert rows[0]["selected_effect_size_failure_reasons"] == (
@@ -557,10 +585,13 @@ def test_selection_rows_hold_fixed_when_matrix_coverage_fails() -> None:
     assert rows[0]["review_scenario_gate_passed"] is True
     assert rows[0]["matrix_coverage_gate_passed"] is False
     assert rows[0]["matrix_coverage_status"] == "insufficient_coverage"
-    assert rows[0]["matrix_coverage_failure_reasons"] == "candidate_set_inconsistent"
+    assert rows[0]["matrix_coverage_failure_reasons"] == (
+        "candidate_set_inconsistent,scenario_dimension_coverage_missing"
+    )
     assert rows[0]["matrix_scenario_count"] == 3
     assert rows[0]["matrix_candidate_set_consistent"] is False
     assert rows[0]["matrix_fixed_benchmark_present_all"] is True
+    assert rows[0]["matrix_scenario_dimension_coverage_gate_passed"] is False
     assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
     assert rows[0]["recommendation_reason"] == "insufficient_scenario_matrix_coverage"
 
@@ -591,7 +622,9 @@ def test_scenario_coverage_rows_flag_incomplete_or_inconsistent_matrix() -> None
     assert rows[0]["candidate_set_consistent"] is False
     assert rows[0]["fixed_benchmark_present_all"] is True
     assert rows[0]["failure_reasons"] == (
-        "scenario_count_below_min_review_scenarios,candidate_set_inconsistent"
+        "scenario_count_below_min_review_scenarios,"
+        "candidate_set_inconsistent,"
+        "scenario_dimension_coverage_missing"
     )
 
 
@@ -627,6 +660,8 @@ def test_execution_day_contribution_scenarios_cover_cadence_robustness() -> None
     assert coverage_rows[0]["scenario_cadence_count"] == 3
     assert coverage_rows[0]["scenario_execution_days"] == "15"
     assert coverage_rows[0]["scenario_contribution_amounts_usd"] == "1000"
+    assert coverage_rows[0]["scenario_varied_dimensions"] == "cadence"
+    assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
 
 
 def test_execution_day_contribution_scenarios_cover_rolling_starts() -> None:
@@ -655,6 +690,8 @@ def test_execution_day_contribution_scenarios_cover_rolling_starts() -> None:
     coverage_rows = scenario_results_to_coverage_rows(scenarios)
     assert coverage_rows[0]["scenario_start_dates"] == "2025-01-02,2025-07-01"
     assert coverage_rows[0]["scenario_start_date_count"] == 2
+    assert coverage_rows[0]["scenario_varied_dimensions"] == "start_date"
+    assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
 
 
 def test_ibit_btc_candidate_derives_ahr999_mayer_from_prices() -> None:

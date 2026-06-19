@@ -351,7 +351,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 不会阻止 CSV 生成，但会在 `coverage_status` 和 `failure_reasons` 中显式标记。它也会记录
 `scenario_cadences`、`scenario_execution_days`、`scenario_contribution_amounts_usd`
 和 `scenario_start_dates`，用于确认研究矩阵确实覆盖了频率、执行日、金额和 rolling-start
-扰动，而不是只在单一配置上挑选候选。
+扰动，而不是只在单一配置上挑选候选。`coverage_gate_passed` 还要求至少一个可识别维度
+确实有多个取值；如果只是用多个手写场景名凑够数量，会记录
+`scenario_dimension_coverage_missing` 并保持 `hold_default_fixed_dca`。
 顶层 `selection_summary.csv` 会按候选 family 选择当前矩阵内最强的固定候选，并明确给出
 `recommendation_status`。若没有候选通过全部 robustness gate，它会标记
 `hold_default_fixed_dca`，避免把“最不差”的 smart 版本误当成可上线推荐。
@@ -361,6 +363,7 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 `selection_summary.csv` 同时复制矩阵级覆盖字段，例如 `matrix_scenario_count`、
 `matrix_scenario_cadences`、`matrix_scenario_execution_days`、
 `matrix_scenario_contribution_amounts_usd`、`matrix_scenario_start_dates`、
+`matrix_scenario_varied_dimensions`、
 `matrix_candidate_set_consistent`、`matrix_fixed_benchmark_present_all` 和
 `matrix_candidate_names`，便于人工评审时只看 selection summary 也能识别覆盖缺口。
 `selection_summary.csv` 还会执行固定 effect-size gate：候选最差相对终值不能低于 fixed，
