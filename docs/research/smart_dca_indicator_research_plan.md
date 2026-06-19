@@ -282,8 +282,9 @@ sha256、文件大小、候选集信号来源模式和 `compatible_signal_consum
   schema、相对 catalog 路径、catalog SHA-256/size 和敏感字段，并把 catalog coverage
   摘要写进 `scenario_manifest.json`，用于证明 precomputed 指标来自已发布的信号源家族目录。
 - 当 CLI 传入 `--signal-consumer-contract-registry-manifest` 时，会校验 consumer contract
-  registry manifest schema、相对 registry 路径、registry SHA-256/size 和敏感字段，并把
-  canonical input、consumer count 和 known-consumer coverage 写进 `scenario_manifest.json`。
+  registry manifest schema、相对 registry 路径、registry SHA-256/size、敏感字段、当前候选集
+  需要的 compatible consumers，以及 registry 中每个 consumer 的字段契约是否与策略仓库一致，
+  并把 canonical input、consumer count 和 coverage 写进 `scenario_manifest.json`。
 顶层 `review_decision.json` 会显式区分 `observed_best_smart_candidates`
 和 `runtime_default_recommendation = fixed_dca`：即使某个智能候选在场景矩阵中表现最好，
 也只会进入 `manual_review_candidate`，不会自动改变生产默认定投模式或当前生产策略行为。
@@ -357,7 +358,8 @@ family count、known-family coverage 和 consumer-contract coverage 状态，让
 `MarketSignalSources` 发布的信号家族目录。若同时传入
 `--signal-consumer-contract-registry-manifest`，CLI 会记录 consumer contract registry
 manifest、registry hash、canonical input、consumer count 和 known-consumer coverage，
-让研究结果能追溯到发布时使用的消费者字段契约。
+并要求 registry 覆盖当前 candidate set 的 `compatible_signal_consumers`，让研究结果能追溯到
+发布时使用的消费者字段契约。
 若把运行时 `market_signal_bundle.v1` 交给策略平台，应先用 consumer contract 校验
 `consumer_contract.compatible_profiles` 和字段覆盖；例如
 `--consumer research:ibit_btc_ahr999_precomputed` 只要求 AHR999-only profile

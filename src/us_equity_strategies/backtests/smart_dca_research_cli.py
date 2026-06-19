@@ -10,6 +10,11 @@ import sys
 
 import pandas as pd
 
+from us_equity_strategies.signals import (
+    SignalBundleContractError,
+    signal_consumer_contract_registry_audit_summary_from_manifest,
+)
+
 from .smart_dca_research import (
     candidate_set_signal_consumers,
     candidate_set_signal_source_modes,
@@ -318,7 +323,8 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
     if args.signal_consumer_contract_registry_manifest is not None:
         records["signal_consumer_contract_registry_manifest"] = (
             _consumer_contract_registry_manifest_record(
-                args.signal_consumer_contract_registry_manifest
+                args.signal_consumer_contract_registry_manifest,
+                required_consumers=candidate_set_signal_consumers(args.candidate_set),
             )
         )
     return records
@@ -498,74 +504,49 @@ def _source_catalog_manifest_record(path: Path) -> dict[str, object]:
     }
 
 
-def _consumer_contract_registry_manifest_record(path: Path) -> dict[str, object]:
-    manifest = _read_manifest(path)
-    _validate_no_sensitive_manifest_fields(
-        manifest,
-        path="signal_consumer_contract_registry_manifest",
+def _consumer_contract_registry_manifest_record(
+    path: Path,
+    *,
+    required_consumers: tuple[str, ...],
+) -> dict[str, object]:
+    try:
+        summary = signal_consumer_contract_registry_audit_summary_from_manifest(path)
+    except SignalBundleContractError as exc:
+        raise ValueError(str(exc)) from exc
+    consumers = tuple(str(consumer) for consumer in summary["consumers"])
+    missing_required_consumers = tuple(
+        consumer
+        for consumer in required_consumers
+        if consumer not in consumers
     )
-    schema_version = str(manifest.get("schema_version", "")).strip()
-    if schema_version != "market_signal_consumer_contract_manifest.v1":
+    if missing_required_consumers:
         raise ValueError(
-            "signal consumer contract registry manifest schema_version must be "
-            "'market_signal_consumer_contract_manifest.v1'"
-        )
-    artifact_type = str(manifest.get("artifact_type", "")).strip()
-    if artifact_type != "market_signal_consumer_contract_registry":
-        raise ValueError(
-            "signal consumer contract registry manifest artifact_type mismatch: "
-            f"{artifact_type!r}"
-        )
-    registry_path = _resolve_manifest_artifact_path(
-        path,
-        str(manifest.get("registry_path", "")),
-        role="signal consumer contract registry manifest",
-        field="registry_path",
-    )
-    expected_registry_sha256 = (
-        str(manifest.get("registry_sha256", "")).strip().lower()
-    )
-    if not expected_registry_sha256:
-        raise ValueError(
-            "signal consumer contract registry manifest registry_sha256 is required"
-        )
-    actual_registry_sha256 = _sha256_file(registry_path)
-    if actual_registry_sha256 != expected_registry_sha256:
-        raise ValueError(
-            "signal consumer contract registry manifest registry_sha256 mismatch: "
-            f"expected {expected_registry_sha256}, got {actual_registry_sha256}"
-        )
-    expected_registry_size = manifest.get("registry_size_bytes")
-    actual_registry_size = registry_path.stat().st_size
-    if (
-        not isinstance(expected_registry_size, int)
-        or isinstance(expected_registry_size, bool)
-        or expected_registry_size != actual_registry_size
-    ):
-        raise ValueError(
-            "signal consumer contract registry manifest registry_size_bytes mismatch: "
-            f"expected {actual_registry_size}, got {expected_registry_size!r}"
+            "signal consumer contract registry missing required consumers: "
+            + ", ".join(missing_required_consumers)
         )
     return {
-        **_file_record(path),
-        "schema_version": schema_version,
-        "artifact_type": artifact_type,
-        "registry_path": str(registry_path),
-        "registry_sha256": expected_registry_sha256,
-        "registry_size_bytes": expected_registry_size,
-        "registry_schema_version": str(manifest.get("registry_schema_version", "")),
-        "canonical_input": str(manifest.get("canonical_input", "")),
-        "consumer_count": manifest.get("consumer_count"),
-        "known_consumer_count": manifest.get("known_consumer_count"),
-        "missing_known_consumers": tuple(
-            str(consumer)
-            for consumer in manifest.get("missing_known_consumers", ()) or ()
-        ),
-        "all_known_consumers_present": bool(
-            manifest.get("all_known_consumers_present", False)
-        ),
+        "path": summary["manifest_path"],
+        "sha256": summary["manifest_sha256"],
+        "size_bytes": summary["manifest_size_bytes"],
+        "schema_version": summary["manifest_schema_version"],
+        "artifact_type": summary["artifact_type"],
+        "registry_path": summary["registry_path"],
+        "registry_sha256": summary["registry_sha256"],
+        "registry_size_bytes": summary["registry_size_bytes"],
+        "registry_schema_version": summary["registry_schema_version"],
+        "canonical_input": summary["canonical_input"],
+        "consumer_count": summary["consumer_count"],
+        "consumers": consumers,
+        "known_consumer_count": summary["known_consumer_count"],
+        "missing_known_consumers": summary["missing_known_consumers"],
+        "all_known_consumers_present": summary["all_known_consumers_present"],
+        "required_signal_consumers": required_consumers,
+        "required_signal_consumer_count": len(required_consumers),
+        "missing_required_signal_consumers": missing_required_consumers,
+        "required_signal_consumers_present": True,
         "registry_sha256_verified": True,
         "registry_size_bytes_verified": True,
+        "registry_contract_fields_verified": True,
     }
 
 
