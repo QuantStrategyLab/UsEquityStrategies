@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from collections.abc import Sequence
 import hashlib
 import json
@@ -252,12 +253,14 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             args.signal_manifest,
             linked_csv_path=args.signal_csv,
             role="signal",
+            date_column=args.date_column,
         )
     if args.trade_manifest is not None:
         records["trade_manifest"] = _manifest_record(
             args.trade_manifest,
             linked_csv_path=args.trade_csv,
             role="trade",
+            date_column=args.date_column,
         )
     return records
 
@@ -267,15 +270,13 @@ def _manifest_record(
     *,
     linked_csv_path: Path,
     role: str,
+    date_column: str,
 ) -> dict[str, object]:
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
     linked_csv_sha256 = _sha256_file(linked_csv_path)
     linked_csv_size_bytes = linked_csv_path.stat().st_size
-    linked_csv_columns = tuple(
-        str(column)
-        for column in pd.read_csv(linked_csv_path, nrows=0).columns
-    )
+    linked_csv_shape = _csv_shape_record(linked_csv_path, date_column=date_column)
     schema_version = str(manifest.get("schema_version", "")).strip()
     if not schema_version:
         raise ValueError(f"{role} manifest schema_version is required")
@@ -304,7 +305,7 @@ def _manifest_record(
     if schema_version == RESEARCH_EXPORT_SCHEMA_VERSION:
         _validate_research_export_manifest(
             manifest,
-            linked_csv_columns=linked_csv_columns,
+            linked_csv_shape=linked_csv_shape,
             role=role,
         )
 
@@ -322,6 +323,9 @@ def _manifest_record(
         "columns": tuple(str(column) for column in manifest.get("columns", ()) or ()),
         "linked_csv_sha256": linked_csv_sha256,
         "linked_csv_size_bytes": linked_csv_size_bytes,
+        "linked_csv_row_count": linked_csv_shape["row_count"],
+        "linked_csv_first_date": linked_csv_shape["first_date"],
+        "linked_csv_last_date": linked_csv_shape["last_date"],
         "declared_output_csv_sha256": declared_output_sha256,
         "declared_output_csv_size_bytes": declared_output_size,
         "linked_csv_sha256_verified": True,
@@ -332,7 +336,7 @@ def _manifest_record(
 def _validate_research_export_manifest(
     manifest: dict[str, object],
     *,
-    linked_csv_columns: tuple[str, ...],
+    linked_csv_shape: dict[str, object],
     role: str,
 ) -> None:
     required_fields = (
@@ -364,11 +368,57 @@ def _validate_research_export_manifest(
     ):
         raise ValueError(f"{role} research export manifest columns must be strings")
     declared_columns = tuple(str(column) for column in columns)
+    linked_csv_columns = linked_csv_shape["columns"]
     if declared_columns != linked_csv_columns:
         raise ValueError(
             f"{role} research export manifest columns mismatch: "
             f"expected {linked_csv_columns}, got {declared_columns}"
         )
+    if int(row_count) != linked_csv_shape["row_count"]:
+        raise ValueError(
+            f"{role} research export manifest row_count mismatch: "
+            f"expected {linked_csv_shape['row_count']}, got {row_count}"
+        )
+    first_date = str(manifest.get("first_date", ""))
+    if first_date != linked_csv_shape["first_date"]:
+        raise ValueError(
+            f"{role} research export manifest first_date mismatch: "
+            f"expected {linked_csv_shape['first_date']!r}, got {first_date!r}"
+        )
+    last_date = str(manifest.get("last_date", ""))
+    if last_date != linked_csv_shape["last_date"]:
+        raise ValueError(
+            f"{role} research export manifest last_date mismatch: "
+            f"expected {linked_csv_shape['last_date']!r}, got {last_date!r}"
+        )
+
+
+def _csv_shape_record(path: Path, *, date_column: str) -> dict[str, object]:
+    with path.open(newline="", encoding="utf-8") as file_obj:
+        reader = csv.reader(file_obj)
+        try:
+            header = tuple(next(reader))
+        except StopIteration as exc:
+            raise ValueError(f"CSV is empty: {path}") from exc
+        date_index = header.index(date_column) if date_column in header else None
+        row_count = 0
+        first_date = ""
+        last_date = ""
+        for row in reader:
+            row_count += 1
+            if date_index is None:
+                continue
+            if date_index >= len(row):
+                raise ValueError(f"CSV row missing date column {date_column!r}: {path}")
+            if not first_date:
+                first_date = str(row[date_index])
+            last_date = str(row[date_index])
+    return {
+        "columns": header,
+        "row_count": row_count,
+        "first_date": first_date,
+        "last_date": last_date,
+    }
 
 
 def _read_manifest(path: Path) -> dict[str, object]:

@@ -318,7 +318,8 @@ python -m us_equity_strategies.backtests.smart_dca_research_cli \
 CLI 会把上游 `research_export.v1`、transform、source version、列集合、日期范围和
 CSV hash 校验结果写入 `scenario_manifest.json`。manifest 中出现疑似密钥、token、cookie
 或 signed URL 字段，缺少 `output_csv.sha256`，声明的 hash / size 与实际 CSV 不一致，
-或 `research_export.v1` 的 columns 与 CSV 表头不一致时，研究运行会直接失败。
+或 `research_export.v1` 的 columns、row_count、first_date、last_date 与 CSV 实际内容
+不一致时，研究运行会直接失败。
 若把运行时 `market_signal_bundle.v1` 交给策略平台，应先用 consumer contract 校验字段覆盖；
 例如 `--consumer research:ibit_btc_ahr999_mayer_precomputed_variants` 会要求
 `BTC-USD` payload 同时包含 `ahr999`、`ahr999_sma` 和 `mayer_multiple`。
