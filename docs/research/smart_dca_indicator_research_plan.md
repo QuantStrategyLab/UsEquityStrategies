@@ -676,6 +676,9 @@ fixed-effect-size review flow and still block automatic default changes. When
 `scenario_manifest.json` is available, pass it too so the gate can verify the
 review files, candidate summary/spec files, and input-artifact metadata were
 published as one hash-pinned matrix:
+the audit now re-hashes `robustness_summary.csv`, `selection_summary.csv`,
+`scenario_coverage.csv`, every `candidate_summary.csv`, and every
+`candidate_specs.csv` listed in the manifest before accepting the matrix.
 
 ```bash
 python -m us_equity_strategies.backtests.smart_dca_promotion_gate_cli \

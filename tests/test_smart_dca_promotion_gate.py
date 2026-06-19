@@ -80,6 +80,14 @@ def test_smart_dca_promotion_gate_accepts_scenario_manifest_evidence(
     ] is True
     assert audit["scenario_manifest"]["candidate_summary_present"] is True
     assert audit["scenario_manifest"]["candidate_specs_present"] is True
+    assert audit["scenario_manifest"]["candidate_summary_verified"] is True
+    assert audit["scenario_manifest"]["candidate_specs_verified"] is True
+    assert audit["scenario_manifest"]["required_artifacts"]["robustness_summary"][
+        "verified"
+    ] is True
+    assert audit["scenario_manifest"]["required_artifacts"]["selection_summary"][
+        "verified"
+    ] is True
     assert audit["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
     assert (
         audit["scenario_manifest"]["runtime_consumer_coverage_artifact_verified"]
@@ -169,6 +177,34 @@ def test_smart_dca_promotion_gate_rejects_runtime_coverage_hash_mismatch(
     assert "scenario_manifest_runtime_consumer_coverage_not_verified" in audit[
         "failure_reasons"
     ]
+
+
+def test_smart_dca_promotion_gate_rejects_candidate_evidence_hash_mismatch(
+    tmp_path,
+) -> None:
+    review_path, decisions_path = _write_gate_artifacts(tmp_path)
+    scenario_manifest_path = _write_scenario_manifest(
+        tmp_path,
+        review_path=review_path,
+        decisions_path=decisions_path,
+        runtime_consumer_coverage=True,
+    )
+    candidate_summary_path = tmp_path / "monthly_day_15" / "candidate_summary.csv"
+    candidate_summary_path.write_text("tampered\n", encoding="utf-8")
+
+    audit = audit_smart_dca_promotion_gate(
+        review_decision_path=review_path,
+        production_profile_decisions_path=decisions_path,
+        scenario_manifest_path=scenario_manifest_path,
+        require_runtime_consumer_coverage=True,
+    )
+
+    assert audit["passed"] is False
+    assert audit["scenario_manifest"]["candidate_summary_verified"] is False
+    assert (
+        "scenario_manifest_candidate_summary_sha256_mismatch:"
+        "monthly_day_15/candidate_summary.csv"
+    ) in audit["failure_reasons"]
 
 
 def test_smart_dca_promotion_gate_rejects_missing_runtime_coverage_evidence(

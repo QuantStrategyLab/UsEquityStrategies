@@ -164,23 +164,31 @@ def _audit_scenario_manifest(
         failure_reasons.append("scenario_manifest_artifact_type_mismatch")
 
     file_records = _scenario_manifest_file_records(manifest)
-    file_paths = set(file_records)
-    for suffix in (
-        "review_decision.json",
-        "production_profile_decisions.csv",
-        "scenario_index.csv",
-        "robustness_summary.csv",
-        "selection_summary.csv",
-        "scenario_coverage.csv",
-    ):
-        if not any(item.endswith(suffix) for item in file_paths):
-            failure_reasons.append(f"scenario_manifest_missing_file:{suffix}")
+    required_artifacts = {
+        label: _audit_manifest_file_suffix_records(
+            file_records,
+            root=root,
+            suffix=suffix,
+            label=label,
+            failure_reasons=failure_reasons,
+        )
+        for label, suffix in (
+            ("review_decision", "review_decision.json"),
+            ("production_profile_decisions", "production_profile_decisions.csv"),
+            ("scenario_index", "scenario_index.csv"),
+            ("robustness_summary", "robustness_summary.csv"),
+            ("selection_summary", "selection_summary.csv"),
+            ("scenario_coverage", "scenario_coverage.csv"),
+            ("candidate_summary", "candidate_summary.csv"),
+            ("candidate_specs", "candidate_specs.csv"),
+        )
+    }
 
-    candidate_summary_present = any(
-        item.endswith("candidate_summary.csv") for item in file_paths
+    candidate_summary_present = bool(
+        required_artifacts["candidate_summary"]["present"]
     )
-    candidate_specs_present = any(
-        item.endswith("candidate_specs.csv") for item in file_paths
+    candidate_specs_present = bool(
+        required_artifacts["candidate_specs"]["present"]
     )
     if not candidate_summary_present:
         failure_reasons.append("scenario_manifest_missing_candidate_summary")
@@ -247,6 +255,13 @@ def _audit_scenario_manifest(
         "candidate_set": candidate_set,
         "candidate_summary_present": candidate_summary_present,
         "candidate_specs_present": candidate_specs_present,
+        "candidate_summary_verified": required_artifacts["candidate_summary"][
+            "verified"
+        ],
+        "candidate_specs_verified": required_artifacts["candidate_specs"][
+            "verified"
+        ],
+        "required_artifacts": required_artifacts,
         "review_decision_verified": review_verified,
         "production_profile_decisions_verified": decisions_verified,
         "require_runtime_consumer_coverage": require_runtime_consumer_coverage,
@@ -282,6 +297,60 @@ def _scenario_manifest_file_records(
             raise ValueError(f"scenario manifest duplicate file path: {path}")
         records[path] = raw_record
     return records
+
+
+def _audit_manifest_file_suffix_records(
+    records: Mapping[str, Mapping[str, Any]],
+    *,
+    root: Path,
+    suffix: str,
+    label: str,
+    failure_reasons: list[str],
+) -> dict[str, Any]:
+    matched_paths = tuple(sorted(path for path in records if path.endswith(suffix)))
+    if not matched_paths:
+        failure_reasons.append(f"scenario_manifest_missing_file:{suffix}")
+        return {
+            "present": False,
+            "verified": False,
+            "record_count": 0,
+            "paths": (),
+        }
+
+    verified = True
+    for relative_path in matched_paths:
+        record = records[relative_path]
+        artifact_path = (root / relative_path).resolve()
+        try:
+            artifact_path.relative_to(root)
+        except ValueError:
+            failure_reasons.append(
+                f"scenario_manifest_{label}_outside_root:{relative_path}"
+            )
+            verified = False
+            continue
+        if not artifact_path.exists():
+            failure_reasons.append(
+                f"scenario_manifest_{label}_missing_file:{relative_path}"
+            )
+            verified = False
+            continue
+        if record.get("sha256") != _sha256_file(artifact_path):
+            failure_reasons.append(
+                f"scenario_manifest_{label}_sha256_mismatch:{relative_path}"
+            )
+            verified = False
+        if record.get("size_bytes") != artifact_path.stat().st_size:
+            failure_reasons.append(
+                f"scenario_manifest_{label}_size_bytes_mismatch:{relative_path}"
+            )
+            verified = False
+    return {
+        "present": True,
+        "verified": verified,
+        "record_count": len(matched_paths),
+        "paths": matched_paths,
+    }
 
 
 def _verify_manifest_file_record(
