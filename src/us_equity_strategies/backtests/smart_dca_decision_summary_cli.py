@@ -23,6 +23,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = summarize_smart_dca_decision_matrices(
             args.matrix_dir,
             profiles=args.profile or DEFAULT_PROFILES,
+            require_scenario_manifest=args.require_scenario_manifest,
+            require_runtime_consumer_coverage=(
+                args.require_runtime_consumer_coverage
+            ),
         )
         if args.output_json is not None:
             write_smart_dca_decision_summary_json(args.output_json, summary)
@@ -66,6 +70,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--output-md", type=Path)
+    parser.add_argument(
+        "--require-scenario-manifest",
+        action="store_true",
+        help=(
+            "Fail a matrix directory that does not include scenario_manifest.json."
+        ),
+    )
+    parser.add_argument(
+        "--require-runtime-consumer-coverage",
+        action="store_true",
+        help=(
+            "Require each matrix scenario manifest to prove runtime consumer "
+            "coverage for external signal sources."
+        ),
+    )
     parser.add_argument(
         "--markdown",
         action="store_true",

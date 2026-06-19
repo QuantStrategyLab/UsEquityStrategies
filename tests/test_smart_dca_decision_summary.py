@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -168,6 +169,79 @@ def test_smart_dca_decision_summary_cli_writes_json_and_markdown(
     assert "100.00%" in output_markdown
     assert "terminal_edge_non_negative" in output_markdown
     assert "Profile decisions SHA-256" in output_markdown
+    assert "Scenario manifest SHA-256" in output_markdown
+
+
+def test_smart_dca_decision_summary_verifies_scenario_manifest_evidence(
+    tmp_path,
+) -> None:
+    matrix_dir = _write_matrix_artifacts(
+        tmp_path / "nasdaq_price_proxy_matrix",
+        nasdaq_best="nasdaq_sp500_price_no_skip",
+        ibit_best="",
+        write_scenario_manifest=True,
+    )
+
+    summary = summarize_smart_dca_decision_matrices(
+        [matrix_dir],
+        profiles=("nasdaq_sp500_smart_dca",),
+        require_scenario_manifest=True,
+    )
+
+    assert summary["passed"] is True
+    matrix = summary["matrices"][0]
+    assert matrix["scenario_manifest_present"] is True
+    assert len(matrix["scenario_manifest_sha256"]) == 64
+    assert matrix["scenario_manifest_passed"] is True
+    assert matrix["scenario_manifest_candidate_summary_verified"] is True
+    assert matrix["scenario_manifest_candidate_specs_verified"] is True
+    assert summary["default_decision_contract"][
+        "scenario_manifests_verified"
+    ] is True
+
+    (matrix_dir / "monthly_day_15" / "candidate_summary.csv").write_text(
+        "tampered\n",
+        encoding="utf-8",
+    )
+    failed_summary = summarize_smart_dca_decision_matrices(
+        [matrix_dir],
+        profiles=("nasdaq_sp500_smart_dca",),
+        require_scenario_manifest=True,
+    )
+
+    assert failed_summary["passed"] is False
+    assert (
+        "scenario_manifest_candidate_summary_sha256_mismatch:"
+        "monthly_day_15/candidate_summary.csv"
+    ) in failed_summary["failure_reasons"]
+    assert "promotion_gate_audit_failed" in failed_summary["profile_rollups"][0][
+        "promotion_blockers"
+    ]
+    assert failed_summary["default_decision_contract"][
+        "scenario_manifests_verified"
+    ] is False
+
+
+def test_smart_dca_decision_summary_requires_scenario_manifest_when_requested(
+    tmp_path,
+) -> None:
+    matrix_dir = _write_matrix_artifacts(
+        tmp_path / "nasdaq_price_proxy_matrix",
+        nasdaq_best="nasdaq_sp500_price_no_skip",
+        ibit_best="",
+    )
+
+    result = decision_summary_main(
+        [
+            "--matrix-dir",
+            str(matrix_dir),
+            "--profile",
+            "nasdaq_sp500_smart_dca",
+            "--require-scenario-manifest",
+        ]
+    )
+
+    assert result == 1
 
 
 def test_smart_dca_decision_summary_cli_returns_one_when_gate_fails(
@@ -202,6 +276,7 @@ def _write_matrix_artifacts(
     nasdaq_best: str,
     ibit_best: str,
     nasdaq_overrides: dict[str, str] | None = None,
+    write_scenario_manifest: bool = False,
 ) -> Path:
     matrix_dir.mkdir(parents=True)
     rows = [
@@ -256,11 +331,84 @@ def _write_matrix_artifacts(
             _review_profile_decision(row) for row in rows
         ],
     }
-    (matrix_dir / "review_decision.json").write_text(
+    review_decision_path = matrix_dir / "review_decision.json"
+    review_decision_path.write_text(
         json.dumps(review_payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    if write_scenario_manifest:
+        _write_scenario_manifest(
+            matrix_dir,
+            review_decision_path=review_decision_path,
+            production_profile_decisions_path=decisions_path,
+        )
     return matrix_dir
+
+
+def _write_scenario_manifest(
+    matrix_dir: Path,
+    *,
+    review_decision_path: Path,
+    production_profile_decisions_path: Path,
+) -> Path:
+    scenario_files = [
+        review_decision_path,
+        production_profile_decisions_path,
+        _write_text_file(matrix_dir / "scenario_index.csv", "scenario,name\n"),
+        _write_text_file(matrix_dir / "robustness_summary.csv", "name,pass_rate\n"),
+        _write_text_file(matrix_dir / "selection_summary.csv", "name,status\n"),
+        _write_text_file(matrix_dir / "scenario_coverage.csv", "gate,passed\n"),
+        _write_text_file(
+            matrix_dir / "monthly_day_15" / "candidate_summary.csv",
+            "name,open_parameter_search\nsmart,False\n",
+        ),
+        _write_text_file(
+            matrix_dir / "monthly_day_15" / "candidate_specs.csv",
+            "name,parameter_name,parameter_value\nsmart,multiplier,1.0\n",
+        ),
+    ]
+    scenario_manifest_path = matrix_dir / "scenario_manifest.json"
+    scenario_manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "smart_dca_research_artifacts.v1",
+                "artifact_type": "smart_dca_research_scenario_matrix",
+                "metadata": {
+                    "research_config": {
+                        "candidate_set": "nasdaq_sp500_price",
+                    },
+                    "input_artifacts": {},
+                },
+                "files": [
+                    _file_record(path, root=matrix_dir)
+                    for path in scenario_files
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return scenario_manifest_path
+
+
+def _write_text_file(path: Path, content: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _file_record(path: Path, *, root: Path) -> dict[str, object]:
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "sha256": _sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _profile_decision(

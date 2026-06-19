@@ -699,7 +699,13 @@ that coverage evidence. Otherwise it intentionally fails instead of allowing a
 research matrix to stand in for runtime source coverage.
 
 For a research review that combines multiple matrix directories without reruns,
-use the summary CLI:
+use the summary CLI. It automatically passes each matrix directory's
+`scenario_manifest.json` into the same promotion gate when that manifest exists,
+so the combined decision cannot silently skip hash verification for
+`candidate_summary.csv` or `candidate_specs.csv`. Add
+`--require-scenario-manifest` for publishable reviews where every matrix is
+expected to be hash-pinned, and add `--require-runtime-consumer-coverage` when
+the reviewed matrices depend on external signal-source handoff evidence:
 
 ```bash
 python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
@@ -708,6 +714,7 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
   --matrix-dir /path/to/nasdaqcom_cape_vix_diagnostics \
   --profile nasdaq_sp500_smart_dca \
   --profile ibit_smart_dca \
+  --require-scenario-manifest \
   --output-md /tmp/smart_dca_promotion_gate.md \
   --pretty
 ```

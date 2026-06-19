@@ -54,6 +54,8 @@ def summarize_smart_dca_decision_matrices(
     matrix_dirs: Iterable[str | PathLike[str]],
     *,
     profiles: Iterable[str] = DEFAULT_PROFILES,
+    require_scenario_manifest: bool = False,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Summarize existing smart-DCA matrix decision artifacts.
 
@@ -67,7 +69,12 @@ def summarize_smart_dca_decision_matrices(
         raise ValueError("at least one matrix directory is required")
 
     matrices = tuple(
-        _summarize_matrix(matrix_dir, profiles=selected_profiles)
+        _summarize_matrix(
+            matrix_dir,
+            profiles=selected_profiles,
+            require_scenario_manifest=require_scenario_manifest,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
+        )
         for matrix_dir in resolved_dirs
     )
     profile_rollups = tuple(
@@ -90,6 +97,8 @@ def summarize_smart_dca_decision_matrices(
         "failure_reasons": failure_reasons,
         "matrix_count": len(matrices),
         "profiles": selected_profiles,
+        "require_scenario_manifest": require_scenario_manifest,
+        "require_runtime_consumer_coverage": require_runtime_consumer_coverage,
         "promotion_blocker_counts": _promotion_blocker_counts(profile_rollups),
         "performance_diagnosis_counts": _performance_diagnosis_counts(
             profile_rollups
@@ -213,6 +222,9 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
                 + _markdown_cell(", ".join(contract.get("failure_reasons", ()))),
                 "- Evidence hashes present: `"
                 + str(bool(contract.get("evidence_hashes_present"))).lower()
+                + "`",
+                "- Scenario manifests verified: `"
+                + str(bool(contract.get("scenario_manifests_verified"))).lower()
                 + "`",
                 "",
                 "| Profile | Runtime default fixed | Default change blocked | Required guardrails present | Required guardrails | Missing guardrails |",
@@ -378,11 +390,12 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
             "",
             "## Evidence Hashes",
             "",
-            "| Matrix | Review decision SHA-256 | Profile decisions SHA-256 |",
-            "| --- | --- | --- |",
+            "| Matrix | Review decision SHA-256 | Profile decisions SHA-256 | Scenario manifest SHA-256 | Scenario manifest gate |",
+            "| --- | --- | --- | --- | --- |",
         ]
     )
     for matrix in summary.get("matrices", ()):
+        manifest_passed = matrix.get("scenario_manifest_passed")
         lines.append(
             "| "
             + " | ".join(
@@ -391,6 +404,12 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
                     _markdown_cell(matrix.get("review_decision_sha256", "")),
                     _markdown_cell(
                         matrix.get("production_profile_decisions_sha256", "")
+                    ),
+                    _markdown_cell(matrix.get("scenario_manifest_sha256", "")),
+                    _markdown_cell(
+                        "-"
+                        if manifest_passed is None
+                        else ("passed" if manifest_passed else "failed")
                     ),
                 )
             )
@@ -404,27 +423,81 @@ def _summarize_matrix(
     matrix_dir: Path,
     *,
     profiles: tuple[str, ...],
+    require_scenario_manifest: bool,
+    require_runtime_consumer_coverage: bool,
 ) -> dict[str, Any]:
     review_decision_path = matrix_dir / "review_decision.json"
     production_profile_decisions_path = matrix_dir / "production_profile_decisions.csv"
+    scenario_manifest_path = matrix_dir / "scenario_manifest.json"
+    scenario_manifest_available = scenario_manifest_path.exists()
     audit = audit_smart_dca_promotion_gate(
         review_decision_path=review_decision_path,
         production_profile_decisions_path=production_profile_decisions_path,
+        scenario_manifest_path=(
+            scenario_manifest_path if scenario_manifest_available else None
+        ),
         profiles=profiles,
+        require_runtime_consumer_coverage=require_runtime_consumer_coverage,
     )
     review_decision = _load_json_mapping(review_decision_path)
     observed_candidates = _observed_best_candidates_by_name(review_decision)
+    matrix_failure_reasons = tuple(audit["failure_reasons"]) + (
+        (
+            f"scenario_manifest_required:{matrix_dir.name}"
+            if require_scenario_manifest and not scenario_manifest_available
+            else ""
+        ),
+    )
+    matrix_failure_reasons = tuple(
+        reason for reason in matrix_failure_reasons if reason
+    )
+    matrix_passed = not matrix_failure_reasons
+    scenario_manifest_audit = audit.get("scenario_manifest")
+    if isinstance(scenario_manifest_audit, Mapping):
+        scenario_manifest_passed = bool(scenario_manifest_audit.get("passed"))
+        candidate_summary_verified = scenario_manifest_audit.get(
+            "candidate_summary_verified"
+        )
+        candidate_specs_verified = scenario_manifest_audit.get(
+            "candidate_specs_verified"
+        )
+        runtime_consumer_coverage_verified = scenario_manifest_audit.get(
+            "runtime_consumer_coverage_verified"
+        )
+    else:
+        scenario_manifest_passed = None
+        candidate_summary_verified = None
+        candidate_specs_verified = None
+        runtime_consumer_coverage_verified = None
     return {
         "label": matrix_dir.name,
         "matrix_dir": str(matrix_dir),
-        "passed": audit["passed"],
-        "failure_reasons": tuple(audit["failure_reasons"]),
+        "passed": matrix_passed,
+        "failure_reasons": matrix_failure_reasons,
+        "promotion_gate_audit_passed": audit["passed"],
         "review_decision_path": str(review_decision_path),
         "review_decision_sha256": _sha256_file(review_decision_path),
         "production_profile_decisions_path": str(production_profile_decisions_path),
         "production_profile_decisions_sha256": _sha256_file(
             production_profile_decisions_path
         ),
+        "scenario_manifest_path": (
+            str(scenario_manifest_path) if scenario_manifest_available else ""
+        ),
+        "scenario_manifest_present": scenario_manifest_available,
+        "scenario_manifest_required": require_scenario_manifest,
+        "scenario_manifest_sha256": (
+            _sha256_file(scenario_manifest_path)
+            if scenario_manifest_available
+            else ""
+        ),
+        "scenario_manifest_passed": scenario_manifest_passed,
+        "scenario_manifest_candidate_summary_verified": (
+            candidate_summary_verified
+        ),
+        "scenario_manifest_candidate_specs_verified": candidate_specs_verified,
+        "runtime_consumer_coverage_required": require_runtime_consumer_coverage,
+        "runtime_consumer_coverage_verified": runtime_consumer_coverage_verified,
         "overall_recommendation_status": audit["review_decision"][
             "overall_recommendation_status"
         ],
@@ -438,7 +511,11 @@ def _summarize_matrix(
             "manual_review_gate_passed"
         ],
         "profiles": tuple(
-            _profile_with_observed_metrics(profile, observed_candidates)
+            _profile_with_observed_metrics(
+                profile,
+                observed_candidates,
+                matrix_passed=matrix_passed,
+            )
             for profile in audit["profiles"]
         ),
     }
@@ -447,8 +524,11 @@ def _summarize_matrix(
 def _profile_with_observed_metrics(
     profile: Mapping[str, Any],
     observed_candidates: Mapping[str, Mapping[str, Any]],
+    *,
+    matrix_passed: bool,
 ) -> dict[str, Any]:
     enriched = dict(profile)
+    enriched["passed"] = bool(profile.get("passed")) and matrix_passed
     observed_best = str(profile.get("observed_best_candidate", "")).strip()
     candidate = observed_candidates.get(observed_best)
     if not candidate:
@@ -684,6 +764,11 @@ def _default_decision_contract(
         for matrix in matrices
         for reason in _matrix_evidence_hash_failure_reasons(matrix)
     )
+    scenario_manifest_failures = tuple(
+        reason
+        for matrix in matrices
+        for reason in _matrix_scenario_manifest_failure_reasons(matrix)
+    )
     failure_reasons = tuple(
         [
             reason
@@ -691,6 +776,7 @@ def _default_decision_contract(
             for reason in profile["failure_reasons"]
         ]
         + list(matrix_hash_failures)
+        + list(scenario_manifest_failures)
     )
     return {
         "schema_version": SMART_DCA_DEFAULT_DECISION_CONTRACT_SCHEMA_VERSION,
@@ -698,6 +784,7 @@ def _default_decision_contract(
         "passed": not failure_reasons,
         "failure_reasons": failure_reasons,
         "evidence_hashes_present": not matrix_hash_failures,
+        "scenario_manifests_verified": not scenario_manifest_failures,
         "profiles": profile_contracts,
     }
 
@@ -758,11 +845,29 @@ def _matrix_evidence_hash_failure_reasons(
     for field in (
         "review_decision_sha256",
         "production_profile_decisions_sha256",
+        "scenario_manifest_sha256",
     ):
         value = str(matrix.get(field, ""))
+        if field == "scenario_manifest_sha256" and not value:
+            continue
         if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
             failures.append(f"default_contract_missing_evidence_hash:{label}:{field}")
     return tuple(failures)
+
+
+def _matrix_scenario_manifest_failure_reasons(
+    matrix: Mapping[str, Any],
+) -> tuple[str, ...]:
+    label = str(matrix.get("label", ""))
+    if matrix.get("scenario_manifest_required") is True and not matrix.get(
+        "scenario_manifest_present"
+    ):
+        return (f"default_contract_missing_scenario_manifest:{label}",)
+    if matrix.get("scenario_manifest_present") and matrix.get(
+        "scenario_manifest_passed"
+    ) is not True:
+        return (f"default_contract_scenario_manifest_not_verified:{label}",)
+    return ()
 
 
 def _promotion_blocker_counts(
