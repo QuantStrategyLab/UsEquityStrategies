@@ -18,6 +18,10 @@ from us_equity_strategies.runtime_adapters import (
     FIRSTRADE_PLATFORM,
     get_platform_runtime_adapter,
 )
+from us_equity_strategies.signals import (
+    MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE,
+    known_signal_consumers,
+)
 
 
 CANONICAL_REQUIRED_INPUTS = frozenset(
@@ -207,6 +211,21 @@ class ContractGovernanceTests(unittest.TestCase):
                 for platform_id in FULL_MATRIX_PLATFORMS:
                     adapter = get_platform_runtime_adapter(profile, platform_id=platform_id)
                     self.assertLessEqual(definition.required_inputs, adapter.available_inputs)
+
+    def test_market_signal_profile_registry_covers_runtime_consumers(self) -> None:
+        runtime_consumers = frozenset(
+            consumer
+            for consumer in known_signal_consumers()
+            if not consumer.startswith("research:")
+        )
+        self.assertEqual(
+            frozenset(MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE.values()),
+            runtime_consumers,
+        )
+        self.assertLessEqual(
+            frozenset(MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE),
+            frozenset(get_runtime_enabled_profiles()),
+        )
 
     def test_legacy_profile_keys_only_exist_in_explicit_rejection_tests(self) -> None:
         offenders = _find_legacy_profile_key_offenders(

@@ -173,6 +173,15 @@ registry 校验摘要会输出 `canonical_registry_payload_sha256`、
 `local_contract_registry_verified=true` 时，才能证明发布侧 registry 与本策略仓当前完整
 consumer contract 表一致。
 
+运行时 profile 到 consumer 的映射由
+`us_equity_strategies.signals.market_signal_consumer_for_strategy_profile()`
+统一提供。当前 runtime consumer 覆盖
+`ibit_smart_dca`、`nasdaq_sp500_smart_dca` 和
+`soxl_soxx_trend_income`。平台仓库应调用这个 helper，而不是各自维护映射表；
+治理测试会要求所有非 `research:` consumer 都被一个 runtime profile 覆盖。
+当统一信号被配置为 required 时，平台只能使用有效 handoff 或有效的
+`last_valid` artifact，不应回退到平台本地重算指标。
+
 该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
 unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
 secret / signed URL key。当前已知 consumer 包括 IBIT runtime AHR999-only、
