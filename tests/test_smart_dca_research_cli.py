@@ -1199,6 +1199,120 @@ def test_smart_dca_research_cli_rejects_bad_precomputed_ibit_signal_csv(
     assert "signal CSV column 'ahr999' must be positive" in capsys.readouterr().err
 
 
+def test_smart_dca_research_cli_scopes_ibit_signal_contract_to_sample_window(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    validation_start = dates[10]
+    signal_csv = tmp_path / "btc_cycle.csv"
+    signal_manifest = tmp_path / "btc_cycle.manifest.json"
+    trade_csv = tmp_path / "ibit.csv"
+    output_dir = tmp_path / "ibit-warmup-signal-artifacts"
+    slope = [None if index < 10 else 0.01 for index in range(len(dates))]
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ahr999": [1.5 for _ in dates],
+            "ahr999_365d_percentile": [0.40 for _ in dates],
+            "ahr999_30d_slope": slope,
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_research_manifest(
+        signal_manifest,
+        csv_path=signal_csv,
+        artifact_type="btc_cycle_research_csv",
+        transform="crypto.btc.ahr999.v1",
+        as_of=str(dates[-1].date()),
+        columns=[
+            "date",
+            "ahr999",
+            "ahr999_365d_percentile",
+            "ahr999_30d_slope",
+        ],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_helper_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_365d_percentile,ahr999_30d_slope",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+            "--sample-windows",
+            f"validation:{validation_start.date()}:{dates[-1].date()}",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    signal_manifest_record = summary["metadata"]["input_artifacts"][
+        "signal_manifest"
+    ]
+    assert signal_manifest_record["linked_csv_row_count"] == len(dates)
+    assert signal_manifest_record["signal_contract_validation_first_date"] == str(
+        validation_start.date()
+    )
+    assert signal_manifest_record["signal_contract_validation_last_date"] == str(
+        dates[-1].date()
+    )
+    assert signal_manifest_record["signal_contract_validation_required_columns"] == [
+        "ahr999",
+        "ahr999_365d_percentile",
+        "ahr999_30d_slope",
+    ]
+
+    rejected_result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(tmp_path / "ibit-warmup-signal-rejected-artifacts"),
+            "--candidate-set",
+            "ibit_btc_ahr999_helper_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_365d_percentile,ahr999_30d_slope",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+            "--sample-windows",
+            f"validation:{dates[0].date()}:{dates[-1].date()}",
+        ]
+    )
+
+    assert rejected_result == 2
+    assert "ahr999_30d_slope" in capsys.readouterr().err
+
+
 def test_smart_dca_research_cli_standard_preset_expands_robustness_matrix(
     tmp_path,
     capsys,

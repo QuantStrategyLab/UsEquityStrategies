@@ -427,15 +427,30 @@ def _research_metadata(
         "input_artifacts": {
             "signal_csv": _file_record(args.signal_csv),
             "trade_csv": _file_record(args.trade_csv),
-            **_optional_manifest_records(args),
+            **_optional_manifest_records(
+                args,
+                start_dates=start_dates,
+                sample_windows=sample_windows,
+            ),
         },
     }
 
 
-def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, object]]:
+def _optional_manifest_records(
+    args: argparse.Namespace,
+    *,
+    start_dates: tuple[pd.Timestamp, ...] | None = None,
+    sample_windows: tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...]
+    | None = None,
+) -> dict[str, dict[str, object]]:
     records: dict[str, dict[str, object]] = {}
     signal_manifest_expectations = _signal_manifest_expectations(args.candidate_set)
     required_consumers = candidate_set_signal_consumers(args.candidate_set)
+    signal_contract_validation_window = _signal_contract_validation_window(
+        args=args,
+        start_dates=start_dates,
+        sample_windows=sample_windows,
+    )
     if (
         signal_manifest_expectations["artifact_type"] == "us_equity_context_research_csv"
         and args.signal_manifest is not None
@@ -452,9 +467,12 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             date_column=args.date_column,
             expected_artifact_type=signal_manifest_expectations["artifact_type"],
             expected_transform=signal_manifest_expectations["transform"],
-            required_signal_fields=_required_us_equity_context_fields(
-                required_consumers
+            required_signal_fields=_required_signal_fields_for_artifact_type(
+                signal_manifest_expectations["artifact_type"],
+                requested_signal_columns=_parse_column_list(args.signal_columns),
+                required_consumers=required_consumers,
             ),
+            signal_contract_validation_window=signal_contract_validation_window,
         )
     if args.signal_quality_report is not None:
         records["signal_quality_report"] = _signal_quality_report_record(
@@ -566,6 +584,33 @@ def _signal_manifest_expectations(candidate_set: str) -> dict[str, str | None]:
     return {"artifact_type": None, "transform": None}
 
 
+def _signal_contract_validation_window(
+    *,
+    args: argparse.Namespace,
+    start_dates: tuple[pd.Timestamp, ...] | None,
+    sample_windows: tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...]
+    | None,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    start_candidates: list[pd.Timestamp] = []
+    end_candidates: list[pd.Timestamp] = []
+    if args.start_date:
+        start_candidates.append(pd.Timestamp(args.start_date).normalize())
+    if args.end_date:
+        end_candidates.append(pd.Timestamp(args.end_date).normalize())
+    if start_dates is not None:
+        start_candidates.extend(item.normalize() for item in start_dates)
+    if sample_windows is not None:
+        for _, start, end in sample_windows:
+            if start is not None:
+                start_candidates.append(start.normalize())
+            if end is not None:
+                end_candidates.append(end.normalize())
+    return (
+        min(start_candidates) if start_candidates else None,
+        max(end_candidates) if end_candidates else None,
+    )
+
+
 def _manifest_record(
     path: Path,
     *,
@@ -575,6 +620,8 @@ def _manifest_record(
     expected_artifact_type: str | None,
     expected_transform: str | None,
     required_signal_fields: tuple[str, ...] = (),
+    signal_contract_validation_window: tuple[pd.Timestamp | None, pd.Timestamp | None]
+    = (None, None),
 ) -> dict[str, object]:
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
@@ -619,14 +666,16 @@ def _manifest_record(
         expected_artifact_type=expected_artifact_type,
         expected_transform=expected_transform,
     )
+    signal_contract_record: dict[str, object] = {}
     if role == "signal":
-        _validate_signal_research_csv_contract(
+        signal_contract_record = _validate_signal_research_csv_contract(
             linked_csv_path,
             manifest=manifest,
             linked_csv_shape=linked_csv_shape,
             date_column=date_column,
             expected_artifact_type=expected_artifact_type,
             required_signal_fields=required_signal_fields,
+            validation_window=signal_contract_validation_window,
         )
     declared_quality_report = _research_manifest_quality_report_record(
         path,
@@ -660,6 +709,7 @@ def _manifest_record(
         "linked_csv_sha256_verified": True,
         "linked_csv_size_bytes_verified": declared_output_size is not None,
         **declared_quality_report,
+        **signal_contract_record,
     }
 
 
@@ -1561,12 +1611,13 @@ def _validate_signal_research_csv_contract(
     date_column: str,
     expected_artifact_type: str | None,
     required_signal_fields: tuple[str, ...] = (),
-) -> None:
+    validation_window: tuple[pd.Timestamp | None, pd.Timestamp | None] = (None, None),
+) -> dict[str, object]:
     if expected_artifact_type not in {
         "btc_cycle_research_csv",
         "us_equity_context_research_csv",
     }:
-        return
+        return {}
 
     frame = pd.read_csv(path)
     if date_column not in frame.columns:
@@ -1590,13 +1641,26 @@ def _validate_signal_research_csv_contract(
             f"{last_date} > {as_of}"
         )
 
+    validation_frame, validation_dates = _contract_validation_frame(
+        frame,
+        normalized_dates,
+        validation_window=validation_window,
+    )
     if expected_artifact_type == "us_equity_context_research_csv":
         _validate_us_equity_context_signal_columns(
-            frame,
+            validation_frame,
             required_columns=required_signal_fields,
         )
     if expected_artifact_type == "btc_cycle_research_csv":
-        _validate_btc_cycle_signal_columns(frame)
+        _validate_btc_cycle_signal_columns(
+            validation_frame,
+            required_columns=required_signal_fields,
+        )
+    return _signal_contract_validation_record(
+        validation_dates,
+        required_columns=required_signal_fields,
+        validation_window=validation_window,
+    )
 
 
 def _required_us_equity_context_fields(consumers: tuple[str, ...]) -> tuple[str, ...]:
@@ -1608,6 +1672,32 @@ def _required_us_equity_context_fields(consumers: tuple[str, ...]) -> tuple[str,
             if symbol == "US-EQUITY-CONTEXT":
                 fields.update(str(field) for field in required_fields)
     return tuple(sorted(fields))
+
+
+def _required_btc_cycle_fields(consumers: tuple[str, ...]) -> tuple[str, ...]:
+    fields: set[str] = set()
+    for consumer in consumers:
+        for symbol, required_fields in required_indicator_fields_for_consumer(
+            consumer
+        ).items():
+            if symbol == "BTC-USD":
+                fields.update(str(field) for field in required_fields)
+    return tuple(sorted(fields))
+
+
+def _required_signal_fields_for_artifact_type(
+    artifact_type: str | None,
+    *,
+    requested_signal_columns: tuple[str, ...] | None,
+    required_consumers: tuple[str, ...],
+) -> tuple[str, ...]:
+    if artifact_type == "us_equity_context_research_csv":
+        return _required_us_equity_context_fields(required_consumers)
+    if artifact_type == "btc_cycle_research_csv":
+        if requested_signal_columns is not None:
+            return requested_signal_columns
+        return _required_btc_cycle_fields(required_consumers)
+    return ()
 
 
 def _validate_us_equity_context_signal_columns(
@@ -1626,21 +1716,74 @@ def _validate_us_equity_context_signal_columns(
             raise ValueError(f"signal CSV column {column!r} must be between 0 and 1")
 
 
-def _validate_btc_cycle_signal_columns(frame: pd.DataFrame) -> None:
-    for column in ("ahr999", "ahr999_sma", "mayer_multiple"):
-        if column in frame.columns:
+def _validate_btc_cycle_signal_columns(
+    frame: pd.DataFrame,
+    *,
+    required_columns: tuple[str, ...] = (),
+) -> None:
+    positive_columns = ("ahr999", "ahr999_sma", "mayer_multiple")
+    percentile_columns = ("ahr999_365d_percentile", "mayer_multiple_365d_percentile")
+    slope_columns = ("ahr999_30d_slope",)
+    columns = required_columns or tuple(
+        column
+        for column in (*positive_columns, *percentile_columns, *slope_columns)
+        if column in frame.columns
+    )
+    for column in columns:
+        if column in positive_columns:
             values = _finite_numeric_column(frame, column, role="signal CSV")
             if not (values > 0.0).all():
                 raise ValueError(f"signal CSV column {column!r} must be positive")
-    for column in ("ahr999_365d_percentile", "mayer_multiple_365d_percentile"):
-        if column in frame.columns:
+        elif column in percentile_columns:
             values = _finite_numeric_column(frame, column, role="signal CSV")
             if not values.between(0.0, 1.0).all():
                 raise ValueError(
                     f"signal CSV column {column!r} must be between 0 and 1"
                 )
-    if "ahr999_30d_slope" in frame.columns:
-        _finite_numeric_column(frame, "ahr999_30d_slope", role="signal CSV")
+        elif column in slope_columns:
+            _finite_numeric_column(frame, column, role="signal CSV")
+        else:
+            _finite_numeric_column(frame, column, role="signal CSV")
+
+
+def _contract_validation_frame(
+    frame: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    *,
+    validation_window: tuple[pd.Timestamp | None, pd.Timestamp | None],
+) -> tuple[pd.DataFrame, pd.DatetimeIndex]:
+    start, end = validation_window
+    mask = pd.Series(True, index=frame.index)
+    if start is not None:
+        mask &= pd.Series(dates >= start.normalize(), index=frame.index)
+    if end is not None:
+        mask &= pd.Series(dates <= end.normalize(), index=frame.index)
+    scoped = frame.loc[mask]
+    if scoped.empty:
+        raise ValueError("signal CSV has no rows in contract validation window")
+    scoped_dates = pd.DatetimeIndex(dates[mask.to_numpy()])
+    return scoped, scoped_dates
+
+
+def _signal_contract_validation_record(
+    dates: pd.DatetimeIndex,
+    *,
+    required_columns: tuple[str, ...],
+    validation_window: tuple[pd.Timestamp | None, pd.Timestamp | None],
+) -> dict[str, object]:
+    start, end = validation_window
+    return {
+        "signal_contract_validation_window_start_date": (
+            "" if start is None else start.date().isoformat()
+        ),
+        "signal_contract_validation_window_end_date": (
+            "" if end is None else end.date().isoformat()
+        ),
+        "signal_contract_validation_first_date": dates[0].date().isoformat(),
+        "signal_contract_validation_last_date": dates[-1].date().isoformat(),
+        "signal_contract_validation_row_count": len(dates),
+        "signal_contract_validation_required_columns": required_columns,
+    }
 
 
 def _finite_numeric_column(

@@ -18,9 +18,15 @@ This note records a bounded robustness matrix for the research-only
 - Trade path: BTC close proxy, matching the current full-cycle IBIT proxy
   research convention.
 
-Generated artifacts are local and not committed:
+Generated artifacts are local and not committed. The latest rerun with
+diagnostic fields is under:
 
-`/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/`
+`/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics/`
+
+The signal manifest still verifies the full exported CSV. Signal contract
+validation is scoped to the actual matrix window, 2018-04-25 through
+2026-06-18, so the first 30 warm-up rows for `ahr999_30d_slope` are not part of
+the required finite-value validation set.
 
 ## Matrix
 
@@ -47,6 +53,14 @@ Generated artifacts are local and not committed:
 | `ibit_btc_precomputed_ahr999_guarded_cycle` | 95% | -4.46% | 0.00% | +0.13 pp | 6.77% | failed gate |
 | `ibit_btc_precomputed_ahr999_cycle` | 90% | -3.46% | +1.32% | +0.38 pp | 19.18% | failed gate |
 | `ibit_btc_precomputed_ahr999_percentile_cycle` | 60% | -11.59% | -2.11% | +0.03 pp | 17.30% | failed gate |
+
+Diagnostic summary from the rerun:
+
+| Candidate | Dominant diagnosis | Failure reasons | Deployment drag | Max skipped buys |
+| --- | --- | --- | ---: | ---: |
+| guarded | `terminal_edge_non_negative` | `terminal_underperformance_without_drawdown_improvement` | -18.75 pp | 20.83% |
+| AHR999 baseline | `terminal_edge_non_negative` | `skip_rate_too_high_without_drawdown_improvement`, `terminal_underperformance_without_drawdown_improvement` | -52.08 pp | 54.17% |
+| percentile | `terminal_underperformance_vs_fixed` | `terminal_underperformance_without_drawdown_improvement` | -25.00 pp | 29.52% |
 
 The best observed helper candidate was
 `ibit_btc_precomputed_ahr999_guarded_cycle`, but it still failed the robustness
@@ -79,11 +93,16 @@ Do not promote either helper candidate. The matrix supports keeping
 smart candidate as `ibit_btc_precomputed_ahr999_cycle` for explicit smart-mode
 research comparison.
 
-The guarded helper is useful as a diagnostic variant because it lowers the cash
-drag and skip frequency versus the baseline AHR999 gate, but it gives up too
-much terminal value in the 2020 cycle window. The percentile-only candidate is
-weaker across most windows and should be deprioritized unless a future
-hypothesis changes its economic interpretation.
+The selection summary still chooses
+`ibit_btc_precomputed_ahr999_guarded_cycle` as the best observed smart
+candidate, but the recommendation remains `hold_default_fixed_dca` and
+`not_recommended_for_enablement`. It failed the minimum-effect gate on worst
+terminal edge, median terminal edge, and worst rank score. The guarded helper is
+useful as a diagnostic variant because it lowers cash drag and skip frequency
+versus the baseline AHR999 gate, but it gives up too much terminal value in the
+2020 cycle window. The percentile-only candidate is weaker across most windows
+and should be deprioritized unless a future hypothesis changes its economic
+interpretation.
 
 ## Reproduction
 
@@ -100,7 +119,7 @@ python -m us_equity_strategies.backtests.smart_dca_research_cli \
   --signal-csv /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.csv \
   --trade-csv /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/raw/btcusdt_1d_binance_2017-08-17_2026-06-18.csv \
   --signal-manifest /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.manifest.json \
-  --output-dir /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix \
+  --output-dir /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics \
   --candidate-set ibit_btc_ahr999_helper_precomputed_variants \
   --signal-columns ahr999,ahr999_365d_percentile,ahr999_30d_slope \
   --trade-column close \
