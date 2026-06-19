@@ -159,6 +159,11 @@ in pullbacks. It still did not beat fixed DCA terminal value, so
 the recommended parameters only when a deployment explicitly enables smart
 sizing, not evidence that smart sizing should replace ordinary fixed DCA.
 
+For research artifact naming, the production-equivalent smart candidate is
+`nasdaq_sp500_price_no_skip` and the direct candidate set is
+`nasdaq_sp500_production_equivalent`. The defensive candidate that reduces or
+skips buys in expensive regimes is retained only as a research variant.
+
 ## Execution Contract
 
 The profile uses:

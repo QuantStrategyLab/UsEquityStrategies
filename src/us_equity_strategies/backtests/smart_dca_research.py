@@ -61,18 +61,25 @@ class DcaCandidateEvaluation:
     rank_score: float
 
 
-IBIT_AHR999_MAYER_PARAMETERS: dict[str, float] = {
+IBIT_AHR999_PARAMETERS: dict[str, float] = {
     "ahr999_bottom_threshold": 0.45,
     "ahr999_accumulation_threshold": 0.80,
     "ahr999_dca_threshold": 1.20,
-    "mayer_deep_discount_threshold": 0.65,
-    "mayer_discount_threshold": 0.80,
-    "mayer_expensive_threshold": 2.40,
     "base_multiplier": 1.0,
     "ahr999_bottom_multiplier": 3.0,
     "ahr999_accumulation_multiplier": 2.25,
     "ahr999_dca_multiplier": 1.50,
     "ahr999_expensive_multiplier": 0.0,
+}
+IBIT_AHR999_MAYER_PARAMETERS: dict[str, float] = {
+    **IBIT_AHR999_PARAMETERS,
+    "mayer_deep_discount_threshold": 0.65,
+    "mayer_discount_threshold": 0.80,
+    "mayer_expensive_threshold": 2.40,
+}
+IBIT_AHR999_NO_SKIP_PARAMETERS: dict[str, float] = {
+    **IBIT_AHR999_PARAMETERS,
+    "ahr999_expensive_multiplier": 1.0,
 }
 IBIT_AHR999_MAYER_NO_SKIP_PARAMETERS: dict[str, float] = {
     **IBIT_AHR999_MAYER_PARAMETERS,
@@ -119,6 +126,14 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         min_history=252,
         parameters=NASDAQ_SP500_PRICE_NO_SKIP_PARAMETERS,
     ),
+    "ibit_btc_ahr999_cycle": SmartDcaCandidate(
+        name="ibit_btc_ahr999_cycle",
+        family="ibit_btc_ahr999_price",
+        rule_type="ahr999",
+        signal_symbols=("BTC-USD",),
+        min_history=200,
+        parameters=IBIT_AHR999_PARAMETERS,
+    ),
     "ibit_btc_ahr999_mayer_cycle": SmartDcaCandidate(
         name="ibit_btc_ahr999_mayer_cycle",
         family="ibit_btc_ahr999_mayer_price",
@@ -142,6 +157,14 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
         signal_symbols=("BTC-USD",),
         min_history=200,
         parameters=IBIT_AHR999_MAYER_PARAMETERS,
+    ),
+    "ibit_btc_precomputed_ahr999_cycle": SmartDcaCandidate(
+        name="ibit_btc_precomputed_ahr999_cycle",
+        family="ibit_btc_ahr999_precomputed",
+        rule_type="precomputed_ahr999",
+        signal_symbols=("ahr999",),
+        min_history=1,
+        parameters=IBIT_AHR999_PARAMETERS,
     ),
     "ibit_btc_precomputed_ahr999_mayer_cycle": SmartDcaCandidate(
         name="ibit_btc_precomputed_ahr999_mayer_cycle",
@@ -170,16 +193,31 @@ PRESET_CANDIDATES: dict[str, SmartDcaCandidate] = {
 }
 
 CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
+    "nasdaq_sp500_production_equivalent": ("nasdaq_sp500_price_no_skip",),
     "nasdaq_sp500_price": ("nasdaq_sp500_price_defensive",),
     "nasdaq_sp500_price_variants": (
         "nasdaq_sp500_price_defensive",
         "nasdaq_sp500_price_no_skip",
+    ),
+    "ibit_btc_ahr999_price": ("ibit_btc_ahr999_cycle",),
+    "ibit_btc_ahr999_price_variants": (
+        "ibit_btc_ahr999_cycle",
+        "ibit_btc_ahr999_mayer_cycle",
+        "ibit_btc_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_ahr999_sma_mayer_cycle",
     ),
     "ibit_btc_ahr999_mayer_price": ("ibit_btc_ahr999_mayer_cycle",),
     "ibit_btc_ahr999_mayer_price_variants": (
         "ibit_btc_ahr999_mayer_cycle",
         "ibit_btc_ahr999_mayer_no_skip_cycle",
         "ibit_btc_ahr999_sma_mayer_cycle",
+    ),
+    "ibit_btc_ahr999_precomputed": ("ibit_btc_precomputed_ahr999_cycle",),
+    "ibit_btc_ahr999_precomputed_variants": (
+        "ibit_btc_precomputed_ahr999_cycle",
+        "ibit_btc_precomputed_ahr999_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
+        "ibit_btc_precomputed_ahr999_sma_mayer_cycle",
     ),
     "ibit_btc_ahr999_mayer_precomputed": ("ibit_btc_precomputed_ahr999_mayer_cycle",),
     "ibit_btc_ahr999_mayer_precomputed_variants": (
@@ -190,11 +228,43 @@ CANDIDATE_SETS: dict[str, tuple[str, ...]] = {
     "all": tuple(PRESET_CANDIDATES),
 }
 
+PRODUCTION_EQUIVALENT_CANDIDATES: dict[str, str] = {
+    "nasdaq_sp500_smart_dca": "nasdaq_sp500_price_no_skip",
+    "ibit_smart_dca": "ibit_btc_precomputed_ahr999_cycle",
+}
+
 
 def available_candidate_names() -> tuple[str, ...]:
     """Return the small fixed preset universe used by this research helper."""
 
     return tuple(PRESET_CANDIDATES)
+
+
+def production_equivalent_candidate_name(profile: str) -> str:
+    """Return the frozen research candidate matching a production smart profile."""
+
+    normalized = str(profile or "").strip()
+    try:
+        return PRODUCTION_EQUIVALENT_CANDIDATES[normalized]
+    except KeyError as exc:
+        raise ValueError(f"unknown production smart DCA profile: {profile!r}") from exc
+
+
+def _candidate_production_equivalent_profile(name: str) -> str:
+    profiles = [
+        profile
+        for profile, candidate_name in PRODUCTION_EQUIVALENT_CANDIDATES.items()
+        if candidate_name == name
+    ]
+    return profiles[0] if profiles else ""
+
+
+def _candidate_role(name: str) -> str:
+    return (
+        "production_equivalent"
+        if _candidate_production_equivalent_profile(name)
+        else "research_variant"
+    )
 
 
 def candidate_specs_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, object], ...]:
@@ -212,6 +282,10 @@ def candidate_specs_to_rows(candidate_names: Iterable[str]) -> tuple[dict[str, o
             rows.append(
                 {
                     "name": candidate.name,
+                    "candidate_role": _candidate_role(candidate.name),
+                    "production_equivalent_profile": _candidate_production_equivalent_profile(
+                        candidate.name
+                    ),
                     "family": candidate.family,
                     "rule_type": candidate.rule_type,
                     "signal_symbols": ",".join(candidate.signal_symbols),
@@ -238,6 +312,10 @@ def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[st
         rows.append(
             {
                 "name": candidate.name,
+                "candidate_role": _candidate_role(candidate.name),
+                "production_equivalent_profile": _candidate_production_equivalent_profile(
+                    candidate.name
+                ),
                 "family": candidate.family,
                 "rule_type": candidate.rule_type,
                 "signal_source_mode": _candidate_signal_source_mode(candidate),
@@ -260,6 +338,20 @@ def candidate_summaries_to_rows(candidate_names: Iterable[str]) -> tuple[dict[st
             }
         )
     return tuple(rows)
+
+
+def candidate_set_signal_source_modes(candidate_set: str | Iterable[str]) -> tuple[str, ...]:
+    """Return the signal-source modes required by a frozen candidate set."""
+
+    names = _resolve_candidate_names(candidate_set)
+    return tuple(
+        sorted(
+            {
+                _candidate_signal_source_mode(PRESET_CANDIDATES[name])
+                for name in names
+            }
+        )
+    )
 
 
 def _candidate_multiplier_values(candidate: SmartDcaCandidate) -> tuple[float, ...]:
@@ -489,6 +581,23 @@ def _ahr999_mayer_multiplier(
     return float(multiplier), regime, metrics
 
 
+def _ahr999_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+    *,
+    as_of: pd.Timestamp,
+) -> tuple[float, str, dict[str, object]]:
+    metrics = _ahr999_mayer_metrics(signal_history, as_of)
+    ahr999 = float(metrics["ahr999"])
+    metrics = {
+        **metrics,
+        "ahr999_metric": "ahr999",
+        "ahr999_selected": ahr999,
+    }
+    multiplier, regime = _ahr999_regime_multiplier(ahr999, parameters)
+    return multiplier, regime, metrics
+
+
 def _precomputed_ahr999_mayer_metrics(
     signal_history: pd.DataFrame,
     *,
@@ -538,6 +647,37 @@ def _precomputed_ahr999_mayer_multiplier(
     return float(multiplier), regime, metrics
 
 
+def _precomputed_ahr999_multiplier(
+    signal_history: pd.DataFrame,
+    parameters: Mapping[str, float],
+) -> tuple[float, str, dict[str, object]]:
+    latest = signal_history.iloc[-1]
+    ahr999 = float(latest[_normalize_symbol("ahr999")])
+    metrics: dict[str, object] = {
+        "ahr999": ahr999,
+        "ahr999_selected": ahr999,
+        "ahr999_metric": "ahr999",
+        "cycle_indicator_source": "precomputed_derived_indicators",
+    }
+    if _normalize_symbol("mayer_multiple") in latest.index:
+        metrics["mayer_multiple"] = float(latest[_normalize_symbol("mayer_multiple")])
+    multiplier, regime = _ahr999_regime_multiplier(ahr999, parameters)
+    return multiplier, regime, metrics
+
+
+def _ahr999_regime_multiplier(
+    ahr999: float,
+    parameters: Mapping[str, float],
+) -> tuple[float, str]:
+    if ahr999 <= parameters["ahr999_bottom_threshold"]:
+        return float(parameters["ahr999_bottom_multiplier"]), "ahr999_bottom"
+    if ahr999 <= parameters["ahr999_accumulation_threshold"]:
+        return float(parameters["ahr999_accumulation_multiplier"]), "ahr999_accumulation"
+    if ahr999 <= parameters["ahr999_dca_threshold"]:
+        return float(parameters["ahr999_dca_multiplier"]), "ahr999_dca"
+    return float(parameters["ahr999_expensive_multiplier"]), "ahr999_expensive"
+
+
 def _candidate_multiplier(
     candidate: SmartDcaCandidate,
     signal_history: pd.DataFrame,
@@ -548,6 +688,8 @@ def _candidate_multiplier(
         return 0.0, "insufficient_history", {"required_history": candidate.min_history}
     if candidate.rule_type == "trend_drawdown":
         return _trend_drawdown_multiplier(signal_history, candidate.parameters)
+    if candidate.rule_type == "ahr999":
+        return _ahr999_multiplier(signal_history, candidate.parameters, as_of=as_of)
     if candidate.rule_type == "ahr999_mayer":
         return _ahr999_mayer_multiplier(signal_history, candidate.parameters, as_of=as_of)
     if candidate.rule_type == "ahr999_sma_mayer":
@@ -559,6 +701,8 @@ def _candidate_multiplier(
         )
     if candidate.rule_type == "precomputed_ahr999_mayer":
         return _precomputed_ahr999_mayer_multiplier(signal_history, candidate.parameters)
+    if candidate.rule_type == "precomputed_ahr999":
+        return _precomputed_ahr999_multiplier(signal_history, candidate.parameters)
     if candidate.rule_type == "precomputed_ahr999_sma_mayer":
         return _precomputed_ahr999_mayer_multiplier(
             signal_history,

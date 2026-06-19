@@ -1,3 +1,4 @@
+import inspect
 import json
 
 import pandas as pd
@@ -11,6 +12,7 @@ from us_equity_strategies.backtests.smart_dca_research import (
     compare_monthly_execution_day_scenarios,
     compare_smart_dca_candidates,
     evaluate_candidate_results,
+    production_equivalent_candidate_name,
     results_to_cash_flow_rows,
     results_to_decision_log_rows,
     results_to_equity_curve_rows,
@@ -23,6 +25,16 @@ from us_equity_strategies.backtests.smart_dca_research import (
     write_research_artifacts,
     write_scenario_research_artifacts,
 )
+from us_equity_strategies.strategies.ibit_smart_dca import (
+    build_rebalance_plan as build_ibit_smart_dca_plan,
+)
+from us_equity_strategies.strategies.nasdaq_sp500_smart_dca import (
+    build_rebalance_plan as build_nasdaq_sp500_smart_dca_plan,
+)
+
+
+IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
+NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 
 
 def _series(values, *, start: str = "2024-01-02") -> pd.Series:
@@ -979,13 +991,112 @@ def test_ibit_btc_precomputed_variants_use_exported_ahr999_sma() -> None:
     assert sma.last_signal_metrics["ahr999_selected"] == 0.7
 
 
+def _candidate_parameters(name: str) -> dict[str, float]:
+    return {
+        str(row["parameter_name"]): float(row["parameter_value"])
+        for row in candidate_specs_to_rows((name,))
+    }
+
+
+def _strategy_default_parameters(function) -> dict[str, object]:
+    return {
+        name: parameter.default
+        for name, parameter in inspect.signature(function).parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    }
+
+
+def test_production_equivalent_candidates_match_strategy_defaults() -> None:
+    nasdaq_candidate = production_equivalent_candidate_name(
+        NASDAQ_SP500_SMART_DCA_PROFILE
+    )
+    ibit_candidate = production_equivalent_candidate_name(IBIT_SMART_DCA_PROFILE)
+
+    assert nasdaq_candidate == "nasdaq_sp500_price_no_skip"
+    assert ibit_candidate == "ibit_btc_precomputed_ahr999_cycle"
+
+    nasdaq_config = _strategy_default_parameters(build_nasdaq_sp500_smart_dca_plan)
+    nasdaq_params = _candidate_parameters(nasdaq_candidate)
+    for key in (
+        "mild_drawdown_threshold",
+        "deep_drawdown_threshold",
+        "severe_drawdown_threshold",
+        "mild_discount_gap",
+        "deep_discount_gap",
+        "expensive_gap",
+        "very_expensive_gap",
+        "shallow_drawdown_threshold",
+        "overbought_rsi",
+        "base_multiplier",
+        "mild_pullback_multiplier",
+        "deep_pullback_multiplier",
+        "severe_pullback_multiplier",
+        "expensive_multiplier",
+        "very_expensive_multiplier",
+    ):
+        assert nasdaq_params[key] == float(nasdaq_config[key])
+
+    ibit_config = _strategy_default_parameters(build_ibit_smart_dca_plan)
+    ibit_params = _candidate_parameters(ibit_candidate)
+    for key in (
+        "ahr999_bottom_threshold",
+        "ahr999_accumulation_threshold",
+        "ahr999_dca_threshold",
+        "base_multiplier",
+        "ahr999_bottom_multiplier",
+        "ahr999_accumulation_multiplier",
+        "ahr999_dca_multiplier",
+        "ahr999_expensive_multiplier",
+    ):
+        assert ibit_params[key] == float(ibit_config[key])
+    assert "mayer_discount_threshold" not in ibit_params
+
+    summaries = candidate_summaries_to_rows((nasdaq_candidate, ibit_candidate))
+    assert {row["candidate_role"] for row in summaries} == {"production_equivalent"}
+    assert {
+        row["production_equivalent_profile"]
+        for row in summaries
+    } == {NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE}
+
+
+def test_ibit_production_equivalent_candidate_ignores_mayer_conflict() -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signals = pd.DataFrame(
+        {
+            "ahr999": [1.0 for _ in dates],
+            "ahr999_sma": [1.0 for _ in dates],
+            "mayer_multiple": [0.50 for _ in dates],
+        },
+        index=dates,
+    )
+    ibit = pd.Series([50.0 + i * 0.02 for i in range(len(dates))], index=dates)
+
+    result = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=ibit,
+        candidate_set="ibit_btc_ahr999_precomputed_variants",
+        monthly_contribution_usd=500.0,
+    )
+
+    production_equivalent = result["ibit_btc_precomputed_ahr999_cycle"]
+    mayer_variant = result["ibit_btc_precomputed_ahr999_mayer_cycle"]
+
+    assert production_equivalent.trades[0]["regime"] == "ahr999_dca"
+    assert production_equivalent.trades[0]["multiplier"] == 1.5
+    assert production_equivalent.last_signal_metrics["ahr999_selected"] == 1.0
+    assert mayer_variant.trades[0]["regime"] == "ahr999_bottom"
+    assert mayer_variant.trades[0]["multiplier"] == 3.0
+
+
 def test_candidate_universe_is_named_and_bounded() -> None:
     assert available_candidate_names() == (
         "nasdaq_sp500_price_defensive",
         "nasdaq_sp500_price_no_skip",
+        "ibit_btc_ahr999_cycle",
         "ibit_btc_ahr999_mayer_cycle",
         "ibit_btc_ahr999_mayer_no_skip_cycle",
         "ibit_btc_ahr999_sma_mayer_cycle",
+        "ibit_btc_precomputed_ahr999_cycle",
         "ibit_btc_precomputed_ahr999_mayer_cycle",
         "ibit_btc_precomputed_ahr999_mayer_no_skip_cycle",
         "ibit_btc_precomputed_ahr999_sma_mayer_cycle",

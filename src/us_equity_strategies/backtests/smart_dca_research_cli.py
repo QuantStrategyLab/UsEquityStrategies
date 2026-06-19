@@ -11,6 +11,7 @@ import sys
 import pandas as pd
 
 from .smart_dca_research import (
+    candidate_set_signal_source_modes,
     compare_execution_day_contribution_scenarios,
     compare_monthly_execution_day_scenarios,
     SUPPORTED_DCA_CADENCES,
@@ -144,11 +145,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--candidate-set",
         default="nasdaq_sp500_price",
         help=(
-            "Candidate set or preset name. Known sets include nasdaq_sp500_price, "
-            "nasdaq_sp500_price_variants, "
-            "ibit_btc_ahr999_mayer_price, ibit_btc_ahr999_mayer_price_variants, "
-            "ibit_btc_ahr999_mayer_precomputed, "
-            "ibit_btc_ahr999_mayer_precomputed_variants, and all."
+            "Candidate set or preset name. Known sets include "
+            "nasdaq_sp500_production_equivalent, nasdaq_sp500_price, "
+            "nasdaq_sp500_price_variants, ibit_btc_ahr999_price, "
+            "ibit_btc_ahr999_price_variants, ibit_btc_ahr999_precomputed, "
+            "ibit_btc_ahr999_precomputed_variants, legacy Mayer variants, and all."
         ),
     )
     parser.add_argument(
@@ -248,12 +249,15 @@ def _research_metadata(
 
 def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, object]]:
     records: dict[str, dict[str, object]] = {}
+    signal_manifest_expectations = _signal_manifest_expectations(args.candidate_set)
     if args.signal_manifest is not None:
         records["signal_manifest"] = _manifest_record(
             args.signal_manifest,
             linked_csv_path=args.signal_csv,
             role="signal",
             date_column=args.date_column,
+            expected_artifact_type=signal_manifest_expectations["artifact_type"],
+            expected_transform=signal_manifest_expectations["transform"],
         )
     if args.trade_manifest is not None:
         records["trade_manifest"] = _manifest_record(
@@ -261,8 +265,20 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             linked_csv_path=args.trade_csv,
             role="trade",
             date_column=args.date_column,
+            expected_artifact_type=None,
+            expected_transform=None,
         )
     return records
+
+
+def _signal_manifest_expectations(candidate_set: str) -> dict[str, str | None]:
+    modes = candidate_set_signal_source_modes(candidate_set)
+    if "external_precomputed_derived_indicators" in modes:
+        return {
+            "artifact_type": "btc_cycle_research_csv",
+            "transform": "crypto.btc.ahr999.v1",
+        }
+    return {"artifact_type": None, "transform": None}
 
 
 def _manifest_record(
@@ -271,6 +287,8 @@ def _manifest_record(
     linked_csv_path: Path,
     role: str,
     date_column: str,
+    expected_artifact_type: str | None,
+    expected_transform: str | None,
 ) -> dict[str, object]:
     manifest = _read_manifest(path)
     _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
@@ -308,6 +326,13 @@ def _manifest_record(
             linked_csv_shape=linked_csv_shape,
             role=role,
         )
+    _validate_manifest_expectations(
+        manifest,
+        schema_version=schema_version,
+        role=role,
+        expected_artifact_type=expected_artifact_type,
+        expected_transform=expected_transform,
+    )
 
     return {
         **_file_record(path),
@@ -331,6 +356,35 @@ def _manifest_record(
         "linked_csv_sha256_verified": True,
         "linked_csv_size_bytes_verified": declared_output_size is not None,
     }
+
+
+def _validate_manifest_expectations(
+    manifest: dict[str, object],
+    *,
+    schema_version: str,
+    role: str,
+    expected_artifact_type: str | None,
+    expected_transform: str | None,
+) -> None:
+    if expected_artifact_type is None and expected_transform is None:
+        return
+    if schema_version != RESEARCH_EXPORT_SCHEMA_VERSION:
+        raise ValueError(
+            f"{role} manifest schema_version must be {RESEARCH_EXPORT_SCHEMA_VERSION!r} "
+            "for this candidate set"
+        )
+    artifact_type = str(manifest.get("artifact_type", "")).strip()
+    if expected_artifact_type is not None and artifact_type != expected_artifact_type:
+        raise ValueError(
+            f"{role} manifest artifact_type mismatch: "
+            f"expected {expected_artifact_type!r}, got {artifact_type!r}"
+        )
+    transform = str(manifest.get("transform", "")).strip()
+    if expected_transform is not None and transform != expected_transform:
+        raise ValueError(
+            f"{role} manifest transform mismatch: "
+            f"expected {expected_transform!r}, got {transform!r}"
+        )
 
 
 def _validate_research_export_manifest(

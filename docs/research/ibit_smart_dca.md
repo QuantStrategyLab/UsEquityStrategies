@@ -137,6 +137,12 @@ bottom / accumulation / DCA zones and skips when AHR999 is above 1.20. This is
 different from ordinary DCA: fixed DCA remains the default for accounts that
 should invest every scheduled month regardless of crypto valuation.
 
+For reproducible research artifacts, the production-equivalent smart candidate
+is `ibit_btc_precomputed_ahr999_cycle`: it uses the externally supplied AHR999
+field from `derived_indicators` and does not let Mayer Multiple change the
+regime. Mayer-based candidates remain research variants / sanity checks, not the
+current production smart-mode contract.
+
 | Smart variant | Terminal | Vs fixed | Max DD | DD delta |
 | --- | ---: | ---: | ---: | ---: |
 | Fixed DCA benchmark | $386,795 | 0.00% | 74.40% | 0.00% |

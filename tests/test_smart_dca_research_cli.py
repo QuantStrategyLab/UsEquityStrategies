@@ -303,7 +303,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             {
                 "schema_version": "research_export.v1",
                 "artifact_type": "btc_cycle_research_csv",
-                "transform": "crypto.btc.ahr999_mayer.v1",
+                "transform": "crypto.btc.ahr999.v1",
                 "source_version": "0.1.0",
                 "as_of": "2025-06-18",
                 "min_history": 200,
@@ -360,7 +360,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     summary = json.loads(capsys.readouterr().out)
     signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
     assert signal_manifest_record["schema_version"] == "research_export.v1"
-    assert signal_manifest_record["transform"] == "crypto.btc.ahr999_mayer.v1"
+    assert signal_manifest_record["transform"] == "crypto.btc.ahr999.v1"
     assert signal_manifest_record["columns"] == [
         "date",
         "ahr999",
@@ -397,6 +397,76 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ]
         == len(dates)
     )
+
+
+def test_smart_dca_research_cli_rejects_precomputed_signal_transform_mismatch(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2025-01-02", periods=120, freq="B")
+    signal_csv = tmp_path / "btc_cycle.csv"
+    signal_manifest = tmp_path / "btc_cycle.manifest.json"
+    trade_csv = tmp_path / "ibit.csv"
+    output_dir = tmp_path / "ibit-precomputed-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ahr999": [1.5 for _ in dates],
+            "ahr999_sma": [1.4 for _ in dates],
+            "mayer_multiple": [2.5 for _ in dates],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "ibit_close": [50.0 + index * 0.02 for index in range(len(dates))],
+        }
+    ).to_csv(trade_csv, index=False)
+    signal_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "artifact_type": "btc_cycle_research_csv",
+                "transform": "crypto.btc.ahr999_mayer.v1",
+                "source_version": "0.1.0",
+                "row_count": len(dates),
+                "first_date": str(dates[0].date()),
+                "last_date": str(dates[-1].date()),
+                "columns": ["date", "ahr999", "ahr999_sma", "mayer_multiple"],
+                "output_csv": {
+                    "path": str(signal_csv),
+                    "sha256": _sha256_file(signal_csv),
+                    "size_bytes": signal_csv.stat().st_size,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_sma,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+        ]
+    )
+
+    assert result == 2
+    assert "transform mismatch" in capsys.readouterr().err
 
 
 def test_smart_dca_research_cli_rejects_signal_manifest_hash_mismatch(
