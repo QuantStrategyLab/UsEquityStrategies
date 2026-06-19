@@ -422,7 +422,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert scenario_manifest["metadata"]["research_config"]["execution_days"] == [1, 25]
     assert scenario_manifest["metadata"]["research_config"][
         "compatible_signal_consumers"
-    ] == []
+    ] == ["research:nasdaq_sp500_price_proxy"]
     assert scenario_manifest["metadata"]["research_config"]["cadences"] == [
         "weekly",
         "monthly",
@@ -1956,8 +1956,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "matched_source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
-                "consumer_contract_count": 1,
-                "consumer_contracts": ["us_equity:ibit_smart_dca"],
+                "consumer_contract_count": len(contract_consumers),
+                "consumer_contracts": contract_consumers,
                 "all_known_consumers_present": False,
                 "all_runtime_consumers_covered": True,
                 "linked_manifest_sha256s_verified": True,
