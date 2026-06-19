@@ -397,6 +397,9 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert str(robustness_rows[0]["weakest_scenario"]).startswith("monthly_day_")
     assert "min_money_weighted_return_pct" in robustness_rows[0]
     assert "max_average_cash_ratio_pct" in robustness_rows[0]
+    assert "max_zero_multiplier_ratio" in robustness_rows[0]
+    assert "max_boosted_multiplier_ratio" in robustness_rows[0]
+    assert "regimes_seen" in robustness_rows[0]
     assert "worst_max_drawdown_delta_pct_points" in robustness_rows[0]
     assert selection_rows[0]["selection_group"] == "nasdaq_sp500_price"
     assert selection_rows[0]["selected_name"] == "nasdaq_sp500_price_defensive"
@@ -431,6 +434,9 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["matrix_candidate_names"] == "nasdaq_sp500_price_defensive"
     assert "selected_effect_size_gate_passed" in selection_rows[0]
     assert "selected_median_relative_terminal_value_pct" in selection_rows[0]
+    assert "selected_max_zero_multiplier_ratio" in selection_rows[0]
+    assert "selected_max_boosted_multiplier_ratio" in selection_rows[0]
+    assert "selected_regimes_seen" in selection_rows[0]
     assert selection_rows[0]["max_effect_terminal_cash_ratio_pct"] == 35.0
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
     assert coverage_rows[0]["scenario_count"] == 4

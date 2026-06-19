@@ -1334,6 +1334,32 @@ def scenario_results_to_robustness_rows(
                     "max_drawdown_delta_pct_points",
                 ),
                 "max_skipped_buy_ratio": _max_metric(values, "skipped_buy_ratio"),
+                "max_zero_multiplier_ratio": _max_metric(
+                    values,
+                    "zero_multiplier_ratio",
+                ),
+                "max_boosted_multiplier_ratio": _max_metric(
+                    values,
+                    "boosted_multiplier_ratio",
+                ),
+                "min_average_scheduled_multiplier": _min_metric(
+                    values,
+                    "average_scheduled_multiplier",
+                ),
+                "max_average_scheduled_multiplier": _max_metric(
+                    values,
+                    "average_scheduled_multiplier",
+                ),
+                "min_scheduled_multiplier": _min_metric(
+                    values,
+                    "min_scheduled_multiplier",
+                ),
+                "max_scheduled_multiplier": _max_metric(
+                    values,
+                    "max_scheduled_multiplier",
+                ),
+                "regime_count": len(_union_csv_values(values, "regimes_seen")),
+                "regimes_seen": ",".join(_union_csv_values(values, "regimes_seen")),
                 "min_deployment_rate_delta_pct_points": _min_metric(
                     values,
                     "deployment_rate_delta_pct_points",
@@ -1563,6 +1589,26 @@ def scenario_results_to_selection_rows(
                     "median_relative_terminal_value_pct"
                 ],
                 "selected_min_rank_score": selected["min_rank_score"],
+                "selected_max_zero_multiplier_ratio": selected[
+                    "max_zero_multiplier_ratio"
+                ],
+                "selected_max_boosted_multiplier_ratio": selected[
+                    "max_boosted_multiplier_ratio"
+                ],
+                "selected_min_average_scheduled_multiplier": selected[
+                    "min_average_scheduled_multiplier"
+                ],
+                "selected_max_average_scheduled_multiplier": selected[
+                    "max_average_scheduled_multiplier"
+                ],
+                "selected_min_scheduled_multiplier": selected[
+                    "min_scheduled_multiplier"
+                ],
+                "selected_max_scheduled_multiplier": selected[
+                    "max_scheduled_multiplier"
+                ],
+                "selected_regime_count": selected["regime_count"],
+                "selected_regimes_seen": selected["regimes_seen"],
                 "selected_failure_reasons": selected["failure_reasons"],
                 "candidate_count": len(ordered),
                 "compared_candidates": ",".join(str(row["name"]) for row in ordered),
@@ -2149,6 +2195,16 @@ def _median_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
     if len(values) % 2:
         return float(values[midpoint])
     return float((values[midpoint - 1] + values[midpoint]) / 2.0)
+
+
+def _union_csv_values(rows: Iterable[Mapping[str, object]], field: str) -> tuple[str, ...]:
+    values = {
+        item.strip()
+        for row in rows
+        for item in str(row.get(field, "")).split(",")
+        if item.strip()
+    }
+    return tuple(sorted(values))
 
 
 def results_to_decision_log_rows(

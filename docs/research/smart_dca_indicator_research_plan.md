@@ -373,6 +373,8 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 `matrix_scenario_sample_windows`、`matrix_scenario_varied_dimensions`、
 `matrix_candidate_set_consistent`、`matrix_fixed_benchmark_present_all` 和
 `matrix_candidate_names`，便于人工评审时只看 selection summary 也能识别覆盖缺口。
+它还会复制被选候选跨场景的 zero/boosted multiplier 占比、scheduled multiplier 范围和
+`selected_regimes_seen`，便于确认候选不是只靠某一个 regime 或跳过买入路径胜出。
 `selection_summary.csv` 还会执行固定 effect-size gate：候选最差相对终值不能低于 fixed，
 中位相对终值至少要高于 fixed `1%`，最差 `rank_score` 不能为负，且终值现金占比不能超过
 `35%`；这些阈值是预先固定的反过拟合门槛，不会按回测结果搜索。未达标时会保持
