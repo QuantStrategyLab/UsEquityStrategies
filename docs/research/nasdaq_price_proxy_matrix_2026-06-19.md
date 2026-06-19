@@ -37,6 +37,29 @@ The trade proxy is a local 50/50 normalized price-only index:
 It is not a total-return ETF proxy and does not include dividends, fees, taxes,
 spreads, or borrow/cash yield.
 
+## Research Handoff
+
+The price proxy export was also wrapped as a minimal `market_signal_research_handoff`
+for the generic signal source consumption path. This package intentionally covers
+only the price proxy family and consumer; it is not a full all-family catalog.
+
+| Artifact | Path | SHA-256 |
+| --- | --- | --- |
+| Research handoff | `research_handoff.json` | `2815684ff369c7ec784fac7d0dc9cc4fbd257fb9c44afea8edf2ec1656412a9e` |
+| Source family catalog manifest | `handoff/source_catalog/signal_source_families.manifest.json` | `c74c52bff2c4547acd14e4b20f3023a8ae9997cffb7b969ea3441b19774d8300` |
+| Consumer contract registry manifest | `handoff/contracts/market_signal_consumers.manifest.json` | `a4430fcf10fd5f69872e0dbf22c2178e300e8bf1afece82d16012f361fb2eaef` |
+
+Validation summary:
+
+- consumer: `research:nasdaq_sp500_price_proxy`
+- source family: `us_equity.nasdaq_sp500_price_proxy_daily`
+- research artifact type: `us_equity_price_proxy_research_csv`
+- research transform: `us_equity.nasdaq_sp500.price_proxy.v1`
+- `summary_verified = true`
+- `linked_manifest_sha256s_verified = true`
+- `ready_for_research_consumption = true`
+- `runtime_injection_allowed = false`
+
 ## Matrix
 
 Command shape:
