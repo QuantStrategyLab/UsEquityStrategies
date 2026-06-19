@@ -424,6 +424,10 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert coverage_rows[0]["scenario_contribution_amount_count"] == 2
     assert coverage_rows[0]["scenario_start_dates"] == ""
     assert coverage_rows[0]["scenario_start_date_count"] == 0
+    assert coverage_rows[0]["scenario_sample_window_count"] == 1
+    assert coverage_rows[0]["scenario_sample_first_date_count"] == 1
+    assert coverage_rows[0]["scenario_sample_last_date_count"] == 1
+    assert coverage_rows[0]["scenario_sample_window_audit_passed"] is True
     assert coverage_rows[0]["scenario_recognized_dimension_count"] == 3
     assert coverage_rows[0]["scenario_varied_dimensions"] == (
         "execution_day,contribution_amount"
@@ -433,11 +437,16 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["matrix_scenario_cadences"] == "monthly"
     assert selection_rows[0]["matrix_scenario_execution_days"] == "1,25"
     assert selection_rows[0]["matrix_scenario_contribution_amounts_usd"] == "500,1000"
+    assert selection_rows[0]["matrix_scenario_sample_window_count"] == 1
+    assert selection_rows[0]["matrix_scenario_sample_window_audit_passed"] is True
     assert selection_rows[0]["matrix_scenario_varied_dimensions"] == (
         "execution_day,contribution_amount"
     )
     assert selection_rows[0]["matrix_scenario_dimension_coverage_gate_passed"] is True
     assert review_decision["matrix_coverage_gate_passed"] is True
+    assert review_decision["matrix_coverage"][
+        "scenario_sample_window_audit_passed"
+    ] is True
     assert review_decision["selection_gate_summary"][
         "matrix_dimension_coverage_gate_passed"
     ] is True
@@ -740,6 +749,8 @@ def test_execution_day_contribution_scenarios_cover_cadence_robustness() -> None
     assert coverage_rows[0]["scenario_cadence_count"] == 3
     assert coverage_rows[0]["scenario_execution_days"] == "15"
     assert coverage_rows[0]["scenario_contribution_amounts_usd"] == "1000"
+    assert coverage_rows[0]["scenario_sample_window_count"] == 1
+    assert coverage_rows[0]["scenario_sample_window_audit_passed"] is True
     assert coverage_rows[0]["scenario_varied_dimensions"] == "cadence"
     assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
 
@@ -770,6 +781,12 @@ def test_execution_day_contribution_scenarios_cover_rolling_starts() -> None:
     coverage_rows = scenario_results_to_coverage_rows(scenarios)
     assert coverage_rows[0]["scenario_start_dates"] == "2025-01-02,2025-07-01"
     assert coverage_rows[0]["scenario_start_date_count"] == 2
+    assert coverage_rows[0]["scenario_sample_first_dates"] == (
+        "2025-01-02,2025-07-01"
+    )
+    assert coverage_rows[0]["scenario_sample_first_date_count"] == 2
+    assert coverage_rows[0]["scenario_sample_window_count"] == 2
+    assert coverage_rows[0]["scenario_sample_window_audit_passed"] is True
     assert coverage_rows[0]["scenario_varied_dimensions"] == "start_date"
     assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
 

@@ -153,8 +153,12 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "matrix_coverage_gate_passed" in selection_summary
     assert "matrix_coverage_status" in selection_summary
     assert "matrix_scenario_count" in selection_summary
+    assert "matrix_scenario_sample_windows" in selection_summary
+    assert "matrix_scenario_sample_window_audit_passed" in selection_summary
     assert "matrix_candidate_set_consistent" in selection_summary
     assert "coverage_gate_passed" in scenario_coverage
+    assert "scenario_sample_windows" in scenario_coverage
+    assert "scenario_sample_window_audit_passed" in scenario_coverage
     assert "ready_for_selection_review" in scenario_coverage
     assert review_decision["artifact_type"] == "smart_dca_review_decision"
     assert review_decision["selection_policy"] == "fixed_preset_no_parameter_search"
@@ -171,6 +175,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "observed_best_smart_candidates" in review_decision
     assert "manual_review_candidate_names" in review_decision
     assert review_decision["matrix_coverage_gate_passed"] is True
+    assert review_decision["matrix_coverage"][
+        "scenario_sample_window_audit_passed"
+    ] is True
     assert review_decision["selection_gate_summary"][
         "matrix_coverage_gate_passed"
     ] is True

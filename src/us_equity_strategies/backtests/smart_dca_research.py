@@ -1423,6 +1423,27 @@ def scenario_results_to_selection_rows(
                 "matrix_scenario_start_date_count": coverage_row[
                     "scenario_start_date_count"
                 ],
+                "matrix_scenario_sample_windows": coverage_row[
+                    "scenario_sample_windows"
+                ],
+                "matrix_scenario_sample_window_count": coverage_row[
+                    "scenario_sample_window_count"
+                ],
+                "matrix_scenario_sample_first_dates": coverage_row[
+                    "scenario_sample_first_dates"
+                ],
+                "matrix_scenario_sample_first_date_count": coverage_row[
+                    "scenario_sample_first_date_count"
+                ],
+                "matrix_scenario_sample_last_dates": coverage_row[
+                    "scenario_sample_last_dates"
+                ],
+                "matrix_scenario_sample_last_date_count": coverage_row[
+                    "scenario_sample_last_date_count"
+                ],
+                "matrix_scenario_sample_window_audit_passed": coverage_row[
+                    "scenario_sample_window_audit_passed"
+                ],
                 "matrix_scenario_recognized_dimension_count": coverage_row[
                     "scenario_recognized_dimension_count"
                 ],
@@ -1647,6 +1668,10 @@ def scenario_results_to_coverage_rows(
 
     scenario_names = tuple(str(name) for name in scenarios)
     dimension_summary = _scenario_dimension_summary(scenario_names)
+    sample_window_summary = _scenario_sample_window_summary(
+        scenarios,
+        fixed_name=fixed_name,
+    )
     candidate_sets = tuple(
         tuple(sorted(str(name) for name in results if name != fixed_name))
         for results in scenarios.values()
@@ -1686,6 +1711,7 @@ def scenario_results_to_coverage_rows(
             "candidate_names": ",".join(candidate_names),
             "scenario_names": ",".join(scenario_names),
             **dimension_summary,
+            **sample_window_summary,
             "coverage_gate_passed": coverage_gate_passed,
             "coverage_status": (
                 "ready_for_selection_review"
@@ -1694,7 +1720,49 @@ def scenario_results_to_coverage_rows(
             ),
             "failure_reasons": ",".join(failure_reasons),
         },
+)
+
+
+def _scenario_sample_window_summary(
+    scenarios: Mapping[str, Mapping[str, DcaResearchResult]],
+    *,
+    fixed_name: str,
+) -> dict[str, object]:
+    windows: list[str] = []
+    first_dates: list[str] = []
+    last_dates: list[str] = []
+    missing_window_scenarios: list[str] = []
+    for scenario_name, results in scenarios.items():
+        fixed = results.get(fixed_name)
+        if fixed is None or not fixed.equity_curve:
+            missing_window_scenarios.append(str(scenario_name))
+            continue
+        first_date = str(fixed.equity_curve[0].get("date", ""))
+        last_date = str(fixed.equity_curve[-1].get("date", ""))
+        if not first_date or not last_date:
+            missing_window_scenarios.append(str(scenario_name))
+            continue
+        first_dates.append(first_date)
+        last_dates.append(last_date)
+        windows.append(f"{scenario_name}:{first_date}..{last_date}")
+
+    unique_windows = _sorted_unique_text(
+        window.split(":", 1)[1]
+        for window in windows
+        if ":" in window
     )
+    return {
+        "scenario_sample_windows": ",".join(windows),
+        "scenario_sample_window_count": len(unique_windows),
+        "scenario_sample_first_dates": ",".join(_sorted_unique_text(first_dates)),
+        "scenario_sample_first_date_count": len(set(first_dates)),
+        "scenario_sample_last_dates": ",".join(_sorted_unique_text(last_dates)),
+        "scenario_sample_last_date_count": len(set(last_dates)),
+        "scenario_sample_window_missing_scenarios": ",".join(
+            _sorted_unique_text(missing_window_scenarios)
+        ),
+        "scenario_sample_window_audit_passed": not missing_window_scenarios,
+    }
 
 
 def _scenario_dimension_summary(
