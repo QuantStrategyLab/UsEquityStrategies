@@ -1375,7 +1375,9 @@ def test_production_equivalent_candidates_match_strategy_defaults() -> None:
 
 
 def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
-    assert candidate_set_signal_consumers("nasdaq_sp500_price_variants") == ()
+    assert candidate_set_signal_consumers("nasdaq_sp500_price_variants") == (
+        "research:nasdaq_sp500_price_proxy",
+    )
     assert candidate_set_signal_consumers(
         "nasdaq_sp500_external_precomputed_variants"
     ) == ("research:nasdaq_sp500_external_context_precomputed",)
@@ -1406,7 +1408,9 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
         "research:ibit_btc_ahr999_precomputed",
         "us_equity:ibit_smart_dca",
     )
-    assert candidate_signal_consumers("nasdaq_sp500_price_no_skip") == ()
+    assert candidate_signal_consumers("nasdaq_sp500_price_no_skip") == (
+        "research:nasdaq_sp500_price_proxy",
+    )
     assert candidate_signal_consumers("ibit_btc_precomputed_ahr999_cycle") == (
         "us_equity:ibit_smart_dca",
         "research:ibit_btc_ahr999_precomputed",

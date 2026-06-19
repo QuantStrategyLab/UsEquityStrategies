@@ -385,6 +385,9 @@ sha256、文件大小、候选集信号来源模式和 `compatible_signal_consum
 manifest；CLI 会校验 `output_csv.sha256` / size、`research_export.v1` 列集合、
 日期范围、row count、`artifact_type=us_equity_price_proxy_research_csv`、
 `transform=us_equity.nasdaq_sp500.price_proxy.v1`，以及 `QQQ` / `SPY` 为正数。
+这两个 price proxy 候选的 `compatible_signal_consumers` 固定为
+`research:nasdaq_sp500_price_proxy`，策略侧 shadow registry 也必须和
+MarketSignalSources 的 consumer contract 保持一致。
 这个 helper 是后续批量数据回测和结果 CSV 的基础。
 
 生产等价候选必须和研究 variant 分开记录：

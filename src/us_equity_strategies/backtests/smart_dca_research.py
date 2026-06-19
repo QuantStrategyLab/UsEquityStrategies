@@ -321,6 +321,12 @@ PRODUCTION_EQUIVALENT_CANDIDATES: dict[str, str] = {
     "ibit_smart_dca": "ibit_btc_precomputed_ahr999_cycle",
 }
 CANDIDATE_SIGNAL_CONSUMERS: dict[str, tuple[str, ...]] = {
+    "nasdaq_sp500_price_defensive": (
+        "research:nasdaq_sp500_price_proxy",
+    ),
+    "nasdaq_sp500_price_no_skip": (
+        "research:nasdaq_sp500_price_proxy",
+    ),
     "nasdaq_sp500_precomputed_valuation_guard": (
         "research:nasdaq_sp500_external_context_precomputed",
     ),

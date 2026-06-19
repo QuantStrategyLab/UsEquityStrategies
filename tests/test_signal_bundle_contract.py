@@ -205,6 +205,19 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
     contracts.insert(
         3,
         {
+            "consumer": "research:nasdaq_sp500_price_proxy",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "US-EQUITY-PRICE-PROXY": [
+                    "QQQ",
+                    "SPY",
+                ],
+            },
+        },
+    )
+    contracts.insert(
+        4,
+        {
             "consumer": "research:ibit_btc_ahr999_precomputed",
             "canonical_input": "derived_indicators",
             "required_indicator_fields_by_symbol": {
@@ -213,7 +226,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        4,
+        5,
         {
             "consumer": "research:ibit_btc_ahr999_helper_precomputed_variants",
             "canonical_input": "derived_indicators",
@@ -227,7 +240,7 @@ def _complete_consumer_contract_registry() -> dict[str, object]:
         },
     )
     contracts.insert(
-        5,
+        6,
         {
             "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
             "canonical_input": "derived_indicators",
@@ -255,11 +268,12 @@ def _write_consumer_contract_registry_manifest(
         {
             "us_equity:ibit_smart_dca",
             "research:ibit_btc_ahr999_precomputed",
-        "research:ibit_btc_ahr999_helper_precomputed_variants",
+            "research:ibit_btc_ahr999_helper_precomputed_variants",
             "research:ibit_btc_ahr999_mayer_precomputed",
             "research:ibit_btc_ahr999_mayer_precomputed_variants",
             "research:nasdaq_sp500_cape_vix_external_context_precomputed",
             "research:nasdaq_sp500_external_context_precomputed",
+            "research:nasdaq_sp500_price_proxy",
         }
         - set(consumers)
     )
@@ -277,7 +291,7 @@ def _write_consumer_contract_registry_manifest(
                 "registry_schema_version": registry["schema_version"],
                 "canonical_input": registry["canonical_input"],
                 "consumer_count": len(contracts),
-                "known_consumer_count": 7,
+                "known_consumer_count": 8,
                 "missing_known_consumers": missing_consumers,
                 "all_known_consumers_present": not missing_consumers,
             },
@@ -405,7 +419,7 @@ def _write_platform_handoff_manifest(
                 "all_consumer_contracts_satisfied": True,
                 "consumer_contract_count": len(consumers),
                 "consumer_contracts": list(consumers),
-                "all_known_consumers_present": len(consumers) == 7,
+                "all_known_consumers_present": len(consumers) == 8,
             },
             indent=2,
             sort_keys=True,
@@ -666,7 +680,7 @@ def _write_research_handoff_manifest(
                 ),
                 "consumer_contract_count": len(consumers),
                 "consumer_contracts": list(consumers),
-                "all_known_consumers_present": len(consumers) == 7,
+                "all_known_consumers_present": len(consumers) == 8,
             },
             indent=2,
             sort_keys=True,
@@ -982,6 +996,9 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
     assert required_indicator_fields_for_consumer(
         "research:ibit_btc_ahr999_mayer_precomputed_variants"
     ) == {"BTC-USD": ("ahr999", "ahr999_sma", "mayer_multiple")}
+    assert required_indicator_fields_for_consumer(
+        "research:nasdaq_sp500_price_proxy"
+    ) == {"US-EQUITY-PRICE-PROXY": ("QQQ", "SPY")}
     assert summary["consumer"] == "research:ibit_btc_ahr999_mayer_precomputed_variants"
     assert summary["consumer_profile_compatible"] is True
     assert "research:ibit_btc_ahr999_mayer_precomputed_variants" in summary[
@@ -1061,6 +1078,7 @@ def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -
         "research:ibit_btc_ahr999_precomputed",
         "research:nasdaq_sp500_cape_vix_external_context_precomputed",
         "research:nasdaq_sp500_external_context_precomputed",
+        "research:nasdaq_sp500_price_proxy",
     )
     assert file_summary["sha256"] == hashlib.sha256(
         registry_path.read_bytes()
@@ -1093,7 +1111,7 @@ def test_external_consumer_contract_registry_manifest_matches_local_contracts(
         registry_path.read_bytes()
     ).hexdigest()
     assert summary["registry_schema_version"] == "market_signal_consumer_contracts.v1"
-    assert summary["consumer_count"] == 7
+    assert summary["consumer_count"] == 8
     assert summary["all_known_consumers_present"] is True
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1212,7 +1230,7 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
     )
     assert summary["source_families"] == ("crypto.btc_cycle_daily",)
     assert summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
-    assert summary["consumer_contract_count"] == 7
+    assert summary["consumer_contract_count"] == 8
     assert summary["all_runtime_consumers_covered"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
     assert summary["consumer_registry_contract_fields_verified"] is True
@@ -1371,7 +1389,7 @@ def test_research_handoff_manifest_validates_linked_research_export(
     assert handoff_summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
     assert handoff_summary["source_family_count"] == 1
     assert handoff_summary["source_families"] == ("crypto.btc_cycle_daily",)
-    assert handoff_summary["consumer_contract_count"] == 7
+    assert handoff_summary["consumer_contract_count"] == 8
     assert handoff_summary["research_export_output_csv_verified"] is True
     assert handoff_summary["consumer_registry_contract_fields_verified"] is True
     assert handoff_summary["handoff_linked_manifest_sha256s_verified"] is True
@@ -1407,6 +1425,7 @@ def test_platform_handoff_index_resolves_matching_handoff_manifest(tmp_path) -> 
             "us_equity:ibit_smart_dca",
             "research:nasdaq_sp500_external_context_precomputed",
             "research:nasdaq_sp500_cape_vix_external_context_precomputed",
+            "research:nasdaq_sp500_price_proxy",
             "research:ibit_btc_ahr999_precomputed",
             "research:ibit_btc_ahr999_helper_precomputed_variants",
             "research:ibit_btc_ahr999_mayer_precomputed",

@@ -49,6 +49,12 @@ REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
             "vix_percentile",
         ),
     },
+    "research:nasdaq_sp500_price_proxy": {
+        "US-EQUITY-PRICE-PROXY": (
+            "QQQ",
+            "SPY",
+        ),
+    },
     "research:ibit_btc_ahr999_precomputed": {
         "BTC-USD": ("ahr999",),
     },
