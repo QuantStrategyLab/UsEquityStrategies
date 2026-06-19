@@ -1380,7 +1380,10 @@ def test_precomputed_candidates_name_compatible_signal_consumers() -> None:
     )
     assert candidate_set_signal_consumers(
         "nasdaq_sp500_external_precomputed_variants"
-    ) == ("research:nasdaq_sp500_external_context_precomputed",)
+    ) == (
+        "research:nasdaq_sp500_external_context_precomputed",
+        "research:nasdaq_sp500_price_proxy",
+    )
     assert candidate_set_signal_source_modes(
         "nasdaq_sp500_external_precomputed_variants"
     ) == (

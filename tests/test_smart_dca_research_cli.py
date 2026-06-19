@@ -277,7 +277,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert summary["metadata"]["research_config"]["signal_source_modes"] == [
         "market_history_price_indicators"
     ]
-    assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == []
+    assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == [
+        "research:nasdaq_sp500_price_proxy"
+    ]
     assert summary["metadata"]["research_config"]["min_review_scenarios"] == 3
     assert summary["metadata"]["research_config"]["cadences"] == [
         "weekly",
@@ -723,7 +725,8 @@ def test_smart_dca_research_cli_accepts_us_equity_context_manifest(
         "market_history_price_indicators",
     ]
     assert summary["metadata"]["research_config"]["compatible_signal_consumers"] == [
-        "research:nasdaq_sp500_external_context_precomputed"
+        "research:nasdaq_sp500_external_context_precomputed",
+        "research:nasdaq_sp500_price_proxy",
     ]
     signal_manifest_record = summary["metadata"]["input_artifacts"]["signal_manifest"]
     assert signal_manifest_record["artifact_type"] == "us_equity_context_research_csv"
@@ -1672,6 +1675,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                         ],
                         "compatible_profiles": [
                             "us_equity:ibit_smart_dca",
+                            "research:ibit_btc_ahr999_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                        ],
+                        "runtime_consumers": ["us_equity:ibit_smart_dca"],
+                        "research_consumers": [
                             "research:ibit_btc_ahr999_precomputed",
                             "research:ibit_btc_ahr999_mayer_precomputed",
                             "research:ibit_btc_ahr999_mayer_precomputed_variants",
