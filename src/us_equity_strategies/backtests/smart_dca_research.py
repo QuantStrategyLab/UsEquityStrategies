@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 import hashlib
 import json
@@ -960,6 +960,63 @@ def _terminal_cash_ratio(result: DcaResearchResult) -> float:
     return float(result.cash / result.terminal_value) if result.terminal_value > 0.0 else 0.0
 
 
+def _scheduled_decision_events(result: DcaResearchResult) -> tuple[Mapping[str, object], ...]:
+    return tuple(result.trades) + tuple(result.skips)
+
+
+def _scheduled_multiplier_values(result: DcaResearchResult) -> tuple[float, ...]:
+    return tuple(
+        float(event.get("multiplier", 0.0))
+        for event in _scheduled_decision_events(result)
+    )
+
+
+def _scheduled_regimes_seen(result: DcaResearchResult) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                str(event.get("regime", "")).strip()
+                for event in _scheduled_decision_events(result)
+                if str(event.get("regime", "")).strip()
+            }
+        )
+    )
+
+
+def _scheduled_multiplier_count(
+    result: DcaResearchResult,
+    predicate: Callable[[float], bool],
+) -> int:
+    return sum(1 for value in _scheduled_multiplier_values(result) if predicate(value))
+
+
+def _scheduled_multiplier_ratio(
+    result: DcaResearchResult,
+    predicate: Callable[[float], bool],
+) -> float:
+    events = _scheduled_decision_events(result)
+    return (
+        float(_scheduled_multiplier_count(result, predicate) / len(events))
+        if events
+        else 0.0
+    )
+
+
+def _average_scheduled_multiplier(result: DcaResearchResult) -> float:
+    values = _scheduled_multiplier_values(result)
+    return float(sum(values) / len(values)) if values else 0.0
+
+
+def _min_scheduled_multiplier(result: DcaResearchResult) -> float:
+    values = _scheduled_multiplier_values(result)
+    return float(min(values)) if values else 0.0
+
+
+def _max_scheduled_multiplier(result: DcaResearchResult) -> float:
+    values = _scheduled_multiplier_values(result)
+    return float(max(values)) if values else 0.0
+
+
 def evaluate_candidate_results(
     results: Mapping[str, DcaResearchResult],
     *,
@@ -1083,6 +1140,28 @@ def results_to_metrics_rows(
             "skipped_count": result.skipped_count,
             "skipped_buy_ratio": _skipped_buy_ratio(result),
             "deployment_rate_pct": result.deployment_rate * 100.0,
+            "scheduled_decision_count": len(_scheduled_decision_events(result)),
+            "zero_multiplier_count": _scheduled_multiplier_count(
+                result,
+                lambda value: value <= 0.0,
+            ),
+            "zero_multiplier_ratio": _scheduled_multiplier_ratio(
+                result,
+                lambda value: value <= 0.0,
+            ),
+            "boosted_multiplier_count": _scheduled_multiplier_count(
+                result,
+                lambda value: value > 1.0,
+            ),
+            "boosted_multiplier_ratio": _scheduled_multiplier_ratio(
+                result,
+                lambda value: value > 1.0,
+            ),
+            "average_scheduled_multiplier": _average_scheduled_multiplier(result),
+            "min_scheduled_multiplier": _min_scheduled_multiplier(result),
+            "max_scheduled_multiplier": _max_scheduled_multiplier(result),
+            "regime_count": len(_scheduled_regimes_seen(result)),
+            "regimes_seen": ",".join(_scheduled_regimes_seen(result)),
             "worst_relative_value_gap_after_1y_pct": _worst_relative_value_gap_pct(
                 result,
                 fixed=fixed,

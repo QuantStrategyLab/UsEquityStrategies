@@ -319,6 +319,10 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
 
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["canonical_input"] == "derived_indicators"
+    assert "us_equity:ibit_smart_dca" in summary["compatible_profiles"]
+    assert "research:ibit_btc_ahr999_mayer_precomputed_variants" in summary[
+        "compatible_profiles"
+    ]
     assert summary["freshness_status"] == "fresh"
     assert summary["provider_timestamp"] == "2026-06-19T00:00:00Z"
     assert summary["transform"] == "crypto.btc.ahr999.v1"
@@ -344,6 +348,16 @@ def test_audit_summary_contains_non_sensitive_bundle_metadata() -> None:
     assert index_summary["index_schema_version"] == "market_signal_index.v1"
     assert index_summary["index_bundle_count"] == 1
     assert not any("token" in key.lower() or "secret" in key.lower() for key in manifest_summary)
+
+
+def test_signal_bundle_rejects_invalid_compatible_profiles() -> None:
+    bundle = _load_bundle()
+    consumer_contract = copy.deepcopy(bundle["consumer_contract"])
+    consumer_contract["compatible_profiles"] = []
+    bundle["consumer_contract"] = consumer_contract
+
+    with pytest.raises(SignalBundleContractError, match="compatible_profiles"):
+        validate_signal_bundle(bundle)
 
 
 def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:

@@ -127,6 +127,14 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert smart_row["average_cash_ratio_pct"] >= 0.0
     assert smart_row["max_cash_ratio_pct"] >= smart_row["average_cash_ratio_pct"]
     assert smart_row["terminal_cash_ratio_pct"] >= 0.0
+    assert smart_row["scheduled_decision_count"] == (
+        smart_row["trade_count"] + smart_row["skipped_count"]
+    )
+    assert smart_row["zero_multiplier_count"] == smart_row["skipped_count"]
+    assert smart_row["zero_multiplier_ratio"] > 0.0
+    assert smart_row["boosted_multiplier_count"] >= 0
+    assert smart_row["max_scheduled_multiplier"] >= smart_row["min_scheduled_multiplier"]
+    assert "very_expensive_overbought" in smart_row["regimes_seen"]
     assert "worst_relative_value_gap_after_1y_pct" in smart_row
 
     decision_rows = results_to_decision_log_rows(result)
@@ -190,6 +198,7 @@ def test_nasdaq_sp500_candidate_shares_fixed_contributions_and_can_skip(tmp_path
     assert "passed_promotion_gate" in artifact_paths["metrics"].read_text(encoding="utf-8")
     assert "max_underwater_days" in artifact_paths["metrics"].read_text(encoding="utf-8")
     assert "money_weighted_return_pct" in artifact_paths["metrics"].read_text(encoding="utf-8")
+    assert "regimes_seen" in artifact_paths["metrics"].read_text(encoding="utf-8")
     assert "skip_rate_too_high_without_drawdown_improvement" in artifact_paths[
         "evaluation_summary"
     ].read_text(encoding="utf-8")

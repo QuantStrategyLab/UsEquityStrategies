@@ -35,6 +35,7 @@ def test_signal_bundle_cli_prints_non_sensitive_audit_summary(capsys) -> None:
     assert summary["bundle_sha256"] == (
         "11533619487ef220f80ef267e1170401747393ee5f3afa533f51cb6356b4fe45"
     )
+    assert "us_equity:ibit_smart_dca" in summary["compatible_profiles"]
     assert summary["symbols"] == ["BTC-USD"]
     assert summary["indicator_fields_by_symbol"]["BTC-USD"] == [
         "ahr999",
