@@ -669,3 +669,17 @@ python -m us_equity_strategies.backtests.smart_dca_promotion_gate_cli \
   --profile ibit_smart_dca \
   --pretty
 ```
+
+For a research review that combines multiple matrix directories without reruns,
+use the summary CLI:
+
+```bash
+python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
+  --matrix-dir /path/to/nasdaq_price_proxy_matrix \
+  --matrix-dir /path/to/ibit_helper_matrix_diagnostics \
+  --matrix-dir /path/to/nasdaqcom_cape_vix_diagnostics \
+  --profile nasdaq_sp500_smart_dca \
+  --profile ibit_smart_dca \
+  --output-md /tmp/smart_dca_promotion_gate.md \
+  --pretty
+```

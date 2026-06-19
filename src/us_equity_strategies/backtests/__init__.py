@@ -20,6 +20,7 @@ __all__ = [
     "scenario_results_to_review_decision",
     "scenario_results_to_selection_rows",
     "summarize_candidate_evaluations",
+    "summarize_smart_dca_decision_matrices",
     "write_research_artifacts",
     "write_scenario_research_artifacts",
 ]
@@ -35,6 +36,12 @@ def __getattr__(name: str):
         )
 
         return _audit_smart_dca_promotion_gate
+    if name == "summarize_smart_dca_decision_matrices":
+        from .smart_dca_decision_summary import (
+            summarize_smart_dca_decision_matrices as _summarize_smart_dca_decision_matrices,
+        )
+
+        return _summarize_smart_dca_decision_matrices
     if name in {
         "available_candidate_names",
         "candidate_summaries_to_rows",
