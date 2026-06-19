@@ -1698,6 +1698,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
+                "all_runtime_consumers_covered": True,
             }
         ),
         encoding="utf-8",
@@ -2018,6 +2019,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     assert source_catalog_manifest_record["catalog_sha256_verified"] is True
     assert source_catalog_manifest_record["catalog_size_bytes_verified"] is True
     assert source_catalog_manifest_record["all_consumer_contracts_satisfied"] is True
+    assert source_catalog_manifest_record["runtime_consumer_coverage_present"] is True
+    assert source_catalog_manifest_record["all_runtime_consumers_covered"] is True
     assert source_catalog_manifest_record["expected_transform"] == "crypto.btc.ahr999.v1"
     assert source_catalog_manifest_record["required_signal_consumers"] == [
         "research:ibit_btc_ahr999_mayer_precomputed",

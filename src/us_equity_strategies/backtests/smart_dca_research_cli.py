@@ -1035,6 +1035,15 @@ def _source_catalog_manifest_record(
     families = catalog.get("families")
     if not isinstance(families, list) or not families:
         raise ValueError("signal source family catalog families must be a non-empty list")
+    runtime_consumer_coverage_present = "all_runtime_consumers_covered" in manifest
+    if (
+        runtime_consumer_coverage_present
+        and not isinstance(manifest["all_runtime_consumers_covered"], bool)
+    ):
+        raise ValueError(
+            "signal source family catalog manifest all_runtime_consumers_covered "
+            "must be a bool"
+        )
     matched_family_records = _matching_source_catalog_family_records(
         families,
         required_consumers=required_consumers,
@@ -1080,6 +1089,12 @@ def _source_catalog_manifest_record(
         ),
         "all_consumer_contracts_satisfied": bool(
             manifest.get("all_consumer_contracts_satisfied", False)
+        ),
+        "runtime_consumer_coverage_present": runtime_consumer_coverage_present,
+        "all_runtime_consumers_covered": (
+            bool(manifest["all_runtime_consumers_covered"])
+            if runtime_consumer_coverage_present
+            else None
         ),
         "catalog_sha256_verified": True,
         "catalog_size_bytes_verified": True,
