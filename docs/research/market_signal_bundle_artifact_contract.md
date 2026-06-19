@@ -207,6 +207,37 @@ freshness 和 `as_of` 选出最新匹配 handoff manifest，再走同一套 hand
 index 中的摘要字段，仍会校验 handoff manifest 的 SHA-256、linked manifest SHA-256、
 bundle freshness 和 consumer 字段覆盖。
 
+研究 CSV 不应通过 platform runtime handoff 注入。若 `MarketSignalSources` 发布的是
+`market_signal_research_handoff.v1`，策略仓或 CI 应先校验 research handoff，再把 CSV
+交给智能定投研究 CLI。该 handoff pin 住 `research_export.v1` manifest、source family
+catalog manifest 和 consumer contract registry manifest；策略仓侧会复算三份 linked
+manifest 的 SHA-256，验证 research output CSV / quality report 的 SHA-256 与 size，
+确认 source catalog 至少有一个 family 匹配 export transform 和目标 research consumer，
+并确认 registry 中的 consumer contract 与本地策略契约一致：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --research-handoff-manifest ./data/output/research_handoff.json \
+  --consumer research:ibit_btc_ahr999_precomputed \
+  --research-artifact-type btc_cycle_research_csv \
+  --require-all-known-consumers \
+  --pretty
+```
+
+如果只拿到 `research_export.v1` manifest，也可以先做单文件校验。这个入口验证 output
+CSV 和可选 quality report，但不要求策略仓持有原始 vendor 输入快照：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --research-export-manifest ./data/output/research/btc_cycle_indicators.manifest.json \
+  --research-artifact-type btc_cycle_research_csv \
+  --research-transform crypto.btc.ahr999.v1 \
+  --pretty
+```
+
+这些 research 校验入口只输出审计摘要，不返回 `StrategyContext.market_data`，也不会把
+研究 CSV 当成可直接运行时注入的 `market_signal_bundle.v1`。
+
 该审计输出会包含：
 
 - `indicator_fields_by_symbol`：例如 `BTC-USD` 下有哪些字段名，包括 `ahr999`、

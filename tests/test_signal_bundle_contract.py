@@ -19,6 +19,8 @@ from us_equity_strategies.signals import (
     extract_canonical_input_from_manifest_for_consumer,
     extract_canonical_input_from_platform_handoff_index_for_consumer,
     extract_canonical_input_from_platform_handoff_for_consumer,
+    load_research_export_manifest,
+    load_research_signal_handoff_manifest,
     load_signal_consumer_contract_registry,
     load_signal_bundle,
     load_signal_bundle_from_index,
@@ -28,12 +30,14 @@ from us_equity_strategies.signals import (
     load_platform_signal_handoff_index,
     resolve_platform_signal_handoff_manifest_from_index,
     resolve_signal_bundle_manifest_from_index,
+    research_export_audit_summary_from_manifest,
     required_indicator_fields_for_consumer,
     signal_consumer_contract_registry_audit_summary,
     signal_consumer_contract_registry_audit_summary_from_file,
     signal_consumer_contract_registry_audit_summary_from_manifest,
     signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
+    signal_research_handoff_audit_summary_from_manifest,
     signal_source_family_catalog_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary,
     signal_bundle_consumer_audit_summary_from_index,
@@ -444,6 +448,140 @@ def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
         encoding="utf-8",
     )
     return index_path
+
+
+def _write_research_export_manifest(tmp_path: Path) -> tuple[Path, Path, Path]:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(parents=True)
+    input_csv = research_dir / "btc_daily.csv"
+    output_csv = research_dir / "btc_cycle.csv"
+    quality_report_path = research_dir / "btc_cycle.quality.json"
+    input_csv.write_text(
+        "date,close\n2026-06-19,100000\n",
+        encoding="utf-8",
+    )
+    output_csv.write_text(
+        "date,ahr999\n2026-06-19,0.72\n",
+        encoding="utf-8",
+    )
+    quality_report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "btc_cycle_research_quality_report.v1",
+                "artifact_type": "btc_cycle_research_quality_report",
+                "quality_status": "pass",
+                "failure_reasons": [],
+                "warning_reasons": [],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest_path = research_dir / "btc_cycle.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "artifact_type": "btc_cycle_research_csv",
+                "transform": "crypto.btc.ahr999.v1",
+                "source_version": "0.1.0",
+                "as_of": "2026-06-19",
+                "min_history": 1,
+                "row_count": 1,
+                "first_date": "2026-06-19",
+                "last_date": "2026-06-19",
+                "columns": ["date", "ahr999"],
+                "input_csv": {
+                    "path": "btc_daily.csv",
+                    "sha256": _sha256_path(input_csv),
+                    "size_bytes": input_csv.stat().st_size,
+                },
+                "output_csv": {
+                    "path": "btc_cycle.csv",
+                    "sha256": _sha256_path(output_csv),
+                    "size_bytes": output_csv.stat().st_size,
+                },
+                "quality_report": {
+                    "path": "btc_cycle.quality.json",
+                    "sha256": _sha256_path(quality_report_path),
+                    "size_bytes": quality_report_path.stat().st_size,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path, output_csv, quality_report_path
+
+
+def _write_research_handoff_manifest(
+    tmp_path: Path,
+    *,
+    research_export_manifest_path: Path,
+    source_family_catalog_manifest_path: Path,
+    consumer_contract_registry_manifest_path: Path,
+    consumers: tuple[str, ...],
+) -> Path:
+    research_manifest = json.loads(
+        research_export_manifest_path.read_text(encoding="utf-8")
+    )
+    handoff_path = tmp_path / "research_handoff.json"
+    handoff_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_research_handoff.v1",
+                "artifact_type": "market_signal_research_handoff",
+                "consumer": "research:ibit_btc_ahr999_precomputed",
+                "research_export_manifest_path": (
+                    research_export_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "research_export_manifest_sha256": _sha256_path(
+                    research_export_manifest_path
+                ),
+                "research_artifact_type": research_manifest["artifact_type"],
+                "research_transform": research_manifest["transform"],
+                "research_as_of": research_manifest["as_of"],
+                "research_output_csv_sha256": research_manifest["output_csv"][
+                    "sha256"
+                ],
+                "research_quality_report_sha256": research_manifest[
+                    "quality_report"
+                ]["sha256"],
+                "source_family_catalog_manifest_path": (
+                    source_family_catalog_manifest_path.relative_to(
+                        tmp_path
+                    ).as_posix()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_path(
+                    source_family_catalog_manifest_path
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_registry_manifest_path": (
+                    consumer_contract_registry_manifest_path.relative_to(
+                        tmp_path
+                    ).as_posix()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_path(
+                    consumer_contract_registry_manifest_path
+                ),
+                "consumer_contract_count": len(consumers),
+                "consumer_contracts": list(consumers),
+                "all_known_consumers_present": len(consumers) == 7,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return handoff_path
 
 
 def _write_signal_bundle_manifest_with_quality_report(
@@ -895,7 +1033,46 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
     _, signal_manifest_path, _ = _write_signal_bundle_manifest_with_quality_report(
         tmp_path
     )
-    _, source_catalog_manifest_path = _write_source_family_catalog_manifest(tmp_path)
+    source_catalog_path, source_catalog_manifest_path = (
+        _write_source_family_catalog_manifest(tmp_path)
+    )
+    source_catalog = json.loads(source_catalog_path.read_text(encoding="utf-8"))
+    source_catalog["families"].append(
+        {
+            "family": "us_equity.nasdaq_sp500_context_daily",
+            "domain": "us_equity",
+            "bundle_type": "derived_indicators",
+            "bundle_id_prefix": "us_equity.nasdaq_sp500.context",
+            "canonical_input": "derived_indicators",
+            "transform": "us_equity.nasdaq_sp500.context.v1",
+            "provider_dataset": "nasdaq_sp500_external_context_daily",
+            "freshness_policy": "us_equity_research_context_t_plus_1",
+            "minimum_history_rows": 1,
+            "symbols": ["US-EQUITY-CONTEXT"],
+            "derived_indicator_fields": [
+                "breadth_above_sma200_pct",
+                "cape_percentile",
+                "vix_percentile",
+            ],
+            "compatible_profiles": [
+                "research:nasdaq_sp500_external_context_precomputed",
+            ],
+        }
+    )
+    source_catalog_path.write_text(
+        json.dumps(source_catalog, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    source_manifest = json.loads(
+        source_catalog_manifest_path.read_text(encoding="utf-8")
+    )
+    source_manifest["catalog_sha256"] = _sha256_path(source_catalog_path)
+    source_manifest["catalog_size_bytes"] = source_catalog_path.stat().st_size
+    source_manifest["family_count"] = 2
+    source_catalog_manifest_path.write_text(
+        json.dumps(source_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     registry_path, registry_manifest_path = _write_consumer_contract_registry_manifest(
         tmp_path,
         _complete_consumer_contract_registry(),
@@ -954,6 +1131,84 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
         signal_platform_handoff_audit_summary_from_manifest(
             handoff_path,
             consumer="us_equity:ibit_smart_dca",
+        )
+
+
+def test_research_handoff_manifest_validates_linked_research_export(
+    tmp_path,
+) -> None:
+    research_manifest_path, output_csv, quality_report_path = (
+        _write_research_export_manifest(tmp_path)
+    )
+    _, source_catalog_manifest_path = _write_source_family_catalog_manifest(tmp_path)
+    registry_path, registry_manifest_path = _write_consumer_contract_registry_manifest(
+        tmp_path,
+        _complete_consumer_contract_registry(),
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    contracts = registry["contracts"]
+    assert isinstance(contracts, list)
+    consumers = tuple(str(contract["consumer"]) for contract in contracts)
+    handoff_path = _write_research_handoff_manifest(
+        tmp_path,
+        research_export_manifest_path=research_manifest_path,
+        source_family_catalog_manifest_path=source_catalog_manifest_path,
+        consumer_contract_registry_manifest_path=registry_manifest_path,
+        consumers=consumers,
+    )
+
+    export_manifest = load_research_export_manifest(research_manifest_path)
+    export_summary = research_export_audit_summary_from_manifest(
+        research_manifest_path,
+        expected_artifact_type="btc_cycle_research_csv",
+        expected_transform="crypto.btc.ahr999.v1",
+    )
+    handoff = load_research_signal_handoff_manifest(handoff_path)
+    handoff_summary = signal_research_handoff_audit_summary_from_manifest(
+        handoff_path,
+        consumer="research:ibit_btc_ahr999_precomputed",
+        expected_research_artifact_type="btc_cycle_research_csv",
+        require_all_known_consumers=True,
+    )
+
+    assert export_manifest["schema_version"] == "research_export.v1"
+    assert export_summary["output_csv_path"] == str(output_csv.resolve())
+    assert export_summary["output_csv_sha256"] == _sha256_path(output_csv)
+    assert export_summary["quality_report_path"] == str(quality_report_path.resolve())
+    assert export_summary["quality_report_sha256"] == _sha256_path(
+        quality_report_path
+    )
+    assert handoff["schema_version"] == "market_signal_research_handoff.v1"
+    assert handoff_summary["schema_version"] == "market_signal_research_handoff.v1"
+    assert handoff_summary["artifact_type"] == "market_signal_research_handoff"
+    assert handoff_summary["consumer"] == "research:ibit_btc_ahr999_precomputed"
+    assert handoff_summary["research_export_manifest_sha256"] == _sha256_path(
+        research_manifest_path
+    )
+    assert handoff_summary["research_artifact_type"] == "btc_cycle_research_csv"
+    assert handoff_summary["research_transform"] == "crypto.btc.ahr999.v1"
+    assert handoff_summary["research_output_csv_sha256"] == _sha256_path(output_csv)
+    assert handoff_summary["research_quality_report_sha256"] == _sha256_path(
+        quality_report_path
+    )
+    assert handoff_summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
+    assert handoff_summary["source_family_count"] == 1
+    assert handoff_summary["source_families"] == ("crypto.btc_cycle_daily",)
+    assert handoff_summary["consumer_contract_count"] == 7
+    assert handoff_summary["research_export_output_csv_verified"] is True
+    assert handoff_summary["consumer_registry_contract_fields_verified"] is True
+    assert handoff_summary["handoff_linked_manifest_sha256s_verified"] is True
+
+    handoff_payload = json.loads(handoff_path.read_text(encoding="utf-8"))
+    handoff_payload["research_export_manifest_sha256"] = "0" * 64
+    handoff_path.write_text(json.dumps(handoff_payload), encoding="utf-8")
+    with pytest.raises(
+        SignalBundleContractError,
+        match="research_export_manifest_sha256",
+    ):
+        signal_research_handoff_audit_summary_from_manifest(
+            handoff_path,
+            consumer="research:ibit_btc_ahr999_precomputed",
         )
 
 

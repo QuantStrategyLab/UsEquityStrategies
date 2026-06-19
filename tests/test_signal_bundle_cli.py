@@ -290,6 +290,127 @@ def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
     return index_path
 
 
+def _write_research_handoff_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    _write_platform_handoff_inputs(tmp_path)
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    input_csv = research_dir / "btc_daily.csv"
+    output_csv = research_dir / "btc_cycle.csv"
+    quality_report_path = research_dir / "btc_cycle.quality.json"
+    input_csv.write_text("date,close\n2026-06-19,100000\n", encoding="utf-8")
+    output_csv.write_text("date,ahr999\n2026-06-19,0.72\n", encoding="utf-8")
+    quality_report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "btc_cycle_research_quality_report.v1",
+                "artifact_type": "btc_cycle_research_quality_report",
+                "quality_status": "pass",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    research_manifest_path = research_dir / "btc_cycle.manifest.json"
+    research_manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "research_export.v1",
+                "artifact_type": "btc_cycle_research_csv",
+                "transform": "crypto.btc.ahr999.v1",
+                "source_version": "0.1.0",
+                "as_of": "2026-06-19",
+                "min_history": 1,
+                "row_count": 1,
+                "first_date": "2026-06-19",
+                "last_date": "2026-06-19",
+                "columns": ["date", "ahr999"],
+                "input_csv": {
+                    "path": "btc_daily.csv",
+                    "sha256": _sha256_path(input_csv),
+                    "size_bytes": input_csv.stat().st_size,
+                },
+                "output_csv": {
+                    "path": "btc_cycle.csv",
+                    "sha256": _sha256_path(output_csv),
+                    "size_bytes": output_csv.stat().st_size,
+                },
+                "quality_report": {
+                    "path": "btc_cycle.quality.json",
+                    "sha256": _sha256_path(quality_report_path),
+                    "size_bytes": quality_report_path.stat().st_size,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    registry_path = tmp_path / "contracts" / "market_signal_consumers.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    contracts = registry["contracts"]
+    assert isinstance(contracts, list)
+    consumers = [str(contract["consumer"]) for contract in contracts]
+    source_catalog_manifest_path = (
+        tmp_path / "source_catalog" / "signal_source_families.manifest.json"
+    )
+    registry_manifest_path = (
+        tmp_path / "contracts" / "market_signal_consumers.manifest.json"
+    )
+    research_manifest = json.loads(research_manifest_path.read_text(encoding="utf-8"))
+    handoff_path = tmp_path / "research_handoff.json"
+    handoff_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_research_handoff.v1",
+                "artifact_type": "market_signal_research_handoff",
+                "consumer": "research:ibit_btc_ahr999_precomputed",
+                "research_export_manifest_path": (
+                    research_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "research_export_manifest_sha256": _sha256_path(
+                    research_manifest_path
+                ),
+                "research_artifact_type": research_manifest["artifact_type"],
+                "research_transform": research_manifest["transform"],
+                "research_as_of": research_manifest["as_of"],
+                "research_output_csv_sha256": research_manifest["output_csv"][
+                    "sha256"
+                ],
+                "research_quality_report_sha256": research_manifest[
+                    "quality_report"
+                ]["sha256"],
+                "source_family_catalog_manifest_path": (
+                    source_catalog_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_path(
+                    source_catalog_manifest_path
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_registry_manifest_path": (
+                    registry_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_path(
+                    registry_manifest_path
+                ),
+                "consumer_contract_count": len(consumers),
+                "consumer_contracts": consumers,
+                "all_known_consumers_present": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return research_manifest_path, handoff_path
+
+
 def test_signal_bundle_cli_prints_non_sensitive_audit_summary(capsys) -> None:
     result = main([str(FIXTURE_MANIFEST_PATH), "--pretty"])
 
@@ -419,6 +540,64 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["handoff_linked_manifest_sha256s_verified"] is True
+
+
+def test_signal_bundle_cli_validates_research_export_manifest(
+    tmp_path,
+    capsys,
+) -> None:
+    research_manifest_path, _ = _write_research_handoff_inputs(tmp_path)
+
+    result = main(
+        [
+            "--research-export-manifest",
+            str(research_manifest_path),
+            "--research-artifact-type",
+            "btc_cycle_research_csv",
+            "--research-transform",
+            "crypto.btc.ahr999.v1",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["manifest_schema_version"] == "research_export.v1"
+    assert summary["artifact_type"] == "btc_cycle_research_csv"
+    assert summary["transform"] == "crypto.btc.ahr999.v1"
+    assert summary["output_csv_sha256_verified"] is True
+    assert summary["quality_report_sha256_verified"] is True
+
+
+def test_signal_bundle_cli_validates_research_handoff_manifest(
+    tmp_path,
+    capsys,
+) -> None:
+    _, handoff_path = _write_research_handoff_inputs(tmp_path)
+
+    result = main(
+        [
+            "--research-handoff-manifest",
+            str(handoff_path),
+            "--consumer",
+            "research:ibit_btc_ahr999_precomputed",
+            "--research-artifact-type",
+            "btc_cycle_research_csv",
+            "--require-all-known-consumers",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["schema_version"] == "market_signal_research_handoff.v1"
+    assert summary["consumer"] == "research:ibit_btc_ahr999_precomputed"
+    assert summary["research_artifact_type"] == "btc_cycle_research_csv"
+    assert summary["research_transform"] == "crypto.btc.ahr999.v1"
+    assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["consumer_contract_count"] == 7
+    assert summary["research_export_output_csv_verified"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
 

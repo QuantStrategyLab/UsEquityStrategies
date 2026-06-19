@@ -23,6 +23,8 @@ MARKET_SIGNAL_PLATFORM_HANDOFF_SCHEMA_VERSION = "market_signal_platform_handoff.
 MARKET_SIGNAL_PLATFORM_HANDOFF_INDEX_SCHEMA_VERSION = (
     "market_signal_platform_handoff_index.v1"
 )
+MARKET_SIGNAL_RESEARCH_HANDOFF_SCHEMA_VERSION = "market_signal_research_handoff.v1"
+RESEARCH_EXPORT_SCHEMA_VERSION = "research_export.v1"
 QUALITY_REPORT_SCHEMA_VERSION = "market_signal_quality_report.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
@@ -584,6 +586,239 @@ def signal_platform_handoff_audit_summary_from_manifest(
         required_consumers=target_required_consumers,
     )
     _validate_platform_handoff_consistency(handoff, summary)
+    return summary
+
+
+def load_research_export_manifest(path: str | PathLike[str]) -> dict[str, Any]:
+    """Load and validate a MarketSignalSources research CSV export manifest."""
+
+    manifest_path = Path(path)
+    with manifest_path.open(encoding="utf-8") as file_obj:
+        manifest = json.load(file_obj)
+    if not isinstance(manifest, Mapping):
+        raise SignalBundleContractError(
+            "research export manifest JSON root must be a mapping"
+        )
+    manifest_dict = dict(manifest)
+    _validate_research_export_manifest_shape(manifest_dict)
+    return manifest_dict
+
+
+def research_export_audit_summary_from_manifest(
+    path: str | PathLike[str],
+    *,
+    expected_artifact_type: str | None = None,
+    expected_transform: str | None = None,
+) -> dict[str, Any]:
+    """Validate the research output CSV and return non-sensitive audit metadata."""
+
+    manifest_path = Path(path)
+    manifest = load_research_export_manifest(manifest_path)
+    if (
+        expected_artifact_type is not None
+        and str(manifest["artifact_type"]).strip() != str(expected_artifact_type).strip()
+    ):
+        raise SignalBundleContractError(
+            "research export artifact_type mismatch: "
+            f"{manifest['artifact_type']!r} != {expected_artifact_type!r}"
+        )
+    if (
+        expected_transform is not None
+        and str(manifest["transform"]).strip() != str(expected_transform).strip()
+    ):
+        raise SignalBundleContractError(
+            "research export transform mismatch: "
+            f"{manifest['transform']!r} != {expected_transform!r}"
+        )
+
+    output_record = dict(manifest["output_csv"])
+    output_path = _resolve_research_manifest_file_path(
+        manifest_path,
+        output_record["path"],
+        field="output_csv.path",
+    )
+    _validate_research_manifest_file_record(
+        output_record,
+        output_path,
+        field="output_csv",
+    )
+    quality_summary: dict[str, object] = {}
+    quality_record = manifest.get("quality_report")
+    if quality_record is not None:
+        if not isinstance(quality_record, Mapping):
+            raise SignalBundleContractError(
+                "research export quality_report must be a mapping"
+            )
+        quality_record = dict(quality_record)
+        quality_path = _resolve_research_manifest_file_path(
+            manifest_path,
+            quality_record["path"],
+            field="quality_report.path",
+        )
+        _validate_research_manifest_file_record(
+            quality_record,
+            quality_path,
+            field="quality_report",
+        )
+        quality_payload = _load_json_mapping(
+            quality_path,
+            label="research export quality report",
+        )
+        _validate_no_sensitive_fields(
+            quality_payload,
+            path="research_export_quality_report",
+        )
+        quality_summary = {
+            "quality_report_path": str(quality_path.resolve()),
+            "quality_report_sha256": str(quality_record["sha256"]).strip().lower(),
+            "quality_report_size_bytes": int(quality_record["size_bytes"]),
+            "quality_report_schema_version": str(
+                quality_payload.get("schema_version", "")
+            ),
+            "quality_report_artifact_type": str(
+                quality_payload.get("artifact_type", "")
+            ),
+            "quality_report_sha256_verified": True,
+            "quality_report_size_bytes_verified": True,
+        }
+
+    summary = {
+        "manifest_path": str(manifest_path.resolve()),
+        "manifest_schema_version": str(manifest["schema_version"]),
+        "manifest_sha256": _sha256_file(manifest_path),
+        "manifest_size_bytes": manifest_path.stat().st_size,
+        "artifact_type": str(manifest["artifact_type"]),
+        "transform": str(manifest["transform"]),
+        "source_version": str(manifest["source_version"]),
+        "as_of": manifest.get("as_of"),
+        "min_history": int(manifest["min_history"]),
+        "row_count": int(manifest["row_count"]),
+        "first_date": str(manifest["first_date"]),
+        "last_date": str(manifest["last_date"]),
+        "columns": tuple(str(column) for column in manifest["columns"]),
+        "input_csv_sha256": str(manifest["input_csv"]["sha256"]).strip().lower(),
+        "output_csv_path": str(output_path.resolve()),
+        "output_csv_sha256": str(output_record["sha256"]).strip().lower(),
+        "output_csv_size_bytes": int(output_record["size_bytes"]),
+        "output_csv_sha256_verified": True,
+        "output_csv_size_bytes_verified": True,
+    }
+    summary.update(quality_summary)
+    return summary
+
+
+def load_research_signal_handoff_manifest(
+    path: str | PathLike[str],
+) -> dict[str, Any]:
+    """Load and validate a MarketSignalSources research handoff manifest."""
+
+    handoff_path = Path(path)
+    with handoff_path.open(encoding="utf-8") as file_obj:
+        handoff = json.load(file_obj)
+    if not isinstance(handoff, Mapping):
+        raise SignalBundleContractError(
+            "research signal handoff manifest JSON root must be a mapping"
+        )
+    handoff_dict = dict(handoff)
+    _validate_research_handoff_shape(handoff_dict)
+    return handoff_dict
+
+
+def signal_research_handoff_audit_summary_from_manifest(
+    path: str | PathLike[str],
+    *,
+    consumer: str | None = None,
+    expected_research_artifact_type: str | None = None,
+    require_all_known_families: bool = False,
+    require_all_known_consumers: bool = False,
+) -> dict[str, Any]:
+    """Validate a MarketSignalSources research handoff manifest and its links."""
+
+    handoff_path = Path(path)
+    handoff = load_research_signal_handoff_manifest(handoff_path)
+    handoff_root = handoff_path.parent.resolve()
+    research_export_manifest_path = _resolve_relative_artifact_path(
+        handoff_root,
+        handoff["research_export_manifest_path"],
+        owner="research signal handoff",
+        field="research_export_manifest_path",
+    )
+    source_catalog_manifest_path = _resolve_relative_artifact_path(
+        handoff_root,
+        handoff["source_family_catalog_manifest_path"],
+        owner="research signal handoff",
+        field="source_family_catalog_manifest_path",
+    )
+    consumer_registry_manifest_path = _resolve_relative_artifact_path(
+        handoff_root,
+        handoff["consumer_contract_registry_manifest_path"],
+        owner="research signal handoff",
+        field="consumer_contract_registry_manifest_path",
+    )
+    _validate_handoff_linked_sha256(
+        research_export_manifest_path,
+        handoff["research_export_manifest_sha256"],
+        field="research_export_manifest_sha256",
+    )
+    _validate_handoff_linked_sha256(
+        source_catalog_manifest_path,
+        handoff["source_family_catalog_manifest_sha256"],
+        field="source_family_catalog_manifest_sha256",
+    )
+    _validate_handoff_linked_sha256(
+        consumer_registry_manifest_path,
+        handoff["consumer_contract_registry_manifest_sha256"],
+        field="consumer_contract_registry_manifest_sha256",
+    )
+
+    target_consumer = str(consumer or handoff.get("consumer", "")).strip()
+    required_consumers = (target_consumer,) if target_consumer else ()
+    research_summary = research_export_audit_summary_from_manifest(
+        research_export_manifest_path,
+        expected_artifact_type=expected_research_artifact_type,
+        expected_transform=str(handoff["research_transform"]),
+    )
+    source_catalog_summary = signal_source_family_catalog_audit_summary_from_manifest(
+        source_catalog_manifest_path,
+        required_consumers=required_consumers,
+        expected_transform=str(research_summary["transform"]),
+        require_all_known_families=require_all_known_families,
+    )
+    if not source_catalog_summary["matched_families"]:
+        raise SignalBundleContractError(
+            "research signal handoff source catalog missing family for transform: "
+            f"{research_summary['transform']}"
+        )
+    consumer_registry_summary = (
+        signal_consumer_contract_registry_audit_summary_from_manifest(
+            consumer_registry_manifest_path,
+            require_all_known_consumers=require_all_known_consumers,
+        )
+    )
+    missing_required_consumers = tuple(
+        required_consumer
+        for required_consumer in required_consumers
+        if required_consumer not in consumer_registry_summary["consumers"]
+    )
+    if missing_required_consumers:
+        raise SignalBundleContractError(
+            "research signal handoff consumer contract registry missing required "
+            "consumers: "
+            + ", ".join(missing_required_consumers)
+        )
+
+    summary = _research_handoff_summary(
+        handoff_path=handoff_path,
+        handoff=handoff,
+        research_export_manifest_path=research_export_manifest_path,
+        research_summary=research_summary,
+        source_catalog_manifest_path=source_catalog_manifest_path,
+        source_catalog_summary=source_catalog_summary,
+        consumer_registry_manifest_path=consumer_registry_manifest_path,
+        consumer_registry_summary=consumer_registry_summary,
+        consumer=target_consumer,
+    )
+    _validate_research_handoff_consistency(handoff, summary)
     return summary
 
 
@@ -1673,6 +1908,293 @@ def _source_family_covers_required_fields(
                 if str(field).strip().lower() not in fields:
                     return False
     return True
+
+
+def _validate_research_export_manifest_shape(manifest: Mapping[str, Any]) -> None:
+    _validate_no_sensitive_fields(manifest, path="research_export_manifest")
+    if manifest.get("schema_version") != RESEARCH_EXPORT_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported research export schema_version: "
+            f"{manifest.get('schema_version')!r}"
+        )
+    for field in (
+        "artifact_type",
+        "transform",
+        "source_version",
+        "min_history",
+        "row_count",
+        "first_date",
+        "last_date",
+        "columns",
+        "input_csv",
+        "output_csv",
+    ):
+        if not _has_non_empty_value(manifest, field):
+            raise SignalBundleContractError(
+                f"research export manifest missing field: {field}"
+            )
+    if not _is_string_sequence(manifest["columns"]):
+        raise SignalBundleContractError(
+            "research export columns must be a sequence of strings"
+        )
+    for field in ("min_history", "row_count"):
+        value = manifest[field]
+        if not isinstance(value, int) or value < 0:
+            raise SignalBundleContractError(
+                f"research export {field} must be a non-negative integer"
+            )
+    for field in ("input_csv", "output_csv"):
+        _validate_research_manifest_file_record_shape(manifest[field], field=field)
+    quality_record = manifest.get("quality_report")
+    if quality_record is not None:
+        _validate_research_manifest_file_record_shape(
+            quality_record,
+            field="quality_report",
+        )
+
+
+def _validate_research_manifest_file_record_shape(
+    record: object,
+    *,
+    field: str,
+) -> None:
+    if not isinstance(record, Mapping):
+        raise SignalBundleContractError(f"research export {field} must be a mapping")
+    for record_field in ("path", "sha256", "size_bytes"):
+        if not _has_non_empty_value(record, record_field):
+            raise SignalBundleContractError(
+                f"research export {field} missing field: {record_field}"
+            )
+    size_bytes = record.get("size_bytes")
+    if not isinstance(size_bytes, int) or size_bytes < 0:
+        raise SignalBundleContractError(
+            f"research export {field}.size_bytes must be a non-negative integer"
+        )
+
+
+def _resolve_research_manifest_file_path(
+    manifest_path: Path,
+    value: object,
+    *,
+    field: str,
+) -> Path:
+    raw_path = Path(str(value))
+    if raw_path.is_absolute():
+        return raw_path
+    manifest_relative = (manifest_path.parent / raw_path).resolve()
+    if manifest_relative.exists():
+        return manifest_relative
+    cwd_relative = raw_path.resolve()
+    if cwd_relative.exists():
+        return cwd_relative
+    raise SignalBundleContractError(
+        f"research export {field} does not exist relative to manifest or cwd: {value}"
+    )
+
+
+def _validate_research_manifest_file_record(
+    record: Mapping[str, Any],
+    path: Path,
+    *,
+    field: str,
+) -> None:
+    expected_sha256 = str(record["sha256"]).strip().lower()
+    actual_sha256 = _sha256_file(path)
+    if actual_sha256 != expected_sha256:
+        raise SignalBundleContractError(
+            f"research export {field}.sha256 mismatch: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    expected_size_bytes = int(record["size_bytes"])
+    actual_size_bytes = path.stat().st_size
+    if actual_size_bytes != expected_size_bytes:
+        raise SignalBundleContractError(
+            f"research export {field}.size_bytes mismatch: "
+            f"expected {expected_size_bytes}, got {actual_size_bytes}"
+        )
+
+
+def _load_json_mapping(path: Path, *, label: str) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        payload = json.load(file_obj)
+    if not isinstance(payload, Mapping):
+        raise SignalBundleContractError(f"{label} JSON root must be a mapping")
+    return dict(payload)
+
+
+def _validate_research_handoff_shape(handoff: Mapping[str, Any]) -> None:
+    _validate_no_sensitive_fields(handoff, path="research_signal_handoff")
+    if handoff.get("schema_version") != MARKET_SIGNAL_RESEARCH_HANDOFF_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported research signal handoff schema_version: "
+            f"{handoff.get('schema_version')!r}"
+        )
+    if handoff.get("artifact_type") != "market_signal_research_handoff":
+        raise SignalBundleContractError(
+            "research signal handoff artifact_type mismatch: "
+            f"{handoff.get('artifact_type')!r}"
+        )
+    for field in (
+        "consumer",
+        "research_export_manifest_path",
+        "research_export_manifest_sha256",
+        "research_artifact_type",
+        "research_transform",
+        "research_as_of",
+        "research_output_csv_sha256",
+        "research_quality_report_sha256",
+        "source_family_catalog_manifest_path",
+        "source_family_catalog_manifest_sha256",
+        "source_family_count",
+        "source_families",
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "consumer_contract_registry_manifest_path",
+        "consumer_contract_registry_manifest_sha256",
+        "consumer_contract_count",
+        "consumer_contracts",
+        "all_known_consumers_present",
+    ):
+        if field not in handoff:
+            raise SignalBundleContractError(
+                f"research signal handoff missing field: {field}"
+            )
+    for field in (
+        "research_export_manifest_path",
+        "research_export_manifest_sha256",
+        "research_artifact_type",
+        "research_transform",
+        "research_output_csv_sha256",
+        "source_family_catalog_manifest_path",
+        "source_family_catalog_manifest_sha256",
+        "consumer_contract_registry_manifest_path",
+        "consumer_contract_registry_manifest_sha256",
+    ):
+        if not _has_non_empty_value(handoff, field):
+            raise SignalBundleContractError(
+                f"research signal handoff missing field: {field}"
+            )
+    if not _is_string_sequence(handoff["source_families"]):
+        raise SignalBundleContractError(
+            "research signal handoff source_families must be strings"
+        )
+    if not _is_string_sequence(handoff["consumer_contracts"]):
+        raise SignalBundleContractError(
+            "research signal handoff consumer_contracts must be strings"
+        )
+    for field in (
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "all_known_consumers_present",
+    ):
+        if not isinstance(handoff[field], bool):
+            raise SignalBundleContractError(
+                f"research signal handoff {field} must be a bool"
+            )
+
+
+def _research_handoff_summary(
+    *,
+    handoff_path: Path,
+    handoff: Mapping[str, Any],
+    research_export_manifest_path: Path,
+    research_summary: Mapping[str, Any],
+    source_catalog_manifest_path: Path,
+    source_catalog_summary: Mapping[str, Any],
+    consumer_registry_manifest_path: Path,
+    consumer_registry_summary: Mapping[str, Any],
+    consumer: str,
+) -> dict[str, Any]:
+    return {
+        "path": str(handoff_path.resolve()),
+        "schema_version": str(handoff["schema_version"]),
+        "artifact_type": str(handoff["artifact_type"]),
+        "sha256": _sha256_file(handoff_path),
+        "size_bytes": handoff_path.stat().st_size,
+        "consumer": consumer,
+        "research_export_manifest_path": str(research_export_manifest_path.resolve()),
+        "research_export_manifest_sha256": _sha256_file(
+            research_export_manifest_path
+        ),
+        "research_artifact_type": research_summary["artifact_type"],
+        "research_transform": research_summary["transform"],
+        "research_as_of": research_summary["as_of"],
+        "research_output_csv_sha256": research_summary["output_csv_sha256"],
+        "research_quality_report_sha256": str(
+            research_summary.get("quality_report_sha256", "")
+        ),
+        "source_family_catalog_manifest_path": str(
+            source_catalog_manifest_path.resolve()
+        ),
+        "source_family_catalog_manifest_sha256": _sha256_file(
+            source_catalog_manifest_path
+        ),
+        "source_family_count": len(source_catalog_summary["matched_families"]),
+        "source_families": source_catalog_summary["matched_families"],
+        "matched_source_families": source_catalog_summary["matched_families"],
+        "all_known_source_families_present": source_catalog_summary[
+            "all_known_families_present"
+        ],
+        "all_consumer_contracts_satisfied": source_catalog_summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "consumer_contract_registry_manifest_path": str(
+            consumer_registry_manifest_path.resolve()
+        ),
+        "consumer_contract_registry_manifest_sha256": _sha256_file(
+            consumer_registry_manifest_path
+        ),
+        "consumer_contract_count": consumer_registry_summary["consumer_count"],
+        "consumer_contracts": consumer_registry_summary["consumers"],
+        "all_known_consumers_present": consumer_registry_summary[
+            "all_known_consumers_present"
+        ],
+        "research_export_output_csv_verified": True,
+        "consumer_registry_contract_fields_verified": True,
+        "handoff_linked_manifest_sha256s_verified": True,
+    }
+
+
+def _validate_research_handoff_consistency(
+    handoff: Mapping[str, Any],
+    summary: Mapping[str, Any],
+) -> None:
+    handoff_consumer = str(handoff.get("consumer", "")).strip()
+    if handoff_consumer and handoff_consumer != summary["consumer"]:
+        raise SignalBundleContractError(
+            "research signal handoff consumer mismatch: "
+            f"{handoff_consumer!r} != {summary['consumer']!r}"
+        )
+    expected_values = {
+        "research_artifact_type": summary["research_artifact_type"],
+        "research_transform": summary["research_transform"],
+        "research_as_of": summary["research_as_of"],
+        "research_output_csv_sha256": summary["research_output_csv_sha256"],
+        "research_quality_report_sha256": summary[
+            "research_quality_report_sha256"
+        ],
+        "source_family_count": summary["source_family_count"],
+        "source_families": summary["source_families"],
+        "all_known_source_families_present": summary[
+            "all_known_source_families_present"
+        ],
+        "all_consumer_contracts_satisfied": summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "consumer_contract_count": summary["consumer_contract_count"],
+        "consumer_contracts": summary["consumer_contracts"],
+        "all_known_consumers_present": summary["all_known_consumers_present"],
+    }
+    for field, expected in expected_values.items():
+        actual = handoff[field]
+        if field in {"source_families", "consumer_contracts"}:
+            actual = tuple(actual)
+            expected = tuple(expected)
+        if actual != expected:
+            raise SignalBundleContractError(
+                f"research signal handoff {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
 
 
 def _load_platform_signal_handoff_manifest(path: Path) -> dict[str, Any]:
