@@ -31,6 +31,18 @@ from .smart_dca_research import (
 
 
 RESEARCH_EXPORT_SCHEMA_VERSION = "research_export.v1"
+NASDAQ_SP500_PRICE_PROXY_ARTIFACT_TYPE = "us_equity_price_proxy_research_csv"
+NASDAQ_SP500_PRICE_PROXY_TRANSFORM = "us_equity.nasdaq_sp500.price_proxy.v1"
+NASDAQ_SP500_PRICE_PROXY_COLUMNS = ("QQQ", "SPY")
+NASDAQ_SP500_PRICE_PROXY_CANDIDATE_SETS = frozenset(
+    {
+        "nasdaq_sp500_production_equivalent",
+        "nasdaq_sp500_price",
+        "nasdaq_sp500_price_variants",
+        "nasdaq_sp500_price_defensive",
+        "nasdaq_sp500_price_no_skip",
+    }
+)
 ROBUSTNESS_PRESET_CUSTOM = "custom"
 ROBUSTNESS_PRESET_STANDARD = "standard"
 ROBUSTNESS_PRESETS = frozenset({ROBUSTNESS_PRESET_CUSTOM, ROBUSTNESS_PRESET_STANDARD})
@@ -172,6 +184,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--signal-manifest",
         type=Path,
         help="Optional upstream manifest describing the signal CSV artifact.",
+    )
+    parser.add_argument(
+        "--price-manifest",
+        type=Path,
+        help=(
+            "Optional MarketSignalSources price proxy manifest describing the "
+            "signal CSV. Supported for Nasdaq/S&P price-only candidate sets."
+        ),
     )
     parser.add_argument(
         "--signal-quality-report",
@@ -445,6 +465,7 @@ def _optional_manifest_records(
 ) -> dict[str, dict[str, object]]:
     records: dict[str, dict[str, object]] = {}
     signal_manifest_expectations = _signal_manifest_expectations(args.candidate_set)
+    price_manifest_expectations = _price_manifest_expectations(args.candidate_set)
     required_consumers = candidate_set_signal_consumers(args.candidate_set)
     signal_contract_validation_window = _signal_contract_validation_window(
         args=args,
@@ -472,6 +493,22 @@ def _optional_manifest_records(
                 requested_signal_columns=_parse_column_list(args.signal_columns),
                 required_consumers=required_consumers,
             ),
+            signal_contract_validation_window=signal_contract_validation_window,
+        )
+    if args.price_manifest is not None:
+        if price_manifest_expectations["artifact_type"] is None:
+            raise ValueError(
+                "--price-manifest is supported only for Nasdaq/S&P price-only "
+                "candidate sets"
+            )
+        records["price_manifest"] = _manifest_record(
+            args.price_manifest,
+            linked_csv_path=args.signal_csv,
+            role="price",
+            date_column=args.date_column,
+            expected_artifact_type=price_manifest_expectations["artifact_type"],
+            expected_transform=price_manifest_expectations["transform"],
+            required_signal_fields=NASDAQ_SP500_PRICE_PROXY_COLUMNS,
             signal_contract_validation_window=signal_contract_validation_window,
         )
     if args.signal_quality_report is not None:
@@ -551,6 +588,15 @@ def _optional_manifest_records(
             "--research-signal-handoff-manifest"
         )
     return records
+
+
+def _price_manifest_expectations(candidate_set: str) -> dict[str, str | None]:
+    if str(candidate_set or "").strip() in NASDAQ_SP500_PRICE_PROXY_CANDIDATE_SETS:
+        return {
+            "artifact_type": NASDAQ_SP500_PRICE_PROXY_ARTIFACT_TYPE,
+            "transform": NASDAQ_SP500_PRICE_PROXY_TRANSFORM,
+        }
+    return {"artifact_type": None, "transform": None}
 
 
 def _cadence_arg_for_preset(args: argparse.Namespace) -> str:
@@ -667,7 +713,7 @@ def _manifest_record(
         expected_transform=expected_transform,
     )
     signal_contract_record: dict[str, object] = {}
-    if role == "signal":
+    if role in {"signal", "price"}:
         signal_contract_record = _validate_signal_research_csv_contract(
             linked_csv_path,
             manifest=manifest,
@@ -1615,6 +1661,7 @@ def _validate_signal_research_csv_contract(
 ) -> dict[str, object]:
     if expected_artifact_type not in {
         "btc_cycle_research_csv",
+        NASDAQ_SP500_PRICE_PROXY_ARTIFACT_TYPE,
         "us_equity_context_research_csv",
     }:
         return {}
@@ -1653,6 +1700,11 @@ def _validate_signal_research_csv_contract(
         )
     if expected_artifact_type == "btc_cycle_research_csv":
         _validate_btc_cycle_signal_columns(
+            validation_frame,
+            required_columns=required_signal_fields,
+        )
+    if expected_artifact_type == NASDAQ_SP500_PRICE_PROXY_ARTIFACT_TYPE:
+        _validate_price_proxy_signal_columns(
             validation_frame,
             required_columns=required_signal_fields,
         )
@@ -1697,6 +1749,8 @@ def _required_signal_fields_for_artifact_type(
         if requested_signal_columns is not None:
             return requested_signal_columns
         return _required_btc_cycle_fields(required_consumers)
+    if artifact_type == NASDAQ_SP500_PRICE_PROXY_ARTIFACT_TYPE:
+        return NASDAQ_SP500_PRICE_PROXY_COLUMNS
     return ()
 
 
@@ -1744,6 +1798,17 @@ def _validate_btc_cycle_signal_columns(
             _finite_numeric_column(frame, column, role="signal CSV")
         else:
             _finite_numeric_column(frame, column, role="signal CSV")
+
+
+def _validate_price_proxy_signal_columns(
+    frame: pd.DataFrame,
+    *,
+    required_columns: tuple[str, ...] = (),
+) -> None:
+    for column in required_columns or NASDAQ_SP500_PRICE_PROXY_COLUMNS:
+        values = _finite_numeric_column(frame, column, role="signal CSV")
+        if not (values > 0.0).all():
+            raise ValueError(f"signal CSV column {column!r} must be positive")
 
 
 def _contract_validation_frame(

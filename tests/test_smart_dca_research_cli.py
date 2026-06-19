@@ -460,6 +460,139 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "compatible_signal_consumers" in candidate_summary
 
 
+def test_smart_dca_research_cli_accepts_price_proxy_manifest(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=360, freq="B")
+    prices = pd.Series([100.0 + index * 0.12 for index in range(len(dates))])
+    signal_csv = tmp_path / "us_equity_price_proxy.csv"
+    price_manifest = tmp_path / "us_equity_price_proxy.manifest.json"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "price-proxy-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "QQQ": prices,
+            "SPY": prices * 0.94,
+            "provider_timestamp": [
+                f"{item.date().isoformat()}T00:00:00Z" for item in dates
+            ],
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_research_manifest(
+        price_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_price_proxy_research_csv",
+        transform="us_equity.nasdaq_sp500.price_proxy.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "QQQ", "SPY", "provider_timestamp"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--price-manifest",
+            str(price_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price_variants",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "1000",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    price_manifest_record = summary["metadata"]["input_artifacts"]["price_manifest"]
+    assert price_manifest_record["artifact_type"] == (
+        "us_equity_price_proxy_research_csv"
+    )
+    assert price_manifest_record["transform"] == (
+        "us_equity.nasdaq_sp500.price_proxy.v1"
+    )
+    assert price_manifest_record["linked_csv_sha256"] == _sha256_file(signal_csv)
+    assert price_manifest_record["linked_csv_sha256_verified"] is True
+    assert price_manifest_record["signal_contract_validation_required_columns"] == [
+        "QQQ",
+        "SPY",
+    ]
+    assert "nasdaq_sp500_price_no_skip" in (
+        output_dir / "monthly_day_15" / "metrics.csv"
+    ).read_text(encoding="utf-8")
+
+
+def test_smart_dca_research_cli_rejects_price_manifest_for_non_nasdaq_candidate_set(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=260, freq="B")
+    prices = pd.Series([50_000.0 + index * 10.0 for index in range(len(dates))])
+    signal_csv = tmp_path / "btc.csv"
+    price_manifest = tmp_path / "price_proxy.manifest.json"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "unsupported-price-manifest-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "BTC-USD": prices,
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.01,
+        }
+    ).to_csv(trade_csv, index=False)
+    _write_research_manifest(
+        price_manifest,
+        csv_path=signal_csv,
+        artifact_type="us_equity_price_proxy_research_csv",
+        transform="us_equity.nasdaq_sp500.price_proxy.v1",
+        as_of=str(dates[-1].date()),
+        columns=["date", "BTC-USD"],
+        first_date=str(dates[0].date()),
+        last_date=str(dates[-1].date()),
+        row_count=len(dates),
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--price-manifest",
+            str(price_manifest),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "ibit_btc_ahr999_price",
+        ]
+    )
+
+    assert result == 2
+    assert "--price-manifest is supported only" in capsys.readouterr().err
+
+
 def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> None:
     dates = pd.date_range("2025-01-02", periods=280, freq="B")
     signal_csv = tmp_path / "btc.csv"
