@@ -1293,6 +1293,7 @@ def scenario_results_to_selection_rows(
     min_effect_worst_relative_terminal_value_pct: float = 0.0,
     min_effect_median_relative_terminal_value_pct: float = 1.0,
     min_effect_worst_rank_score: float = 0.0,
+    max_effect_terminal_cash_ratio_pct: float = 35.0,
 ) -> tuple[dict[str, object], ...]:
     """Select the strongest fixed candidate per family without parameter search.
 
@@ -1343,6 +1344,7 @@ def scenario_results_to_selection_rows(
                 min_effect_median_relative_terminal_value_pct
             ),
             min_worst_rank_score=min_effect_worst_rank_score,
+            max_terminal_cash_ratio_pct=max_effect_terminal_cash_ratio_pct,
         )
         effect_size_gate_passed = not effect_size_failure_reasons
         promotion_ready = (
@@ -1399,6 +1401,9 @@ def scenario_results_to_selection_rows(
                     min_effect_median_relative_terminal_value_pct
                 ),
                 "min_effect_worst_rank_score": min_effect_worst_rank_score,
+                "max_effect_terminal_cash_ratio_pct": (
+                    max_effect_terminal_cash_ratio_pct
+                ),
                 "matrix_coverage_gate_passed": matrix_coverage_gate_passed,
                 "matrix_coverage_status": coverage_row["coverage_status"],
                 "matrix_coverage_failure_reasons": coverage_row["failure_reasons"],
@@ -1487,6 +1492,7 @@ def scenario_results_to_review_decision(
     min_effect_worst_relative_terminal_value_pct: float = 0.0,
     min_effect_median_relative_terminal_value_pct: float = 1.0,
     min_effect_worst_rank_score: float = 0.0,
+    max_effect_terminal_cash_ratio_pct: float = 35.0,
 ) -> dict[str, object]:
     """Return a single JSON-safe decision summary for scenario review gates."""
 
@@ -1506,6 +1512,7 @@ def scenario_results_to_review_decision(
             min_effect_median_relative_terminal_value_pct
         ),
         min_effect_worst_rank_score=min_effect_worst_rank_score,
+        max_effect_terminal_cash_ratio_pct=max_effect_terminal_cash_ratio_pct,
     )
     blocking_reasons = _review_decision_blocking_reasons(
         coverage_row=coverage_row,
@@ -1525,6 +1532,7 @@ def scenario_results_to_review_decision(
             min_effect_median_relative_terminal_value_pct
         ),
         "min_worst_rank_score": min_effect_worst_rank_score,
+        "max_terminal_cash_ratio_pct": max_effect_terminal_cash_ratio_pct,
     }
     return {
         "schema_version": SMART_DCA_RESEARCH_ARTIFACT_SCHEMA_VERSION,
@@ -1638,6 +1646,7 @@ def _selection_effect_size_failure_reasons(
     min_worst_relative_terminal_value_pct: float,
     min_median_relative_terminal_value_pct: float,
     min_worst_rank_score: float,
+    max_terminal_cash_ratio_pct: float,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     if (
@@ -1652,6 +1661,8 @@ def _selection_effect_size_failure_reasons(
         reasons.append("median_terminal_edge_below_min_effect_size")
     if float(selected["min_rank_score"]) < min_worst_rank_score:
         reasons.append("worst_rank_score_below_min_effect_size")
+    if float(selected["max_terminal_cash_ratio_pct"]) > max_terminal_cash_ratio_pct:
+        reasons.append("terminal_cash_ratio_above_max_effect_size")
     return tuple(reasons)
 
 

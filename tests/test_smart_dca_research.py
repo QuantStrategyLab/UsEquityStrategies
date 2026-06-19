@@ -38,12 +38,13 @@ def _research_result(
     trade_count: int = 1,
     skipped_count: int = 0,
     deployment_rate: float = 1.0,
+    cash: float = 0.0,
 ) -> DcaResearchResult:
     return DcaResearchResult(
         name=name,
         terminal_value=terminal_value,
-        cash=0.0,
-        shares=terminal_value,
+        cash=cash,
+        shares=max(terminal_value - cash, 0.0),
         invested=1000.0,
         contributions=1000.0,
         max_drawdown=max_drawdown,
@@ -58,14 +59,14 @@ def _research_result(
                 "date": "2025-01-01",
                 "name": name,
                 "equity": 1000.0,
-                "cash": 0.0,
+                "cash": cash,
                 "drawdown_pct": 0.0,
             },
             {
                 "date": "2026-01-01",
                 "name": name,
                 "equity": terminal_value,
-                "cash": 0.0,
+                "cash": cash,
                 "drawdown_pct": max_drawdown * 100.0,
             },
         ),
@@ -303,6 +304,7 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
         "min_worst_relative_terminal_value_pct": 0.0,
         "min_median_relative_terminal_value_pct": 1.0,
         "min_worst_rank_score": 0.0,
+        "max_terminal_cash_ratio_pct": 35.0,
     }
     assert review_decision["overall_recommendation_status"] == "hold_default_fixed_dca"
     assert "scenario_count_below_min_review_scenarios" in review_decision["blocking_reasons"]
@@ -412,6 +414,7 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["matrix_candidate_names"] == "nasdaq_sp500_price_defensive"
     assert "selected_effect_size_gate_passed" in selection_rows[0]
     assert "selected_median_relative_terminal_value_pct" in selection_rows[0]
+    assert selection_rows[0]["max_effect_terminal_cash_ratio_pct"] == 35.0
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
     assert coverage_rows[0]["scenario_count"] == 4
     assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
@@ -626,12 +629,61 @@ def test_selection_rows_hold_fixed_when_effect_size_is_too_small() -> None:
     assert decision["effect_size_thresholds"][
         "min_median_relative_terminal_value_pct"
     ] == 1.0
+    assert decision["effect_size_thresholds"]["max_terminal_cash_ratio_pct"] == 35.0
     assert decision["selection_gate_summary"][
         "all_selection_effect_size_gate_passed"
     ] is False
     assert decision["selection_gate_summary"][
         "all_selection_robustness_gate_passed"
     ] is True
+
+
+def test_selection_rows_hold_fixed_when_candidate_keeps_too_much_cash() -> None:
+    scenarios = {
+        "monthly_day_1": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1100.0,
+                max_drawdown=0.09,
+                cash=500.0,
+            ),
+        },
+        "monthly_day_25": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1100.0,
+                max_drawdown=0.09,
+                cash=500.0,
+            ),
+        },
+    }
+
+    rows = scenario_results_to_selection_rows(
+        scenarios,
+        min_review_scenarios=1,
+        max_effect_terminal_cash_ratio_pct=20.0,
+    )
+    decision = scenario_results_to_review_decision(
+        scenarios,
+        min_review_scenarios=1,
+        max_effect_terminal_cash_ratio_pct=20.0,
+    )
+
+    assert rows[0]["selected_robustness_gate_passed"] is True
+    assert rows[0]["review_scenario_gate_passed"] is True
+    assert rows[0]["matrix_coverage_gate_passed"] is True
+    assert rows[0]["selected_effect_size_gate_passed"] is False
+    assert rows[0]["selected_effect_size_failure_reasons"] == (
+        "terminal_cash_ratio_above_max_effect_size"
+    )
+    assert rows[0]["max_effect_terminal_cash_ratio_pct"] == 20.0
+    assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert rows[0]["recommendation_reason"] == "insufficient_effect_size_vs_fixed_dca"
+    assert decision["overall_recommendation_status"] == "hold_default_fixed_dca"
+    assert "insufficient_effect_size_vs_fixed_dca" in decision["blocking_reasons"]
+    assert decision["effect_size_thresholds"]["max_terminal_cash_ratio_pct"] == 20.0
 
 
 def test_selection_rows_hold_fixed_when_matrix_coverage_fails() -> None:
