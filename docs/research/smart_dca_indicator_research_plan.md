@@ -654,3 +654,18 @@ rule type、signal symbols、min history 和参数集合，用来证明被选择
 - 候选规则比当前实现复杂度只小幅增加，且有清晰 missing/stale data 行为。
 - 固定定投默认不变；智能模式仍需显式配置开启。
 - 评审明确记录：该改动是研究驱动的可选 smart sizing，不是收益承诺。
+
+Before any default or smart-mode promotion, run the read-only promotion gate
+against the matrix artifacts. This does not rerun backtests or search
+parameters; it only verifies that `review_decision.json` and
+`production_profile_decisions.csv` were produced by the frozen-preset,
+fixed-effect-size review flow and still block automatic default changes:
+
+```bash
+python -m us_equity_strategies.backtests.smart_dca_promotion_gate_cli \
+  --review-decision /path/to/review_decision.json \
+  --production-profile-decisions /path/to/production_profile_decisions.csv \
+  --profile nasdaq_sp500_smart_dca \
+  --profile ibit_smart_dca \
+  --pretty
+```

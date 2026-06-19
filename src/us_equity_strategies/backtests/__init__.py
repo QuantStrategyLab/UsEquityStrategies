@@ -2,6 +2,7 @@
 
 __all__ = [
     "available_candidate_names",
+    "audit_smart_dca_promotion_gate",
     "candidate_summaries_to_rows",
     "candidate_specs_to_rows",
     "compare_execution_day_contribution_scenarios",
@@ -28,6 +29,12 @@ def __getattr__(name: str):
         from .ibit_smart_dca import compare_smart_vs_fixed_dca as _compare_smart_vs_fixed_dca
 
         return _compare_smart_vs_fixed_dca
+    if name == "audit_smart_dca_promotion_gate":
+        from .smart_dca_promotion_gate import (
+            audit_smart_dca_promotion_gate as _audit_smart_dca_promotion_gate,
+        )
+
+        return _audit_smart_dca_promotion_gate
     if name in {
         "available_candidate_names",
         "candidate_summaries_to_rows",
