@@ -17,6 +17,7 @@ from us_equity_strategies.signals import (
     extract_canonical_input_from_index_for_consumer,
     extract_canonical_input_from_manifest,
     extract_canonical_input_from_manifest_for_consumer,
+    extract_canonical_input_from_platform_handoff_for_consumer,
     load_signal_consumer_contract_registry,
     load_signal_bundle,
     load_signal_bundle_from_index,
@@ -28,6 +29,8 @@ from us_equity_strategies.signals import (
     signal_consumer_contract_registry_audit_summary,
     signal_consumer_contract_registry_audit_summary_from_file,
     signal_consumer_contract_registry_audit_summary_from_manifest,
+    signal_platform_handoff_audit_summary_from_manifest,
+    signal_source_family_catalog_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary,
     signal_bundle_consumer_audit_summary_from_index,
     signal_bundle_consumer_audit_summary_from_manifest,
@@ -231,6 +234,125 @@ def _write_consumer_contract_registry_manifest(
         encoding="utf-8",
     )
     return registry_path, manifest_path
+
+
+def _source_family_catalog() -> dict[str, object]:
+    return {
+        "schema_version": "market_signal_source_families.v1",
+        "families": [
+            {
+                "family": "crypto.btc_cycle_daily",
+                "domain": "crypto",
+                "bundle_type": "derived_indicators",
+                "bundle_id_prefix": "crypto.btc.derived_indicators",
+                "canonical_input": "derived_indicators",
+                "transform": "crypto.btc.ahr999.v1",
+                "provider_dataset": "btc_usd_daily_ohlcv",
+                "freshness_policy": "crypto_daily_close_t_plus_1",
+                "minimum_history_rows": 200,
+                "symbols": ["BTC-USD"],
+                "derived_indicator_fields": [
+                    "ahr999",
+                    "ahr999_sma",
+                    "mayer_multiple",
+                ],
+                "compatible_profiles": [
+                    "us_equity:ibit_smart_dca",
+                    "research:ibit_btc_ahr999_precomputed",
+                    "research:ibit_btc_ahr999_mayer_precomputed",
+                    "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                ],
+            }
+        ],
+    }
+
+
+def _write_source_family_catalog_manifest(tmp_path: Path) -> tuple[Path, Path]:
+    catalog_path = tmp_path / "signal_source_families.json"
+    catalog_path.write_text(
+        json.dumps(_source_family_catalog(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "signal_source_families.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_source_family_catalog_manifest.v1",
+                "artifact_type": "market_signal_source_family_catalog",
+                "catalog_path": "signal_source_families.json",
+                "catalog_sha256": _sha256_path(catalog_path),
+                "catalog_size_bytes": catalog_path.stat().st_size,
+                "catalog_schema_version": "market_signal_source_families.v1",
+                "family_count": 1,
+                "known_family_count": 1,
+                "missing_known_families": [],
+                "all_known_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return catalog_path, manifest_path
+
+
+def _write_platform_handoff_manifest(
+    tmp_path: Path,
+    *,
+    signal_bundle_manifest_path: Path,
+    source_family_catalog_manifest_path: Path,
+    consumer_contract_registry_manifest_path: Path,
+    consumers: tuple[str, ...],
+) -> Path:
+    manifest = json.loads(signal_bundle_manifest_path.read_text(encoding="utf-8"))
+    handoff_path = tmp_path / "platform_handoff.json"
+    handoff_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_platform_handoff.v1",
+                "artifact_type": "market_signal_platform_handoff",
+                "consumer": "",
+                "canonical_input": manifest["canonical_input"],
+                "bundle_id": manifest["bundle_id"],
+                "as_of": manifest["as_of"],
+                "freshness_status": manifest["freshness_status"],
+                "signal_bundle_manifest_path": (
+                    signal_bundle_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "signal_bundle_manifest_sha256": _sha256_path(
+                    signal_bundle_manifest_path
+                ),
+                "source_family_catalog_manifest_path": (
+                    source_family_catalog_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_path(
+                    source_family_catalog_manifest_path
+                ),
+                "consumer_contract_registry_manifest_path": (
+                    consumer_contract_registry_manifest_path.relative_to(
+                        tmp_path
+                    ).as_posix()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_path(
+                    consumer_contract_registry_manifest_path
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_count": len(consumers),
+                "consumer_contracts": list(consumers),
+                "all_known_consumers_present": len(consumers) == 4,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return handoff_path
 
 
 def _write_signal_bundle_manifest_with_quality_report(
@@ -655,6 +777,90 @@ def test_external_consumer_contract_registry_manifest_matches_local_contracts(
 
     with pytest.raises(SignalBundleContractError, match="registry_sha256 mismatch"):
         signal_consumer_contract_registry_audit_summary_from_manifest(manifest_path)
+
+
+def test_source_family_catalog_manifest_matches_required_consumers(tmp_path) -> None:
+    catalog_path, manifest_path = _write_source_family_catalog_manifest(tmp_path)
+
+    summary = signal_source_family_catalog_audit_summary_from_manifest(
+        manifest_path,
+        required_consumers=("us_equity:ibit_smart_dca",),
+        expected_transform="crypto.btc.ahr999.v1",
+        require_all_known_families=True,
+    )
+
+    assert summary["manifest_path"] == str(manifest_path.resolve())
+    assert summary["catalog_path"] == str(catalog_path.resolve())
+    assert summary["catalog_sha256"] == _sha256_path(catalog_path)
+    assert summary["families"] == ("crypto.btc_cycle_daily",)
+    assert summary["matched_families"] == ("crypto.btc_cycle_daily",)
+    assert summary["required_signal_consumers_present"] is True
+
+
+def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
+    _, signal_manifest_path, _ = _write_signal_bundle_manifest_with_quality_report(
+        tmp_path
+    )
+    _, source_catalog_manifest_path = _write_source_family_catalog_manifest(tmp_path)
+    registry_path, registry_manifest_path = _write_consumer_contract_registry_manifest(
+        tmp_path,
+        _complete_consumer_contract_registry(),
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    contracts = registry["contracts"]
+    assert isinstance(contracts, list)
+    consumers = tuple(str(contract["consumer"]) for contract in contracts)
+    handoff_path = _write_platform_handoff_manifest(
+        tmp_path,
+        signal_bundle_manifest_path=signal_manifest_path,
+        source_family_catalog_manifest_path=source_catalog_manifest_path,
+        consumer_contract_registry_manifest_path=registry_manifest_path,
+        consumers=consumers,
+    )
+
+    summary = signal_platform_handoff_audit_summary_from_manifest(
+        handoff_path,
+        consumer="us_equity:ibit_smart_dca",
+        require_all_known_families=True,
+        require_all_known_consumers=True,
+    )
+    market_data = extract_canonical_input_from_platform_handoff_for_consumer(
+        handoff_path,
+        consumer="us_equity:ibit_smart_dca",
+    )
+
+    assert summary["schema_version"] == "market_signal_platform_handoff.v1"
+    assert summary["artifact_type"] == "market_signal_platform_handoff"
+    assert summary["consumer"] == "us_equity:ibit_smart_dca"
+    assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
+    assert summary["signal_bundle_manifest_sha256"] == _sha256_path(
+        signal_manifest_path
+    )
+    assert summary["source_family_catalog_manifest_sha256"] == _sha256_path(
+        source_catalog_manifest_path
+    )
+    assert summary["consumer_contract_registry_manifest_sha256"] == _sha256_path(
+        registry_manifest_path
+    )
+    assert summary["source_families"] == ("crypto.btc_cycle_daily",)
+    assert summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
+    assert summary["consumer_contract_count"] == 4
+    assert summary["handoff_linked_manifest_sha256s_verified"] is True
+    assert summary["consumer_registry_contract_fields_verified"] is True
+    assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
+
+    registry_manifest = json.loads(registry_manifest_path.read_text(encoding="utf-8"))
+    registry_manifest["consumer_count"] = 3
+    registry_manifest_path.write_text(json.dumps(registry_manifest), encoding="utf-8")
+
+    with pytest.raises(
+        SignalBundleContractError,
+        match="consumer_contract_registry_manifest_sha256",
+    ):
+        signal_platform_handoff_audit_summary_from_manifest(
+            handoff_path,
+            consumer="us_equity:ibit_smart_dca",
+        )
 
 
 def test_external_consumer_contract_registry_can_require_all_known_consumers() -> None:

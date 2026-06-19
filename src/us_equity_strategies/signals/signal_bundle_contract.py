@@ -15,6 +15,11 @@ MARKET_SIGNAL_CONSUMER_CONTRACTS_SCHEMA_VERSION = "market_signal_consumer_contra
 MARKET_SIGNAL_CONSUMER_CONTRACT_MANIFEST_SCHEMA_VERSION = (
     "market_signal_consumer_contract_manifest.v1"
 )
+MARKET_SIGNAL_SOURCE_FAMILY_CATALOG_SCHEMA_VERSION = "market_signal_source_families.v1"
+MARKET_SIGNAL_SOURCE_FAMILY_CATALOG_MANIFEST_SCHEMA_VERSION = (
+    "market_signal_source_family_catalog_manifest.v1"
+)
+MARKET_SIGNAL_PLATFORM_HANDOFF_SCHEMA_VERSION = "market_signal_platform_handoff.v1"
 QUALITY_REPORT_SCHEMA_VERSION = "market_signal_quality_report.v1"
 CANONICAL_INPUT_DERIVED_INDICATORS = "derived_indicators"
 FRESHNESS_FRESH = "fresh"
@@ -338,6 +343,246 @@ def signal_consumer_contract_registry_audit_summary_from_manifest(
         "missing_known_consumers": registry_summary["missing_known_consumers"],
         "all_known_consumers_present": registry_summary["all_known_consumers_present"],
     }
+
+
+def signal_source_family_catalog_audit_summary_from_manifest(
+    path: str | PathLike[str],
+    *,
+    required_consumers: Iterable[str] = (),
+    expected_transform: str | None = None,
+    require_all_known_families: bool = False,
+) -> dict[str, Any]:
+    """Validate an external source-family catalog manifest and linked catalog."""
+
+    manifest_path = Path(path)
+    manifest = _load_signal_source_family_catalog_manifest(manifest_path)
+    if require_all_known_families and not manifest["all_known_families_present"]:
+        raise SignalBundleContractError(
+            "signal source family catalog manifest missing known families: "
+            + ", ".join(str(item) for item in manifest["missing_known_families"])
+        )
+    catalog_path = _resolve_relative_artifact_path(
+        manifest_path.parent.resolve(),
+        manifest["catalog_path"],
+        owner="signal source family catalog manifest",
+        field="catalog_path",
+    )
+    catalog_summary = signal_source_family_catalog_audit_summary_from_file(
+        catalog_path,
+        required_consumers=required_consumers,
+        expected_transform=expected_transform,
+        require_all_known_families=require_all_known_families,
+    )
+    _validate_signal_source_family_catalog_manifest_consistency(
+        manifest,
+        catalog_summary=catalog_summary,
+    )
+    return {
+        "manifest_path": str(manifest_path.resolve()),
+        "manifest_schema_version": str(manifest["schema_version"]),
+        "manifest_sha256": _sha256_file(manifest_path),
+        "manifest_size_bytes": manifest_path.stat().st_size,
+        "artifact_type": str(manifest["artifact_type"]),
+        "catalog_path": catalog_summary["path"],
+        "catalog_sha256": catalog_summary["sha256"],
+        "catalog_size_bytes": catalog_summary["size_bytes"],
+        "catalog_schema_version": catalog_summary["schema_version"],
+        "family_count": catalog_summary["family_count"],
+        "families": catalog_summary["families"],
+        "known_family_count": manifest["known_family_count"],
+        "missing_known_families": tuple(manifest["missing_known_families"]),
+        "all_known_families_present": manifest["all_known_families_present"],
+        "all_consumer_contracts_satisfied": catalog_summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "expected_transform": expected_transform or "",
+        "required_signal_consumers": tuple(
+            str(consumer).strip()
+            for consumer in required_consumers
+            if str(consumer).strip()
+        ),
+        "matched_family_count": catalog_summary["matched_family_count"],
+        "matched_families": catalog_summary["matched_families"],
+        "required_signal_consumers_present": catalog_summary[
+            "required_signal_consumers_present"
+        ],
+        "catalog_sha256_verified": True,
+        "catalog_size_bytes_verified": True,
+    }
+
+
+def signal_source_family_catalog_audit_summary_from_file(
+    path: str | PathLike[str],
+    *,
+    required_consumers: Iterable[str] = (),
+    expected_transform: str | None = None,
+    require_all_known_families: bool = False,
+) -> dict[str, Any]:
+    """Validate an external source-family catalog JSON artifact."""
+
+    catalog_path = Path(path)
+    catalog = _load_signal_source_family_catalog(catalog_path)
+    required_consumer_tuple = tuple(
+        str(consumer).strip()
+        for consumer in required_consumers
+        if str(consumer).strip()
+    )
+    matched_families = _matching_source_catalog_families(
+        catalog["families"],
+        required_consumers=required_consumer_tuple,
+        expected_transform=expected_transform,
+    )
+    if required_consumer_tuple and not matched_families:
+        raise SignalBundleContractError(
+            "signal source family catalog missing family for required consumers: "
+            + ", ".join(required_consumer_tuple)
+        )
+    families = tuple(str(record["family"]) for record in catalog["families"])
+    missing_known_families: tuple[str, ...] = ()
+    if require_all_known_families and missing_known_families:
+        raise SignalBundleContractError(
+            "signal source family catalog missing known families: "
+            + ", ".join(missing_known_families)
+        )
+    return {
+        "path": str(catalog_path.resolve()),
+        "schema_version": str(catalog["schema_version"]),
+        "family_count": len(families),
+        "families": families,
+        "missing_known_families": missing_known_families,
+        "all_known_families_present": not missing_known_families,
+        "all_consumer_contracts_satisfied": _all_source_family_contracts_satisfied(
+            catalog["families"]
+        ),
+        "matched_family_count": len(matched_families),
+        "matched_families": matched_families,
+        "required_signal_consumers_present": not required_consumer_tuple
+        or bool(matched_families),
+        "sha256": _sha256_file(catalog_path),
+        "size_bytes": catalog_path.stat().st_size,
+    }
+
+
+def signal_platform_handoff_audit_summary_from_manifest(
+    path: str | PathLike[str],
+    *,
+    consumer: str | None = None,
+    required_consumers: Iterable[str] = (),
+    expected_source_transform: str | None = None,
+    require_all_known_families: bool = False,
+    require_all_known_consumers: bool = False,
+) -> dict[str, Any]:
+    """Validate a MarketSignalSources platform handoff manifest and its links."""
+
+    handoff_path = Path(path)
+    handoff = _load_platform_signal_handoff_manifest(handoff_path)
+    handoff_root = handoff_path.parent.resolve()
+    signal_bundle_manifest_path = _resolve_relative_artifact_path(
+        handoff_root,
+        handoff["signal_bundle_manifest_path"],
+        owner="platform signal handoff",
+        field="signal_bundle_manifest_path",
+    )
+    source_catalog_manifest_path = _resolve_relative_artifact_path(
+        handoff_root,
+        handoff["source_family_catalog_manifest_path"],
+        owner="platform signal handoff",
+        field="source_family_catalog_manifest_path",
+    )
+    consumer_registry_manifest_path = _resolve_relative_artifact_path(
+        handoff_root,
+        handoff["consumer_contract_registry_manifest_path"],
+        owner="platform signal handoff",
+        field="consumer_contract_registry_manifest_path",
+    )
+    _validate_handoff_linked_sha256(
+        signal_bundle_manifest_path,
+        handoff["signal_bundle_manifest_sha256"],
+        field="signal_bundle_manifest_sha256",
+    )
+    _validate_handoff_linked_sha256(
+        source_catalog_manifest_path,
+        handoff["source_family_catalog_manifest_sha256"],
+        field="source_family_catalog_manifest_sha256",
+    )
+    _validate_handoff_linked_sha256(
+        consumer_registry_manifest_path,
+        handoff["consumer_contract_registry_manifest_sha256"],
+        field="consumer_contract_registry_manifest_sha256",
+    )
+
+    target_consumer = str(consumer or handoff.get("consumer", "")).strip()
+    target_required_consumers = tuple(
+        str(item).strip()
+        for item in required_consumers
+        if str(item).strip()
+    )
+    if target_consumer and not target_required_consumers:
+        target_required_consumers = (target_consumer,)
+    if target_consumer:
+        bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
+            signal_bundle_manifest_path,
+            consumer=target_consumer,
+        )
+    else:
+        bundle_summary = signal_bundle_audit_summary_from_manifest(
+            signal_bundle_manifest_path
+        )
+    source_catalog_summary = signal_source_family_catalog_audit_summary_from_manifest(
+        source_catalog_manifest_path,
+        required_consumers=target_required_consumers,
+        expected_transform=expected_source_transform,
+        require_all_known_families=require_all_known_families,
+    )
+    consumer_registry_summary = (
+        signal_consumer_contract_registry_audit_summary_from_manifest(
+            consumer_registry_manifest_path,
+            require_all_known_consumers=require_all_known_consumers,
+        )
+    )
+    missing_required_consumers = tuple(
+        required_consumer
+        for required_consumer in target_required_consumers
+        if required_consumer not in consumer_registry_summary["consumers"]
+    )
+    if missing_required_consumers:
+        raise SignalBundleContractError(
+            "platform signal handoff consumer contract registry missing required "
+            "consumers: "
+            + ", ".join(missing_required_consumers)
+        )
+
+    summary = _platform_handoff_summary(
+        handoff_path=handoff_path,
+        handoff=handoff,
+        signal_bundle_manifest_path=signal_bundle_manifest_path,
+        bundle_summary=bundle_summary,
+        source_catalog_manifest_path=source_catalog_manifest_path,
+        source_catalog_summary=source_catalog_summary,
+        consumer_registry_manifest_path=consumer_registry_manifest_path,
+        consumer_registry_summary=consumer_registry_summary,
+        consumer=target_consumer,
+        required_consumers=target_required_consumers,
+    )
+    _validate_platform_handoff_consistency(handoff, summary)
+    return summary
+
+
+def extract_canonical_input_from_platform_handoff_for_consumer(
+    path: str | PathLike[str],
+    *,
+    consumer: str,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Validate a platform handoff manifest and return consumer market_data."""
+
+    summary = signal_platform_handoff_audit_summary_from_manifest(
+        path,
+        consumer=consumer,
+    )
+    return extract_canonical_input_from_manifest_for_consumer(
+        summary["signal_bundle_manifest_path"],
+        consumer=consumer,
+    )
 
 
 def validate_signal_bundle_indicator_fields(
@@ -1054,6 +1299,376 @@ def _validate_signal_consumer_contract_registry_manifest_consistency(
         )
 
 
+def _load_signal_source_family_catalog_manifest(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        manifest = json.load(file_obj)
+    if not isinstance(manifest, Mapping):
+        raise SignalBundleContractError(
+            "signal source family catalog manifest JSON root must be a mapping"
+        )
+    manifest_dict = dict(manifest)
+    _validate_no_sensitive_fields(
+        manifest_dict,
+        path="signal_source_family_catalog_manifest",
+    )
+    if (
+        manifest_dict.get("schema_version")
+        != MARKET_SIGNAL_SOURCE_FAMILY_CATALOG_MANIFEST_SCHEMA_VERSION
+    ):
+        raise SignalBundleContractError(
+            "unsupported signal source family catalog manifest schema_version: "
+            f"{manifest_dict.get('schema_version')!r}"
+        )
+    if manifest_dict.get("artifact_type") != "market_signal_source_family_catalog":
+        raise SignalBundleContractError(
+            "signal source family catalog manifest artifact_type mismatch: "
+            f"{manifest_dict.get('artifact_type')!r}"
+        )
+    for field in (
+        "catalog_path",
+        "catalog_sha256",
+        "catalog_size_bytes",
+        "catalog_schema_version",
+        "family_count",
+        "known_family_count",
+        "missing_known_families",
+        "all_known_families_present",
+        "all_consumer_contracts_satisfied",
+    ):
+        if field not in manifest_dict:
+            raise SignalBundleContractError(
+                f"signal source family catalog manifest missing field: {field}"
+            )
+    if not _is_string_sequence(manifest_dict["missing_known_families"]):
+        raise SignalBundleContractError(
+            "signal source family catalog manifest missing_known_families must be strings"
+        )
+    if not isinstance(manifest_dict["all_known_families_present"], bool):
+        raise SignalBundleContractError(
+            "signal source family catalog manifest all_known_families_present must be a bool"
+        )
+    if not isinstance(manifest_dict["all_consumer_contracts_satisfied"], bool):
+        raise SignalBundleContractError(
+            "signal source family catalog manifest all_consumer_contracts_satisfied must be a bool"
+        )
+    return manifest_dict
+
+
+def _load_signal_source_family_catalog(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        catalog = json.load(file_obj)
+    if not isinstance(catalog, Mapping):
+        raise SignalBundleContractError(
+            "signal source family catalog JSON root must be a mapping"
+        )
+    catalog_dict = dict(catalog)
+    _validate_no_sensitive_fields(catalog_dict, path="signal_source_family_catalog")
+    if (
+        catalog_dict.get("schema_version")
+        != MARKET_SIGNAL_SOURCE_FAMILY_CATALOG_SCHEMA_VERSION
+    ):
+        raise SignalBundleContractError(
+            "unsupported signal source family catalog schema_version: "
+            f"{catalog_dict.get('schema_version')!r}"
+        )
+    families = catalog_dict.get("families")
+    if not isinstance(families, list) or not families:
+        raise SignalBundleContractError(
+            "signal source family catalog families must be a non-empty list"
+        )
+    seen: set[str] = set()
+    for record in families:
+        _validate_signal_source_family_record(record, seen_families=seen)
+    return catalog_dict
+
+
+def _validate_signal_source_family_catalog_manifest_consistency(
+    manifest: Mapping[str, Any],
+    *,
+    catalog_summary: Mapping[str, Any],
+) -> None:
+    expected_values = {
+        "catalog_sha256": catalog_summary["sha256"],
+        "catalog_size_bytes": catalog_summary["size_bytes"],
+        "catalog_schema_version": catalog_summary["schema_version"],
+        "family_count": catalog_summary["family_count"],
+        "all_consumer_contracts_satisfied": catalog_summary[
+            "all_consumer_contracts_satisfied"
+        ],
+    }
+    for field, expected in expected_values.items():
+        if manifest[field] != expected:
+            raise SignalBundleContractError(
+                f"signal source family catalog manifest {field} mismatch: "
+                f"{manifest[field]!r} != {expected!r}"
+            )
+
+
+def _validate_signal_source_family_record(
+    record: object,
+    *,
+    seen_families: set[str],
+) -> None:
+    if not isinstance(record, Mapping):
+        raise SignalBundleContractError(
+            "signal source family catalog records must be mappings"
+        )
+    family = str(record.get("family", "")).strip()
+    if not family:
+        raise SignalBundleContractError("signal source family record missing family")
+    if family in seen_families:
+        raise SignalBundleContractError(f"duplicate signal source family: {family}")
+    seen_families.add(family)
+    if str(record.get("canonical_input", "")).strip() != CANONICAL_INPUT_DERIVED_INDICATORS:
+        raise SignalBundleContractError(
+            f"signal source family {family} canonical_input mismatch"
+        )
+    if not str(record.get("transform", "")).strip():
+        raise SignalBundleContractError(
+            f"signal source family {family} missing transform"
+        )
+    for field in ("symbols", "derived_indicator_fields", "compatible_profiles"):
+        if not _is_string_sequence(record.get(field)):
+            raise SignalBundleContractError(
+                f"signal source family {family} {field} must be strings"
+            )
+
+
+def _matching_source_catalog_families(
+    families: Sequence[object],
+    *,
+    required_consumers: tuple[str, ...],
+    expected_transform: str | None,
+) -> tuple[str, ...]:
+    matched: list[str] = []
+    for record in families:
+        if not isinstance(record, Mapping):
+            raise SignalBundleContractError(
+                "signal source family catalog records must be mappings"
+            )
+        family = str(record.get("family", "")).strip()
+        transform = str(record.get("transform", "")).strip()
+        if expected_transform is not None and transform != expected_transform:
+            continue
+        compatible_profiles = _string_tuple(record.get("compatible_profiles"))
+        if not all(consumer in compatible_profiles for consumer in required_consumers):
+            continue
+        if not _source_family_covers_required_fields(
+            record,
+            required_consumers=required_consumers,
+        ):
+            continue
+        matched.append(family)
+    return tuple(matched)
+
+
+def _all_source_family_contracts_satisfied(families: Sequence[object]) -> bool:
+    return all(
+        isinstance(record, Mapping)
+        and _source_family_covers_required_fields(
+            record,
+            required_consumers=_string_tuple(record.get("compatible_profiles")),
+        )
+        for record in families
+    )
+
+
+def _source_family_covers_required_fields(
+    record: Mapping[str, Any],
+    *,
+    required_consumers: tuple[str, ...],
+) -> bool:
+    symbols = {_normalize_symbol(symbol) for symbol in _string_tuple(record.get("symbols"))}
+    fields = {
+        str(field).strip().lower()
+        for field in _string_tuple(record.get("derived_indicator_fields"))
+    }
+    for consumer in required_consumers:
+        required_fields_by_symbol = required_indicator_fields_for_consumer(consumer)
+        for symbol, required_fields in required_fields_by_symbol.items():
+            if _normalize_symbol(symbol) not in symbols:
+                return False
+            for field in required_fields:
+                if str(field).strip().lower() not in fields:
+                    return False
+    return True
+
+
+def _load_platform_signal_handoff_manifest(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        handoff = json.load(file_obj)
+    if not isinstance(handoff, Mapping):
+        raise SignalBundleContractError(
+            "platform signal handoff manifest JSON root must be a mapping"
+        )
+    handoff_dict = dict(handoff)
+    _validate_no_sensitive_fields(handoff_dict, path="platform_signal_handoff")
+    if handoff_dict.get("schema_version") != MARKET_SIGNAL_PLATFORM_HANDOFF_SCHEMA_VERSION:
+        raise SignalBundleContractError(
+            "unsupported platform signal handoff schema_version: "
+            f"{handoff_dict.get('schema_version')!r}"
+        )
+    if handoff_dict.get("artifact_type") != "market_signal_platform_handoff":
+        raise SignalBundleContractError(
+            "platform signal handoff artifact_type mismatch: "
+            f"{handoff_dict.get('artifact_type')!r}"
+        )
+    for field in (
+        "consumer",
+        "canonical_input",
+        "bundle_id",
+        "as_of",
+        "freshness_status",
+        "signal_bundle_manifest_path",
+        "signal_bundle_manifest_sha256",
+        "source_family_catalog_manifest_path",
+        "source_family_catalog_manifest_sha256",
+        "consumer_contract_registry_manifest_path",
+        "consumer_contract_registry_manifest_sha256",
+        "source_family_count",
+        "source_families",
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "consumer_contract_count",
+        "consumer_contracts",
+        "all_known_consumers_present",
+    ):
+        if field not in handoff_dict:
+            raise SignalBundleContractError(
+                f"platform signal handoff missing field: {field}"
+            )
+    if not _is_string_sequence(handoff_dict["source_families"]):
+        raise SignalBundleContractError(
+            "platform signal handoff source_families must be strings"
+        )
+    if not _is_string_sequence(handoff_dict["consumer_contracts"]):
+        raise SignalBundleContractError(
+            "platform signal handoff consumer_contracts must be strings"
+        )
+    for field in (
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "all_known_consumers_present",
+    ):
+        if not isinstance(handoff_dict[field], bool):
+            raise SignalBundleContractError(
+                f"platform signal handoff {field} must be a bool"
+            )
+    return handoff_dict
+
+
+def _validate_handoff_linked_sha256(
+    path: Path,
+    expected: object,
+    *,
+    field: str,
+) -> None:
+    expected_sha256 = str(expected).strip().lower()
+    actual_sha256 = _sha256_file(path)
+    if actual_sha256 != expected_sha256:
+        raise SignalBundleContractError(
+            f"platform signal handoff {field} mismatch: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+
+
+def _platform_handoff_summary(
+    *,
+    handoff_path: Path,
+    handoff: Mapping[str, Any],
+    signal_bundle_manifest_path: Path,
+    bundle_summary: Mapping[str, Any],
+    source_catalog_manifest_path: Path,
+    source_catalog_summary: Mapping[str, Any],
+    consumer_registry_manifest_path: Path,
+    consumer_registry_summary: Mapping[str, Any],
+    consumer: str,
+    required_consumers: tuple[str, ...],
+) -> dict[str, Any]:
+    return {
+        "path": str(handoff_path.resolve()),
+        "schema_version": str(handoff["schema_version"]),
+        "artifact_type": str(handoff["artifact_type"]),
+        "sha256": _sha256_file(handoff_path),
+        "size_bytes": handoff_path.stat().st_size,
+        "consumer": consumer,
+        "required_signal_consumers": required_consumers,
+        "canonical_input": bundle_summary["canonical_input"],
+        "bundle_id": bundle_summary["bundle_id"],
+        "as_of": bundle_summary["as_of"],
+        "freshness_status": bundle_summary["freshness_status"],
+        "signal_bundle_manifest_path": str(signal_bundle_manifest_path.resolve()),
+        "signal_bundle_manifest_sha256": _sha256_file(signal_bundle_manifest_path),
+        "source_family_catalog_manifest_path": str(
+            source_catalog_manifest_path.resolve()
+        ),
+        "source_family_catalog_manifest_sha256": _sha256_file(
+            source_catalog_manifest_path
+        ),
+        "consumer_contract_registry_manifest_path": str(
+            consumer_registry_manifest_path.resolve()
+        ),
+        "consumer_contract_registry_manifest_sha256": _sha256_file(
+            consumer_registry_manifest_path
+        ),
+        "source_family_count": source_catalog_summary["family_count"],
+        "source_families": source_catalog_summary["families"],
+        "matched_source_families": source_catalog_summary["matched_families"],
+        "all_known_source_families_present": source_catalog_summary[
+            "all_known_families_present"
+        ],
+        "all_consumer_contracts_satisfied": source_catalog_summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "consumer_contract_count": consumer_registry_summary["consumer_count"],
+        "consumer_contracts": consumer_registry_summary["consumers"],
+        "all_known_consumers_present": consumer_registry_summary[
+            "all_known_consumers_present"
+        ],
+        "consumer_registry_contract_fields_verified": True,
+        "handoff_linked_manifest_sha256s_verified": True,
+    }
+
+
+def _validate_platform_handoff_consistency(
+    handoff: Mapping[str, Any],
+    summary: Mapping[str, Any],
+) -> None:
+    handoff_consumer = str(handoff.get("consumer", "")).strip()
+    if handoff_consumer and handoff_consumer != summary["consumer"]:
+        raise SignalBundleContractError(
+            "platform signal handoff consumer mismatch: "
+            f"{handoff_consumer!r} != {summary['consumer']!r}"
+        )
+    expected_values = {
+        "canonical_input": summary["canonical_input"],
+        "bundle_id": summary["bundle_id"],
+        "as_of": summary["as_of"],
+        "freshness_status": summary["freshness_status"],
+        "source_family_count": summary["source_family_count"],
+        "source_families": summary["source_families"],
+        "all_known_source_families_present": summary[
+            "all_known_source_families_present"
+        ],
+        "all_consumer_contracts_satisfied": summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "consumer_contract_count": summary["consumer_contract_count"],
+        "consumer_contracts": summary["consumer_contracts"],
+        "all_known_consumers_present": summary["all_known_consumers_present"],
+    }
+    for field, expected in expected_values.items():
+        actual = handoff[field]
+        if field in {"source_families", "consumer_contracts"}:
+            actual = tuple(actual)
+            expected = tuple(expected)
+        if actual != expected:
+            raise SignalBundleContractError(
+                f"platform signal handoff {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
+
+
 def _validate_signal_consumer_contract_record(
     contract: object,
     *,
@@ -1358,3 +1973,9 @@ def _is_string_sequence(value: Any) -> bool:
     if not _is_non_string_sequence(value):
         return False
     return all(isinstance(item, str) and item.strip() for item in value)
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if not _is_non_string_sequence(value):
+        return ()
+    return tuple(str(item).strip() for item in value if str(item).strip())

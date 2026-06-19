@@ -160,6 +160,25 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
 secret / signed URL key。
 
+若 `MarketSignalSources` 发布了 `market_signal_platform_handoff.v1`，平台或策略仓 CI
+应优先校验 handoff manifest。它会同时 pin 住 signal bundle manifest、source family
+catalog manifest 和 consumer contract registry manifest，并在本策略仓侧复算三份 linked
+manifest 的 SHA-256、bundle consumer 字段覆盖、source family consumer coverage，以及
+consumer registry 与本地 contract 是否漂移：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --platform-handoff-manifest ./data/output/platform_handoff.json \
+  --consumer us_equity:ibit_smart_dca \
+  --require-all-known-families \
+  --require-all-known-consumers \
+  --pretty
+```
+
+运行时注入可使用 `extract_canonical_input_from_platform_handoff_for_consumer()`：
+它先验证 handoff 和全部 linked manifest，再只返回
+`StrategyContext.market_data["derived_indicators"]` 需要的 canonical input。
+
 该审计输出会包含：
 
 - `indicator_fields_by_symbol`：例如 `BTC-USD` 下有哪些字段名，包括 `ahr999`、

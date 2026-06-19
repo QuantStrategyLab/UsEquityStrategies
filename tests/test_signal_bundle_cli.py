@@ -25,6 +25,196 @@ FIXTURE_INDEX_PATH = (
 )
 
 
+def _sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    bundle_path = bundle_dir / "signal_bundle.json"
+    bundle_path.write_text(
+        FIXTURE_MANIFEST_PATH.with_name("signal_bundle.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    signal_manifest = json.loads(FIXTURE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    signal_manifest["bundle_sha256"] = _sha256_path(bundle_path)
+    signal_manifest_path = bundle_dir / "manifest.json"
+    signal_manifest_path.write_text(
+        json.dumps(signal_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    source_catalog_path = tmp_path / "source_catalog" / "signal_source_families.json"
+    source_catalog_path.parent.mkdir()
+    source_catalog_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_source_families.v1",
+                "families": [
+                    {
+                        "family": "crypto.btc_cycle_daily",
+                        "canonical_input": "derived_indicators",
+                        "transform": "crypto.btc.ahr999.v1",
+                        "symbols": ["BTC-USD"],
+                        "derived_indicator_fields": [
+                            "ahr999",
+                            "ahr999_sma",
+                            "mayer_multiple",
+                        ],
+                        "compatible_profiles": [
+                            "us_equity:ibit_smart_dca",
+                            "research:ibit_btc_ahr999_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                        ],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    source_catalog_manifest_path = (
+        source_catalog_path.parent / "signal_source_families.manifest.json"
+    )
+    source_catalog_manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_source_family_catalog_manifest.v1",
+                "artifact_type": "market_signal_source_family_catalog",
+                "catalog_path": "signal_source_families.json",
+                "catalog_sha256": _sha256_path(source_catalog_path),
+                "catalog_size_bytes": source_catalog_path.stat().st_size,
+                "catalog_schema_version": "market_signal_source_families.v1",
+                "family_count": 1,
+                "known_family_count": 1,
+                "missing_known_families": [],
+                "all_known_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    registry_path = tmp_path / "contracts" / "market_signal_consumers.json"
+    registry_path.parent.mkdir()
+    contracts = [
+        {
+            "consumer": "us_equity:ibit_smart_dca",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {"BTC-USD": ["ahr999"]},
+        },
+        {
+            "consumer": "research:ibit_btc_ahr999_precomputed",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {"BTC-USD": ["ahr999"]},
+        },
+        {
+            "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "BTC-USD": ["ahr999", "mayer_multiple"]
+            },
+        },
+        {
+            "consumer": "research:ibit_btc_ahr999_mayer_precomputed_variants",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "BTC-USD": ["ahr999", "ahr999_sma", "mayer_multiple"]
+            },
+        },
+    ]
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "contracts": contracts,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    registry_manifest_path = registry_path.parent / "market_signal_consumers.manifest.json"
+    registry_manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_consumer_contract_manifest.v1",
+                "artifact_type": "market_signal_consumer_contract_registry",
+                "registry_path": "market_signal_consumers.json",
+                "registry_sha256": _sha256_path(registry_path),
+                "registry_size_bytes": registry_path.stat().st_size,
+                "registry_schema_version": "market_signal_consumer_contracts.v1",
+                "canonical_input": "derived_indicators",
+                "consumer_count": 4,
+                "known_consumer_count": 4,
+                "missing_known_consumers": [],
+                "all_known_consumers_present": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    handoff_path = tmp_path / "platform_handoff.json"
+    handoff_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_platform_handoff.v1",
+                "artifact_type": "market_signal_platform_handoff",
+                "consumer": "us_equity:ibit_smart_dca",
+                "canonical_input": signal_manifest["canonical_input"],
+                "bundle_id": signal_manifest["bundle_id"],
+                "as_of": signal_manifest["as_of"],
+                "freshness_status": signal_manifest["freshness_status"],
+                "signal_bundle_manifest_path": signal_manifest_path.relative_to(
+                    tmp_path
+                ).as_posix(),
+                "signal_bundle_manifest_sha256": _sha256_path(signal_manifest_path),
+                "source_family_catalog_manifest_path": (
+                    source_catalog_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_path(
+                    source_catalog_manifest_path
+                ),
+                "consumer_contract_registry_manifest_path": (
+                    registry_manifest_path.relative_to(tmp_path).as_posix()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_path(
+                    registry_manifest_path
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_count": 4,
+                "consumer_contracts": [
+                    str(contract["consumer"])
+                    for contract in contracts
+                ],
+                "all_known_consumers_present": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return handoff_path
+
+
 def test_signal_bundle_cli_prints_non_sensitive_audit_summary(capsys) -> None:
     result = main([str(FIXTURE_MANIFEST_PATH), "--pretty"])
 
@@ -88,6 +278,36 @@ def test_signal_bundle_cli_validates_consumer_indicator_fields(capsys) -> None:
     assert summary["required_indicator_fields_by_symbol"] == {
         "BTC-USD": ["ahr999", "ahr999_sma", "mayer_multiple"]
     }
+
+
+def test_signal_bundle_cli_validates_platform_handoff_manifest(
+    tmp_path,
+    capsys,
+) -> None:
+    handoff_path = _write_platform_handoff_inputs(tmp_path)
+
+    result = main(
+        [
+            "--platform-handoff-manifest",
+            str(handoff_path),
+            "--consumer",
+            "us_equity:ibit_smart_dca",
+            "--require-all-known-families",
+            "--require-all-known-consumers",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["schema_version"] == "market_signal_platform_handoff.v1"
+    assert summary["consumer"] == "us_equity:ibit_smart_dca"
+    assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
+    assert summary["source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
+    assert summary["consumer_contract_count"] == 4
+    assert summary["all_known_consumers_present"] is True
+    assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
 
 def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys) -> None:

@@ -331,6 +331,7 @@ python -m us_equity_strategies.backtests.smart_dca_research_cli \
   --signal-manifest ./research_inputs/btc_cycle_indicators.manifest.json \
   --signal-source-family-catalog-manifest ./research_inputs/signal_source_families.manifest.json \
   --signal-consumer-contract-registry-manifest ./research_inputs/market_signal_consumers.manifest.json \
+  --platform-signal-handoff-manifest ./research_inputs/platform_handoff.json \
   --output-dir ./artifacts/smart_dca_research/ibit_btc_cycle_precomputed \
   --candidate-set ibit_btc_ahr999_mayer_precomputed_variants \
   --signal-columns ahr999,ahr999_sma,mayer_multiple \
@@ -361,7 +362,10 @@ family count、known-family coverage、matched family 和 consumer-contract cove
 `--signal-consumer-contract-registry-manifest`，CLI 会记录 consumer contract registry
 manifest、registry hash、canonical input、consumer count 和 known-consumer coverage，
 并要求 registry 覆盖当前 candidate set 的 `compatible_signal_consumers`，让研究结果能追溯到
-发布时使用的消费者字段契约。
+发布时使用的消费者字段契约。若同时传入 `--platform-signal-handoff-manifest`，CLI 会记录
+handoff manifest、三份 linked manifest 的 SHA-256、matched source family、consumer
+registry coverage 和 handoff 链接校验状态；这让研究 artifact 能和平台运行时消费的同一份
+`market_signal_platform_handoff.v1` 交接清单对齐。
 若把运行时 `market_signal_bundle.v1` 交给策略平台，应先用 consumer contract 校验
 `consumer_contract.compatible_profiles` 和字段覆盖；例如
 `--consumer research:ibit_btc_ahr999_precomputed` 只要求 AHR999-only profile

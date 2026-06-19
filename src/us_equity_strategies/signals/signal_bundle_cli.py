@@ -9,6 +9,7 @@ import sys
 from .signal_bundle_contract import (
     CANONICAL_INPUT_DERIVED_INDICATORS,
     SignalBundleContractError,
+    signal_platform_handoff_audit_summary_from_manifest,
     signal_consumer_contract_registry_audit_summary_from_file,
     signal_consumer_contract_registry_audit_summary_from_manifest,
     signal_bundle_consumer_audit_summary_from_index,
@@ -23,16 +24,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if args.consumer_contract_registry_manifest is not None:
+        if args.platform_handoff_manifest is not None:
+            if (
+                args.consumer_contract_registry_manifest is not None
+                or args.consumer_contract_registry is not None
+                or args.index is not None
+                or args.manifest is not None
+            ):
+                raise SignalBundleContractError(
+                    "provide --platform-handoff-manifest without "
+                    "--consumer-contract-registry-manifest, "
+                    "--consumer-contract-registry, manifest, or --index"
+                )
+            summary = signal_platform_handoff_audit_summary_from_manifest(
+                args.platform_handoff_manifest,
+                consumer=args.consumer,
+                require_all_known_families=args.require_all_known_families,
+                require_all_known_consumers=args.require_all_known_consumers,
+            )
+        elif args.consumer_contract_registry_manifest is not None:
             if (
                 args.consumer_contract_registry is not None
                 or args.index is not None
                 or args.manifest is not None
                 or args.consumer
+                or args.require_all_known_families
             ):
                 raise SignalBundleContractError(
                     "provide --consumer-contract-registry-manifest without "
-                    "--consumer-contract-registry, manifest, --index, or --consumer"
+                    "--consumer-contract-registry, manifest, --index, "
+                    "--consumer, or --require-all-known-families"
                 )
             summary = signal_consumer_contract_registry_audit_summary_from_manifest(
                 args.consumer_contract_registry_manifest,
@@ -40,9 +61,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 require_all_known_consumers=args.require_all_known_consumers,
             )
         elif args.consumer_contract_registry is not None:
-            if args.index is not None or args.manifest is not None or args.consumer:
+            if (
+                args.index is not None
+                or args.manifest is not None
+                or args.consumer
+                or args.require_all_known_families
+            ):
                 raise SignalBundleContractError(
-                    "provide --consumer-contract-registry without manifest, --index, or --consumer"
+                    "provide --consumer-contract-registry without manifest, "
+                    "--index, --consumer, or --require-all-known-families"
                 )
             summary = signal_consumer_contract_registry_audit_summary_from_file(
                 args.consumer_contract_registry,
@@ -54,7 +81,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.require_all_known_consumers:
             raise SignalBundleContractError(
                 "--require-all-known-consumers is only valid with "
-                "--consumer-contract-registry or --consumer-contract-registry-manifest"
+                "--consumer-contract-registry, --consumer-contract-registry-manifest, "
+                "or --platform-handoff-manifest"
+            )
+        elif args.require_all_known_families:
+            raise SignalBundleContractError(
+                "--require-all-known-families is only valid with "
+                "--platform-handoff-manifest"
             )
         elif args.index is not None:
             if args.consumer:
@@ -82,7 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary = signal_bundle_audit_summary_from_manifest(args.manifest)
         else:
             raise SignalBundleContractError(
-                "provide a manifest path, --index, or --consumer-contract-registry"
+                "provide a manifest path, --index, --consumer-contract-registry, "
+                "or --platform-handoff-manifest"
             )
     except (OSError, SignalBundleContractError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -114,6 +148,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "linked registry JSON artifact."
         ),
     )
+    parser.add_argument(
+        "--platform-handoff-manifest",
+        type=Path,
+        help=(
+            "Validate a MarketSignalSources platform handoff manifest and its "
+            "linked bundle, source-family catalog, and consumer registry manifests."
+        ),
+    )
     parser.add_argument("--as-of", help="Select the latest index entry at or before this as_of date.")
     parser.add_argument("--bundle-id", help="Require a specific bundle_id from the index.")
     parser.add_argument("--canonical-input", default=CANONICAL_INPUT_DERIVED_INDICATORS)
@@ -121,6 +163,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--require-all-known-consumers",
         action="store_true",
         help="Require a consumer contract registry to cover every known local consumer.",
+    )
+    parser.add_argument(
+        "--require-all-known-families",
+        action="store_true",
+        help=(
+            "Require a platform handoff source-family catalog manifest to declare "
+            "all known families present."
+        ),
     )
     parser.add_argument(
         "--consumer",

@@ -9,12 +9,47 @@ import pandas as pd
 from us_equity_strategies.backtests.smart_dca_research_cli import main
 
 
+FIXTURE_SIGNAL_BUNDLE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "signal_bundles"
+    / "crypto"
+    / "btc"
+    / "derived_indicators"
+    / "2026-06-19"
+    / "signal_bundle.json"
+)
+FIXTURE_SIGNAL_BUNDLE_MANIFEST_PATH = FIXTURE_SIGNAL_BUNDLE_PATH.with_name(
+    "manifest.json"
+)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file_obj:
         for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _write_runtime_signal_bundle_manifest(tmp_path: Path) -> Path:
+    bundle_dir = tmp_path / "runtime_bundle"
+    bundle_dir.mkdir()
+    bundle_path = bundle_dir / "signal_bundle.json"
+    bundle_path.write_text(
+        FIXTURE_SIGNAL_BUNDLE_PATH.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    manifest = json.loads(
+        FIXTURE_SIGNAL_BUNDLE_MANIFEST_PATH.read_text(encoding="utf-8")
+    )
+    manifest["bundle_sha256"] = _sha256_file(bundle_path)
+    manifest_path = bundle_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> None:
@@ -371,6 +406,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     consumer_contract_registry_manifest = (
         tmp_path / "market_signal_consumers.manifest.json"
     )
+    platform_handoff_manifest = tmp_path / "platform_handoff.json"
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
 
@@ -520,6 +556,57 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         ),
         encoding="utf-8",
     )
+    runtime_signal_manifest = _write_runtime_signal_bundle_manifest(tmp_path)
+    consumer_contract_payload = json.loads(
+        consumer_contract_registry.read_text(encoding="utf-8")
+    )
+    contract_consumers = [
+        str(contract["consumer"])
+        for contract in consumer_contract_payload["contracts"]
+    ]
+    runtime_manifest = json.loads(runtime_signal_manifest.read_text(encoding="utf-8"))
+    platform_handoff_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_platform_handoff.v1",
+                "artifact_type": "market_signal_platform_handoff",
+                "consumer": "",
+                "canonical_input": runtime_manifest["canonical_input"],
+                "bundle_id": runtime_manifest["bundle_id"],
+                "as_of": runtime_manifest["as_of"],
+                "freshness_status": runtime_manifest["freshness_status"],
+                "signal_bundle_manifest_path": (
+                    runtime_signal_manifest.relative_to(tmp_path).as_posix()
+                ),
+                "signal_bundle_manifest_sha256": _sha256_file(
+                    runtime_signal_manifest
+                ),
+                "source_family_catalog_manifest_path": (
+                    source_catalog_manifest.relative_to(tmp_path).as_posix()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_file(
+                    source_catalog_manifest
+                ),
+                "consumer_contract_registry_manifest_path": (
+                    consumer_contract_registry_manifest.relative_to(
+                        tmp_path
+                    ).as_posix()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_file(
+                    consumer_contract_registry_manifest
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_count": len(contract_consumers),
+                "consumer_contracts": contract_consumers,
+                "all_known_consumers_present": False,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     result = main(
         [
@@ -533,6 +620,8 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             str(source_catalog_manifest),
             "--signal-consumer-contract-registry-manifest",
             str(consumer_contract_registry_manifest),
+            "--platform-signal-handoff-manifest",
+            str(platform_handoff_manifest),
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -632,6 +721,30 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ]
     assert consumer_contract_registry_record["required_signal_consumers_present"] is True
+    platform_handoff_record = summary["metadata"]["input_artifacts"][
+        "platform_signal_handoff_manifest"
+    ]
+    assert platform_handoff_record["schema_version"] == (
+        "market_signal_platform_handoff.v1"
+    )
+    assert platform_handoff_record["bundle_id"] == (
+        "crypto.btc.derived_indicators.2026-06-19"
+    )
+    assert platform_handoff_record["source_families"] == [
+        "crypto.btc_cycle_daily"
+    ]
+    assert platform_handoff_record["matched_source_families"] == [
+        "crypto.btc_cycle_daily"
+    ]
+    assert platform_handoff_record["consumer_contracts"] == [
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ]
+    assert platform_handoff_record["required_signal_consumers"] == [
+        "research:ibit_btc_ahr999_mayer_precomputed",
+        "research:ibit_btc_ahr999_mayer_precomputed_variants",
+    ]
+    assert platform_handoff_record["handoff_linked_manifest_sha256s_verified"] is True
     scenario_manifest = json.loads(
         (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
     )
@@ -670,6 +783,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             "signal_consumer_contract_registry_manifest"
         ]["registry_sha256"]
         == _sha256_file(consumer_contract_registry)
+    )
+    assert (
+        scenario_manifest["metadata"]["input_artifacts"][
+            "platform_signal_handoff_manifest"
+        ]["consumer_contract_registry_manifest_sha256"]
+        == _sha256_file(consumer_contract_registry_manifest)
     )
 
     source_catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
