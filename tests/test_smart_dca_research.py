@@ -12,6 +12,7 @@ from us_equity_strategies.backtests.smart_dca_research import (
     candidate_specs_to_rows,
     compare_execution_day_contribution_scenarios,
     compare_monthly_execution_day_scenarios,
+    compare_sample_window_scenarios,
     compare_smart_dca_candidates,
     evaluate_candidate_results,
     production_equivalent_candidate_name,
@@ -953,6 +954,48 @@ def test_execution_day_contribution_scenarios_cover_rolling_starts() -> None:
     assert coverage_rows[0]["scenario_sample_window_count"] == 2
     assert coverage_rows[0]["scenario_sample_window_audit_passed"] is True
     assert coverage_rows[0]["scenario_varied_dimensions"] == "start_date"
+    assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
+
+
+def test_sample_window_scenarios_cover_out_of_sample_windows() -> None:
+    prices = _series([100.0 + i * 0.08 for i in range(760)], start="2023-01-02")
+    signals = pd.DataFrame({"QQQ": prices, "SPY": prices * 0.95})
+
+    scenarios = compare_sample_window_scenarios(
+        signal_prices=signals,
+        trade_prices=prices,
+        sample_windows={
+            "validation": ("2024-01-02", "2024-12-31"),
+            "oos": ("2025-01-02", "2025-12-31"),
+        },
+        execution_days=(15,),
+        monthly_contribution_usd_values=(1000.0,),
+        candidate_set="nasdaq_sp500_price",
+    )
+
+    assert set(scenarios) == {
+        "sample_window_validation__monthly_day_15_contribution_usd_1000_start_2024_01_02",
+        "sample_window_oos__monthly_day_15_contribution_usd_1000_start_2025_01_02",
+    }
+    validation_fixed = scenarios[
+        "sample_window_validation__monthly_day_15_contribution_usd_1000_start_2024_01_02"
+    ]["fixed"]
+    oos_fixed = scenarios[
+        "sample_window_oos__monthly_day_15_contribution_usd_1000_start_2025_01_02"
+    ]["fixed"]
+    assert validation_fixed.equity_curve[0]["date"] >= "2024-01-02"
+    assert validation_fixed.equity_curve[-1]["date"] <= "2024-12-31"
+    assert oos_fixed.equity_curve[0]["date"] >= "2025-01-02"
+    assert oos_fixed.equity_curve[-1]["date"] <= "2025-12-31"
+
+    coverage_rows = scenario_results_to_coverage_rows(scenarios)
+    assert coverage_rows[0]["scenario_sample_window_labels"] == "oos,validation"
+    assert coverage_rows[0]["scenario_sample_window_label_count"] == 2
+    assert coverage_rows[0]["scenario_sample_window_count"] == 2
+    assert coverage_rows[0]["scenario_start_dates"] == "2024-01-02,2025-01-02"
+    assert coverage_rows[0]["scenario_varied_dimensions"] == (
+        "sample_window,start_date"
+    )
     assert coverage_rows[0]["scenario_dimension_coverage_gate_passed"] is True
 
 

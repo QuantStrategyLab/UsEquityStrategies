@@ -22,6 +22,7 @@ from .smart_dca_research import (
     candidate_set_signal_source_modes,
     compare_execution_day_contribution_scenarios,
     compare_monthly_execution_day_scenarios,
+    compare_sample_window_scenarios,
     SUPPORTED_DCA_CADENCES,
     write_scenario_research_artifacts,
 )
@@ -70,7 +71,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         start_dates = _parse_start_dates(args.start_dates)
         cadences = _parse_cadences(cadence_arg)
-        if contribution_values is None and start_dates is None and cadences == ("monthly",):
+        sample_windows = _parse_sample_windows(args.sample_windows)
+        if sample_windows is not None:
+            if contribution_values is None:
+                contribution_values = (args.monthly_contribution_usd,)
+            scenarios = compare_sample_window_scenarios(
+                signal_prices=signal_prices,
+                trade_prices=trade_prices,
+                sample_windows=sample_windows,
+                execution_days=execution_days,
+                monthly_contribution_usd_values=contribution_values,
+                start_dates=start_dates,
+                cadences=cadences,
+                candidate_set=args.candidate_set,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                align_start_after_warmup=not args.no_align_start_after_warmup,
+                min_investment_usd=args.min_investment_usd,
+            )
+        elif contribution_values is None and start_dates is None and cadences == ("monthly",):
             contribution_values = (args.monthly_contribution_usd,)
             scenarios = compare_monthly_execution_day_scenarios(
                 signal_prices=signal_prices,
@@ -105,6 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             contribution_values=contribution_values,
             start_dates=start_dates,
             cadences=cadences,
+            sample_windows=sample_windows,
         )
         artifact_paths = write_scenario_research_artifacts(
             output_dir,
@@ -121,6 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "robustness_preset": args.robustness_preset,
         "monthly_contribution_usd_values": contribution_values,
         "start_dates": None if start_dates is None else [item.date().isoformat() for item in start_dates],
+        "sample_windows": _sample_window_summary(sample_windows),
         "cadences": cadences,
         "metadata": metadata,
         "output_dir": str(output_dir),
@@ -251,6 +272,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "runs start date x execution day x contribution amount scenarios."
         ),
     )
+    parser.add_argument(
+        "--sample-windows",
+        help=(
+            "Comma-separated named sample windows in label:start:end form, for "
+            "example discovery:2018-01-01:2020-12-31,oos:2024-01-01:2026-06-18."
+        ),
+    )
     parser.add_argument("--end-date")
     parser.add_argument(
         "--no-align-start-after-warmup",
@@ -270,6 +298,67 @@ def _parse_column_list(raw: str | None) -> tuple[str, ...] | None:
     return columns
 
 
+def _parse_sample_windows(
+    raw: str | None,
+) -> tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...] | None:
+    if raw is None:
+        return None
+    windows: list[tuple[str, pd.Timestamp | None, pd.Timestamp | None]] = []
+    seen_labels: set[str] = set()
+    for item in raw.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        pieces = value.split(":")
+        if len(pieces) != 3:
+            raise ValueError(
+                "sample-windows entries must use label:start:end form"
+            )
+        label = pieces[0].strip()
+        if not label:
+            raise ValueError("sample-windows label must not be empty")
+        if label in seen_labels:
+            raise ValueError(f"duplicate sample-windows label: {label!r}")
+        seen_labels.add(label)
+        start = _optional_timestamp(pieces[1])
+        end = _optional_timestamp(pieces[2])
+        if start is None and end is None:
+            raise ValueError(
+                f"sample-windows entry {label!r} must include start or end"
+            )
+        if start is not None and end is not None and start > end:
+            raise ValueError(
+                f"sample-windows entry {label!r} start must be <= end"
+            )
+        windows.append((label, start, end))
+    if not windows:
+        raise ValueError("sample-windows must include at least one window")
+    return tuple(windows)
+
+
+def _optional_timestamp(raw: str) -> pd.Timestamp | None:
+    value = raw.strip()
+    if not value:
+        return None
+    return pd.Timestamp(value).tz_localize(None).normalize()
+
+
+def _sample_window_summary(
+    sample_windows: tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...]
+    | None,
+) -> tuple[dict[str, str], ...] | None:
+    if sample_windows is None:
+        return None
+    return tuple(
+        {
+            "label": label,
+            "start_date": "" if start is None else start.date().isoformat(),
+            "end_date": "" if end is None else end.date().isoformat(),
+        }
+        for label, start, end in sample_windows
+    )
+
+
 def _research_metadata(
     *,
     args: argparse.Namespace,
@@ -277,6 +366,7 @@ def _research_metadata(
     contribution_values: tuple[float, ...],
     start_dates: tuple[pd.Timestamp, ...] | None,
     cadences: tuple[str, ...],
+    sample_windows: tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...] | None,
 ) -> dict[str, object]:
     return {
         "research_config": {
@@ -299,6 +389,7 @@ def _research_metadata(
             "start_dates": None
             if start_dates is None
             else tuple(item.date().isoformat() for item in start_dates),
+            "sample_windows": _sample_window_summary(sample_windows),
             "end_date": args.end_date,
             "align_start_after_warmup": not args.no_align_start_after_warmup,
             "min_investment_usd": args.min_investment_usd,

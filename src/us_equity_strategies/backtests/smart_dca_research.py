@@ -1712,6 +1712,12 @@ def scenario_results_to_selection_rows(
                 "matrix_coverage_status": coverage_row["coverage_status"],
                 "matrix_coverage_failure_reasons": coverage_row["failure_reasons"],
                 "matrix_scenario_count": coverage_row["scenario_count"],
+                "matrix_scenario_sample_window_labels": coverage_row[
+                    "scenario_sample_window_labels"
+                ],
+                "matrix_scenario_sample_window_label_count": coverage_row[
+                    "scenario_sample_window_label_count"
+                ],
                 "matrix_scenario_cadences": coverage_row["scenario_cadences"],
                 "matrix_scenario_cadence_count": coverage_row[
                     "scenario_cadence_count"
@@ -2226,12 +2232,15 @@ def _scenario_sample_window_summary(
 def _scenario_dimension_summary(
     scenario_names: Iterable[str],
 ) -> dict[str, object]:
+    sample_window_labels: list[str] = []
     cadences: list[str] = []
     execution_days: list[str] = []
     contribution_amounts: list[str] = []
     start_dates: list[str] = []
     for scenario_name in scenario_names:
         dimensions = _parse_scenario_dimensions(str(scenario_name))
+        if dimensions["sample_window"]:
+            sample_window_labels.append(dimensions["sample_window"])
         if dimensions["cadence"]:
             cadences.append(dimensions["cadence"])
         if dimensions["execution_day"]:
@@ -2241,6 +2250,7 @@ def _scenario_dimension_summary(
         if dimensions["start_date"]:
             start_dates.append(dimensions["start_date"])
 
+    sample_window_values = _sorted_unique_text(sample_window_labels)
     cadence_values = _sorted_unique_text(cadences)
     execution_day_values = _sorted_unique_numeric_text(execution_days)
     contribution_values = _sorted_unique_numeric_text(contribution_amounts)
@@ -2248,6 +2258,7 @@ def _scenario_dimension_summary(
     varied_dimensions = tuple(
         name
         for name, values in (
+            ("sample_window", sample_window_values),
             ("cadence", cadence_values),
             ("execution_day", execution_day_values),
             ("contribution_amount", contribution_values),
@@ -2258,6 +2269,7 @@ def _scenario_dimension_summary(
     recognized_dimension_count = sum(
         1
         for values in (
+            sample_window_values,
             cadence_values,
             execution_day_values,
             contribution_values,
@@ -2266,6 +2278,8 @@ def _scenario_dimension_summary(
         if values
     )
     return {
+        "scenario_sample_window_labels": ",".join(sample_window_values),
+        "scenario_sample_window_label_count": len(sample_window_values),
         "scenario_cadences": ",".join(cadence_values),
         "scenario_cadence_count": len(cadence_values),
         "scenario_execution_days": ",".join(execution_day_values),
@@ -2282,7 +2296,8 @@ def _scenario_dimension_summary(
 
 
 def _parse_scenario_dimensions(scenario_name: str) -> dict[str, str]:
-    base_name, start_date = _split_scenario_start_label(scenario_name)
+    sample_window, unscoped_name = _split_scenario_sample_window_label(scenario_name)
+    base_name, start_date = _split_scenario_start_label(unscoped_name)
     cadence = ""
     execution_day = ""
     contribution_amount = ""
@@ -2309,11 +2324,21 @@ def _parse_scenario_dimensions(scenario_name: str) -> dict[str, str]:
                 execution_day = remainder
             break
     return {
+        "sample_window": sample_window,
         "cadence": cadence,
         "execution_day": execution_day,
         "contribution_amount_usd": contribution_amount,
         "start_date": start_date,
     }
+
+
+def _split_scenario_sample_window_label(scenario_name: str) -> tuple[str, str]:
+    prefix = "sample_window_"
+    separator = "__"
+    if not scenario_name.startswith(prefix) or separator not in scenario_name:
+        return "", scenario_name
+    label, rest = scenario_name[len(prefix) :].split(separator, 1)
+    return label, rest
 
 
 def _split_scenario_start_label(scenario_name: str) -> tuple[str, str]:
@@ -3001,6 +3026,144 @@ def compare_execution_day_contribution_scenarios(
                         cadence=cadence,
                     )
     return scenarios
+
+
+def compare_sample_window_scenarios(
+    *,
+    signal_prices: Any,
+    trade_prices: Any,
+    sample_windows: Mapping[str, tuple[object | None, object | None]]
+    | Iterable[tuple[str, object | None, object | None]],
+    execution_days: Iterable[int] = (1, 10, 15, 20, 25),
+    monthly_contribution_usd_values: Iterable[float] = (500.0, 1000.0, 3000.0),
+    start_dates: Iterable[object] | None = None,
+    cadences: Iterable[str] = ("monthly",),
+    candidate_set: str | Iterable[str] = "nasdaq_sp500_price",
+    start_date: object | None = None,
+    end_date: object | None = None,
+    align_start_after_warmup: bool = True,
+    min_investment_usd: float = 0.0,
+) -> dict[str, dict[str, DcaResearchResult]]:
+    """Run the robustness matrix across named sample windows.
+
+    Sample windows are fixed before the run and become an explicit scenario
+    dimension. This supports discovery/validation/out-of-sample and stress-window
+    checks without adding any parameter search.
+    """
+
+    windows = _scenario_sample_windows(sample_windows)
+    base_start_dates = _scenario_start_dates(
+        start_dates,
+        fallback_start_date=start_date,
+    )
+    scenarios: dict[str, dict[str, DcaResearchResult]] = {}
+    for label, window_start, window_end in windows:
+        effective_start_dates = _unique_optional_scenario_dates(
+            _latest_scenario_date(window_start, base_start_date)
+            for base_start_date in base_start_dates
+        )
+        effective_end_date = _earliest_scenario_date(window_end, end_date)
+        if (
+            effective_end_date is not None
+            and all(
+                start is not None and start > effective_end_date
+                for start in effective_start_dates
+            )
+        ):
+            raise ValueError(
+                f"sample window {label!r} has no overlap after start/end filters"
+            )
+        window_scenarios = compare_execution_day_contribution_scenarios(
+            signal_prices=signal_prices,
+            trade_prices=trade_prices,
+            execution_days=execution_days,
+            monthly_contribution_usd_values=monthly_contribution_usd_values,
+            start_dates=effective_start_dates,
+            cadences=cadences,
+            candidate_set=candidate_set,
+            start_date=None,
+            end_date=effective_end_date,
+            align_start_after_warmup=align_start_after_warmup,
+            min_investment_usd=min_investment_usd,
+        )
+        prefix = f"sample_window_{label}__"
+        for scenario_name, results in window_scenarios.items():
+            scenarios[f"{prefix}{scenario_name}"] = results
+    return scenarios
+
+
+def _scenario_sample_windows(
+    sample_windows: Mapping[str, tuple[object | None, object | None]]
+    | Iterable[tuple[str, object | None, object | None]],
+) -> tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...]:
+    if isinstance(sample_windows, Mapping):
+        raw_items = tuple(
+            (label, bounds[0], bounds[1])
+            for label, bounds in sample_windows.items()
+        )
+    else:
+        raw_items = tuple(sample_windows)
+    if not raw_items:
+        raise ValueError("sample_windows must include at least one window")
+
+    normalized: list[tuple[str, pd.Timestamp | None, pd.Timestamp | None]] = []
+    seen_labels: set[str] = set()
+    for label, raw_start, raw_end in raw_items:
+        normalized_label = _scenario_text_label(label)
+        if normalized_label in seen_labels:
+            raise ValueError(f"duplicate sample window label: {label!r}")
+        seen_labels.add(normalized_label)
+        start = None if raw_start is None else _normalize_scenario_date(raw_start)
+        end = None if raw_end is None else _normalize_scenario_date(raw_end)
+        if start is None and end is None:
+            raise ValueError(f"sample window {label!r} must include start or end")
+        if start is not None and end is not None and start > end:
+            raise ValueError(f"sample window {label!r} start must be <= end")
+        normalized.append((normalized_label, start, end))
+    return tuple(normalized)
+
+
+def _scenario_text_label(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    label = "".join(char if char.isalnum() else "_" for char in raw).strip("_")
+    while "__" in label:
+        label = label.replace("__", "_")
+    if not label:
+        raise ValueError("sample window label must not be empty")
+    return label
+
+
+def _latest_scenario_date(
+    left: pd.Timestamp | None,
+    right: pd.Timestamp | None,
+) -> pd.Timestamp | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return max(left, right)
+
+
+def _unique_optional_scenario_dates(
+    dates: Iterable[pd.Timestamp | None],
+) -> tuple[pd.Timestamp | None, ...]:
+    values: list[pd.Timestamp | None] = []
+    for date in dates:
+        if date not in values:
+            values.append(date)
+    return tuple(values)
+
+
+def _earliest_scenario_date(
+    left: pd.Timestamp | None,
+    right: object | None,
+) -> pd.Timestamp | None:
+    normalized_right = None if right is None else _normalize_scenario_date(right)
+    if left is None:
+        return normalized_right
+    if normalized_right is None:
+        return left
+    return min(left, normalized_right)
 
 
 def _scenario_amount_label(amount: float) -> str:

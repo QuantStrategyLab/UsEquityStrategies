@@ -405,6 +405,80 @@ def test_smart_dca_research_cli_standard_preset_expands_robustness_matrix(
     ]
 
 
+def test_smart_dca_research_cli_runs_named_sample_windows(tmp_path, capsys) -> None:
+    dates = pd.date_range("2023-01-02", periods=760, freq="B")
+    prices = pd.Series([100.0 + index * 0.05 for index in range(len(dates))])
+    signal_csv = tmp_path / "signals.csv"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "sample-window-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "QQQ": prices,
+            "SPY": prices * 0.94,
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd-values",
+            "1000",
+            "--sample-windows",
+            "validation:2024-01-02:2024-12-31,oos:2025-01-02:2025-12-31",
+            "--pretty",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["sample_windows"] == [
+        {
+            "label": "validation",
+            "start_date": "2024-01-02",
+            "end_date": "2024-12-31",
+        },
+        {
+            "label": "oos",
+            "start_date": "2025-01-02",
+            "end_date": "2025-12-31",
+        },
+    ]
+    assert (
+        summary["metadata"]["research_config"]["sample_windows"]
+        == summary["sample_windows"]
+    )
+    scenario_index = (output_dir / "scenario_index.csv").read_text(encoding="utf-8")
+    scenario_coverage = (output_dir / "scenario_coverage.csv").read_text(
+        encoding="utf-8"
+    )
+    selection_summary = (output_dir / "selection_summary.csv").read_text(
+        encoding="utf-8"
+    )
+    assert "sample_window_validation__monthly_day_15" in scenario_index
+    assert "sample_window_oos__monthly_day_15" in scenario_index
+    assert "scenario_sample_window_labels" in scenario_coverage
+    assert "oos,validation" in scenario_coverage
+    assert "sample_window,start_date" in scenario_coverage
+    assert "matrix_scenario_sample_window_labels" in selection_summary
+
+
 def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     tmp_path,
     capsys,
