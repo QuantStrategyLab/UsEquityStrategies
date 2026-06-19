@@ -1860,6 +1860,10 @@ def scenario_results_to_review_decision(
         for row in selection_rows
         if row["recommendation_status"] == "promote_to_manual_review"
     )
+    candidate_universe_names = _csv_values_tuple(coverage_row["candidate_names"])
+    candidate_universe_definition_sha256s = _csv_values_tuple(
+        coverage_row["candidate_definition_sha256s"]
+    )
     effect_size_thresholds = {
         "min_worst_relative_terminal_value_pct": (
             min_effect_worst_relative_terminal_value_pct
@@ -1880,10 +1884,8 @@ def scenario_results_to_review_decision(
         "effect_size_thresholds": effect_size_thresholds,
         "candidate_universe_policy": coverage_row["candidate_universe_policy"],
         "candidate_universe_count": coverage_row["candidate_count"],
-        "candidate_universe_names": _csv_values_tuple(coverage_row["candidate_names"]),
-        "candidate_universe_definition_sha256s": _csv_values_tuple(
-            coverage_row["candidate_definition_sha256s"]
-        ),
+        "candidate_universe_names": candidate_universe_names,
+        "candidate_universe_definition_sha256s": candidate_universe_definition_sha256s,
         "runtime_default_recommendation": "fixed_dca",
         "runtime_default_change_policy": "manual_review_required_no_auto_enable",
         "smart_mode_enablement_status": _smart_mode_enablement_status(
@@ -1896,8 +1898,35 @@ def scenario_results_to_review_decision(
                 "name": str(row["selected_name"]),
                 "status": str(row["recommendation_status"]),
                 "reason": str(row["recommendation_reason"]),
+                "candidate_definition_sha256": str(
+                    row["selected_candidate_definition_sha256"]
+                ),
+                "candidate_role": str(row["selected_candidate_role"]),
+                "review_rank": int(row["selected_review_rank"]),
+                "robustness_gate_passed": bool(
+                    row["selected_robustness_gate_passed"]
+                ),
+                "effect_size_gate_passed": bool(
+                    row["selected_effect_size_gate_passed"]
+                ),
+                "pass_rate": float(row["selected_pass_rate"]),
+                "min_relative_terminal_value_pct": float(
+                    row["selected_min_relative_terminal_value_pct"]
+                ),
+                "median_relative_terminal_value_pct": float(
+                    row["selected_median_relative_terminal_value_pct"]
+                ),
+                "min_rank_score": float(row["selected_min_rank_score"]),
+                "compared_candidates": _csv_values_tuple(row["compared_candidates"]),
+                "compared_candidate_definition_sha256s": _csv_values_tuple(
+                    row["compared_candidate_definition_sha256s"]
+                ),
             }
             for row in selection_rows
+        ),
+        "production_profile_decisions": _production_profile_decision_rows(
+            selection_rows,
+            candidate_universe_names=candidate_universe_names,
         ),
         "manual_review_candidate_names": manual_review_candidate_names,
         "selection_gate_summary": {
@@ -1954,6 +1983,78 @@ def _smart_mode_enablement_status(
     ):
         return "partial_manual_review_candidates"
     return "not_recommended_for_enablement"
+
+
+def _production_profile_decision_rows(
+    selection_rows: tuple[dict[str, object], ...],
+    *,
+    candidate_universe_names: tuple[str, ...],
+) -> tuple[dict[str, object], ...]:
+    selection_by_group = {
+        str(row["selection_group"]): row
+        for row in selection_rows
+    }
+    candidate_universe = set(candidate_universe_names)
+    rows: list[dict[str, object]] = []
+    for profile, production_candidate in sorted(PRODUCTION_EQUIVALENT_CANDIDATES.items()):
+        selection_group = _selection_group_for_candidate(production_candidate)
+        row = selection_by_group.get(selection_group)
+        if row is None:
+            rows.append(
+                {
+                    "profile": profile,
+                    "production_equivalent_candidate": production_candidate,
+                    "production_equivalent_candidate_definition_sha256": (
+                        _candidate_definition_sha256(production_candidate)
+                    ),
+                    "production_equivalent_in_candidate_universe": (
+                        production_candidate in candidate_universe
+                    ),
+                    "selection_group": selection_group,
+                    "observed_best_candidate": "",
+                    "observed_best_candidate_definition_sha256": "",
+                    "observed_best_status": "not_evaluated",
+                    "observed_best_reason": "profile_not_in_candidate_universe",
+                    "runtime_default_recommendation": "fixed_dca",
+                    "runtime_default_change_policy": (
+                        "manual_review_required_no_auto_enable"
+                    ),
+                    "smart_mode_enablement_status": "not_evaluated",
+                    "manual_review_required_before_default_change": True,
+                    "default_change_allowed_by_research": False,
+                }
+            )
+            continue
+
+        rows.append(
+            {
+                "profile": profile,
+                "production_equivalent_candidate": production_candidate,
+                "production_equivalent_candidate_definition_sha256": (
+                    _candidate_definition_sha256(production_candidate)
+                ),
+                "production_equivalent_in_candidate_universe": (
+                    production_candidate in candidate_universe
+                ),
+                "selection_group": selection_group,
+                "observed_best_candidate": str(row["selected_name"]),
+                "observed_best_candidate_definition_sha256": str(
+                    row["selected_candidate_definition_sha256"]
+                ),
+                "observed_best_status": str(row["recommendation_status"]),
+                "observed_best_reason": str(row["recommendation_reason"]),
+                "runtime_default_recommendation": "fixed_dca",
+                "runtime_default_change_policy": (
+                    "manual_review_required_no_auto_enable"
+                ),
+                "smart_mode_enablement_status": str(
+                    row["smart_mode_enablement_status"]
+                ),
+                "manual_review_required_before_default_change": True,
+                "default_change_allowed_by_research": False,
+            }
+        )
+    return tuple(rows)
 
 
 def _review_decision_blocking_reasons(

@@ -289,6 +289,12 @@ sha256、文件大小、候选集信号来源模式和 `compatible_signal_consum
 顶层 `review_decision.json` 会显式区分 `observed_best_smart_candidates`
 和 `runtime_default_recommendation = fixed_dca`：即使某个智能候选在场景矩阵中表现最好，
 也只会进入 `manual_review_candidate`，不会自动改变生产默认定投模式或当前生产策略行为。
+`observed_best_smart_candidates` 会同时记录候选定义 SHA-256、参与比较的候选集合、pass rate、
+最差/中位相对 fixed DCA 终值和 effect-size gate 状态；`production_profile_decisions`
+会对 `nasdaq_sp500_smart_dca` 与 `ibit_smart_dca` 两个生产 smart profile 分别给出
+`runtime_default_recommendation=fixed_dca`、`manual_review_required_before_default_change=true`
+和 `default_change_allowed_by_research=false`，让平台或看板不能把“研究内最优”误读成可直接
+切换生产默认。
 每个场景还会写 `candidate_summary.csv` 和 `candidate_specs.csv`。`candidate_summary.csv`
 按候选记录 parameter count、threshold count、multiplier count、unique multiplier count、
 min/max multiplier、是否允许 0 倍跳过、`open_parameter_search=false` 等候选复杂度字段；
@@ -435,8 +441,9 @@ rolling gap、最差和中位 money-weighted return、最大现金占比、`weak
 顶层 `review_decision.json` 是给平台 CI 或研究看板读取的单一机器可读结论，会汇总
 `scenario_coverage.csv` 和 `selection_summary.csv` 的 gate 状态、阻塞原因、selection group
 以及被选候选的定义 hash；它也会在顶层记录 `selection_policy`、`candidate_universe_policy`、
-候选宇宙名称和定义 SHA-256、`effect_size_policy` 和固定 effect-size 阈值，便于 CI 证明本次选择没有临时搜索参数。它只决定是否进入人工评审，
-不会绕过人工评审直接启用智能定投。
+候选宇宙名称和定义 SHA-256、`effect_size_policy`、固定 effect-size 阈值，以及每个生产
+smart profile 的默认变更决策，便于 CI 证明本次选择没有临时搜索参数。它只决定是否进入
+人工评审，不会绕过人工评审直接启用智能定投。
 即使候选在已有场景内全部通过，也必须达到 `--min-review-scenarios`（默认 3）后才会进入
 `promote_to_manual_review`；否则 `recommendation_reason` 会记录为
 `insufficient_robustness_scenarios`。这个 gate 不是统计显著性证明，只是防止单一窗口或单一

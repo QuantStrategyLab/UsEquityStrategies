@@ -523,6 +523,28 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert review_decision["observed_best_smart_candidates"][0]["selection_group"] == (
         "nasdaq_sp500_price"
     )
+    assert len(
+        review_decision["observed_best_smart_candidates"][0][
+            "candidate_definition_sha256"
+        ]
+    ) == 64
+    profile_decisions = {
+        row["profile"]: row
+        for row in review_decision["production_profile_decisions"]
+    }
+    assert set(profile_decisions) == {
+        IBIT_SMART_DCA_PROFILE,
+        NASDAQ_SP500_SMART_DCA_PROFILE,
+    }
+    assert profile_decisions[NASDAQ_SP500_SMART_DCA_PROFILE][
+        "runtime_default_recommendation"
+    ] == "fixed_dca"
+    assert profile_decisions[NASDAQ_SP500_SMART_DCA_PROFILE][
+        "default_change_allowed_by_research"
+    ] is False
+    assert profile_decisions[IBIT_SMART_DCA_PROFILE][
+        "observed_best_status"
+    ] == "not_evaluated"
     assert review_decision["overall_recommendation_status"] in {
         "promote_to_manual_review",
         "hold_default_fixed_dca",
@@ -603,14 +625,28 @@ def test_review_decision_keeps_fixed_default_while_naming_manual_review_candidat
     assert decision["manual_review_candidate_names"] == (
         "nasdaq_sp500_price_no_skip",
     )
-    assert decision["observed_best_smart_candidates"] == (
-        {
-            "selection_group": "nasdaq_sp500_price",
-            "name": "nasdaq_sp500_price_no_skip",
-            "status": "promote_to_manual_review",
-            "reason": "selected_candidate_passed_all_scenarios",
-        },
+    observed = decision["observed_best_smart_candidates"][0]
+    assert observed["selection_group"] == "nasdaq_sp500_price"
+    assert observed["name"] == "nasdaq_sp500_price_no_skip"
+    assert observed["status"] == "promote_to_manual_review"
+    assert observed["reason"] == "selected_candidate_passed_all_scenarios"
+    assert observed["candidate_role"] == "best_observed_smart_candidate"
+    assert len(observed["candidate_definition_sha256"]) == 64
+    assert observed["compared_candidates"] == ("nasdaq_sp500_price_no_skip",)
+    profile_decisions = {
+        row["profile"]: row
+        for row in decision["production_profile_decisions"]
+    }
+    nasdaq_profile = profile_decisions[NASDAQ_SP500_SMART_DCA_PROFILE]
+    assert nasdaq_profile["production_equivalent_candidate"] == (
+        "nasdaq_sp500_price_no_skip"
     )
+    assert nasdaq_profile["production_equivalent_in_candidate_universe"] is True
+    assert nasdaq_profile["observed_best_candidate"] == "nasdaq_sp500_price_no_skip"
+    assert nasdaq_profile["observed_best_status"] == "promote_to_manual_review"
+    assert nasdaq_profile["runtime_default_recommendation"] == "fixed_dca"
+    assert nasdaq_profile["manual_review_required_before_default_change"] is True
+    assert nasdaq_profile["default_change_allowed_by_research"] is False
 
 
 def test_selection_rows_require_minimum_robustness_scenarios() -> None:
