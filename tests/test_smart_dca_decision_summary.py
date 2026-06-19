@@ -58,6 +58,10 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert summary["performance_diagnosis_counts"][
         "terminal_edge_non_negative"
     ] == 2
+    assert summary["research_priority_counts"]["hold_fixed_default"] == 2
+    assert summary["research_priority_counts"][
+        "avoid_parameter_tuning_without_new_independent_signal"
+    ] == 2
     assert summary["profile_rollups"][0]["profile"] == "ibit_smart_dca"
     assert summary["profile_rollups"][0][
         "runtime_default_recommendations"
@@ -69,6 +73,9 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert "robustness_gate_failed" in summary["profile_rollups"][0][
         "promotion_blockers"
     ]
+    assert "avoid_skip_heavy_cash_drag_variants_as_default" in summary[
+        "profile_rollups"
+    ][0]["research_priorities"]
     assert summary["profile_rollups"][1]["profile"] == "nasdaq_sp500_smart_dca"
     assert "nasdaq_sp500_price_no_skip" in summary["profile_rollups"][1][
         "observed_best_candidates"
@@ -87,6 +94,8 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert "## Overall Diagnostics" in markdown
     assert "robustness_gate_failed: 1" in markdown
     assert "terminal_edge_non_negative: 2" in markdown
+    assert "Research priorities" in markdown
+    assert "hold_fixed_default: 2" in markdown
     assert "Promotion blockers" in markdown
     assert "default_change_not_allowed_by_research" in markdown
     assert "## Profile Evidence" in markdown

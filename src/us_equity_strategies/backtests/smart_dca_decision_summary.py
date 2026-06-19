@@ -56,6 +56,7 @@ def summarize_smart_dca_decision_matrices(
         "performance_diagnosis_counts": _performance_diagnosis_counts(
             profile_rollups
         ),
+        "research_priority_counts": _research_priority_counts(profile_rollups),
         "profile_rollups": profile_rollups,
         "matrices": matrices,
     }
@@ -94,8 +95,8 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
         "",
         "## Profile Rollup",
         "",
-        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates | Promotion blockers | Research priorities |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for profile in summary.get("profile_rollups", ()):
         lines.append(
@@ -119,6 +120,9 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
                     _markdown_cell(
                         ", ".join(profile.get("promotion_blockers", ()))
                     ),
+                    _markdown_cell(
+                        ", ".join(profile.get("research_priorities", ()))
+                    ),
                 )
             )
             + " |"
@@ -138,6 +142,11 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
             "| Performance diagnoses | "
             + _markdown_cell(
                 _format_counts(summary.get("performance_diagnosis_counts", {}))
+            )
+            + " |",
+            "| Research priorities | "
+            + _markdown_cell(
+                _format_counts(summary.get("research_priority_counts", {}))
             )
             + " |",
         ]
@@ -425,6 +434,7 @@ def _profile_rollup(
         for matrix, row in matrix_rows
         if str(row.get("observed_best_candidate", "")).strip()
     )
+    promotion_blockers = _profile_promotion_blockers(rows)
     return {
         "profile": profile,
         "matrix_count": len(rows),
@@ -438,7 +448,11 @@ def _profile_rollup(
             if str(row.get("observed_best_candidate", "")).strip()
         ),
         "observed_best_evidence": observed_best_evidence,
-        "promotion_blockers": _profile_promotion_blockers(rows),
+        "promotion_blockers": promotion_blockers,
+        "research_priorities": _profile_research_priorities(
+            promotion_blockers,
+            observed_best_evidence,
+        ),
     }
 
 
@@ -519,6 +533,36 @@ def _observed_best_evidence(
     }
 
 
+def _profile_research_priorities(
+    promotion_blockers: Iterable[str],
+    observed_best_evidence: Iterable[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    blockers = set(promotion_blockers)
+    diagnoses = {
+        str(diagnosis)
+        for evidence in observed_best_evidence
+        for diagnosis in evidence.get("observed_best_performance_diagnoses", ())
+        if str(diagnosis).strip()
+    }
+    priorities: set[str] = {"hold_fixed_default"}
+    if "effect_size_gate_failed" in blockers:
+        priorities.add("require_material_terminal_edge_before_promotion")
+        priorities.add("avoid_parameter_tuning_without_new_independent_signal")
+    if "robustness_gate_failed" in blockers:
+        priorities.add("improve_cross_scenario_robustness_before_manual_review")
+    if {
+        "excess_terminal_cash",
+        "lower_deployment_rate",
+        "skipped_buy_cash_drag",
+    } & diagnoses:
+        priorities.add("avoid_skip_heavy_cash_drag_variants_as_default")
+    if "terminal_underperformance_vs_fixed" in diagnoses:
+        priorities.add("require_terminal_value_non_regression_before_promotion")
+    if "no_observed_smart_candidate" in blockers:
+        priorities.add("expand_contract_covered_signal_family_before_retest")
+    return tuple(sorted(priorities))
+
+
 def _promotion_blocker_counts(
     profile_rollups: Iterable[Mapping[str, Any]],
 ) -> dict[str, int]:
@@ -540,6 +584,18 @@ def _performance_diagnosis_counts(
         for evidence in profile.get("observed_best_evidence", ())
         for diagnosis in evidence.get("observed_best_performance_diagnoses", ())
         if str(diagnosis).strip()
+    ]
+    return _count_values(values)
+
+
+def _research_priority_counts(
+    profile_rollups: Iterable[Mapping[str, Any]],
+) -> dict[str, int]:
+    values = [
+        str(priority)
+        for profile in profile_rollups
+        for priority in profile.get("research_priorities", ())
+        if str(priority).strip()
     ]
     return _count_values(values)
 
