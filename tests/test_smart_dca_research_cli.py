@@ -68,7 +68,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert summary["monthly_contribution_usd_values"] == [500.0, 1000.0]
     assert summary["cadences"] == ["weekly", "monthly", "quarterly"]
     assert summary["start_dates"] == ["2025-01-02", "2025-04-01"]
+    assert summary["robustness_preset"] == "custom"
     assert summary["metadata"]["research_config"]["candidate_set"] == "nasdaq_sp500_price_variants"
+    assert summary["metadata"]["research_config"]["robustness_preset"] == "custom"
     assert summary["metadata"]["research_config"]["signal_source_modes"] == [
         "market_history_price_indicators"
     ]
@@ -279,6 +281,73 @@ def test_smart_dca_research_cli_can_select_single_signal_column(tmp_path) -> Non
     assert result == 0
     metrics = (output_dir / "monthly_day_15" / "metrics.csv").read_text(encoding="utf-8")
     assert "ibit_btc_ahr999_mayer_cycle" in metrics
+
+
+def test_smart_dca_research_cli_standard_preset_expands_robustness_matrix(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=280, freq="B")
+    prices = pd.Series([100.0 + index * 0.10 for index in range(len(dates))])
+    signal_csv = tmp_path / "signals.csv"
+    trade_csv = tmp_path / "trade.csv"
+    output_dir = tmp_path / "standard-preset-artifacts"
+
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "QQQ": prices,
+            "SPY": prices * 0.95,
+        }
+    ).to_csv(signal_csv, index=False)
+    pd.DataFrame(
+        {
+            "date": dates.date,
+            "close": prices * 0.50,
+        }
+    ).to_csv(trade_csv, index=False)
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+            "--execution-days",
+            "15",
+            "--robustness-preset",
+            "standard",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["robustness_preset"] == "standard"
+    assert summary["monthly_contribution_usd_values"] == [500.0, 1000.0, 3000.0]
+    assert summary["cadences"] == ["weekly", "monthly", "quarterly"]
+    assert (output_dir / "weekly_contribution_usd_500" / "metrics.csv").exists()
+    assert (
+        output_dir / "monthly_day_15_contribution_usd_1000" / "metrics.csv"
+    ).exists()
+    assert (
+        output_dir / "quarterly_day_15_contribution_usd_3000" / "metrics.csv"
+    ).exists()
+
+    scenario_manifest = json.loads(
+        (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
+    )
+    assert scenario_manifest["metadata"]["research_config"][
+        "robustness_preset"
+    ] == "standard"
+    assert scenario_manifest["metadata"]["research_config"]["cadences"] == [
+        "weekly",
+        "monthly",
+        "quarterly",
+    ]
 
 
 def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(

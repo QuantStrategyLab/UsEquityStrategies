@@ -21,6 +21,11 @@ from .smart_dca_research import (
 
 
 RESEARCH_EXPORT_SCHEMA_VERSION = "research_export.v1"
+ROBUSTNESS_PRESET_CUSTOM = "custom"
+ROBUSTNESS_PRESET_STANDARD = "standard"
+ROBUSTNESS_PRESETS = frozenset({ROBUSTNESS_PRESET_CUSTOM, ROBUSTNESS_PRESET_STANDARD})
+STANDARD_ROBUSTNESS_CADENCES = "weekly,monthly,quarterly"
+STANDARD_ROBUSTNESS_CONTRIBUTIONS = "500,1000,3000"
 _FORBIDDEN_MANIFEST_KEY_FRAGMENTS = frozenset(
     {
         "api_key",
@@ -52,11 +57,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         output_dir = Path(args.output_dir)
         execution_days = _parse_execution_days(args.execution_days)
+        cadence_arg = _cadence_arg_for_preset(args)
         contribution_values = _parse_contribution_values(
-            args.monthly_contribution_usd_values
+            _contribution_values_arg_for_preset(args)
         )
         start_dates = _parse_start_dates(args.start_dates)
-        cadences = _parse_cadences(args.cadences)
+        cadences = _parse_cadences(cadence_arg)
         if contribution_values is None and start_dates is None and cadences == ("monthly",):
             contribution_values = (args.monthly_contribution_usd,)
             scenarios = compare_monthly_execution_day_scenarios(
@@ -105,6 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     summary = {
         "candidate_set": args.candidate_set,
+        "robustness_preset": args.robustness_preset,
         "monthly_contribution_usd_values": contribution_values,
         "start_dates": None if start_dates is None else [item.date().isoformat() for item in start_dates],
         "cadences": cadences,
@@ -181,8 +188,18 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--robustness-preset",
+        default=ROBUSTNESS_PRESET_CUSTOM,
+        choices=sorted(ROBUSTNESS_PRESETS),
+        help=(
+            "Use a fixed robustness matrix preset. 'standard' fills missing "
+            "contribution values with 500,1000,3000 and missing cadences with "
+            "weekly,monthly,quarterly."
+        ),
+    )
+    parser.add_argument(
         "--cadences",
-        default="monthly",
+        default=None,
         help="Comma-separated DCA cadences for robustness runs: weekly, monthly, quarterly.",
     )
     parser.add_argument("--execution-days", default="1,10,15,20,25")
@@ -224,6 +241,7 @@ def _research_metadata(
     return {
         "research_config": {
             "candidate_set": args.candidate_set,
+            "robustness_preset": args.robustness_preset,
             "signal_source_modes": candidate_set_signal_source_modes(
                 args.candidate_set
             ),
@@ -276,6 +294,22 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             expected_transform=None,
         )
     return records
+
+
+def _cadence_arg_for_preset(args: argparse.Namespace) -> str:
+    if args.cadences:
+        return str(args.cadences)
+    if args.robustness_preset == ROBUSTNESS_PRESET_STANDARD:
+        return STANDARD_ROBUSTNESS_CADENCES
+    return "monthly"
+
+
+def _contribution_values_arg_for_preset(args: argparse.Namespace) -> str | None:
+    if args.monthly_contribution_usd_values:
+        return str(args.monthly_contribution_usd_values)
+    if args.robustness_preset == ROBUSTNESS_PRESET_STANDARD:
+        return STANDARD_ROBUSTNESS_CONTRIBUTIONS
+    return None
 
 
 def _signal_manifest_expectations(candidate_set: str) -> dict[str, str | None]:
