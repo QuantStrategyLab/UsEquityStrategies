@@ -57,6 +57,10 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert summary["profile_rollups"][0][
         "runtime_default_recommendations"
     ] == ("fixed_dca",)
+    ibit_evidence = summary["profile_rollups"][0]["observed_best_evidence"][0]
+    assert ibit_evidence["matrix"] == "ibit_helper_matrix"
+    assert ibit_evidence["observed_best_pass_rate"] == 0.95
+    assert ibit_evidence["observed_best_effect_size_gate_passed"] is False
     assert summary["profile_rollups"][1]["profile"] == "nasdaq_sp500_smart_dca"
     assert "nasdaq_sp500_price_no_skip" in summary["profile_rollups"][1][
         "observed_best_candidates"
@@ -69,8 +73,11 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     markdown = smart_dca_decision_summary_markdown(summary)
     assert "# Smart DCA Promotion Gate / Default Decision" in markdown
     assert "## Profile Rollup" in markdown
+    assert "## Profile Evidence" in markdown
+    assert "Min rank score" in markdown
     assert "Worst terminal vs fixed" in markdown
     assert "95.00%" in markdown
+    assert "-3.61" in markdown
     assert "-4.46%" in markdown
     assert "## Evidence Hashes" in markdown
     assert "nasdaq_price_proxy_matrix" in markdown

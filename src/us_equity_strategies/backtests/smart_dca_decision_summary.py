@@ -119,6 +119,71 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Profile Evidence",
+            "",
+            "| Profile | Matrix | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Min rank score | Robustness gate | Effect gate | Diagnosis | Hold reason |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for profile in summary.get("profile_rollups", ()):
+        for evidence in profile.get("observed_best_evidence", ()):
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _markdown_cell(profile.get("profile", "")),
+                        _markdown_cell(evidence.get("matrix", "")),
+                        _markdown_cell(evidence.get("observed_best_candidate", "")),
+                        _markdown_cell(
+                            _format_rate(evidence.get("observed_best_pass_rate"))
+                        ),
+                        _markdown_cell(
+                            _format_pct(
+                                evidence.get(
+                                    "observed_best_min_relative_terminal_value_pct"
+                                )
+                            )
+                        ),
+                        _markdown_cell(
+                            _format_pct(
+                                evidence.get(
+                                    "observed_best_median_relative_terminal_value_pct"
+                                )
+                            )
+                        ),
+                        _markdown_cell(
+                            _format_decimal(
+                                evidence.get("observed_best_min_rank_score")
+                            )
+                        ),
+                        _markdown_cell(
+                            _format_bool(
+                                evidence.get(
+                                    "observed_best_robustness_gate_passed"
+                                )
+                            )
+                        ),
+                        _markdown_cell(
+                            _format_bool(
+                                evidence.get(
+                                    "observed_best_effect_size_gate_passed"
+                                )
+                            )
+                        ),
+                        _markdown_cell(
+                            evidence.get(
+                                "observed_best_dominant_performance_diagnosis",
+                                "",
+                            )
+                        ),
+                        _markdown_cell(evidence.get("observed_best_reason", "")),
+                    )
+                )
+                + " |"
+            )
+    lines.extend(
+        [
+            "",
             "## Matrix Decisions",
             "",
             "| Matrix | Profile | Gate | Runtime default | Smart mode | Default change allowed | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Robustness gate | Effect gate | Diagnosis | Reason |",
@@ -312,12 +377,13 @@ def _profile_rollup(
     profile: str,
     matrices: Iterable[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    rows = [
-        row
+    matrix_rows = [
+        (matrix, row)
         for matrix in matrices
         for row in matrix.get("profiles", ())
         if row.get("profile") == profile
     ]
+    rows = [row for _, row in matrix_rows]
     default_recommendations = tuple(
         sorted({str(row.get("runtime_default_recommendation", "")) for row in rows})
     )
@@ -339,6 +405,45 @@ def _profile_rollup(
             str(row.get("observed_best_candidate", ""))
             for row in rows
             if str(row.get("observed_best_candidate", "")).strip()
+        ),
+        "observed_best_evidence": tuple(
+            _observed_best_evidence(matrix, row)
+            for matrix, row in matrix_rows
+            if str(row.get("observed_best_candidate", "")).strip()
+        ),
+    }
+
+
+def _observed_best_evidence(
+    matrix: Mapping[str, Any],
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "matrix": matrix.get("label", ""),
+        "observed_best_candidate": row.get("observed_best_candidate", ""),
+        "observed_best_status": row.get("observed_best_status", ""),
+        "observed_best_reason": row.get("observed_best_reason", ""),
+        "observed_best_pass_rate": row.get("observed_best_pass_rate"),
+        "observed_best_min_relative_terminal_value_pct": row.get(
+            "observed_best_min_relative_terminal_value_pct"
+        ),
+        "observed_best_median_relative_terminal_value_pct": row.get(
+            "observed_best_median_relative_terminal_value_pct"
+        ),
+        "observed_best_min_rank_score": row.get("observed_best_min_rank_score"),
+        "observed_best_robustness_gate_passed": row.get(
+            "observed_best_robustness_gate_passed"
+        ),
+        "observed_best_effect_size_gate_passed": row.get(
+            "observed_best_effect_size_gate_passed"
+        ),
+        "observed_best_dominant_performance_diagnosis": row.get(
+            "observed_best_dominant_performance_diagnosis",
+            "",
+        ),
+        "observed_best_performance_diagnoses": row.get(
+            "observed_best_performance_diagnoses",
+            (),
         ),
     }
 
@@ -371,6 +476,12 @@ def _format_bool(value: object) -> str:
     if value in (None, ""):
         return ""
     return str(value)
+
+
+def _format_decimal(value: object) -> str:
+    if value in (None, ""):
+        return ""
+    return f"{float(value):.2f}"
 
 
 def _markdown_cell(value: object) -> str:

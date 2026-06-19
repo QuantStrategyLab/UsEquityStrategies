@@ -29,6 +29,13 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` |
 | `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated`, `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` |
 
+## Profile Evidence
+
+| Profile | Matrix | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Min rank score | Robustness gate | Effect gate | Diagnosis | Hold reason |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `nasdaq_sp500_smart_dca` | `nasdaq_sp500_price_proxy_matrix` | `nasdaq_sp500_price_no_skip` | `100.00%` | `0.00%` | `0.00%` | `0.00` | `true` | `false` | `terminal_edge_non_negative` | `insufficient_effect_size_vs_fixed_dca` |
+| `ibit_smart_dca` | `helper_matrix_diagnostics` | `ibit_btc_precomputed_ahr999_guarded_cycle` | `95.00%` | `-4.46%` | `0.00%` | `-3.61` | `false` | `false` | `terminal_edge_non_negative` | `no_candidate_passed_robustness_gate` |
+
 ## Matrix Decisions
 
 | Matrix | Profile | Gate | Runtime default | Smart mode | Default change allowed | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Robustness gate | Effect gate | Diagnosis | Reason |
