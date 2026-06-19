@@ -123,6 +123,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert summary["artifacts"]["robustness_summary"] == str(
         output_dir / "robustness_summary.csv"
     )
+    assert summary["artifacts"]["production_profile_decisions"] == str(
+        output_dir / "production_profile_decisions.csv"
+    )
     assert (
         output_dir
         / "monthly_day_1_contribution_usd_500_start_2025_01_02"
@@ -140,6 +143,7 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     ).exists()
     assert (output_dir / "selection_summary.csv").exists()
     assert (output_dir / "scenario_coverage.csv").exists()
+    assert (output_dir / "production_profile_decisions.csv").exists()
     assert (output_dir / "review_decision.json").exists()
     assert (
         output_dir
@@ -174,6 +178,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     scenario_coverage = (output_dir / "scenario_coverage.csv").read_text(
         encoding="utf-8"
     )
+    production_profile_decisions = (
+        output_dir / "production_profile_decisions.csv"
+    ).read_text(encoding="utf-8")
     scenario_manifest = json.loads((output_dir / "scenario_manifest.json").read_text(encoding="utf-8"))
     review_decision = json.loads((output_dir / "review_decision.json").read_text(encoding="utf-8"))
     assert "nasdaq_sp500_price_defensive" in scenario_index
@@ -205,6 +212,8 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "scenario_sample_windows" in scenario_coverage
     assert "scenario_sample_window_audit_passed" in scenario_coverage
     assert "ready_for_selection_review" in scenario_coverage
+    assert "default_change_allowed_by_research" in production_profile_decisions
+    assert "fixed_dca" in production_profile_decisions
     assert review_decision["artifact_type"] == "smart_dca_review_decision"
     assert review_decision["selection_policy"] == "fixed_preset_no_parameter_search"
     assert review_decision["effect_size_policy"] == (
@@ -254,6 +263,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
         1000.0,
     ]
     assert scenario_manifest["metadata"]["input_artifacts"]["trade_csv"]["size_bytes"] > 0
+    assert "production_profile_decisions.csv" in {
+        item["path"] for item in scenario_manifest["files"]
+    }
     assert "review_decision.json" in {item["path"] for item in scenario_manifest["files"]}
     metrics = (
         output_dir / "monthly_day_1_contribution_usd_500_start_2025_01_02" / "metrics.csv"

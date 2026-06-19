@@ -2715,6 +2715,7 @@ def write_scenario_research_artifacts(
     robustness_summary_path = output_path / "robustness_summary.csv"
     selection_summary_path = output_path / "selection_summary.csv"
     scenario_coverage_path = output_path / "scenario_coverage.csv"
+    production_profile_decisions_path = output_path / "production_profile_decisions.csv"
     review_decision_path = output_path / "review_decision.json"
     scenario_manifest_path = output_path / "scenario_manifest.json"
     pd.DataFrame(index_rows).to_csv(scenario_index_path, index=False)
@@ -2740,6 +2741,10 @@ def write_scenario_research_artifacts(
         fixed_name=fixed_name,
         min_review_scenarios=min_review_scenarios,
     )
+    pd.DataFrame(review_decision["production_profile_decisions"]).to_csv(
+        production_profile_decisions_path,
+        index=False,
+    )
     review_decision_path.write_text(
         json.dumps(review_decision, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2748,6 +2753,7 @@ def write_scenario_research_artifacts(
     artifact_paths["robustness_summary"] = robustness_summary_path
     artifact_paths["selection_summary"] = selection_summary_path
     artifact_paths["scenario_coverage"] = scenario_coverage_path
+    artifact_paths["production_profile_decisions"] = production_profile_decisions_path
     artifact_paths["review_decision"] = review_decision_path
     _write_artifact_manifest(
         scenario_manifest_path,

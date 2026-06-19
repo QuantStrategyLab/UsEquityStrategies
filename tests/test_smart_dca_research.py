@@ -303,12 +303,16 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert "robustness_summary" in artifact_paths
     assert "selection_summary" in artifact_paths
     assert "scenario_coverage" in artifact_paths
+    assert "production_profile_decisions" in artifact_paths
     assert "review_decision" in artifact_paths
     assert "scenario_manifest" in artifact_paths
     scenario_index = artifact_paths["scenario_index"].read_text(encoding="utf-8")
     robustness_summary = artifact_paths["robustness_summary"].read_text(encoding="utf-8")
     selection_summary = artifact_paths["selection_summary"].read_text(encoding="utf-8")
     scenario_coverage = artifact_paths["scenario_coverage"].read_text(encoding="utf-8")
+    production_profile_decisions = artifact_paths[
+        "production_profile_decisions"
+    ].read_text(encoding="utf-8")
     assert "monthly_day_1" in scenario_index
     assert "monthly_day_25" in scenario_index
     assert "pass_rate" in robustness_summary
@@ -320,6 +324,12 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert "review_status" in robustness_summary
     assert "coverage_gate_passed" in scenario_coverage
     assert "scenario_count_below_min_review_scenarios" in scenario_coverage
+    assert "profile" in production_profile_decisions
+    assert "runtime_default_recommendation" in production_profile_decisions
+    assert "default_change_allowed_by_research" in production_profile_decisions
+    assert "nasdaq_sp500_smart_dca" in production_profile_decisions
+    assert "ibit_smart_dca" in production_profile_decisions
+    assert "fixed_dca" in production_profile_decisions
     review_decision = json.loads(artifact_paths["review_decision"].read_text(encoding="utf-8"))
     assert review_decision["artifact_type"] == "smart_dca_review_decision"
     assert review_decision["selection_policy"] == "fixed_preset_no_parameter_search"
@@ -380,6 +390,9 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert "robustness_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
     assert "selection_summary.csv" in {item["path"] for item in scenario_manifest["files"]}
     assert "scenario_coverage.csv" in {item["path"] for item in scenario_manifest["files"]}
+    assert "production_profile_decisions.csv" in {
+        item["path"] for item in scenario_manifest["files"]
+    }
     assert "review_decision.json" in {item["path"] for item in scenario_manifest["files"]}
 
 
