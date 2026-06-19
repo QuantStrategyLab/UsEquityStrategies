@@ -61,10 +61,17 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
     assert "nasdaq_sp500_price_no_skip" in summary["profile_rollups"][1][
         "observed_best_candidates"
     ]
+    ibit_profile = summary["matrices"][1]["profiles"][0]
+    assert ibit_profile["observed_best_pass_rate"] == 0.95
+    assert ibit_profile["observed_best_min_relative_terminal_value_pct"] == -4.4593
+    assert ibit_profile["observed_best_robustness_gate_passed"] is False
 
     markdown = smart_dca_decision_summary_markdown(summary)
     assert "# Smart DCA Promotion Gate / Default Decision" in markdown
     assert "## Profile Rollup" in markdown
+    assert "Worst terminal vs fixed" in markdown
+    assert "95.00%" in markdown
+    assert "-4.46%" in markdown
     assert "## Evidence Hashes" in markdown
     assert "nasdaq_price_proxy_matrix" in markdown
     assert "ibit_btc_precomputed_ahr999_guarded_cycle" in markdown
@@ -102,6 +109,8 @@ def test_smart_dca_decision_summary_cli_writes_json_and_markdown(
     assert json.loads(output_json.read_text(encoding="utf-8"))["matrix_count"] == 1
     output_markdown = output_md.read_text(encoding="utf-8")
     assert "nasdaq_sp500_smart_dca" in output_markdown
+    assert "100.00%" in output_markdown
+    assert "terminal_edge_non_negative" in output_markdown
     assert "Profile decisions SHA-256" in output_markdown
 
 
@@ -183,6 +192,10 @@ def _write_matrix_artifacts(
         "manual_review_gate_passed": False,
         "overall_recommendation_status": "hold_default_fixed_dca",
         "overall_recommendation_reason": "insufficient_effect_size_vs_fixed_dca",
+        "observed_best_smart_candidates": _observed_best_smart_candidates(
+            nasdaq_best=nasdaq_best,
+            ibit_best=ibit_best,
+        ),
         "production_profile_decisions": [
             _review_profile_decision(row) for row in rows
         ],
@@ -234,6 +247,55 @@ def _profile_decision(
     if overrides:
         row.update(overrides)
     return row
+
+
+def _observed_best_smart_candidates(
+    *,
+    nasdaq_best: str,
+    ibit_best: str,
+) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    if nasdaq_best:
+        candidates.append(
+            {
+                "name": nasdaq_best,
+                "candidate_definition_sha256": "b" * 64,
+                "selection_group": "nasdaq_sp500_price",
+                "status": "hold_default_fixed_dca",
+                "reason": "insufficient_effect_size_vs_fixed_dca",
+                "pass_rate": 1.0,
+                "min_relative_terminal_value_pct": 0.0,
+                "median_relative_terminal_value_pct": 0.0,
+                "min_rank_score": 0.0,
+                "robustness_gate_passed": True,
+                "effect_size_gate_passed": False,
+                "dominant_performance_diagnosis": "terminal_edge_non_negative",
+                "performance_diagnoses": ["terminal_edge_non_negative"],
+            }
+        )
+    if ibit_best:
+        candidates.append(
+            {
+                "name": ibit_best,
+                "candidate_definition_sha256": "b" * 64,
+                "selection_group": "ibit_btc_ahr999_precomputed",
+                "status": "hold_default_fixed_dca",
+                "reason": "no_candidate_passed_robustness_gate",
+                "pass_rate": 0.95,
+                "min_relative_terminal_value_pct": -4.4593,
+                "median_relative_terminal_value_pct": 0.0,
+                "min_rank_score": -3.6095,
+                "robustness_gate_passed": False,
+                "effect_size_gate_passed": False,
+                "dominant_performance_diagnosis": "terminal_edge_non_negative",
+                "performance_diagnoses": [
+                    "drawdown_better_than_fixed",
+                    "terminal_edge_non_negative",
+                    "terminal_underperformance_vs_fixed",
+                ],
+            }
+        )
+    return candidates
 
 
 def _review_profile_decision(row: dict[str, str]) -> dict[str, object]:

@@ -15,8 +15,12 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
   --matrix-dir /home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics \
   --profile nasdaq_sp500_smart_dca \
   --profile ibit_smart_dca \
-  --markdown
+  --output-json /tmp/smart-dca-decision-summary.json \
+  --output-md /tmp/smart-dca-decision-summary.md
 ```
+
+- Passed: `true`
+- Matrix count: `3`
 
 ## Profile Rollup
 
@@ -27,14 +31,14 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 
 ## Matrix Decisions
 
-| Matrix | Profile | Gate | Runtime default | Smart mode | Default change allowed | Observed best | Reason |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `nasdaq_sp500_price_proxy_matrix` | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` | `insufficient_effect_size_vs_fixed_dca` |
-| `nasdaq_sp500_price_proxy_matrix` | `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | `profile_not_in_candidate_universe` |
-| `helper_matrix_diagnostics` | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | `profile_not_in_candidate_universe` |
-| `helper_matrix_diagnostics` | `ibit_smart_dca` | passed | `fixed_dca` | `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` | `no_candidate_passed_robustness_gate` |
-| `nasdaqcom_cape_vix_diagnostics` | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | `profile_not_in_candidate_universe` |
-| `nasdaqcom_cape_vix_diagnostics` | `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | `profile_not_in_candidate_universe` |
+| Matrix | Profile | Gate | Runtime default | Smart mode | Default change allowed | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Robustness gate | Effect gate | Diagnosis | Reason |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `nasdaq_sp500_price_proxy_matrix` | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_recommended_for_enablement` | `False` | `nasdaq_sp500_price_no_skip` | `100.00%` | `0.00%` | `0.00%` | `true` | `false` | `terminal_edge_non_negative` | `insufficient_effect_size_vs_fixed_dca` |
+| `nasdaq_sp500_price_proxy_matrix` | `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | - | - | - | - | - | - | `profile_not_in_candidate_universe` |
+| `helper_matrix_diagnostics` | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | - | - | - | - | - | - | `profile_not_in_candidate_universe` |
+| `helper_matrix_diagnostics` | `ibit_smart_dca` | passed | `fixed_dca` | `not_recommended_for_enablement` | `False` | `ibit_btc_precomputed_ahr999_guarded_cycle` | `95.00%` | `-4.46%` | `0.00%` | `false` | `false` | `terminal_edge_non_negative` | `no_candidate_passed_robustness_gate` |
+| `nasdaqcom_cape_vix_diagnostics` | `nasdaq_sp500_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | - | - | - | - | - | - | `profile_not_in_candidate_universe` |
+| `nasdaqcom_cape_vix_diagnostics` | `ibit_smart_dca` | passed | `fixed_dca` | `not_evaluated` | `False` | - | - | - | - | - | - | - | `profile_not_in_candidate_universe` |
 
 ## Evidence Hashes
 
@@ -50,7 +54,9 @@ Both production smart DCA profiles remain fixed-DCA by default. Smart mode stays
 explicit opt-in and requires a separate human review before any default change.
 The current best observed candidates are retained only as research baselines:
 
-- `nasdaq_sp500_price_no_skip` for Nasdaq/S&P price proxy research; it did not
-  clear the effect-size gate because it is effectively fixed DCA.
-- `ibit_btc_precomputed_ahr999_guarded_cycle` for IBIT helper research; it did
-  not clear the robustness gate across the current matrix.
+- `nasdaq_sp500_price_no_skip` for Nasdaq/S&P price proxy research; it has a
+  100.00% pass rate and no observed terminal drag, but it does not clear the
+  effect-size gate because it is effectively fixed DCA.
+- `ibit_btc_precomputed_ahr999_guarded_cycle` for IBIT helper research; it has a
+  95.00% pass rate, but its worst observed terminal value is 4.46% below fixed
+  DCA and it does not clear the robustness gate across the current matrix.
