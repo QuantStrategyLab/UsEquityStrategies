@@ -49,6 +49,13 @@ python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
 | `nasdaq_sp500_smart_dca` | `True` | `True` | `True` | `keep_fixed_dca_default`, `require_effect_size_gate_before_default_change` | - |
 | `ibit_smart_dca` | `True` | `True` | `True` | `keep_fixed_dca_default`, `reject_skip_heavy_cash_drag_default_candidates`, `require_cross_scenario_robustness_before_manual_review`, `require_terminal_value_non_regression` | - |
 
+## Runtime Default Contract
+
+`audit_smart_dca_runtime_default_contract()` in the strategy catalog keeps the
+production defaults aligned with this research decision: both smart DCA profiles
+must remain fixed-amount monthly DCA by default, with smart multipliers disabled,
+no available-cash ratio mode, no cash reserve, and fractional-friendly minimums.
+
 ## Profile Evidence
 
 | Profile | Matrix | Observed best | Pass rate | Worst terminal vs fixed | Median terminal vs fixed | Min rank score | Robustness gate | Effect gate | Diagnosis | Hold reason |

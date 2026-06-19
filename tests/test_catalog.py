@@ -11,6 +11,7 @@ from us_equity_strategies.catalog import (
     TQQQ_GROWTH_INCOME_PROFILE,
     RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
+    audit_smart_dca_runtime_default_contract,
     get_compatible_platforms,
     get_profile_aliases,
     get_runtime_enabled_profiles,
@@ -303,6 +304,33 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(ibit_config["ahr999_accumulation_multiplier"], 2.25)
         self.assertEqual(ibit_config["ahr999_dca_multiplier"], 1.50)
         self.assertEqual(ibit_config["ahr999_expensive_multiplier"], 0.0)
+
+    def test_dca_runtime_default_contract_matches_catalog_defaults(self):
+        summary = audit_smart_dca_runtime_default_contract()
+
+        self.assertEqual(
+            summary["schema_version"],
+            "smart_dca_runtime_default_contract.v1",
+        )
+        self.assertTrue(summary["passed"])
+        self.assertEqual(summary["failure_reasons"], ())
+        self.assertEqual(
+            summary["profiles"],
+            (NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE),
+        )
+        for profile_contract in summary["profile_contracts"]:
+            with self.subTest(profile=profile_contract["profile"]):
+                self.assertTrue(profile_contract["passed"])
+                self.assertEqual(
+                    profile_contract["actual_values"]["investment_amount_mode"],
+                    "fixed",
+                )
+                self.assertIs(
+                    profile_contract["actual_values"]["smart_multiplier_enabled"],
+                    False,
+                )
+                self.assertTrue(profile_contract["available_cash_ratio_absent"])
+                self.assertEqual(profile_contract["target_mode"], "value")
 
     def test_market_regime_control_position_defaults_match_strategy_consumption_policy(self):
         self.assertIs(
