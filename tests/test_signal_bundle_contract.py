@@ -323,18 +323,22 @@ def _source_family_catalog() -> dict[str, object]:
                 "symbols": ["BTC-USD"],
                 "derived_indicator_fields": [
                     "ahr999",
+                    "ahr999_365d_percentile",
+                    "ahr999_30d_slope",
                     "ahr999_sma",
                     "mayer_multiple",
                 ],
                 "compatible_profiles": [
                     "us_equity:ibit_smart_dca",
                     "research:ibit_btc_ahr999_precomputed",
+                    "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_mayer_precomputed",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                 ],
                 "runtime_consumers": ["us_equity:ibit_smart_dca"],
                 "research_consumers": [
                     "research:ibit_btc_ahr999_precomputed",
+                    "research:ibit_btc_ahr999_helper_precomputed_variants",
                     "research:ibit_btc_ahr999_mayer_precomputed",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                 ],
@@ -384,6 +388,20 @@ def _write_platform_handoff_manifest(
     consumers: tuple[str, ...],
 ) -> Path:
     manifest = json.loads(signal_bundle_manifest_path.read_text(encoding="utf-8"))
+    source_manifest = json.loads(
+        source_family_catalog_manifest_path.read_text(encoding="utf-8")
+    )
+    source_catalog_path = (
+        source_family_catalog_manifest_path.parent / source_manifest["catalog_path"]
+    )
+    source_catalog = json.loads(source_catalog_path.read_text(encoding="utf-8"))
+    source_families = [
+        str(record["family"])
+        for record in source_catalog["families"]
+    ]
+    registry_summary = signal_consumer_contract_registry_audit_summary_from_manifest(
+        consumer_contract_registry_manifest_path,
+    )
     handoff_path = tmp_path / "platform_handoff.json"
     handoff_path.write_text(
         json.dumps(
@@ -415,13 +433,25 @@ def _write_platform_handoff_manifest(
                 "consumer_contract_registry_manifest_sha256": _sha256_path(
                     consumer_contract_registry_manifest_path
                 ),
-                "source_family_count": 1,
-                "source_families": ["crypto.btc_cycle_daily"],
+                "source_family_count": len(source_families),
+                "source_families": source_families,
+                "matched_source_family_count": 1,
+                "matched_source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
+                "all_runtime_consumers_covered": True,
                 "consumer_contract_count": len(consumers),
                 "consumer_contracts": list(consumers),
                 "all_known_consumers_present": len(consumers) == 8,
+                "canonical_registry_payload_sha256": registry_summary[
+                    "canonical_registry_payload_sha256"
+                ],
+                "local_registry_payload_sha256": registry_summary[
+                    "local_registry_payload_sha256"
+                ],
+                "local_contract_registry_verified": registry_summary[
+                    "local_contract_registry_verified"
+                ],
             },
             indent=2,
             sort_keys=True,
@@ -453,6 +483,12 @@ def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
                         "as_of": handoff["as_of"],
                         "freshness_status": handoff["freshness_status"],
                         "source_families": handoff["source_families"],
+                        "matched_source_family_count": handoff[
+                            "matched_source_family_count"
+                        ],
+                        "matched_source_families": handoff[
+                            "matched_source_families"
+                        ],
                         "consumer_contracts": handoff["consumer_contracts"],
                         "all_known_source_families_present": handoff[
                             "all_known_source_families_present"
@@ -460,8 +496,20 @@ def _write_platform_handoff_index(tmp_path: Path, handoff_path: Path) -> Path:
                         "all_consumer_contracts_satisfied": handoff[
                             "all_consumer_contracts_satisfied"
                         ],
+                        "all_runtime_consumers_covered": handoff[
+                            "all_runtime_consumers_covered"
+                        ],
                         "all_known_consumers_present": handoff[
                             "all_known_consumers_present"
+                        ],
+                        "canonical_registry_payload_sha256": handoff[
+                            "canonical_registry_payload_sha256"
+                        ],
+                        "local_registry_payload_sha256": handoff[
+                            "local_registry_payload_sha256"
+                        ],
+                        "local_contract_registry_verified": handoff[
+                            "local_contract_registry_verified"
                         ],
                     }
                 ],
@@ -546,6 +594,15 @@ def _write_runtime_consumption_audit(
                 "consumer_contracts": handoff["consumer_contracts"],
                 "all_known_consumers_present": True,
                 "all_runtime_consumers_covered": True,
+                "canonical_registry_payload_sha256": handoff[
+                    "canonical_registry_payload_sha256"
+                ],
+                "local_registry_payload_sha256": handoff[
+                    "local_registry_payload_sha256"
+                ],
+                "local_contract_registry_verified": handoff[
+                    "local_contract_registry_verified"
+                ],
                 "linked_manifest_sha256s_verified": True,
                 "consumer_contract_verified": True,
                 "source_catalog_verified": True,
@@ -638,6 +695,9 @@ def _write_research_handoff_manifest(
     research_manifest = json.loads(
         research_export_manifest_path.read_text(encoding="utf-8")
     )
+    registry_summary = signal_consumer_contract_registry_audit_summary_from_manifest(
+        consumer_contract_registry_manifest_path,
+    )
     handoff_path = tmp_path / "research_handoff.json"
     handoff_path.write_text(
         json.dumps(
@@ -670,8 +730,11 @@ def _write_research_handoff_manifest(
                 ),
                 "source_family_count": 1,
                 "source_families": ["crypto.btc_cycle_daily"],
+                "matched_source_family_count": 1,
+                "matched_source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
+                "all_runtime_consumers_covered": True,
                 "consumer_contract_registry_manifest_path": (
                     consumer_contract_registry_manifest_path.relative_to(
                         tmp_path
@@ -683,6 +746,15 @@ def _write_research_handoff_manifest(
                 "consumer_contract_count": len(consumers),
                 "consumer_contracts": list(consumers),
                 "all_known_consumers_present": len(consumers) == 8,
+                "canonical_registry_payload_sha256": registry_summary[
+                    "canonical_registry_payload_sha256"
+                ],
+                "local_registry_payload_sha256": registry_summary[
+                    "local_registry_payload_sha256"
+                ],
+                "local_contract_registry_verified": registry_summary[
+                    "local_contract_registry_verified"
+                ],
             },
             indent=2,
             sort_keys=True,
@@ -1182,6 +1254,10 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
             "compatible_profiles": [
                 "research:nasdaq_sp500_external_context_precomputed",
             ],
+            "runtime_consumers": [],
+            "research_consumers": [
+                "research:nasdaq_sp500_external_context_precomputed",
+            ],
         }
     )
     source_catalog_path.write_text(
@@ -1239,10 +1315,21 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
     assert summary["consumer_contract_registry_manifest_sha256"] == _sha256_path(
         registry_manifest_path
     )
-    assert summary["source_families"] == ("crypto.btc_cycle_daily",)
+    assert summary["source_families"] == (
+        "crypto.btc_cycle_daily",
+        "us_equity.nasdaq_sp500_context_daily",
+    )
+    assert summary["matched_source_family_count"] == 1
     assert summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
     assert summary["consumer_contract_count"] == 8
+    assert summary["all_known_source_families_present"] is True
+    assert summary["all_consumer_contracts_satisfied"] is True
+    assert summary["all_known_consumers_present"] is True
     assert summary["all_runtime_consumers_covered"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
+    assert summary["local_contract_registry_verified"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
     assert summary["consumer_registry_contract_fields_verified"] is True
     assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
@@ -1307,7 +1394,23 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
     assert summary["consumer"] == "us_equity:ibit_smart_dca"
     assert summary["lookup_as_of"] == "2026-06-20"
     assert summary["as_of"] == "2026-06-19"
+    assert summary["source_family_count"] == 1
+    assert summary["matched_source_family_count"] == 1
+    assert summary["consumer_contract_count"] == 8
+    assert summary["all_known_source_families_present"] is True
+    assert summary["all_consumer_contracts_satisfied"] is True
+    assert summary["all_known_consumers_present"] is True
     assert summary["all_runtime_consumers_covered"] is True
+    assert summary["source_family_catalog_manifest_sha256"] == _sha256_path(
+        source_catalog_manifest_path
+    )
+    assert summary["consumer_contract_registry_manifest_sha256"] == _sha256_path(
+        registry_manifest_path
+    )
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
+    assert summary["local_contract_registry_verified"] is True
     assert summary["linked_manifest_sha256s_verified"] is True
     assert summary["bundle_identity_verified"] is True
     assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
@@ -1397,10 +1500,16 @@ def test_research_handoff_manifest_validates_linked_research_export(
     assert handoff_summary["research_quality_report_sha256"] == _sha256_path(
         quality_report_path
     )
+    assert handoff_summary["matched_source_family_count"] == 1
     assert handoff_summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
     assert handoff_summary["source_family_count"] == 1
     assert handoff_summary["source_families"] == ("crypto.btc_cycle_daily",)
     assert handoff_summary["consumer_contract_count"] == 8
+    assert handoff_summary["all_runtime_consumers_covered"] is True
+    assert handoff_summary["canonical_registry_payload_sha256"] == handoff_summary[
+        "local_registry_payload_sha256"
+    ]
+    assert handoff_summary["local_contract_registry_verified"] is True
     assert handoff_summary["research_export_output_csv_verified"] is True
     assert handoff_summary["consumer_registry_contract_fields_verified"] is True
     assert handoff_summary["handoff_linked_manifest_sha256s_verified"] is True
@@ -1472,6 +1581,11 @@ def test_platform_handoff_index_resolves_matching_handoff_manifest(tmp_path) -> 
     assert summary["signal_bundle_manifest_sha256"] == _sha256_path(
         signal_manifest_path
     )
+    assert summary["matched_source_family_count"] == 1
+    assert summary["all_runtime_consumers_covered"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
     assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
 
     payload = json.loads(index_path.read_text(encoding="utf-8"))

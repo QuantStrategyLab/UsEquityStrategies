@@ -1147,6 +1147,32 @@ def signal_consumption_audit_summary_from_file(
         audit["signal_bundle_manifest_sha256"],
         field="signal_bundle_manifest_sha256",
     )
+    source_catalog_manifest_path = _optional_consumption_audit_artifact_path(
+        audit,
+        audit_path.parent.resolve(),
+        path_field="source_family_catalog_manifest_path",
+        sha256_field="source_family_catalog_manifest_sha256",
+        owner="signal consumption audit",
+    )
+    if source_catalog_manifest_path is not None:
+        _validate_consumption_audit_linked_sha256(
+            source_catalog_manifest_path,
+            audit["source_family_catalog_manifest_sha256"],
+            field="source_family_catalog_manifest_sha256",
+        )
+    consumer_registry_manifest_path = _optional_consumption_audit_artifact_path(
+        audit,
+        audit_path.parent.resolve(),
+        path_field="consumer_contract_registry_manifest_path",
+        sha256_field="consumer_contract_registry_manifest_sha256",
+        owner="signal consumption audit",
+    )
+    if consumer_registry_manifest_path is not None:
+        _validate_consumption_audit_linked_sha256(
+            consumer_registry_manifest_path,
+            audit["consumer_contract_registry_manifest_sha256"],
+            field="consumer_contract_registry_manifest_sha256",
+        )
     bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
         signal_bundle_manifest_path,
         consumer=target_consumer,
@@ -1176,12 +1202,53 @@ def signal_consumption_audit_summary_from_file(
         "signal_bundle_manifest_sha256": _sha256_file(signal_bundle_manifest_path),
         "handoff_manifest_path": str(audit["handoff_manifest_path"]),
         "handoff_manifest_sha256": str(audit["handoff_manifest_sha256"]).lower(),
+        "source_family_catalog_manifest_path": (
+            str(source_catalog_manifest_path.resolve())
+            if source_catalog_manifest_path is not None
+            else str(audit.get("source_family_catalog_manifest_path", ""))
+        ),
+        "source_family_catalog_manifest_sha256": (
+            _sha256_file(source_catalog_manifest_path)
+            if source_catalog_manifest_path is not None
+            else str(audit.get("source_family_catalog_manifest_sha256", "")).lower()
+        ),
+        "consumer_contract_registry_manifest_path": (
+            str(consumer_registry_manifest_path.resolve())
+            if consumer_registry_manifest_path is not None
+            else str(audit.get("consumer_contract_registry_manifest_path", ""))
+        ),
+        "consumer_contract_registry_manifest_sha256": (
+            _sha256_file(consumer_registry_manifest_path)
+            if consumer_registry_manifest_path is not None
+            else str(
+                audit.get("consumer_contract_registry_manifest_sha256", "")
+            ).lower()
+        ),
+        "source_family_count": audit.get("source_family_count"),
         "source_families": tuple(str(item) for item in audit["source_families"]),
+        "matched_source_family_count": audit.get("matched_source_family_count"),
         "matched_source_families": tuple(
             str(item) for item in audit["matched_source_families"]
         ),
+        "all_known_source_families_present": audit.get(
+            "all_known_source_families_present"
+        ),
+        "all_consumer_contracts_satisfied": audit.get(
+            "all_consumer_contracts_satisfied"
+        ),
+        "consumer_contract_count": audit.get("consumer_contract_count"),
         "consumer_contracts": tuple(str(item) for item in audit["consumer_contracts"]),
+        "all_known_consumers_present": audit.get("all_known_consumers_present"),
         "all_runtime_consumers_covered": audit.get("all_runtime_consumers_covered"),
+        "canonical_registry_payload_sha256": str(
+            audit.get("canonical_registry_payload_sha256", "")
+        ),
+        "local_registry_payload_sha256": str(
+            audit.get("local_registry_payload_sha256", "")
+        ),
+        "local_contract_registry_verified": audit.get(
+            "local_contract_registry_verified"
+        ),
         "ready_for_runtime_injection": True,
         "runtime_injection_allowed": True,
         "linked_manifest_sha256s_verified": True,
@@ -2389,11 +2456,46 @@ def _validate_signal_consumption_audit_shape(audit: Mapping[str, Any]) -> None:
         raise SignalBundleContractError(
             "signal consumption audit all_runtime_consumers_covered must be a bool"
         )
+    for field in (
+        "all_known_source_families_present",
+        "all_consumer_contracts_satisfied",
+        "all_known_consumers_present",
+    ):
+        if field in audit and not isinstance(audit[field], bool):
+            raise SignalBundleContractError(
+                f"signal consumption audit {field} must be a bool"
+            )
+    for field, sequence_field in (
+        ("source_family_count", "source_families"),
+        ("matched_source_family_count", "matched_source_families"),
+        ("consumer_contract_count", "consumer_contracts"),
+    ):
+        if field in audit:
+            if not isinstance(audit[field], int) or audit[field] < 0:
+                raise SignalBundleContractError(
+                    f"signal consumption audit {field} must be a non-negative int"
+                )
+            if audit[field] != len(audit[sequence_field]):
+                raise SignalBundleContractError(
+                    f"signal consumption audit {field} does not match "
+                    f"{sequence_field}"
+                )
     for field in ("source_families", "matched_source_families", "consumer_contracts"):
         if not _is_string_sequence(audit[field]):
             raise SignalBundleContractError(
                 f"signal consumption audit {field} must be strings"
             )
+    if (
+        "matched_source_family_count" in audit
+        and audit["matched_source_family_count"] <= 0
+    ):
+        raise SignalBundleContractError(
+            "signal consumption audit has no matched source family"
+        )
+    _validate_optional_registry_verification_fields(
+        audit,
+        owner="signal consumption audit",
+    )
 
 
 def _resolve_consumption_audit_artifact_path(
@@ -2409,6 +2511,30 @@ def _resolve_consumption_audit_artifact_path(
     return _resolve_relative_artifact_path(root, value, owner=owner, field=field)
 
 
+def _optional_consumption_audit_artifact_path(
+    audit: Mapping[str, Any],
+    root: Path,
+    *,
+    path_field: str,
+    sha256_field: str,
+    owner: str,
+) -> Path | None:
+    has_path = _has_non_empty_value(audit, path_field)
+    has_sha256 = _has_non_empty_value(audit, sha256_field)
+    if has_path != has_sha256:
+        raise SignalBundleContractError(
+            f"{owner} must provide {path_field} and {sha256_field} together"
+        )
+    if not has_path:
+        return None
+    return _resolve_consumption_audit_artifact_path(
+        root,
+        audit[path_field],
+        owner=owner,
+        field=path_field,
+    )
+
+
 def _validate_consumption_audit_linked_sha256(
     path: Path,
     expected: object,
@@ -2421,6 +2547,57 @@ def _validate_consumption_audit_linked_sha256(
         raise SignalBundleContractError(
             f"signal consumption audit {field} mismatch: "
             f"expected {expected_sha256}, got {actual_sha256}"
+        )
+
+
+def _validate_optional_registry_verification_fields(
+    payload: Mapping[str, Any],
+    *,
+    owner: str,
+) -> None:
+    fields = (
+        "canonical_registry_payload_sha256",
+        "local_registry_payload_sha256",
+        "local_contract_registry_verified",
+    )
+    if not any(field in payload for field in fields):
+        return
+    for field in fields[:2]:
+        value = str(payload.get(field, "")).strip().lower()
+        if len(value) != 64 or any(
+            character not in "0123456789abcdef" for character in value
+        ):
+            raise SignalBundleContractError(f"{owner} invalid sha256 field: {field}")
+    if payload.get("local_contract_registry_verified") is not True:
+        raise SignalBundleContractError(
+            f"{owner} local consumer contract registry is not verified"
+        )
+
+
+def _validate_optional_count_matches_sequence(
+    payload: Mapping[str, Any],
+    *,
+    count_field: str,
+    sequence_field: str,
+    owner: str,
+) -> None:
+    if count_field not in payload and sequence_field not in payload:
+        return
+    if count_field not in payload or sequence_field not in payload:
+        raise SignalBundleContractError(
+            f"{owner} must provide {count_field} and {sequence_field} together"
+        )
+    count = payload[count_field]
+    sequence = payload[sequence_field]
+    if not isinstance(count, int) or count < 0:
+        raise SignalBundleContractError(
+            f"{owner} {count_field} must be a non-negative int"
+        )
+    if not _is_non_string_sequence(sequence):
+        raise SignalBundleContractError(f"{owner} {sequence_field} must be a sequence")
+    if count != len(sequence):
+        raise SignalBundleContractError(
+            f"{owner} {count_field} does not match {sequence_field}"
         )
 
 
@@ -2502,6 +2679,12 @@ def _validate_research_handoff_shape(handoff: Mapping[str, Any]) -> None:
         raise SignalBundleContractError(
             "research signal handoff source_families must be strings"
         )
+    if "matched_source_families" in handoff and not _is_string_sequence(
+        handoff["matched_source_families"]
+    ):
+        raise SignalBundleContractError(
+            "research signal handoff matched_source_families must be strings"
+        )
     if not _is_string_sequence(handoff["consumer_contracts"]):
         raise SignalBundleContractError(
             "research signal handoff consumer_contracts must be strings"
@@ -2510,11 +2693,22 @@ def _validate_research_handoff_shape(handoff: Mapping[str, Any]) -> None:
         "all_known_source_families_present",
         "all_consumer_contracts_satisfied",
         "all_known_consumers_present",
+        "all_runtime_consumers_covered",
     ):
-        if not isinstance(handoff[field], bool):
+        if field in handoff and not isinstance(handoff[field], bool):
             raise SignalBundleContractError(
                 f"research signal handoff {field} must be a bool"
             )
+    _validate_optional_count_matches_sequence(
+        handoff,
+        count_field="matched_source_family_count",
+        sequence_field="matched_source_families",
+        owner="research signal handoff",
+    )
+    _validate_optional_registry_verification_fields(
+        handoff,
+        owner="research signal handoff",
+    )
 
 
 def _research_handoff_summary(
@@ -2555,6 +2749,7 @@ def _research_handoff_summary(
         ),
         "source_family_count": len(source_catalog_summary["matched_families"]),
         "source_families": source_catalog_summary["matched_families"],
+        "matched_source_family_count": len(source_catalog_summary["matched_families"]),
         "matched_source_families": source_catalog_summary["matched_families"],
         "all_known_source_families_present": source_catalog_summary[
             "all_known_families_present"
@@ -2575,6 +2770,15 @@ def _research_handoff_summary(
         "consumer_contracts": consumer_registry_summary["consumers"],
         "all_known_consumers_present": consumer_registry_summary[
             "all_known_consumers_present"
+        ],
+        "canonical_registry_payload_sha256": consumer_registry_summary[
+            "canonical_registry_payload_sha256"
+        ],
+        "local_registry_payload_sha256": consumer_registry_summary[
+            "local_registry_payload_sha256"
+        ],
+        "local_contract_registry_verified": consumer_registry_summary[
+            "local_contract_registry_verified"
         ],
         "research_export_output_csv_verified": True,
         "consumer_registry_contract_fields_verified": True,
@@ -2615,6 +2819,28 @@ def _validate_research_handoff_consistency(
     for field, expected in expected_values.items():
         actual = handoff[field]
         if field in {"source_families", "consumer_contracts"}:
+            actual = tuple(actual)
+            expected = tuple(expected)
+        if actual != expected:
+            raise SignalBundleContractError(
+                f"research signal handoff {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
+    optional_expected_values = {
+        "matched_source_family_count": summary["matched_source_family_count"],
+        "matched_source_families": summary["matched_source_families"],
+        "all_runtime_consumers_covered": summary["all_runtime_consumers_covered"],
+        "canonical_registry_payload_sha256": summary[
+            "canonical_registry_payload_sha256"
+        ],
+        "local_registry_payload_sha256": summary["local_registry_payload_sha256"],
+        "local_contract_registry_verified": summary["local_contract_registry_verified"],
+    }
+    for field, expected in optional_expected_values.items():
+        if field not in handoff:
+            continue
+        actual = handoff[field]
+        if field == "matched_source_families":
             actual = tuple(actual)
             expected = tuple(expected)
         if actual != expected:
@@ -2671,6 +2897,12 @@ def _load_platform_signal_handoff_manifest(path: Path) -> dict[str, Any]:
         raise SignalBundleContractError(
             "platform signal handoff source_families must be strings"
         )
+    if "matched_source_families" in handoff_dict and not _is_string_sequence(
+        handoff_dict["matched_source_families"]
+    ):
+        raise SignalBundleContractError(
+            "platform signal handoff matched_source_families must be strings"
+        )
     if not _is_string_sequence(handoff_dict["consumer_contracts"]):
         raise SignalBundleContractError(
             "platform signal handoff consumer_contracts must be strings"
@@ -2679,11 +2911,22 @@ def _load_platform_signal_handoff_manifest(path: Path) -> dict[str, Any]:
         "all_known_source_families_present",
         "all_consumer_contracts_satisfied",
         "all_known_consumers_present",
+        "all_runtime_consumers_covered",
     ):
-        if not isinstance(handoff_dict[field], bool):
+        if field in handoff_dict and not isinstance(handoff_dict[field], bool):
             raise SignalBundleContractError(
                 f"platform signal handoff {field} must be a bool"
             )
+    _validate_optional_count_matches_sequence(
+        handoff_dict,
+        count_field="matched_source_family_count",
+        sequence_field="matched_source_families",
+        owner="platform signal handoff",
+    )
+    _validate_optional_registry_verification_fields(
+        handoff_dict,
+        owner="platform signal handoff",
+    )
     return handoff_dict
 
 
@@ -2743,6 +2986,7 @@ def _platform_handoff_summary(
         ),
         "source_family_count": source_catalog_summary["family_count"],
         "source_families": source_catalog_summary["families"],
+        "matched_source_family_count": len(source_catalog_summary["matched_families"]),
         "matched_source_families": source_catalog_summary["matched_families"],
         "all_known_source_families_present": source_catalog_summary[
             "all_known_families_present"
@@ -2757,6 +3001,15 @@ def _platform_handoff_summary(
         "consumer_contracts": consumer_registry_summary["consumers"],
         "all_known_consumers_present": consumer_registry_summary[
             "all_known_consumers_present"
+        ],
+        "canonical_registry_payload_sha256": consumer_registry_summary[
+            "canonical_registry_payload_sha256"
+        ],
+        "local_registry_payload_sha256": consumer_registry_summary[
+            "local_registry_payload_sha256"
+        ],
+        "local_contract_registry_verified": consumer_registry_summary[
+            "local_contract_registry_verified"
         ],
         "consumer_registry_contract_fields_verified": True,
         "handoff_linked_manifest_sha256s_verified": True,
@@ -2793,6 +3046,28 @@ def _validate_platform_handoff_consistency(
     for field, expected in expected_values.items():
         actual = handoff[field]
         if field in {"source_families", "consumer_contracts"}:
+            actual = tuple(actual)
+            expected = tuple(expected)
+        if actual != expected:
+            raise SignalBundleContractError(
+                f"platform signal handoff {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
+    optional_expected_values = {
+        "matched_source_family_count": summary["matched_source_family_count"],
+        "matched_source_families": summary["matched_source_families"],
+        "all_runtime_consumers_covered": summary["all_runtime_consumers_covered"],
+        "canonical_registry_payload_sha256": summary[
+            "canonical_registry_payload_sha256"
+        ],
+        "local_registry_payload_sha256": summary["local_registry_payload_sha256"],
+        "local_contract_registry_verified": summary["local_contract_registry_verified"],
+    }
+    for field, expected in optional_expected_values.items():
+        if field not in handoff:
+            continue
+        actual = handoff[field]
+        if field == "matched_source_families":
             actual = tuple(actual)
             expected = tuple(expected)
         if actual != expected:
@@ -2842,6 +3117,12 @@ def _validate_platform_handoff_index_entry(raw_entry: object) -> None:
         raise SignalBundleContractError(
             "platform signal handoff index source_families must be strings"
         )
+    if "matched_source_families" in entry and not _is_string_sequence(
+        entry["matched_source_families"]
+    ):
+        raise SignalBundleContractError(
+            "platform signal handoff index matched_source_families must be strings"
+        )
     if not _is_string_sequence(entry["consumer_contracts"]):
         raise SignalBundleContractError(
             "platform signal handoff index consumer_contracts must be strings"
@@ -2850,11 +3131,22 @@ def _validate_platform_handoff_index_entry(raw_entry: object) -> None:
         "all_known_source_families_present",
         "all_consumer_contracts_satisfied",
         "all_known_consumers_present",
+        "all_runtime_consumers_covered",
     ):
-        if not isinstance(entry[field], bool):
+        if field in entry and not isinstance(entry[field], bool):
             raise SignalBundleContractError(
                 f"platform signal handoff index {field} must be a bool"
             )
+    _validate_optional_count_matches_sequence(
+        entry,
+        count_field="matched_source_family_count",
+        sequence_field="matched_source_families",
+        owner="platform signal handoff index",
+    )
+    _validate_optional_registry_verification_fields(
+        entry,
+        owner="platform signal handoff index",
+    )
 
 
 def _required_handoff_index_consumers(
@@ -2906,6 +3198,35 @@ def _validate_handoff_index_manifest_consistency(
             actual = tuple(actual or ())
         if field == "consumer":
             actual = str(actual or "").strip()
+        if actual != expected:
+            raise SignalBundleContractError(
+                f"platform signal handoff index {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
+    optional_expected_values = {
+        "matched_source_family_count": handoff.get("matched_source_family_count"),
+        "matched_source_families": tuple(
+            handoff.get("matched_source_families", ()) or ()
+        ),
+        "all_runtime_consumers_covered": handoff.get(
+            "all_runtime_consumers_covered"
+        ),
+        "canonical_registry_payload_sha256": handoff.get(
+            "canonical_registry_payload_sha256"
+        ),
+        "local_registry_payload_sha256": handoff.get(
+            "local_registry_payload_sha256"
+        ),
+        "local_contract_registry_verified": handoff.get(
+            "local_contract_registry_verified"
+        ),
+    }
+    for field, expected in optional_expected_values.items():
+        if field not in entry:
+            continue
+        actual = entry.get(field)
+        if field == "matched_source_families":
+            actual = tuple(actual or ())
         if actual != expected:
             raise SignalBundleContractError(
                 f"platform signal handoff index {field} mismatch: "

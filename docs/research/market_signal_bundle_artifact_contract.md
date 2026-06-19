@@ -228,11 +228,21 @@ freshness 和 `as_of` 选出最新匹配 handoff manifest，再走同一套 hand
 index 中的摘要字段，仍会校验 handoff manifest 的 SHA-256、linked manifest SHA-256、
 bundle freshness 和 consumer 字段覆盖。
 
+platform handoff / index 校验摘要会透出并在 artifact 带字段时复核
+`matched_source_family_count`、`matched_source_families`、
+`all_known_source_families_present`、`all_consumer_contracts_satisfied`、
+`all_runtime_consumers_covered`、`all_known_consumers_present`、
+`canonical_registry_payload_sha256`、`local_registry_payload_sha256` 和
+`local_contract_registry_verified`。这样 UES 策略仓能独立确认源仓发布的 source family、
+consumer registry 和 runtime consumer 覆盖证据没有在 handoff/index 层漂移。
+
 若部署流程保存了 `market_signal_consumption_audit.v1`，策略平台可以在 deploy 或
 startup gate 再校验这份决策记录。该校验不会替代 handoff 生成侧的发布门禁；它用于确认
 保存的 audit 仍指向同一份 signal bundle manifest，`ready_for_runtime_injection=true`，
 `runtime_injection_allowed=true`，并且在需要时
-`all_runtime_consumers_covered=true`：
+`all_runtime_consumers_covered=true`。当 audit 同时保存 source family catalog manifest、
+consumer contract registry manifest 和 registry identity digest 时，策略仓会复算这些
+linked manifest 的 SHA-256，并要求 `local_contract_registry_verified=true`：
 
 ```bash
 python -m us_equity_strategies.signals.signal_bundle_cli \
