@@ -809,6 +809,10 @@ def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys
     assert summary["all_known_consumers_present"] is False
     assert "research:nasdaq_sp500_price_proxy" in summary["missing_known_consumers"]
     assert summary["path"] == str(registry_path.resolve())
+    assert summary["local_contract_registry_verified"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
 
 
 def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
@@ -958,6 +962,10 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     ).hexdigest()
     assert summary["consumer_count"] == 8
     assert summary["all_known_consumers_present"] is True
+    assert summary["local_contract_registry_verified"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
 
 
 def test_signal_bundle_cli_can_require_complete_consumer_contract_registry(tmp_path, capsys) -> None:

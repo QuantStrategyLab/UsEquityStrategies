@@ -1082,10 +1082,15 @@ def test_external_consumer_contract_registry_matches_local_contracts(tmp_path) -
         "research:nasdaq_sp500_external_context_precomputed",
         "research:nasdaq_sp500_price_proxy",
     )
+    assert summary["local_contract_registry_verified"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
     assert file_summary["sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
     assert file_summary["size_bytes"] == registry_path.stat().st_size
+    assert file_summary["local_contract_registry_verified"] is True
 
 
 def test_external_consumer_contract_registry_manifest_matches_local_contracts(
@@ -1115,6 +1120,10 @@ def test_external_consumer_contract_registry_manifest_matches_local_contracts(
     assert summary["registry_schema_version"] == "market_signal_consumer_contracts.v1"
     assert summary["consumer_count"] == 8
     assert summary["all_known_consumers_present"] is True
+    assert summary["local_contract_registry_verified"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["registry_sha256"] = "0" * 64
@@ -1522,6 +1531,10 @@ def test_external_consumer_contract_registry_can_require_all_known_consumers() -
     assert summary["consumer_count"] == 8
     assert summary["all_known_consumers_present"] is True
     assert summary["missing_known_consumers"] == ()
+    assert summary["local_contract_registry_verified"] is True
+    assert summary["canonical_registry_payload_sha256"] == summary[
+        "local_registry_payload_sha256"
+    ]
 
 
 def test_external_consumer_contract_registry_rejects_drift() -> None:

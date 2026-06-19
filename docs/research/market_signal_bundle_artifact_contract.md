@@ -167,6 +167,12 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --pretty
 ```
 
+registry 校验摘要会输出 `canonical_registry_payload_sha256`、
+`local_registry_payload_sha256` 和 `local_contract_registry_verified`。前两个 digest
+会忽略 JSON 格式和 contract 顺序差异；当 `--require-all-known-consumers` 同时通过且
+`local_contract_registry_verified=true` 时，才能证明发布侧 registry 与本策略仓当前完整
+consumer contract 表一致。
+
 该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
 unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
 secret / signed URL key。当前已知 consumer 包括 IBIT runtime AHR999-only、
