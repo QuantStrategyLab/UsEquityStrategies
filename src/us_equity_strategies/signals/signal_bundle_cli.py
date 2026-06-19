@@ -11,6 +11,7 @@ from .signal_bundle_contract import (
     SignalBundleContractError,
     research_export_audit_summary_from_manifest,
     signal_consumption_audit_summary_from_file,
+    signal_consumer_contract_registry_payload,
     signal_research_handoff_audit_summary_from_manifest,
     signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
@@ -28,7 +29,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if args.consumption_audit_json is not None:
+        if args.local_consumer_contract_registry:
+            if (
+                args.platform_handoff_manifest is not None
+                or args.platform_handoff_index is not None
+                or args.research_handoff_manifest is not None
+                or args.research_export_manifest is not None
+                or args.consumer_contract_registry_manifest is not None
+                or args.consumer_contract_registry is not None
+                or args.consumption_audit_json is not None
+                or args.index is not None
+                or args.manifest is not None
+                or args.as_of
+                or args.bundle_id
+                or args.research_artifact_type
+                or args.research_transform
+                or args.consumer
+                or args.canonical_input != CANONICAL_INPUT_DERIVED_INDICATORS
+                or args.require_all_known_families
+                or args.require_all_known_consumers
+                or args.require_runtime_consumer_coverage
+            ):
+                raise SignalBundleContractError(
+                    "provide --local-consumer-contract-registry without "
+                    "handoff, research, registry, consumption, bundle, index, "
+                    "as-of, bundle-id, consumer, canonical-input, or require-all "
+                    "options"
+                )
+            summary = signal_consumer_contract_registry_payload()
+        elif args.consumption_audit_json is not None:
             if (
                 args.platform_handoff_manifest is not None
                 or args.platform_handoff_index is not None
@@ -256,6 +285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             raise SignalBundleContractError(
                 "provide a manifest path, --index, --consumer-contract-registry, "
+                "--local-consumer-contract-registry, "
                 "--platform-handoff-manifest, --platform-handoff-index, "
                 "--research-export-manifest, --research-handoff-manifest, "
                 "or --consumption-audit-json"
@@ -289,6 +319,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "Validate an external consumer contract registry manifest and its "
             "linked registry JSON artifact."
         ),
+    )
+    parser.add_argument(
+        "--local-consumer-contract-registry",
+        action="store_true",
+        help="Print this strategy package's local consumer contract registry payload.",
     )
     parser.add_argument(
         "--platform-handoff-manifest",

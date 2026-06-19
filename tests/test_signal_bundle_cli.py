@@ -738,6 +738,40 @@ def test_signal_bundle_cli_validates_research_handoff_manifest(
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
 
+def test_signal_bundle_cli_prints_local_consumer_contract_registry(capsys) -> None:
+    result = main(["--local-consumer-contract-registry", "--pretty"])
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "market_signal_consumer_contracts.v1"
+    assert payload["canonical_input"] == "derived_indicators"
+    assert len(payload["contracts"]) == 8
+    consumers = [contract["consumer"] for contract in payload["contracts"]]
+    assert "research:nasdaq_sp500_price_proxy" in consumers
+    price_proxy_contract = next(
+        contract
+        for contract in payload["contracts"]
+        if contract["consumer"] == "research:nasdaq_sp500_price_proxy"
+    )
+    assert price_proxy_contract["required_indicator_fields_by_symbol"] == {
+        "US-EQUITY-PRICE-PROXY": ["QQQ", "SPY"]
+    }
+
+
+def test_signal_bundle_cli_rejects_local_consumer_registry_mixed_args(
+    capsys,
+) -> None:
+    result = main(
+        [
+            "--local-consumer-contract-registry",
+            "--require-all-known-consumers",
+        ]
+    )
+
+    assert result == 2
+    assert "--local-consumer-contract-registry" in capsys.readouterr().err
+
+
 def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys) -> None:
     registry_path = tmp_path / "market_signal_consumers.json"
     registry_path.write_text(

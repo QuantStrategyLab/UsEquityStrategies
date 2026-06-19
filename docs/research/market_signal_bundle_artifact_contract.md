@@ -159,6 +159,13 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
 Python 调用方也可以用
 `signal_consumer_contract_registry_payload()` 取得策略仓本地完整 contract payload，
 再和 `MarketSignalSources` 发布的 registry 做 JSON 级 drift 检查。
+命令行调用方可以直接导出同一份本地 payload：
+
+```bash
+python -m us_equity_strategies.signals.signal_bundle_cli \
+  --local-consumer-contract-registry \
+  --pretty
+```
 
 该校验只读取本地 JSON，不引入 `MarketSignalSources` 运行时依赖；它会拒绝 schema mismatch、
 unknown consumer、字段漂移、重复字段、缺少本策略仓已知 consumer，以及疑似 token /
