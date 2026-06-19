@@ -26,6 +26,12 @@ NASDAQ_SP500_SMART_DCA_MARKET_SIGNAL_CONSUMER = "us_equity:nasdaq_sp500_smart_dc
 SOXL_SOXX_TREND_INCOME_MARKET_SIGNAL_CONSUMER = (
     "us_equity:soxl_soxx_trend_income"
 )
+MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE: dict[str, str] = {
+    "ibit_smart_dca": IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER,
+    "nasdaq_sp500_smart_dca": NASDAQ_SP500_SMART_DCA_MARKET_SIGNAL_CONSUMER,
+    "soxl_soxx_trend_income": SOXL_SOXX_TREND_INCOME_MARKET_SIGNAL_CONSUMER,
+}
+_EMPTY_MARKET_SIGNAL_INPUT_PROFILES = frozenset({"ibit_smart_dca"})
 MARKET_SIGNAL_REFERENCE_CONSUMPTION_AUDIT = "consumption_audit"
 MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF = "platform_handoff"
 MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX = "platform_handoff_index"
@@ -40,6 +46,39 @@ SUPPORTED_MARKET_SIGNAL_REFERENCE_TYPES = frozenset(
         MARKET_SIGNAL_REFERENCE_PLATFORM_HANDOFF_INDEX,
     }
 )
+
+
+def market_signal_consumer_for_strategy_profile(strategy_profile: str) -> str | None:
+    """Return the external market signal consumer for a strategy profile."""
+
+    normalized_profile = str(strategy_profile or "").strip().lower()
+    return MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE.get(normalized_profile)
+
+
+def market_signal_strategy_profiles() -> tuple[str, ...]:
+    """Return strategy profiles that have a governed market signal consumer."""
+
+    return tuple(sorted(MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE))
+
+
+def market_signal_consumers_for_strategy_profiles() -> tuple[str, ...]:
+    """Return governed runtime market signal consumers in profile order."""
+
+    return tuple(
+        MARKET_SIGNAL_CONSUMER_BY_STRATEGY_PROFILE[profile]
+        for profile in market_signal_strategy_profiles()
+    )
+
+
+def default_market_signal_inputs_when_unconfigured(
+    strategy_profile: str,
+) -> dict[str, Any]:
+    """Return legacy-compatible inputs when a non-required signal is unconfigured."""
+
+    normalized_profile = str(strategy_profile or "").strip().lower()
+    if normalized_profile in _EMPTY_MARKET_SIGNAL_INPUT_PROFILES:
+        return {CANONICAL_INPUT_DERIVED_INDICATORS: {}}
+    return {}
 
 
 def extract_consumer_market_signal_inputs_from_reference(

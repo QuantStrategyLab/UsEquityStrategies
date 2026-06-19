@@ -17,6 +17,37 @@ def test_runtime_market_signal_consumer_constants_are_exported():
     )
 
 
+def test_market_signal_profile_registry_maps_all_runtime_consumers():
+    assert runtime_inputs.market_signal_consumer_for_strategy_profile(
+        "IBIT_SMART_DCA"
+    ) == "us_equity:ibit_smart_dca"
+    assert runtime_inputs.market_signal_consumer_for_strategy_profile(
+        "nasdaq_sp500_smart_dca"
+    ) == "us_equity:nasdaq_sp500_smart_dca"
+    assert runtime_inputs.market_signal_consumer_for_strategy_profile(
+        "soxl_soxx_trend_income"
+    ) == "us_equity:soxl_soxx_trend_income"
+    assert runtime_inputs.market_signal_consumer_for_strategy_profile(
+        "tqqq_growth_income"
+    ) is None
+    assert runtime_inputs.market_signal_strategy_profiles() == (
+        "ibit_smart_dca",
+        "nasdaq_sp500_smart_dca",
+        "soxl_soxx_trend_income",
+    )
+    assert set(runtime_inputs.market_signal_consumers_for_strategy_profiles()) == {
+        "us_equity:ibit_smart_dca",
+        "us_equity:nasdaq_sp500_smart_dca",
+        "us_equity:soxl_soxx_trend_income",
+    }
+    assert runtime_inputs.default_market_signal_inputs_when_unconfigured(
+        "ibit_smart_dca"
+    ) == {"derived_indicators": {}}
+    assert runtime_inputs.default_market_signal_inputs_when_unconfigured(
+        "soxl_soxx_trend_income"
+    ) == {}
+
+
 def test_extract_consumer_market_signal_inputs_from_reference_uses_handoff_index(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
 
