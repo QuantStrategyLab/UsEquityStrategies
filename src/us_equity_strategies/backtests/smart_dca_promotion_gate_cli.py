@@ -20,7 +20,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         audit = audit_smart_dca_promotion_gate(
             review_decision_path=args.review_decision,
             production_profile_decisions_path=args.production_profile_decisions,
+            scenario_manifest_path=args.scenario_manifest,
             profiles=args.profile or DEFAULT_PROFILES,
+            require_runtime_consumer_coverage=(
+                args.require_runtime_consumer_coverage
+            ),
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -39,6 +43,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--review-decision", required=True, type=Path)
     parser.add_argument("--production-profile-decisions", required=True, type=Path)
+    parser.add_argument(
+        "--scenario-manifest",
+        type=Path,
+        help=(
+            "Optional scenario_manifest.json to verify the decision files, "
+            "candidate evidence, and input-artifact metadata are pinned together."
+        ),
+    )
+    parser.add_argument(
+        "--require-runtime-consumer-coverage",
+        action="store_true",
+        help=(
+            "Require the scenario manifest to prove source catalog or handoff "
+            "runtime consumer coverage."
+        ),
+    )
     parser.add_argument(
         "--profile",
         action="append",

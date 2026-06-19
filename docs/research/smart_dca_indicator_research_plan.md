@@ -663,16 +663,26 @@ Before any default or smart-mode promotion, run the read-only promotion gate
 against the matrix artifacts. This does not rerun backtests or search
 parameters; it only verifies that `review_decision.json` and
 `production_profile_decisions.csv` were produced by the frozen-preset,
-fixed-effect-size review flow and still block automatic default changes:
+fixed-effect-size review flow and still block automatic default changes. When
+`scenario_manifest.json` is available, pass it too so the gate can verify the
+review files, candidate summary/spec files, and input-artifact metadata were
+published as one hash-pinned matrix:
 
 ```bash
 python -m us_equity_strategies.backtests.smart_dca_promotion_gate_cli \
   --review-decision /path/to/review_decision.json \
   --production-profile-decisions /path/to/production_profile_decisions.csv \
+  --scenario-manifest /path/to/scenario_manifest.json \
+  --require-runtime-consumer-coverage \
   --profile nasdaq_sp500_smart_dca \
   --profile ibit_smart_dca \
   --pretty
 ```
+
+Use `--require-runtime-consumer-coverage` only for runs that consumed
+MarketSignalSources catalog or handoff artifacts with
+`all_runtime_consumers_covered=true`; otherwise the gate intentionally fails
+instead of allowing a research matrix to stand in for runtime source coverage.
 
 For a research review that combines multiple matrix directories without reruns,
 use the summary CLI:

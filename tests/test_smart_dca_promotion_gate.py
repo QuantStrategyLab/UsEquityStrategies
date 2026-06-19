@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -53,6 +54,62 @@ def test_smart_dca_promotion_gate_accepts_fixed_default_decisions(
     )
 
 
+def test_smart_dca_promotion_gate_accepts_scenario_manifest_evidence(
+    tmp_path,
+) -> None:
+    review_path, decisions_path = _write_gate_artifacts(tmp_path)
+    scenario_manifest_path = _write_scenario_manifest(
+        tmp_path,
+        review_path=review_path,
+        decisions_path=decisions_path,
+        runtime_consumer_coverage=True,
+    )
+
+    audit = audit_smart_dca_promotion_gate(
+        review_decision_path=review_path,
+        production_profile_decisions_path=decisions_path,
+        scenario_manifest_path=scenario_manifest_path,
+        require_runtime_consumer_coverage=True,
+    )
+
+    assert audit["passed"] is True
+    assert audit["scenario_manifest"]["passed"] is True
+    assert audit["scenario_manifest"]["review_decision_verified"] is True
+    assert audit["scenario_manifest"][
+        "production_profile_decisions_verified"
+    ] is True
+    assert audit["scenario_manifest"]["candidate_summary_present"] is True
+    assert audit["scenario_manifest"]["candidate_specs_present"] is True
+    assert audit["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
+
+
+def test_smart_dca_promotion_gate_rejects_missing_runtime_coverage_evidence(
+    tmp_path,
+) -> None:
+    review_path, decisions_path = _write_gate_artifacts(tmp_path)
+    scenario_manifest_path = _write_scenario_manifest(
+        tmp_path,
+        review_path=review_path,
+        decisions_path=decisions_path,
+        runtime_consumer_coverage=False,
+    )
+
+    audit = audit_smart_dca_promotion_gate(
+        review_decision_path=review_path,
+        production_profile_decisions_path=decisions_path,
+        scenario_manifest_path=scenario_manifest_path,
+        require_runtime_consumer_coverage=True,
+    )
+
+    assert audit["passed"] is False
+    assert "scenario_manifest_runtime_consumer_coverage_not_required" in audit[
+        "failure_reasons"
+    ]
+    assert "scenario_manifest_runtime_consumer_coverage_not_verified" in audit[
+        "failure_reasons"
+    ]
+
+
 def test_smart_dca_promotion_gate_rejects_default_change_allowed(
     tmp_path,
 ) -> None:
@@ -87,6 +144,12 @@ def test_smart_dca_promotion_gate_cli_reports_gate_failures(
     capsys,
 ) -> None:
     review_path, decisions_path = _write_gate_artifacts(tmp_path)
+    scenario_manifest_path = _write_scenario_manifest(
+        tmp_path,
+        review_path=review_path,
+        decisions_path=decisions_path,
+        runtime_consumer_coverage=True,
+    )
 
     result = promotion_gate_main(
         [
@@ -94,6 +157,9 @@ def test_smart_dca_promotion_gate_cli_reports_gate_failures(
             str(review_path),
             "--production-profile-decisions",
             str(decisions_path),
+            "--scenario-manifest",
+            str(scenario_manifest_path),
+            "--require-runtime-consumer-coverage",
             "--profile",
             "nasdaq_sp500_smart_dca",
             "--profile",
@@ -105,6 +171,7 @@ def test_smart_dca_promotion_gate_cli_reports_gate_failures(
     assert result == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["passed"] is False
+    assert payload["scenario_manifest"]["runtime_consumer_coverage_verified"] is True
     assert "profile_missing_from_csv:missing_profile" in payload["failure_reasons"]
     assert "profile_missing_from_review_decision:missing_profile" in payload[
         "failure_reasons"
@@ -190,6 +257,73 @@ def _write_gate_artifacts(
         encoding="utf-8",
     )
     return review_path, decisions_path
+
+
+def _write_scenario_manifest(
+    tmp_path: Path,
+    *,
+    review_path: Path,
+    decisions_path: Path,
+    runtime_consumer_coverage: bool,
+) -> Path:
+    scenario_files = [
+        review_path,
+        decisions_path,
+        _write_text_file(tmp_path / "scenario_index.csv", "scenario,name\n"),
+        _write_text_file(tmp_path / "robustness_summary.csv", "name,pass_rate\n"),
+        _write_text_file(tmp_path / "selection_summary.csv", "name,status\n"),
+        _write_text_file(tmp_path / "scenario_coverage.csv", "gate,passed\n"),
+        _write_text_file(
+            tmp_path / "monthly_day_15" / "candidate_summary.csv",
+            "name,open_parameter_search\nsmart,False\n",
+        ),
+        _write_text_file(
+            tmp_path / "monthly_day_15" / "candidate_specs.csv",
+            "name,parameter_name,parameter_value\nsmart,multiplier,1.0\n",
+        ),
+    ]
+    scenario_manifest_path = tmp_path / "scenario_manifest.json"
+    payload = {
+        "schema_version": "smart_dca_research_artifacts.v1",
+        "artifact_type": "smart_dca_research_scenario_matrix",
+        "min_review_scenarios": 3,
+        "scenario_names": ["monthly_day_15"],
+        "metadata": {
+            "research_config": {
+                "candidate_set": "ibit_btc_ahr999_mayer_precomputed_variants",
+                "require_runtime_consumer_coverage": runtime_consumer_coverage,
+            },
+            "input_artifacts": {
+                "signal_source_family_catalog_manifest": {
+                    "all_runtime_consumers_covered": runtime_consumer_coverage,
+                }
+            },
+        },
+        "files": [_file_record(path, root=tmp_path) for path in scenario_files],
+    }
+    scenario_manifest_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return scenario_manifest_path
+
+
+def _write_text_file(path: Path, content: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _file_record(path: Path, *, root: Path) -> dict[str, object]:
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "sha256": _sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _profile_decision(

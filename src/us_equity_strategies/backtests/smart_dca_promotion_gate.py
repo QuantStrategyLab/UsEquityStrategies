@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 import csv
+import hashlib
 import json
 from os import PathLike
 from pathlib import Path
@@ -31,7 +32,9 @@ def audit_smart_dca_promotion_gate(
     *,
     review_decision_path: str | PathLike[str],
     production_profile_decisions_path: str | PathLike[str],
+    scenario_manifest_path: str | PathLike[str] | None = None,
     profiles: Iterable[str] = DEFAULT_PROFILES,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Audit smart-DCA research outputs before any runtime default change.
 
@@ -44,6 +47,16 @@ def audit_smart_dca_promotion_gate(
     decisions_path = Path(production_profile_decisions_path)
     review_decision = _load_review_decision(review_path)
     csv_decisions = _load_profile_decisions(decisions_path)
+    scenario_manifest_audit = (
+        _audit_scenario_manifest(
+            Path(scenario_manifest_path),
+            review_decision_path=review_path,
+            production_profile_decisions_path=decisions_path,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
+        )
+        if scenario_manifest_path is not None
+        else None
+    )
     review_profile_decisions = _profile_decisions_from_review(review_decision)
     selected_profiles = _normalize_profiles(profiles)
     profile_audits = [
@@ -62,6 +75,12 @@ def audit_smart_dca_promotion_gate(
             for reason in profile_audit["failure_reasons"]
         ],
     ]
+    if scenario_manifest_audit is not None:
+        failure_reasons.extend(scenario_manifest_audit["failure_reasons"])
+    elif require_runtime_consumer_coverage:
+        failure_reasons.append(
+            "scenario_manifest_required_for_runtime_consumer_coverage"
+        )
     return {
         "schema_version": SMART_DCA_PROMOTION_GATE_AUDIT_SCHEMA_VERSION,
         "artifact_type": "smart_dca_promotion_gate_audit",
@@ -69,6 +88,9 @@ def audit_smart_dca_promotion_gate(
         "failure_reasons": failure_reasons,
         "review_decision_path": str(review_path),
         "production_profile_decisions_path": str(decisions_path),
+        "scenario_manifest_path": (
+            "" if scenario_manifest_path is None else str(Path(scenario_manifest_path))
+        ),
         "review_decision": {
             "schema_version": review_decision.get("schema_version"),
             "artifact_type": review_decision.get("artifact_type"),
@@ -99,6 +121,7 @@ def audit_smart_dca_promotion_gate(
                 "overall_recommendation_reason"
             ),
         },
+        "scenario_manifest": scenario_manifest_audit,
         "profiles": profile_audits,
     }
 
@@ -123,6 +146,186 @@ def _load_profile_decisions(path: Path) -> dict[str, dict[str, str]]:
             raise ValueError(f"duplicate profile decision: {profile}")
         decisions[profile] = {str(key): str(value or "") for key, value in row.items()}
     return decisions
+
+
+def _audit_scenario_manifest(
+    path: Path,
+    *,
+    review_decision_path: Path,
+    production_profile_decisions_path: Path,
+    require_runtime_consumer_coverage: bool,
+) -> dict[str, Any]:
+    manifest = _load_scenario_manifest(path)
+    root = path.parent.resolve()
+    failure_reasons: list[str] = []
+    if manifest.get("schema_version") != SMART_DCA_RESEARCH_ARTIFACT_SCHEMA_VERSION:
+        failure_reasons.append("scenario_manifest_schema_version_mismatch")
+    if manifest.get("artifact_type") != "smart_dca_research_scenario_matrix":
+        failure_reasons.append("scenario_manifest_artifact_type_mismatch")
+
+    file_records = _scenario_manifest_file_records(manifest)
+    file_paths = set(file_records)
+    for suffix in (
+        "review_decision.json",
+        "production_profile_decisions.csv",
+        "scenario_index.csv",
+        "robustness_summary.csv",
+        "selection_summary.csv",
+        "scenario_coverage.csv",
+    ):
+        if not any(item.endswith(suffix) for item in file_paths):
+            failure_reasons.append(f"scenario_manifest_missing_file:{suffix}")
+
+    candidate_summary_present = any(
+        item.endswith("candidate_summary.csv") for item in file_paths
+    )
+    candidate_specs_present = any(
+        item.endswith("candidate_specs.csv") for item in file_paths
+    )
+    if not candidate_summary_present:
+        failure_reasons.append("scenario_manifest_missing_candidate_summary")
+    if not candidate_specs_present:
+        failure_reasons.append("scenario_manifest_missing_candidate_specs")
+
+    review_verified = _verify_manifest_file_record(
+        file_records,
+        root=root,
+        path=review_decision_path,
+        label="review_decision",
+        failure_reasons=failure_reasons,
+    )
+    decisions_verified = _verify_manifest_file_record(
+        file_records,
+        root=root,
+        path=production_profile_decisions_path,
+        label="production_profile_decisions",
+        failure_reasons=failure_reasons,
+    )
+
+    metadata = manifest.get("metadata")
+    research_config = (
+        metadata.get("research_config", {})
+        if isinstance(metadata, Mapping)
+        else {}
+    )
+    input_artifacts = (
+        metadata.get("input_artifacts", {})
+        if isinstance(metadata, Mapping)
+        else {}
+    )
+    candidate_set = str(research_config.get("candidate_set", "")).strip()
+    if not candidate_set:
+        failure_reasons.append("scenario_manifest_missing_candidate_set")
+
+    runtime_consumer_coverage_verified = False
+    if require_runtime_consumer_coverage:
+        if research_config.get("require_runtime_consumer_coverage") is not True:
+            failure_reasons.append(
+                "scenario_manifest_runtime_consumer_coverage_not_required"
+            )
+        runtime_consumer_coverage_verified = _input_artifacts_runtime_coverage_ok(
+            input_artifacts
+        )
+        if not runtime_consumer_coverage_verified:
+            failure_reasons.append(
+                "scenario_manifest_runtime_consumer_coverage_not_verified"
+            )
+
+    return {
+        "path": str(path),
+        "schema_version": manifest.get("schema_version"),
+        "artifact_type": manifest.get("artifact_type"),
+        "passed": not failure_reasons,
+        "failure_reasons": failure_reasons,
+        "file_count": len(file_records),
+        "candidate_set": candidate_set,
+        "candidate_summary_present": candidate_summary_present,
+        "candidate_specs_present": candidate_specs_present,
+        "review_decision_verified": review_verified,
+        "production_profile_decisions_verified": decisions_verified,
+        "require_runtime_consumer_coverage": require_runtime_consumer_coverage,
+        "runtime_consumer_coverage_verified": runtime_consumer_coverage_verified,
+    }
+
+
+def _load_scenario_manifest(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file_obj:
+        payload = json.load(file_obj)
+    if not isinstance(payload, dict):
+        raise ValueError("scenario manifest must be a JSON object")
+    return payload
+
+
+def _scenario_manifest_file_records(
+    manifest: Mapping[str, Any],
+) -> dict[str, Mapping[str, Any]]:
+    raw_files = manifest.get("files", ())
+    if not isinstance(raw_files, list | tuple):
+        raise ValueError("scenario manifest files must be a list")
+    records: dict[str, Mapping[str, Any]] = {}
+    for index, raw_record in enumerate(raw_files):
+        if not isinstance(raw_record, Mapping):
+            raise ValueError(f"scenario manifest files[{index}] must be an object")
+        path = str(raw_record.get("path", "")).strip()
+        if not path:
+            raise ValueError(f"scenario manifest files[{index}] missing path")
+        if path in records:
+            raise ValueError(f"scenario manifest duplicate file path: {path}")
+        records[path] = raw_record
+    return records
+
+
+def _verify_manifest_file_record(
+    records: Mapping[str, Mapping[str, Any]],
+    *,
+    root: Path,
+    path: Path,
+    label: str,
+    failure_reasons: list[str],
+) -> bool:
+    try:
+        relative_path = path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        failure_reasons.append(f"scenario_manifest_{label}_outside_root")
+        return False
+    record = records.get(relative_path)
+    if record is None:
+        failure_reasons.append(f"scenario_manifest_missing_{label}_record")
+        return False
+    verified = True
+    if record.get("sha256") != _sha256_file(path):
+        failure_reasons.append(f"scenario_manifest_{label}_sha256_mismatch")
+        verified = False
+    if record.get("size_bytes") != path.stat().st_size:
+        failure_reasons.append(f"scenario_manifest_{label}_size_bytes_mismatch")
+        verified = False
+    return verified
+
+
+def _input_artifacts_runtime_coverage_ok(input_artifacts: object) -> bool:
+    if not isinstance(input_artifacts, Mapping):
+        return False
+    for key in (
+        "signal_source_family_catalog_manifest",
+        "platform_signal_handoff_manifest",
+        "platform_signal_handoff_index",
+        "research_signal_handoff_manifest",
+    ):
+        record = input_artifacts.get(key)
+        if (
+            isinstance(record, Mapping)
+            and record.get("all_runtime_consumers_covered") is True
+        ):
+            return True
+    return False
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _profile_decisions_from_review(
