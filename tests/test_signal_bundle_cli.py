@@ -170,6 +170,16 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 ]
             },
         },
+        {
+            "consumer": "research:nasdaq_sp500_price_proxy",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "US-EQUITY-PRICE-PROXY": [
+                    "QQQ",
+                    "SPY",
+                ]
+            },
+        },
     ]
     registry_path.write_text(
         json.dumps(
@@ -195,8 +205,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 7,
-                "known_consumer_count": 7,
+                "consumer_count": 8,
+                "known_consumer_count": 8,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -580,7 +590,7 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
     assert summary["source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 7
+    assert summary["consumer_contract_count"] == 8
     assert summary["all_known_consumers_present"] is True
     assert summary["all_runtime_consumers_covered"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
@@ -723,7 +733,7 @@ def test_signal_bundle_cli_validates_research_handoff_manifest(
     assert summary["research_artifact_type"] == "btc_cycle_research_csv"
     assert summary["research_transform"] == "crypto.btc.ahr999.v1"
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 7
+    assert summary["consumer_contract_count"] == 8
     assert summary["research_export_output_csv_verified"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
@@ -763,6 +773,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry(tmp_path, capsys
     assert summary["consumer_count"] == 1
     assert summary["consumers"] == ["us_equity:ibit_smart_dca"]
     assert summary["all_known_consumers_present"] is False
+    assert "research:nasdaq_sp500_price_proxy" in summary["missing_known_consumers"]
     assert summary["path"] == str(registry_path.resolve())
 
 
@@ -849,6 +860,16 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                             ],
                         },
                     },
+                    {
+                        "consumer": "research:nasdaq_sp500_price_proxy",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "US-EQUITY-PRICE-PROXY": [
+                                "QQQ",
+                                "SPY",
+                            ],
+                        },
+                    },
                 ],
             },
             indent=2,
@@ -870,8 +891,8 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 7,
-                "known_consumer_count": 7,
+                "consumer_count": 8,
+                "known_consumer_count": 8,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -901,7 +922,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     assert summary["registry_sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
-    assert summary["consumer_count"] == 7
+    assert summary["consumer_count"] == 8
     assert summary["all_known_consumers_present"] is True
 
 

@@ -165,7 +165,9 @@ research consumers。其中
 `US-EQUITY-CONTEXT.cape_percentile` 和 `US-EQUITY-CONTEXT.vix_percentile`，
 用于 public-data-only CAPE/VIX 候选；完整
 `research:nasdaq_sp500_external_context_precomputed` 仍要求额外的
-`breadth_above_sma200_pct`。
+`breadth_above_sma200_pct`。Nasdaq/S&P price proxy rerun 使用
+`research:nasdaq_sp500_price_proxy`，要求 `US-EQUITY-PRICE-PROXY.QQQ` 和
+`US-EQUITY-PRICE-PROXY.SPY`。
 
 若 `MarketSignalSources` 发布了 `market_signal_platform_handoff.v1`，平台或策略仓 CI
 应优先校验 handoff manifest。它会同时 pin 住 signal bundle manifest、source family
