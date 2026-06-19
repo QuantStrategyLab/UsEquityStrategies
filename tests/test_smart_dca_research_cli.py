@@ -1355,6 +1355,7 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
     )
     platform_handoff_manifest = tmp_path / "platform_handoff.json"
     platform_handoff_index = tmp_path / "platform_handoff_index.json"
+    research_handoff_manifest = tmp_path / "research_handoff.json"
     trade_csv = tmp_path / "ibit.csv"
     output_dir = tmp_path / "ibit-precomputed-artifacts"
 
@@ -1386,6 +1387,11 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
                 "first_date": str(dates[0].date()),
                 "last_date": str(dates[-1].date()),
                 "columns": ["date", "ahr999", "ahr999_sma", "mayer_multiple", "unused"],
+                "input_csv": {
+                    "path": str(signal_csv),
+                    "sha256": _sha256_file(signal_csv),
+                    "size_bytes": signal_csv.stat().st_size,
+                },
                 "output_csv": {
                     "path": str(signal_csv),
                     "sha256": _sha256_file(signal_csv),
@@ -1515,6 +1521,50 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         str(contract["consumer"])
         for contract in consumer_contract_payload["contracts"]
     ]
+    research_manifest = json.loads(signal_manifest.read_text(encoding="utf-8"))
+    research_handoff_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "market_signal_research_handoff.v1",
+                "artifact_type": "market_signal_research_handoff",
+                "consumer": "research:ibit_btc_ahr999_mayer_precomputed",
+                "research_export_manifest_path": (
+                    signal_manifest.relative_to(tmp_path).as_posix()
+                ),
+                "research_export_manifest_sha256": _sha256_file(signal_manifest),
+                "research_artifact_type": research_manifest["artifact_type"],
+                "research_transform": research_manifest["transform"],
+                "research_as_of": research_manifest["as_of"],
+                "research_output_csv_sha256": research_manifest["output_csv"][
+                    "sha256"
+                ],
+                "research_quality_report_sha256": "",
+                "source_family_catalog_manifest_path": (
+                    source_catalog_manifest.relative_to(tmp_path).as_posix()
+                ),
+                "source_family_catalog_manifest_sha256": _sha256_file(
+                    source_catalog_manifest
+                ),
+                "source_family_count": 1,
+                "source_families": ["crypto.btc_cycle_daily"],
+                "all_known_source_families_present": True,
+                "all_consumer_contracts_satisfied": True,
+                "consumer_contract_registry_manifest_path": (
+                    consumer_contract_registry_manifest.relative_to(
+                        tmp_path
+                    ).as_posix()
+                ),
+                "consumer_contract_registry_manifest_sha256": _sha256_file(
+                    consumer_contract_registry_manifest
+                ),
+                "consumer_contract_count": len(contract_consumers),
+                "consumer_contracts": contract_consumers,
+                "all_known_consumers_present": False,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     runtime_manifest = json.loads(runtime_signal_manifest.read_text(encoding="utf-8"))
     platform_handoff_manifest.write_text(
         json.dumps(
@@ -1603,6 +1653,37 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         encoding="utf-8",
     )
 
+    ambiguous_consumer_result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--signal-manifest",
+            str(signal_manifest),
+            "--research-signal-handoff-manifest",
+            str(research_handoff_manifest),
+            "--output-dir",
+            str(tmp_path / "ibit-precomputed-ambiguous-handoff-artifacts"),
+            "--candidate-set",
+            "ibit_btc_ahr999_mayer_precomputed_variants",
+            "--signal-columns",
+            "ahr999,ahr999_sma,mayer_multiple",
+            "--trade-column",
+            "ibit_close",
+            "--execution-days",
+            "15",
+            "--monthly-contribution-usd",
+            "500",
+        ]
+    )
+
+    assert ambiguous_consumer_result == 2
+    ambiguous_consumer_output = capsys.readouterr()
+    assert "--research-signal-handoff-consumer is required" in (
+        ambiguous_consumer_output.err
+    )
+
     result = main(
         [
             "--signal-csv",
@@ -1617,6 +1698,10 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             str(consumer_contract_registry_manifest),
             "--platform-signal-handoff-manifest",
             str(platform_handoff_manifest),
+            "--research-signal-handoff-manifest",
+            str(research_handoff_manifest),
+            "--research-signal-handoff-consumer",
+            "research:ibit_btc_ahr999_mayer_precomputed",
             "--output-dir",
             str(output_dir),
             "--candidate-set",
@@ -1740,6 +1825,30 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
         "research:ibit_btc_ahr999_mayer_precomputed_variants",
     ]
     assert platform_handoff_record["handoff_linked_manifest_sha256s_verified"] is True
+    research_handoff_record = summary["metadata"]["input_artifacts"][
+        "research_signal_handoff_manifest"
+    ]
+    assert research_handoff_record["schema_version"] == (
+        "market_signal_research_handoff.v1"
+    )
+    assert research_handoff_record["consumer"] == (
+        "research:ibit_btc_ahr999_mayer_precomputed"
+    )
+    assert research_handoff_record["research_artifact_type"] == (
+        "btc_cycle_research_csv"
+    )
+    assert research_handoff_record["research_transform"] == "crypto.btc.ahr999.v1"
+    assert research_handoff_record["research_export_manifest_sha256"] == (
+        _sha256_file(signal_manifest)
+    )
+    assert research_handoff_record["source_families"] == ["crypto.btc_cycle_daily"]
+    assert research_handoff_record["matched_source_families"] == [
+        "crypto.btc_cycle_daily"
+    ]
+    assert research_handoff_record["research_export_output_csv_verified"] is True
+    assert (
+        research_handoff_record["handoff_linked_manifest_sha256s_verified"] is True
+    )
     scenario_manifest = json.loads(
         (output_dir / "scenario_manifest.json").read_text(encoding="utf-8")
     )
@@ -1784,6 +1893,12 @@ def test_smart_dca_research_cli_can_use_precomputed_ibit_cycle_columns(
             "platform_signal_handoff_manifest"
         ]["consumer_contract_registry_manifest_sha256"]
         == _sha256_file(consumer_contract_registry_manifest)
+    )
+    assert (
+        scenario_manifest["metadata"]["input_artifacts"][
+            "research_signal_handoff_manifest"
+        ]["research_export_manifest_sha256"]
+        == _sha256_file(signal_manifest)
     )
 
     index_result = main(

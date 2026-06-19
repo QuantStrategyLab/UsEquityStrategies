@@ -224,6 +224,16 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --pretty
 ```
 
+智能定投研究 CLI 也可以在回测运行时接收同一份 research handoff，并把校验摘要写入
+`scenario_manifest.json`：
+
+```bash
+python -m us_equity_strategies.backtests.smart_dca_research_cli \
+  ... \
+  --research-signal-handoff-manifest ./data/output/research_handoff.json \
+  --research-signal-handoff-consumer research:ibit_btc_ahr999_precomputed
+```
+
 如果只拿到 `research_export.v1` manifest，也可以先做单文件校验。这个入口验证 output
 CSV 和可选 quality report，但不要求策略仓持有原始 vendor 输入快照：
 

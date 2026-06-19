@@ -15,6 +15,7 @@ from us_equity_strategies.signals import (
     required_indicator_fields_for_consumer,
     signal_platform_handoff_audit_summary_from_index,
     signal_platform_handoff_audit_summary_from_manifest,
+    signal_research_handoff_audit_summary_from_manifest,
     signal_consumer_contract_registry_audit_summary_from_manifest,
 )
 
@@ -217,6 +218,21 @@ def _build_parser() -> argparse.ArgumentParser:
             "Optional MarketSignalSources handoff index. The CLI resolves the latest "
             "matching handoff manifest for the candidate-set consumers before "
             "validating linked signal artifacts."
+        ),
+    )
+    parser.add_argument(
+        "--research-signal-handoff-manifest",
+        type=Path,
+        help=(
+            "Optional MarketSignalSources research handoff manifest pinning the "
+            "research export, source-family catalog, and consumer registry manifests."
+        ),
+    )
+    parser.add_argument(
+        "--research-signal-handoff-consumer",
+        help=(
+            "Research consumer to validate when the candidate set has multiple "
+            "compatible research consumers."
         ),
     )
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -487,6 +503,34 @@ def _optional_manifest_records(args: argparse.Namespace) -> dict[str, dict[str, 
             required_consumers=required_consumers,
             expected_transform=signal_manifest_expectations["transform"],
             as_of=args.end_date,
+        )
+    if args.research_signal_handoff_manifest is not None:
+        handoff_consumer = _research_handoff_consumer(
+            required_consumers=required_consumers,
+            requested_consumer=args.research_signal_handoff_consumer,
+        )
+        records["research_signal_handoff_manifest"] = _research_handoff_manifest_record(
+            args.research_signal_handoff_manifest,
+            consumer=handoff_consumer,
+            required_consumers=required_consumers,
+            expected_artifact_type=signal_manifest_expectations["artifact_type"],
+            expected_transform=signal_manifest_expectations["transform"],
+        )
+        if "signal_manifest" in records:
+            handoff_record = records["research_signal_handoff_manifest"]
+            signal_manifest_record = records["signal_manifest"]
+            if (
+                handoff_record["research_export_manifest_sha256"]
+                != signal_manifest_record["sha256"]
+            ):
+                raise ValueError(
+                    "research signal handoff research_export_manifest_sha256 "
+                    "does not match --signal-manifest"
+                )
+    elif args.research_signal_handoff_consumer:
+        raise ValueError(
+            "--research-signal-handoff-consumer requires "
+            "--research-signal-handoff-manifest"
         )
     return records
 
@@ -1248,6 +1292,120 @@ def _platform_handoff_index_record(
         "consumer_contract_count": summary["consumer_contract_count"],
         "consumer_contracts": summary["consumer_contracts"],
         "all_known_consumers_present": summary["all_known_consumers_present"],
+        "handoff_linked_manifest_sha256s_verified": summary[
+            "handoff_linked_manifest_sha256s_verified"
+        ],
+        "consumer_registry_contract_fields_verified": summary[
+            "consumer_registry_contract_fields_verified"
+        ],
+    }
+
+
+def _research_handoff_consumer(
+    *,
+    required_consumers: tuple[str, ...],
+    requested_consumer: str | None,
+) -> str:
+    normalized = str(requested_consumer or "").strip()
+    research_consumers = tuple(
+        consumer
+        for consumer in required_consumers
+        if str(consumer).startswith("research:")
+    )
+    if normalized:
+        if not normalized.startswith("research:"):
+            raise ValueError(
+                "--research-signal-handoff-consumer must be a research consumer"
+            )
+        if required_consumers and normalized not in required_consumers:
+            raise ValueError(
+                "--research-signal-handoff-consumer must be one of the "
+                "candidate set compatible consumers"
+            )
+        return normalized
+    if len(research_consumers) == 1:
+        return research_consumers[0]
+    if not research_consumers:
+        raise ValueError(
+            "--research-signal-handoff-manifest requires a candidate set with a "
+            "research signal consumer"
+        )
+    raise ValueError(
+        "--research-signal-handoff-consumer is required when the candidate set "
+        "has multiple compatible research consumers"
+    )
+
+
+def _research_handoff_manifest_record(
+    path: Path,
+    *,
+    consumer: str,
+    required_consumers: tuple[str, ...],
+    expected_artifact_type: str | None,
+    expected_transform: str | None,
+) -> dict[str, object]:
+    try:
+        summary = signal_research_handoff_audit_summary_from_manifest(
+            path,
+            consumer=consumer,
+            expected_research_artifact_type=expected_artifact_type,
+        )
+    except SignalBundleContractError as exc:
+        raise ValueError(str(exc)) from exc
+    if (
+        expected_transform is not None
+        and summary["research_transform"] != expected_transform
+    ):
+        raise ValueError(
+            "research signal handoff transform mismatch: "
+            f"{summary['research_transform']!r} != {expected_transform!r}"
+        )
+    return {
+        "path": summary["path"],
+        "sha256": summary["sha256"],
+        "size_bytes": summary["size_bytes"],
+        "schema_version": summary["schema_version"],
+        "artifact_type": summary["artifact_type"],
+        "consumer": summary["consumer"],
+        "required_signal_consumers": required_consumers,
+        "research_export_manifest_path": summary["research_export_manifest_path"],
+        "research_export_manifest_sha256": summary[
+            "research_export_manifest_sha256"
+        ],
+        "research_artifact_type": summary["research_artifact_type"],
+        "research_transform": summary["research_transform"],
+        "research_as_of": summary["research_as_of"],
+        "research_output_csv_sha256": summary["research_output_csv_sha256"],
+        "research_quality_report_sha256": summary[
+            "research_quality_report_sha256"
+        ],
+        "source_family_catalog_manifest_path": summary[
+            "source_family_catalog_manifest_path"
+        ],
+        "source_family_catalog_manifest_sha256": summary[
+            "source_family_catalog_manifest_sha256"
+        ],
+        "consumer_contract_registry_manifest_path": summary[
+            "consumer_contract_registry_manifest_path"
+        ],
+        "consumer_contract_registry_manifest_sha256": summary[
+            "consumer_contract_registry_manifest_sha256"
+        ],
+        "source_family_count": summary["source_family_count"],
+        "source_families": summary["source_families"],
+        "matched_source_families": summary["matched_source_families"],
+        "all_known_source_families_present": summary[
+            "all_known_source_families_present"
+        ],
+        "all_consumer_contracts_satisfied": summary[
+            "all_consumer_contracts_satisfied"
+        ],
+        "consumer_contract_count": summary["consumer_contract_count"],
+        "consumer_contracts": summary["consumer_contracts"],
+        "all_known_consumers_present": summary["all_known_consumers_present"],
+        "research_export_output_csv_verified": summary[
+            "research_export_output_csv_verified"
+        ],
         "handoff_linked_manifest_sha256s_verified": summary[
             "handoff_linked_manifest_sha256s_verified"
         ],
