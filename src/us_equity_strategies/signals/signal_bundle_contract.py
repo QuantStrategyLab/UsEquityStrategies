@@ -64,6 +64,24 @@ REQUIRED_INDICATOR_FIELDS_BY_CONSUMER: dict[str, dict[str, tuple[str, ...]]] = {
             "rsi14",
         ),
     },
+    "us_equity:soxl_soxx_trend_income": {
+        "SOXL": (
+            "price",
+            "ma_trend",
+        ),
+        "SOXX": (
+            "price",
+            "ma_trend",
+            "ma20",
+            "ma20_slope",
+            "rsi14",
+            "rsi14_dynamic_threshold",
+            "bb_upper",
+            "realized_volatility_10",
+            "realized_volatility_10_dynamic_threshold",
+            "realized_volatility_10_dynamic_sample_count",
+        ),
+    },
     "research:nasdaq_sp500_external_context_precomputed": {
         "US-EQUITY-CONTEXT": (
             "breadth_above_sma200_pct",

@@ -103,6 +103,31 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                         ],
                         "research_consumers": [],
                     },
+                    {
+                        "family": "us_equity.semiconductor_rotation_daily",
+                        "canonical_input": "derived_indicators",
+                        "transform": "us_equity.semiconductor_rotation.v1",
+                        "symbols": ["SOXL", "SOXX"],
+                        "derived_indicator_fields": [
+                            "price",
+                            "ma_trend",
+                            "ma20",
+                            "ma20_slope",
+                            "rsi14",
+                            "rsi14_dynamic_threshold",
+                            "bb_upper",
+                            "realized_volatility_10",
+                            "realized_volatility_10_dynamic_threshold",
+                            "realized_volatility_10_dynamic_sample_count",
+                        ],
+                        "compatible_profiles": [
+                            "us_equity:soxl_soxx_trend_income",
+                        ],
+                        "runtime_consumers": [
+                            "us_equity:soxl_soxx_trend_income",
+                        ],
+                        "research_consumers": [],
+                    },
                 ],
             },
             indent=2,
@@ -123,8 +148,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "catalog_sha256": _sha256_path(source_catalog_path),
                 "catalog_size_bytes": source_catalog_path.stat().st_size,
                 "catalog_schema_version": "market_signal_source_families.v1",
-                "family_count": 2,
-                "known_family_count": 2,
+                "family_count": 3,
+                "known_family_count": 3,
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
@@ -176,6 +201,28 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                     "drawdown_252d",
                     "sma200_gap",
                     "rsi14",
+                ],
+            },
+        },
+        {
+            "consumer": "us_equity:soxl_soxx_trend_income",
+            "canonical_input": "derived_indicators",
+            "required_indicator_fields_by_symbol": {
+                "SOXL": [
+                    "price",
+                    "ma_trend",
+                ],
+                "SOXX": [
+                    "price",
+                    "ma_trend",
+                    "ma20",
+                    "ma20_slope",
+                    "rsi14",
+                    "rsi14_dynamic_threshold",
+                    "bb_upper",
+                    "realized_volatility_10",
+                    "realized_volatility_10_dynamic_threshold",
+                    "realized_volatility_10_dynamic_sample_count",
                 ],
             },
         },
@@ -265,8 +312,8 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 9,
-                "known_consumer_count": 9,
+                "consumer_count": 10,
+                "known_consumer_count": 10,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -304,10 +351,11 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "consumer_contract_registry_manifest_sha256": _sha256_path(
                     registry_manifest_path
                 ),
-                "source_family_count": 2,
+                "source_family_count": 3,
                 "source_families": [
                     "crypto.btc_cycle_daily",
                     "us_equity.technical_daily",
+                    "us_equity.semiconductor_rotation_daily",
                 ],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
@@ -654,9 +702,10 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["source_families"] == [
         "crypto.btc_cycle_daily",
         "us_equity.technical_daily",
+        "us_equity.semiconductor_rotation_daily",
     ]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 9
+    assert summary["consumer_contract_count"] == 10
     assert summary["all_known_consumers_present"] is True
     assert summary["all_runtime_consumers_covered"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
@@ -699,6 +748,7 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
     assert summary["source_families"] == [
         "crypto.btc_cycle_daily",
         "us_equity.technical_daily",
+        "us_equity.semiconductor_rotation_daily",
     ]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
@@ -802,7 +852,7 @@ def test_signal_bundle_cli_validates_research_handoff_manifest(
     assert summary["research_artifact_type"] == "btc_cycle_research_csv"
     assert summary["research_transform"] == "crypto.btc.ahr999.v1"
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
-    assert summary["consumer_contract_count"] == 9
+    assert summary["consumer_contract_count"] == 10
     assert summary["research_export_output_csv_verified"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
@@ -814,7 +864,7 @@ def test_signal_bundle_cli_prints_local_consumer_contract_registry(capsys) -> No
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "market_signal_consumer_contracts.v1"
     assert payload["canonical_input"] == "derived_indicators"
-    assert len(payload["contracts"]) == 9
+    assert len(payload["contracts"]) == 10
     consumers = [contract["consumer"] for contract in payload["contracts"]]
     assert "research:nasdaq_sp500_price_proxy" in consumers
     price_proxy_contract = next(
@@ -943,6 +993,28 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                         },
                     },
                     {
+                        "consumer": "us_equity:soxl_soxx_trend_income",
+                        "canonical_input": "derived_indicators",
+                        "required_indicator_fields_by_symbol": {
+                            "SOXL": [
+                                "price",
+                                "ma_trend",
+                            ],
+                            "SOXX": [
+                                "price",
+                                "ma_trend",
+                                "ma20",
+                                "ma20_slope",
+                                "rsi14",
+                                "rsi14_dynamic_threshold",
+                                "bb_upper",
+                                "realized_volatility_10",
+                                "realized_volatility_10_dynamic_threshold",
+                                "realized_volatility_10_dynamic_sample_count",
+                            ],
+                        },
+                    },
+                    {
                         "consumer": "research:ibit_btc_ahr999_precomputed",
                         "canonical_input": "derived_indicators",
                         "required_indicator_fields_by_symbol": {
@@ -1038,8 +1110,8 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
                 "registry_size_bytes": registry_path.stat().st_size,
                 "registry_schema_version": "market_signal_consumer_contracts.v1",
                 "canonical_input": "derived_indicators",
-                "consumer_count": 9,
-                "known_consumer_count": 9,
+                "consumer_count": 10,
+                "known_consumer_count": 10,
                 "missing_known_consumers": [],
                 "all_known_consumers_present": True,
             },
@@ -1069,7 +1141,7 @@ def test_signal_bundle_cli_validates_consumer_contract_registry_manifest(
     assert summary["registry_sha256"] == hashlib.sha256(
         registry_path.read_bytes()
     ).hexdigest()
-    assert summary["consumer_count"] == 9
+    assert summary["consumer_count"] == 10
     assert summary["all_known_consumers_present"] is True
     assert summary["local_contract_registry_verified"] is True
     assert summary["canonical_registry_payload_sha256"] == summary[

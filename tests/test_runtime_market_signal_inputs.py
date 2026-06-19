@@ -5,6 +5,18 @@ import pytest
 from us_equity_strategies.signals import runtime_market_signal_inputs as runtime_inputs
 
 
+def test_runtime_market_signal_consumer_constants_are_exported():
+    assert runtime_inputs.IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER == (
+        "us_equity:ibit_smart_dca"
+    )
+    assert runtime_inputs.NASDAQ_SP500_SMART_DCA_MARKET_SIGNAL_CONSUMER == (
+        "us_equity:nasdaq_sp500_smart_dca"
+    )
+    assert runtime_inputs.SOXL_SOXX_TREND_INCOME_MARKET_SIGNAL_CONSUMER == (
+        "us_equity:soxl_soxx_trend_income"
+    )
+
+
 def test_extract_consumer_market_signal_inputs_from_reference_uses_handoff_index(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
 
