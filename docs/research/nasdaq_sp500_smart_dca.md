@@ -145,6 +145,12 @@ warm-up, fixed DCA as the benchmark. The proxy is price-only and does not
 include ETF expense ratios, spreads, taxes, dividends, or total-return
 reinvestment.
 
+This summary predates a committed hash-pinned price input artifact. The next
+rerun should export local FRED `NASDAQ100` and `SP500` snapshots through
+`market_signal_sources.cli.export_us_equity_price_proxy_research_csv`, retain the
+resulting `us_equity_price_proxy_research_csv` manifest, then use that exported
+`QQQ`/`SPY` CSV as the strategy research price input.
+
 | Smart variant | Terminal | Vs fixed | Max DD | DD delta |
 | --- | ---: | ---: | ---: | ---: |
 | Fixed DCA benchmark | $249,508 | 0.00% | 28.25% | 0.00% |
