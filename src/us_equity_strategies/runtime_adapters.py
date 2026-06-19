@@ -19,6 +19,7 @@ from us_equity_strategies.catalog import (
     resolve_canonical_profile,
 )
 from us_equity_strategies.strategies import (
+    global_etf_rotation as global_etf_rotation_strategy,
     ibit_smart_dca as ibit_smart_dca_strategy,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
@@ -52,6 +53,17 @@ PLATFORM_NATIVE_TARGET_MODES: dict[str, str] = {
 BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     "global_etf_rotation": StrategyRuntimeAdapter(
         status_icon="🐤",
+        required_feature_columns=global_etf_rotation_strategy.REQUIRED_FEATURE_COLUMNS,
+        snapshot_date_columns=global_etf_rotation_strategy.SNAPSHOT_DATE_COLUMNS,
+        max_snapshot_month_lag=global_etf_rotation_strategy.MAX_SNAPSHOT_MONTH_LAG,
+        require_snapshot_manifest=global_etf_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+        snapshot_contract_version=global_etf_rotation_strategy.SNAPSHOT_CONTRACT_VERSION,
+        managed_symbols_extractor=global_etf_rotation_strategy.extract_managed_symbols,
+        artifact_contract=StrategyArtifactContract(
+            requires_snapshot_artifacts=True,
+            requires_snapshot_manifest_path=global_etf_rotation_strategy.REQUIRE_SNAPSHOT_MANIFEST,
+            snapshot_contract_version=global_etf_rotation_strategy.SNAPSHOT_CONTRACT_VERSION,
+        ),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
     ),
     "tqqq_growth_income": StrategyRuntimeAdapter(

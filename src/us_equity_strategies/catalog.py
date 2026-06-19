@@ -47,7 +47,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
-    GLOBAL_ETF_ROTATION_PROFILE: frozenset({"market_history"}),
+    GLOBAL_ETF_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
     TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
@@ -411,10 +411,10 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     GLOBAL_ETF_ROTATION_PROFILE: StrategyMetadata(
         canonical_profile=GLOBAL_ETF_ROTATION_PROFILE,
         display_name="Global ETF Rotation",
-        description="Quarterly top-2 global ETF rotation with daily canary defense, SMA250 confidence gating, and BIL safe haven.",
+        description="Quarterly top-2 global ETF rotation backed by snapshot-side ETF universe evidence, with daily canary defense and BIL safe haven.",
         aliases=("global_macro_etf_rotation", GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE),
         cadence="quarterly + daily canary",
-        asset_scope="global_etf_rotation",
+        asset_scope="global_etf_rotation_snapshot",
         benchmark="VOO",
         role="defensive_rotation",
         status="runtime_enabled",

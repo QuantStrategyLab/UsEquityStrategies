@@ -39,7 +39,7 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(
             catalog[GLOBAL_ETF_ROTATION_PROFILE].required_inputs,
-            frozenset({"market_history"}),
+            frozenset({"feature_snapshot"}),
         )
 
         self.assertNotIn("global_etf_confidence_vol_gate", catalog)

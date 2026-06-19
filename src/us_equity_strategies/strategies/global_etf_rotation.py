@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 from importlib import import_module
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -277,4 +277,218 @@ def compute_signals(
 
     top_str = ", ".join(f"{ticker}({score:.3f})" for ticker, score in top)
     signal_desc = translator("quarterly", n=top_n) + f"\n  Top: {top_str}{confidence_note}"
+    return weights, signal_desc, False, canary_str
+
+SIGNAL_SOURCE = "feature_snapshot"
+SNAPSHOT_CONTRACT_VERSION = "global_etf_rotation.feature_snapshot.v1"
+REQUIRED_FEATURE_COLUMNS = frozenset(
+    {
+        "as_of",
+        "symbol",
+        "role",
+        "close",
+        "momentum_13612w",
+        "sma_pass",
+        "eligible",
+        "vol_126",
+    }
+)
+SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
+MAX_SNAPSHOT_MONTH_LAG = 1
+REQUIRE_SNAPSHOT_MANIFEST = True
+
+
+def _coerce_bool(value: Any) -> bool:
+    if pd.isna(value):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    return bool(normalized)
+
+
+def _to_feature_frame(feature_snapshot) -> pd.DataFrame:
+    frame = (
+        feature_snapshot.copy()
+        if isinstance(feature_snapshot, pd.DataFrame)
+        else pd.DataFrame(list(feature_snapshot))
+    )
+    if frame.empty:
+        raise ValueError("feature_snapshot must contain at least one row")
+    missing = REQUIRED_FEATURE_COLUMNS - set(frame.columns)
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise ValueError(f"feature_snapshot missing required columns: {missing_text}")
+    frame = frame.copy()
+    frame["symbol"] = frame["symbol"].astype(str).str.strip().str.upper()
+    frame["role"] = frame["role"].astype(str).str.strip().str.lower()
+    frame["momentum_13612w"] = pd.to_numeric(frame["momentum_13612w"], errors="coerce")
+    frame["score"] = pd.to_numeric(frame.get("score", frame["momentum_13612w"]), errors="coerce")
+    frame["vol_126"] = pd.to_numeric(frame["vol_126"], errors="coerce")
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    frame["sma_pass"] = frame["sma_pass"].map(_coerce_bool)
+    frame["eligible"] = frame["eligible"].map(_coerce_bool)
+    return frame
+
+
+def extract_managed_symbols(
+    feature_snapshot,
+    *,
+    benchmark_symbol: str | None = None,
+    safe_haven_symbol: str | None = None,
+) -> tuple[str, ...]:
+    frame = _to_feature_frame(feature_snapshot)
+    symbols: list[str] = []
+    for symbol in frame.loc[frame["role"].isin({"ranking_pool_etf", "safe_haven"}), "symbol"]:
+        if symbol and symbol not in symbols:
+            symbols.append(str(symbol))
+    safe = str(safe_haven_symbol or "").strip().upper()
+    if safe and safe not in symbols:
+        symbols.append(safe)
+    return tuple(symbols)
+
+
+def _snapshot_rebalance_day(as_of_date, *, rebalance_months) -> bool:
+    tz_ny = pytz.timezone("America/New_York")
+    timestamp = pd.Timestamp(as_of_date)
+    if timestamp.tzinfo is None:
+        now_ny = tz_ny.localize(timestamp.to_pydatetime())
+    else:
+        now_ny = timestamp.tz_convert(tz_ny).to_pydatetime()
+    return _is_rebalance_day(now_ny, rebalance_months=rebalance_months)
+
+
+def _snapshot_confidence_weighting(
+    rows: pd.DataFrame,
+    top: list[tuple[str, float]],
+    *,
+    top_n: int,
+    confidence_metric: str,
+    confidence_threshold: float,
+    confidence_top1_weight: float,
+    confidence_volatility_gate_enabled: bool,
+    confidence_volatility_max_ratio: float,
+) -> tuple[dict[str, float], str]:
+    per_weight = 1.0 / float(top_n)
+    weights = {ticker: per_weight for ticker, _score in top}
+    if top_n != 2 or len(top) != 2:
+        return weights, ""
+    score_pairs = [(str(row.symbol), float(row.rank_score)) for row in rows.itertuples(index=False)]
+    confidence = _score_confidence(score_pairs, metric=str(confidence_metric))
+    top1, top2 = top[0][0], top[1][0]
+    use_confidence_weight = not np.isnan(confidence) and confidence >= float(confidence_threshold)
+    top1_vol = top2_vol = float("nan")
+    if use_confidence_weight and confidence_volatility_gate_enabled:
+        vol_by_symbol = rows.set_index("symbol")["vol_126"].to_dict()
+        top1_vol = float(vol_by_symbol.get(top1, float("nan")))
+        top2_vol = float(vol_by_symbol.get(top2, float("nan")))
+        use_confidence_weight = not (
+            np.isnan(top1_vol)
+            or np.isnan(top2_vol)
+            or top2_vol <= 0.0
+            or top1_vol > top2_vol * float(confidence_volatility_max_ratio)
+        )
+    if not use_confidence_weight:
+        return weights, ""
+    top1_weight = min(1.0, max(per_weight, float(confidence_top1_weight)))
+    weights = {top1: top1_weight, top2: 1.0 - top1_weight}
+    note = f"confidence={confidence:.2f}"
+    if confidence_volatility_gate_enabled:
+        note += f" vol={top1_vol:.2%}/{top2_vol:.2%}"
+    return weights, note
+
+
+def compute_signals_from_feature_snapshot(
+    feature_snapshot,
+    current_holdings,
+    *,
+    as_of_date=None,
+    ranking_pool=RANKING_POOL,
+    canary_assets=CANARY_ASSETS,
+    safe_haven: str = SAFE_HAVEN,
+    top_n: int = TOP_N,
+    hold_bonus: float = HOLD_BONUS,
+    canary_bad_threshold: int = CANARY_BAD_THRESHOLD,
+    rebalance_months=REBALANCE_MONTHS,
+    translator: Callable,
+    sma_period: int = SMA_PERIOD,
+    confidence_weighting_enabled: bool = False,
+    confidence_metric: str = CONFIDENCE_METRIC_Z_GAP,
+    confidence_threshold: float = 1.0,
+    confidence_top1_weight: float = 0.75,
+    confidence_volatility_gate_enabled: bool = False,
+    confidence_volatility_window: int = 126,
+    confidence_volatility_max_ratio: float = 1.3,
+):
+    del sma_period, confidence_volatility_window
+    frame = _to_feature_frame(feature_snapshot)
+    safe_haven = str(safe_haven or SAFE_HAVEN).strip().upper()
+    snapshot_ranking_symbols = frame.loc[frame["role"].eq("ranking_pool_etf"), "symbol"].dropna().astype(str).tolist()
+    snapshot_canary_symbols = frame.loc[frame["role"].eq("canary_asset"), "symbol"].dropna().astype(str).tolist()
+    ranking_symbols = snapshot_ranking_symbols or [symbol.upper() for symbol in ranking_pool]
+    canary_symbols = snapshot_canary_symbols or [symbol.upper() for symbol in canary_assets]
+    current_holding_symbols = {str(symbol or "").strip().upper() for symbol in current_holdings or ()}
+
+    by_symbol = frame.drop_duplicates(subset=["symbol"], keep="last").set_index("symbol")
+    n_bad = 0
+    canary_details: list[str] = []
+    for ticker in canary_symbols:
+        if ticker not in by_symbol.index:
+            n_bad += 1
+            canary_details.append(f"{ticker}:❌(no data)")
+            continue
+        mom = float(by_symbol.at[ticker, "momentum_13612w"])
+        if np.isnan(mom) or mom < 0:
+            n_bad += 1
+            canary_details.append(f"{ticker}:❌({mom:.3f})" if not np.isnan(mom) else f"{ticker}:❌(nan)")
+        else:
+            canary_details.append(f"{ticker}:✅({mom:.3f})")
+    canary_str = ", ".join(canary_details)
+    if n_bad >= int(canary_bad_threshold):
+        signal_desc = translator("emergency", n_bad=n_bad, safe=safe_haven)
+        return {safe_haven: 1.0}, signal_desc, True, canary_str
+
+    rebalance_as_of = as_of_date if as_of_date is not None else pd.Timestamp.now(tz=pytz.timezone("America/New_York"))
+    if not _snapshot_rebalance_day(rebalance_as_of, rebalance_months=rebalance_months):
+        signal_desc = translator("daily_check")
+        return None, signal_desc, False, canary_str
+
+    rows = frame.loc[frame["symbol"].isin(ranking_symbols)].copy()
+    rows = rows.loc[rows["eligible"] & rows["sma_pass"] & rows["momentum_13612w"].notna()].copy()
+    if rows.empty:
+        signal_desc = translator("emergency", n_bad="SMA", safe=safe_haven)
+        return {safe_haven: 1.0}, signal_desc, False, canary_str
+    rows["rank_score"] = rows["score"].fillna(rows["momentum_13612w"])
+    rows.loc[rows["symbol"].isin(current_holding_symbols), "rank_score"] += float(hold_bonus)
+    ranked = rows.sort_values(["rank_score", "momentum_13612w", "symbol"], ascending=[False, False, True])
+    top = [(str(row.symbol), float(row.rank_score)) for row in ranked.head(int(top_n)).itertuples(index=False)]
+    if not top:
+        signal_desc = translator("emergency", n_bad="SMA", safe=safe_haven)
+        return {safe_haven: 1.0}, signal_desc, False, canary_str
+
+    weights = {ticker: 1.0 / float(top_n) for ticker, _score in top}
+    confidence_note = ""
+    if confidence_weighting_enabled:
+        weights, confidence_note = _snapshot_confidence_weighting(
+            ranked,
+            top,
+            top_n=int(top_n),
+            confidence_metric=str(confidence_metric),
+            confidence_threshold=float(confidence_threshold),
+            confidence_top1_weight=float(confidence_top1_weight),
+            confidence_volatility_gate_enabled=bool(confidence_volatility_gate_enabled),
+            confidence_volatility_max_ratio=float(confidence_volatility_max_ratio),
+        )
+    if len(top) < int(top_n):
+        weights[safe_haven] = weights.get(safe_haven, 0.0) + (1.0 / float(top_n)) * (int(top_n) - len(top))
+    selected = ", ".join(f"{ticker}({score:.3f})" for ticker, score in top)
+    signal_desc = f"Global ETF snapshot rotation selected: {selected}"
+    if confidence_note:
+        signal_desc = f"{signal_desc} | {confidence_note}"
     return weights, signal_desc, False, canary_str

@@ -47,7 +47,6 @@ comparison with runtime-enabled peers:
 - `russell_1000_multi_factor_defensive`
 - `mega_cap_leader_rotation_top50_balanced`
 - `mega_cap_leader_rotation_dynamic_top20`
-- `mega_cap_leader_rotation_aggressive`
 - `dynamic_mega_leveraged_pullback`
 - `tech_communication_pullback_enhancement`
 

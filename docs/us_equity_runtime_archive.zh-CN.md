@@ -30,7 +30,6 @@ _更新日期：2026-06-03_
 | 已删除 profile | 状态 | 关键结果 |
 | --- | --- | --- |
 | `mega_cap_leader_rotation_dynamic_top20` | 已移除 | CAGR 21.51%，最大回撤 -23.14%。 |
-| `mega_cap_leader_rotation_aggressive` | 已移除 | CAGR 32.42%，最大回撤 -28.64%。 |
 | `dynamic_mega_leveraged_pullback` | 已移除 | CAGR 30.96%，最大回撤 -34.80%。 |
 
 ## 归档口径

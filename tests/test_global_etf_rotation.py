@@ -107,6 +107,71 @@ class GlobalEtfRotationConfidenceTests(unittest.TestCase):
 
         self.assertEqual(weights, {"AAA": 0.5, "BBB": 0.5})
 
+    def test_feature_snapshot_runtime_uses_snapshot_universe_and_csv_booleans(self) -> None:
+        feature_snapshot = pd.DataFrame(
+            [
+                {
+                    "as_of": "2026-03-31",
+                    "symbol": "AAA",
+                    "role": "ranking_pool_etf",
+                    "close": 100.0,
+                    "momentum_13612w": 0.30,
+                    "score": 0.30,
+                    "sma_pass": "true",
+                    "eligible": "true",
+                    "vol_126": 0.20,
+                },
+                {
+                    "as_of": "2026-03-31",
+                    "symbol": "BBB",
+                    "role": "ranking_pool_etf",
+                    "close": 100.0,
+                    "momentum_13612w": 0.20,
+                    "score": 0.20,
+                    "sma_pass": "false",
+                    "eligible": "true",
+                    "vol_126": 0.10,
+                },
+                {
+                    "as_of": "2026-03-31",
+                    "symbol": "SPY",
+                    "role": "canary_asset",
+                    "close": 500.0,
+                    "momentum_13612w": 0.05,
+                    "score": 0.05,
+                    "sma_pass": "true",
+                    "eligible": "false",
+                    "vol_126": 0.15,
+                },
+                {
+                    "as_of": "2026-03-31",
+                    "symbol": "BIL",
+                    "role": "safe_haven",
+                    "close": 91.0,
+                    "momentum_13612w": 0.01,
+                    "score": 0.01,
+                    "sma_pass": "true",
+                    "eligible": "false",
+                    "vol_126": 0.01,
+                },
+            ]
+        )
+
+        weights, _signal, is_emergency, canary = global_etf_rotation.compute_signals_from_feature_snapshot(
+            feature_snapshot,
+            current_holdings=(),
+            as_of_date="2026-03-31",
+            ranking_pool=("IGNORED",),
+            canary_assets=("IGNORED",),
+            safe_haven="BIL",
+            top_n=2,
+            translator=lambda key, **kwargs: key,
+        )
+
+        self.assertFalse(is_emergency)
+        self.assertEqual(weights, {"AAA": 0.5, "BIL": 0.5})
+        self.assertEqual(canary, "SPY:✅(0.050)")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -243,21 +243,15 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
-    market_history = ctx.market_data.get("market_history")
-    if market_history is None:
-        def _empty_market_history(_client, _symbol):
-            return ()
-
-        market_history = _empty_market_history
+    feature_snapshot = require_market_data(ctx, "feature_snapshot")
     translator = config.pop("translator", default_translator)
     config.pop("signal_text_fn", None)
-    weights, signal_desc, is_emergency, canary_str = legacy_global_etf_rotation.compute_signals(
-        ctx.capabilities.get("broker_client"),
+    config.pop("pacing_sec", None)
+    weights, signal_desc, is_emergency, canary_str = legacy_global_etf_rotation.compute_signals_from_feature_snapshot(
+        feature_snapshot,
         get_current_holdings(ctx),
-        get_historical_close=market_history,
         as_of_date=ctx.as_of,
         translator=translator,
-        pacing_sec=float(config.pop("pacing_sec", 0.0)),
         **config,
     )
     weights, income_layer_diagnostics = apply_income_layer_to_weights(
@@ -278,6 +272,8 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         market_regime_control_diagnostics.get("market_regime_control_notification_context"),
     )
     diagnostics = {
+        "signal_source": legacy_global_etf_rotation.SIGNAL_SOURCE,
+        "snapshot_contract_version": legacy_global_etf_rotation.SNAPSHOT_CONTRACT_VERSION,
         "signal_description": signal_desc,
         "canary_status": canary_str,
         "actionable": weights is not None,
