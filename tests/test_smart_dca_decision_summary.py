@@ -64,6 +64,8 @@ def test_smart_dca_decision_summary_aggregates_matrix_artifacts(
 
     markdown = smart_dca_decision_summary_markdown(summary)
     assert "# Smart DCA Promotion Gate / Default Decision" in markdown
+    assert "## Profile Rollup" in markdown
+    assert "## Evidence Hashes" in markdown
     assert "nasdaq_price_proxy_matrix" in markdown
     assert "ibit_btc_precomputed_ahr999_guarded_cycle" in markdown
 
@@ -98,7 +100,9 @@ def test_smart_dca_decision_summary_cli_writes_json_and_markdown(
     payload = json.loads(capsys.readouterr().out)
     assert payload["passed"] is True
     assert json.loads(output_json.read_text(encoding="utf-8"))["matrix_count"] == 1
-    assert "nasdaq_sp500_smart_dca" in output_md.read_text(encoding="utf-8")
+    output_markdown = output_md.read_text(encoding="utf-8")
+    assert "nasdaq_sp500_smart_dca" in output_markdown
+    assert "Profile decisions SHA-256" in output_markdown
 
 
 def test_smart_dca_decision_summary_cli_returns_one_when_gate_fails(

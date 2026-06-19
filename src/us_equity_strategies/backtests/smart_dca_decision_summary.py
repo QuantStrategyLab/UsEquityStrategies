@@ -88,9 +88,43 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
         f"- Passed: `{str(bool(summary.get('passed'))).lower()}`",
         f"- Matrix count: `{int(summary.get('matrix_count', 0))}`",
         "",
-        "| Matrix | Profile | Gate | Runtime default | Smart mode | Default change allowed | Observed best | Reason |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "## Profile Rollup",
+        "",
+        "| Profile | Gate | Runtime defaults | Smart statuses | Default change allowed | Observed best candidates |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
+    for profile in summary.get("profile_rollups", ()):
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_cell(profile.get("profile", "")),
+                    _markdown_cell("passed" if profile.get("passed") else "failed"),
+                    _markdown_cell(
+                        ", ".join(profile.get("runtime_default_recommendations", ()))
+                    ),
+                    _markdown_cell(
+                        ", ".join(profile.get("smart_mode_enablement_statuses", ()))
+                    ),
+                    _markdown_cell(
+                        str(profile.get("default_change_allowed_by_any_matrix"))
+                    ),
+                    _markdown_cell(
+                        ", ".join(profile.get("observed_best_candidates", ()))
+                    ),
+                )
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Matrix Decisions",
+            "",
+            "| Matrix | Profile | Gate | Runtime default | Smart mode | Default change allowed | Observed best | Reason |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
     for matrix in summary.get("matrices", ()):
         for profile in matrix.get("profiles", ()):
             lines.append(
@@ -113,6 +147,29 @@ def smart_dca_decision_summary_markdown(summary: Mapping[str, Any]) -> str:
                 )
                 + " |"
             )
+    lines.extend(
+        [
+            "",
+            "## Evidence Hashes",
+            "",
+            "| Matrix | Review decision SHA-256 | Profile decisions SHA-256 |",
+            "| --- | --- | --- |",
+        ]
+    )
+    for matrix in summary.get("matrices", ()):
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_cell(matrix.get("label", "")),
+                    _markdown_cell(matrix.get("review_decision_sha256", "")),
+                    _markdown_cell(
+                        matrix.get("production_profile_decisions_sha256", "")
+                    ),
+                )
+            )
+            + " |"
+        )
     lines.append("")
     return "\n".join(lines)
 
