@@ -1632,6 +1632,10 @@ def scenario_results_to_selection_rows(
             reverse=True,
         )
         selected = ordered[0]
+        ordered_candidate_names = tuple(str(row["name"]) for row in ordered)
+        ordered_candidate_definition_sha256s = _candidate_definition_sha256s(
+            ordered_candidate_names
+        )
         selected_passed = bool(selected["robustness_gate_passed"])
         selected_scenario_count = int(selected["scenario_count"])
         scenario_gate_passed = selected_scenario_count >= min_review_scenarios
@@ -1767,6 +1771,15 @@ def scenario_results_to_selection_rows(
                     "fixed_benchmark_present_all"
                 ],
                 "matrix_candidate_names": coverage_row["candidate_names"],
+                "matrix_candidate_universe_policy": coverage_row[
+                    "candidate_universe_policy"
+                ],
+                "matrix_candidate_definition_sha256s": coverage_row[
+                    "candidate_definition_sha256s"
+                ],
+                "matrix_candidate_definition_hash_count": coverage_row[
+                    "candidate_definition_hash_count"
+                ],
                 "selected_pass_rate": selected["pass_rate"],
                 "selected_min_relative_terminal_value_pct": selected[
                     "min_relative_terminal_value_pct"
@@ -1796,8 +1809,11 @@ def scenario_results_to_selection_rows(
                 "selected_regime_count": selected["regime_count"],
                 "selected_regimes_seen": selected["regimes_seen"],
                 "selected_failure_reasons": selected["failure_reasons"],
-                "candidate_count": len(ordered),
-                "compared_candidates": ",".join(str(row["name"]) for row in ordered),
+                "candidate_count": len(ordered_candidate_names),
+                "compared_candidates": ",".join(ordered_candidate_names),
+                "compared_candidate_definition_sha256s": ",".join(
+                    ordered_candidate_definition_sha256s
+                ),
                 "fixed_benchmark": fixed_name,
             }
         )
@@ -1862,6 +1878,12 @@ def scenario_results_to_review_decision(
         "selection_policy": "fixed_preset_no_parameter_search",
         "effect_size_policy": "fixed_minimum_effect_no_parameter_search",
         "effect_size_thresholds": effect_size_thresholds,
+        "candidate_universe_policy": coverage_row["candidate_universe_policy"],
+        "candidate_universe_count": coverage_row["candidate_count"],
+        "candidate_universe_names": _csv_values_tuple(coverage_row["candidate_names"]),
+        "candidate_universe_definition_sha256s": _csv_values_tuple(
+            coverage_row["candidate_definition_sha256s"]
+        ),
         "runtime_default_recommendation": "fixed_dca",
         "runtime_default_change_policy": "manual_review_required_no_auto_enable",
         "smart_mode_enablement_status": _smart_mode_enablement_status(
@@ -2013,6 +2035,7 @@ def scenario_results_to_coverage_rows(
     scenario_count = len(scenario_names)
     review_scenario_gate_passed = scenario_count >= min_review_scenarios
     candidate_names = unique_candidate_sets[0] if unique_candidate_sets else ()
+    candidate_definition_sha256s = _candidate_definition_sha256s(candidate_names)
     dimension_coverage_gate_passed = bool(
         dimension_summary["scenario_dimension_coverage_gate_passed"]
     )
@@ -2040,6 +2063,9 @@ def scenario_results_to_coverage_rows(
             "candidate_set_consistent": candidate_set_consistent,
             "candidate_count": len(candidate_names),
             "candidate_names": ",".join(candidate_names),
+            "candidate_universe_policy": "frozen_preset_names_no_parameter_search",
+            "candidate_definition_sha256s": ",".join(candidate_definition_sha256s),
+            "candidate_definition_hash_count": len(candidate_definition_sha256s),
             "scenario_names": ",".join(scenario_names),
             **dimension_summary,
             **sample_window_summary,
@@ -2310,6 +2336,14 @@ def _candidate_definition_sha256(name: str) -> str:
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _candidate_definition_sha256s(names: Iterable[str]) -> tuple[str, ...]:
+    return tuple(_candidate_definition_sha256(name) for name in names)
+
+
+def _csv_values_tuple(value: object) -> tuple[str, ...]:
+    return tuple(item.strip() for item in str(value).split(",") if item.strip())
 
 
 def _robustness_review_status(*, passed_count: int, scenario_count: int) -> str:

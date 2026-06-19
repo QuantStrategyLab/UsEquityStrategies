@@ -326,6 +326,13 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert review_decision["effect_size_policy"] == (
         "fixed_minimum_effect_no_parameter_search"
     )
+    assert review_decision["candidate_universe_policy"] == (
+        "frozen_preset_names_no_parameter_search"
+    )
+    assert review_decision["candidate_universe_names"] == [
+        "nasdaq_sp500_price_defensive",
+    ]
+    assert len(review_decision["candidate_universe_definition_sha256s"][0]) == 64
     assert review_decision["runtime_default_recommendation"] == "fixed_dca"
     assert review_decision["runtime_default_change_policy"] == (
         "manual_review_required_no_auto_enable"
@@ -453,6 +460,11 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["matrix_candidate_set_consistent"] is True
     assert selection_rows[0]["matrix_fixed_benchmark_present_all"] is True
     assert selection_rows[0]["matrix_candidate_names"] == "nasdaq_sp500_price_defensive"
+    assert selection_rows[0]["matrix_candidate_universe_policy"] == (
+        "frozen_preset_names_no_parameter_search"
+    )
+    assert selection_rows[0]["matrix_candidate_definition_hash_count"] == 1
+    assert len(str(selection_rows[0]["matrix_candidate_definition_sha256s"])) == 64
     assert "selected_effect_size_gate_passed" in selection_rows[0]
     assert "selected_median_relative_terminal_value_pct" in selection_rows[0]
     assert "selected_max_zero_multiplier_ratio" in selection_rows[0]
@@ -460,9 +472,15 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert "selected_regimes_seen" in selection_rows[0]
     assert selection_rows[0]["max_effect_terminal_cash_ratio_pct"] == 35.0
     assert selection_rows[0]["fixed_benchmark"] == "fixed"
+    assert len(str(selection_rows[0]["compared_candidate_definition_sha256s"])) == 64
     assert coverage_rows[0]["scenario_count"] == 4
     assert coverage_rows[0]["coverage_status"] == "ready_for_selection_review"
     assert coverage_rows[0]["failure_reasons"] == ""
+    assert coverage_rows[0]["candidate_universe_policy"] == (
+        "frozen_preset_names_no_parameter_search"
+    )
+    assert coverage_rows[0]["candidate_definition_hash_count"] == 1
+    assert len(str(coverage_rows[0]["candidate_definition_sha256s"])) == 64
     assert coverage_rows[0]["scenario_cadences"] == "monthly"
     assert coverage_rows[0]["scenario_cadence_count"] == 1
     assert coverage_rows[0]["scenario_execution_days"] == "1,25"
@@ -499,6 +517,8 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     ] is True
     assert review_decision["selection_groups"] == ("nasdaq_sp500_price",)
     assert review_decision["selection_count"] == 1
+    assert review_decision["candidate_universe_count"] == 1
+    assert len(review_decision["candidate_universe_definition_sha256s"][0]) == 64
     assert review_decision["runtime_default_recommendation"] == "fixed_dca"
     assert review_decision["observed_best_smart_candidates"][0]["selection_group"] == (
         "nasdaq_sp500_price"

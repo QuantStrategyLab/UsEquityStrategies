@@ -163,6 +163,9 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "matrix_scenario_sample_windows" in selection_summary
     assert "matrix_scenario_sample_window_audit_passed" in selection_summary
     assert "matrix_candidate_set_consistent" in selection_summary
+    assert "matrix_candidate_universe_policy" in selection_summary
+    assert "matrix_candidate_definition_sha256s" in selection_summary
+    assert "compared_candidate_definition_sha256s" in selection_summary
     assert "coverage_gate_passed" in scenario_coverage
     assert "scenario_sample_windows" in scenario_coverage
     assert "scenario_sample_window_audit_passed" in scenario_coverage
@@ -172,6 +175,11 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert review_decision["effect_size_policy"] == (
         "fixed_minimum_effect_no_parameter_search"
     )
+    assert review_decision["candidate_universe_policy"] == (
+        "frozen_preset_names_no_parameter_search"
+    )
+    assert review_decision["candidate_universe_count"] == 2
+    assert len(review_decision["candidate_universe_definition_sha256s"]) == 2
     assert review_decision["effect_size_thresholds"][
         "min_median_relative_terminal_value_pct"
     ] == 1.0
