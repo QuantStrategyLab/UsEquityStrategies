@@ -179,6 +179,7 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --consumer us_equity:ibit_smart_dca \
   --require-all-known-families \
   --require-all-known-consumers \
+  --require-runtime-consumer-coverage \
   --pretty
 ```
 
@@ -192,6 +193,7 @@ python -m us_equity_strategies.signals.signal_bundle_cli \
   --as-of 2026-06-20 \
   --require-all-known-families \
   --require-all-known-consumers \
+  --require-runtime-consumer-coverage \
   --pretty
 ```
 

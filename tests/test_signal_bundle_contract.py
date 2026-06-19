@@ -314,6 +314,12 @@ def _source_family_catalog() -> dict[str, object]:
                     "research:ibit_btc_ahr999_mayer_precomputed",
                     "research:ibit_btc_ahr999_mayer_precomputed_variants",
                 ],
+                "runtime_consumers": ["us_equity:ibit_smart_dca"],
+                "research_consumers": [
+                    "research:ibit_btc_ahr999_precomputed",
+                    "research:ibit_btc_ahr999_mayer_precomputed",
+                    "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                ],
             }
         ],
     }
@@ -340,6 +346,7 @@ def _write_source_family_catalog_manifest(tmp_path: Path) -> tuple[Path, Path]:
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
+                "all_runtime_consumers_covered": True,
             },
             indent=2,
             sort_keys=True,
@@ -1019,6 +1026,7 @@ def test_source_family_catalog_manifest_matches_required_consumers(tmp_path) -> 
         required_consumers=("us_equity:ibit_smart_dca",),
         expected_transform="crypto.btc.ahr999.v1",
         require_all_known_families=True,
+        require_runtime_consumer_coverage=True,
     )
 
     assert summary["manifest_path"] == str(manifest_path.resolve())
@@ -1027,6 +1035,8 @@ def test_source_family_catalog_manifest_matches_required_consumers(tmp_path) -> 
     assert summary["families"] == ("crypto.btc_cycle_daily",)
     assert summary["matched_families"] == ("crypto.btc_cycle_daily",)
     assert summary["required_signal_consumers_present"] is True
+    assert summary["runtime_consumer_coverage_present"] is True
+    assert summary["all_runtime_consumers_covered"] is True
 
 
 def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
@@ -1094,6 +1104,7 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
         consumer="us_equity:ibit_smart_dca",
         require_all_known_families=True,
         require_all_known_consumers=True,
+        require_runtime_consumer_coverage=True,
     )
     market_data = extract_canonical_input_from_platform_handoff_for_consumer(
         handoff_path,
@@ -1116,6 +1127,7 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
     assert summary["source_families"] == ("crypto.btc_cycle_daily",)
     assert summary["matched_source_families"] == ("crypto.btc_cycle_daily",)
     assert summary["consumer_contract_count"] == 7
+    assert summary["all_runtime_consumers_covered"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
     assert summary["consumer_registry_contract_fields_verified"] is True
     assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72

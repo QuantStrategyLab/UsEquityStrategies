@@ -372,6 +372,7 @@ def signal_source_family_catalog_audit_summary_from_manifest(
     required_consumers: Iterable[str] = (),
     expected_transform: str | None = None,
     require_all_known_families: bool = False,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Validate an external source-family catalog manifest and linked catalog."""
 
@@ -381,6 +382,13 @@ def signal_source_family_catalog_audit_summary_from_manifest(
         raise SignalBundleContractError(
             "signal source family catalog manifest missing known families: "
             + ", ".join(str(item) for item in manifest["missing_known_families"])
+        )
+    if (
+        require_runtime_consumer_coverage
+        and manifest.get("all_runtime_consumers_covered") is not True
+    ):
+        raise SignalBundleContractError(
+            "signal source family catalog manifest runtime consumer coverage is incomplete"
         )
     catalog_path = _resolve_relative_artifact_path(
         manifest_path.parent.resolve(),
@@ -393,6 +401,7 @@ def signal_source_family_catalog_audit_summary_from_manifest(
         required_consumers=required_consumers,
         expected_transform=expected_transform,
         require_all_known_families=require_all_known_families,
+        require_runtime_consumer_coverage=require_runtime_consumer_coverage,
     )
     _validate_signal_source_family_catalog_manifest_consistency(
         manifest,
@@ -416,6 +425,12 @@ def signal_source_family_catalog_audit_summary_from_manifest(
         "all_consumer_contracts_satisfied": catalog_summary[
             "all_consumer_contracts_satisfied"
         ],
+        "runtime_consumer_coverage_present": (
+            "all_runtime_consumers_covered" in manifest
+        ),
+        "all_runtime_consumers_covered": manifest.get(
+            "all_runtime_consumers_covered"
+        ),
         "expected_transform": expected_transform or "",
         "required_signal_consumers": tuple(
             str(consumer).strip()
@@ -438,6 +453,7 @@ def signal_source_family_catalog_audit_summary_from_file(
     required_consumers: Iterable[str] = (),
     expected_transform: str | None = None,
     require_all_known_families: bool = False,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Validate an external source-family catalog JSON artifact."""
 
@@ -465,6 +481,14 @@ def signal_source_family_catalog_audit_summary_from_file(
             "signal source family catalog missing known families: "
             + ", ".join(missing_known_families)
         )
+    runtime_coverage = _source_family_runtime_consumer_coverage(catalog["families"])
+    if (
+        require_runtime_consumer_coverage
+        and not runtime_coverage["all_runtime_consumers_covered"]
+    ):
+        raise SignalBundleContractError(
+            "signal source family catalog runtime consumer coverage is incomplete"
+        )
     return {
         "path": str(catalog_path.resolve()),
         "schema_version": str(catalog["schema_version"]),
@@ -475,6 +499,10 @@ def signal_source_family_catalog_audit_summary_from_file(
         "all_consumer_contracts_satisfied": _all_source_family_contracts_satisfied(
             catalog["families"]
         ),
+        "runtime_consumer_coverage": runtime_coverage,
+        "all_runtime_consumers_covered": runtime_coverage[
+            "all_runtime_consumers_covered"
+        ],
         "matched_family_count": len(matched_families),
         "matched_families": matched_families,
         "required_signal_consumers_present": not required_consumer_tuple
@@ -492,6 +520,7 @@ def signal_platform_handoff_audit_summary_from_manifest(
     expected_source_transform: str | None = None,
     require_all_known_families: bool = False,
     require_all_known_consumers: bool = False,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Validate a MarketSignalSources platform handoff manifest and its links."""
 
@@ -554,6 +583,7 @@ def signal_platform_handoff_audit_summary_from_manifest(
         required_consumers=target_required_consumers,
         expected_transform=expected_source_transform,
         require_all_known_families=require_all_known_families,
+        require_runtime_consumer_coverage=require_runtime_consumer_coverage,
     )
     consumer_registry_summary = (
         signal_consumer_contract_registry_audit_summary_from_manifest(
@@ -731,6 +761,7 @@ def signal_research_handoff_audit_summary_from_manifest(
     expected_research_artifact_type: str | None = None,
     require_all_known_families: bool = False,
     require_all_known_consumers: bool = False,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Validate a MarketSignalSources research handoff manifest and its links."""
 
@@ -783,6 +814,7 @@ def signal_research_handoff_audit_summary_from_manifest(
         required_consumers=required_consumers,
         expected_transform=str(research_summary["transform"]),
         require_all_known_families=require_all_known_families,
+        require_runtime_consumer_coverage=require_runtime_consumer_coverage,
     )
     if not source_catalog_summary["matched_families"]:
         raise SignalBundleContractError(
@@ -948,6 +980,7 @@ def signal_platform_handoff_audit_summary_from_index(
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
     require_all_known_families: bool = False,
     require_all_known_consumers: bool = False,
+    require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Resolve a handoff index entry and validate the linked handoff manifest."""
 
@@ -968,6 +1001,7 @@ def signal_platform_handoff_audit_summary_from_index(
         expected_source_transform=expected_source_transform,
         require_all_known_families=require_all_known_families,
         require_all_known_consumers=require_all_known_consumers,
+        require_runtime_consumer_coverage=require_runtime_consumer_coverage,
     )
     summary.update(
         {
@@ -1767,6 +1801,13 @@ def _load_signal_source_family_catalog_manifest(path: Path) -> dict[str, Any]:
         raise SignalBundleContractError(
             "signal source family catalog manifest all_consumer_contracts_satisfied must be a bool"
         )
+    if (
+        "all_runtime_consumers_covered" in manifest_dict
+        and not isinstance(manifest_dict["all_runtime_consumers_covered"], bool)
+    ):
+        raise SignalBundleContractError(
+            "signal source family catalog manifest all_runtime_consumers_covered must be a bool"
+        )
     return manifest_dict
 
 
@@ -1812,6 +1853,10 @@ def _validate_signal_source_family_catalog_manifest_consistency(
             "all_consumer_contracts_satisfied"
         ],
     }
+    if "all_runtime_consumers_covered" in manifest:
+        expected_values["all_runtime_consumers_covered"] = catalog_summary[
+            "all_runtime_consumers_covered"
+        ]
     for field, expected in expected_values.items():
         if manifest[field] != expected:
             raise SignalBundleContractError(
@@ -1887,6 +1932,76 @@ def _all_source_family_contracts_satisfied(families: Sequence[object]) -> bool:
         )
         for record in families
     )
+
+
+def _source_family_runtime_consumer_coverage(
+    families: Sequence[object],
+) -> dict[str, Any]:
+    known_runtime_consumers = tuple(
+        sorted(
+            consumer
+            for consumer in REQUIRED_INDICATOR_FIELDS_BY_CONSUMER
+            if not consumer.startswith("research:")
+        )
+    )
+    source_families_by_consumer: dict[str, list[str]] = {
+        consumer: []
+        for consumer in known_runtime_consumers
+    }
+    runtime_consumers_seen: set[str] = set()
+    unknown_runtime_consumers: set[str] = set()
+    consumer_scope_errors: list[str] = []
+
+    for record in families:
+        if not isinstance(record, Mapping):
+            continue
+        family = str(record.get("family", "")).strip()
+        compatible_profiles = set(_string_tuple(record.get("compatible_profiles")))
+        runtime_consumers = set(_string_tuple(record.get("runtime_consumers")))
+        research_consumers = set(_string_tuple(record.get("research_consumers")))
+        declared_consumers = runtime_consumers | research_consumers
+        if declared_consumers != compatible_profiles:
+            consumer_scope_errors.append(f"{family}:consumer_scope_mismatch")
+        if runtime_consumers & research_consumers:
+            consumer_scope_errors.append(f"{family}:runtime_research_consumer_overlap")
+
+        for consumer in runtime_consumers:
+            if consumer.startswith("research:"):
+                consumer_scope_errors.append(f"{family}:research_consumer_marked_runtime")
+                continue
+            runtime_consumers_seen.add(consumer)
+            if consumer in source_families_by_consumer:
+                source_families_by_consumer[consumer].append(family)
+            else:
+                unknown_runtime_consumers.add(consumer)
+
+        for consumer in research_consumers:
+            if not consumer.startswith("research:"):
+                consumer_scope_errors.append(f"{family}:runtime_consumer_marked_research")
+
+    missing_runtime_consumers = tuple(
+        consumer
+        for consumer, source_families in source_families_by_consumer.items()
+        if not source_families
+    )
+    return {
+        "known_runtime_consumers": known_runtime_consumers,
+        "known_runtime_consumer_count": len(known_runtime_consumers),
+        "runtime_consumers": tuple(sorted(runtime_consumers_seen)),
+        "runtime_consumer_count": len(runtime_consumers_seen),
+        "runtime_consumer_source_families": {
+            consumer: tuple(source_families)
+            for consumer, source_families in sorted(source_families_by_consumer.items())
+        },
+        "runtime_consumers_without_source_family": missing_runtime_consumers,
+        "unknown_runtime_consumers": tuple(sorted(unknown_runtime_consumers)),
+        "consumer_scope_errors": tuple(consumer_scope_errors),
+        "all_runtime_consumers_covered": (
+            not missing_runtime_consumers
+            and not unknown_runtime_consumers
+            and not consumer_scope_errors
+        ),
+    }
 
 
 def _source_family_covers_required_fields(
@@ -2138,6 +2253,9 @@ def _research_handoff_summary(
         "all_consumer_contracts_satisfied": source_catalog_summary[
             "all_consumer_contracts_satisfied"
         ],
+        "all_runtime_consumers_covered": source_catalog_summary.get(
+            "all_runtime_consumers_covered"
+        ),
         "consumer_contract_registry_manifest_path": str(
             consumer_registry_manifest_path.resolve()
         ),
@@ -2323,6 +2441,9 @@ def _platform_handoff_summary(
         "all_consumer_contracts_satisfied": source_catalog_summary[
             "all_consumer_contracts_satisfied"
         ],
+        "all_runtime_consumers_covered": source_catalog_summary.get(
+            "all_runtime_consumers_covered"
+        ),
         "consumer_contract_count": consumer_registry_summary["consumer_count"],
         "consumer_contracts": consumer_registry_summary["consumers"],
         "all_known_consumers_present": consumer_registry_summary[

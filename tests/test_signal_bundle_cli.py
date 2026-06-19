@@ -70,6 +70,12 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                             "research:ibit_btc_ahr999_mayer_precomputed",
                             "research:ibit_btc_ahr999_mayer_precomputed_variants",
                         ],
+                        "runtime_consumers": ["us_equity:ibit_smart_dca"],
+                        "research_consumers": [
+                            "research:ibit_btc_ahr999_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed",
+                            "research:ibit_btc_ahr999_mayer_precomputed_variants",
+                        ],
                     }
                 ],
             },
@@ -96,6 +102,7 @@ def _write_platform_handoff_inputs(tmp_path: Path) -> Path:
                 "missing_known_families": [],
                 "all_known_families_present": True,
                 "all_consumer_contracts_satisfied": True,
+                "all_runtime_consumers_covered": True,
             },
             indent=2,
             sort_keys=True,
@@ -392,6 +399,7 @@ def _write_research_handoff_inputs(tmp_path: Path) -> tuple[Path, Path]:
                 "source_families": ["crypto.btc_cycle_daily"],
                 "all_known_source_families_present": True,
                 "all_consumer_contracts_satisfied": True,
+                "all_runtime_consumers_covered": True,
                 "consumer_contract_registry_manifest_path": (
                     registry_manifest_path.relative_to(tmp_path).as_posix()
                 ),
@@ -490,6 +498,7 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
             "us_equity:ibit_smart_dca",
             "--require-all-known-families",
             "--require-all-known-consumers",
+            "--require-runtime-consumer-coverage",
             "--pretty",
         ]
     )
@@ -503,6 +512,7 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["consumer_contract_count"] == 7
     assert summary["all_known_consumers_present"] is True
+    assert summary["all_runtime_consumers_covered"] is True
     assert summary["handoff_linked_manifest_sha256s_verified"] is True
 
 
@@ -523,6 +533,7 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
             "2026-06-20",
             "--require-all-known-families",
             "--require-all-known-consumers",
+            "--require-runtime-consumer-coverage",
             "--pretty",
         ]
     )
@@ -538,6 +549,7 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
     assert summary["handoff_manifest_sha256"] == _sha256_path(handoff_path)
     assert summary["consumer"] == "us_equity:ibit_smart_dca"
     assert summary["bundle_id"] == "crypto.btc.derived_indicators.2026-06-19"
+    assert summary["all_runtime_consumers_covered"] is True
     assert summary["source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["matched_source_families"] == ["crypto.btc_cycle_daily"]
     assert summary["handoff_linked_manifest_sha256s_verified"] is True

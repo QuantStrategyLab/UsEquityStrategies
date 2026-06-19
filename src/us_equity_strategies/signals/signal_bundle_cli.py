@@ -48,6 +48,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 consumer=args.consumer,
                 require_all_known_families=args.require_all_known_families,
                 require_all_known_consumers=args.require_all_known_consumers,
+                require_runtime_consumer_coverage=(
+                    args.require_runtime_consumer_coverage
+                ),
             )
         elif args.platform_handoff_index is not None:
             if (
@@ -71,6 +74,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 as_of=args.as_of,
                 require_all_known_families=args.require_all_known_families,
                 require_all_known_consumers=args.require_all_known_consumers,
+                require_runtime_consumer_coverage=(
+                    args.require_runtime_consumer_coverage
+                ),
             )
         elif args.research_handoff_manifest is not None:
             if (
@@ -94,6 +100,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_research_artifact_type=args.research_artifact_type,
                 require_all_known_families=args.require_all_known_families,
                 require_all_known_consumers=args.require_all_known_consumers,
+                require_runtime_consumer_coverage=(
+                    args.require_runtime_consumer_coverage
+                ),
             )
         elif args.research_export_manifest is not None:
             if (
@@ -104,6 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or args.consumer
                 or args.require_all_known_families
                 or args.require_all_known_consumers
+                or args.require_runtime_consumer_coverage
             ):
                 raise SignalBundleContractError(
                     "provide --research-export-manifest without "
@@ -127,6 +137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or args.research_export_manifest is not None
                 or args.consumer
                 or args.require_all_known_families
+                or args.require_runtime_consumer_coverage
             ):
                 raise SignalBundleContractError(
                     "provide --consumer-contract-registry-manifest without "
@@ -148,6 +159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or args.research_export_manifest is not None
                 or args.consumer
                 or args.require_all_known_families
+                or args.require_runtime_consumer_coverage
             ):
                 raise SignalBundleContractError(
                     "provide --consumer-contract-registry without manifest, "
@@ -178,6 +190,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.require_all_known_families:
             raise SignalBundleContractError(
                 "--require-all-known-families is only valid with "
+                "--platform-handoff-manifest, --platform-handoff-index, "
+                "or --research-handoff-manifest"
+            )
+        elif args.require_runtime_consumer_coverage:
+            raise SignalBundleContractError(
+                "--require-runtime-consumer-coverage is only valid with "
                 "--platform-handoff-manifest, --platform-handoff-index, "
                 "or --research-handoff-manifest"
             )
@@ -292,6 +310,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Require a platform handoff source-family catalog manifest to declare "
             "all known families present."
+        ),
+    )
+    parser.add_argument(
+        "--require-runtime-consumer-coverage",
+        action="store_true",
+        help=(
+            "Require a handoff source-family catalog manifest to map every known "
+            "runtime consumer to an implemented source family."
         ),
     )
     parser.add_argument(
