@@ -142,7 +142,11 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert "selected_name" in selection_summary
     assert "min_review_scenarios" in selection_summary
     assert "selected_candidate_definition_sha256" in selection_summary
+    assert "selected_candidate_role" in selection_summary
     assert "selection_policy" in selection_summary
+    assert "runtime_default_recommendation" in selection_summary
+    assert "runtime_default_change_policy" in selection_summary
+    assert "smart_mode_enablement_status" in selection_summary
     assert "effect_size_policy" in selection_summary
     assert "selected_effect_size_gate_passed" in selection_summary
     assert "min_effect_median_relative_terminal_value_pct" in selection_summary
@@ -160,6 +164,12 @@ def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> N
     assert review_decision["effect_size_thresholds"][
         "min_median_relative_terminal_value_pct"
     ] == 1.0
+    assert review_decision["runtime_default_recommendation"] == "fixed_dca"
+    assert review_decision["runtime_default_change_policy"] == (
+        "manual_review_required_no_auto_enable"
+    )
+    assert "observed_best_smart_candidates" in review_decision
+    assert "manual_review_candidate_names" in review_decision
     assert review_decision["matrix_coverage_gate_passed"] is True
     assert review_decision["selection_gate_summary"][
         "matrix_coverage_gate_passed"

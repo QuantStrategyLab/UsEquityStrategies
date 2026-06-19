@@ -287,6 +287,18 @@ def test_execution_day_scenarios_keep_candidate_set_fixed(tmp_path) -> None:
     assert review_decision["effect_size_policy"] == (
         "fixed_minimum_effect_no_parameter_search"
     )
+    assert review_decision["runtime_default_recommendation"] == "fixed_dca"
+    assert review_decision["runtime_default_change_policy"] == (
+        "manual_review_required_no_auto_enable"
+    )
+    assert (
+        review_decision["smart_mode_enablement_status"]
+        == "not_recommended_for_enablement"
+    )
+    assert review_decision["observed_best_smart_candidates"][0]["name"] == (
+        "nasdaq_sp500_price_defensive"
+    )
+    assert review_decision["manual_review_candidate_names"] == []
     assert review_decision["effect_size_thresholds"] == {
         "min_worst_relative_terminal_value_pct": 0.0,
         "min_median_relative_terminal_value_pct": 1.0,
@@ -373,7 +385,14 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     assert selection_rows[0]["selected_rule_type"] == "trend_drawdown"
     assert selection_rows[0]["selected_parameter_count"] == 15
     assert len(str(selection_rows[0]["selected_candidate_definition_sha256"])) == 64
+    assert selection_rows[0]["selected_candidate_role"] == (
+        "best_observed_smart_candidate"
+    )
     assert selection_rows[0]["selection_policy"] == "fixed_preset_no_parameter_search"
+    assert selection_rows[0]["runtime_default_recommendation"] == "fixed_dca"
+    assert selection_rows[0]["runtime_default_change_policy"] == (
+        "manual_review_required_no_auto_enable"
+    )
     assert selection_rows[0]["effect_size_policy"] == (
         "fixed_minimum_effect_no_parameter_search"
     )
@@ -424,6 +443,10 @@ def test_execution_day_contribution_scenarios_cover_scale_robustness(tmp_path) -
     ] is True
     assert review_decision["selection_groups"] == ("nasdaq_sp500_price",)
     assert review_decision["selection_count"] == 1
+    assert review_decision["runtime_default_recommendation"] == "fixed_dca"
+    assert review_decision["observed_best_smart_candidates"][0]["selection_group"] == (
+        "nasdaq_sp500_price"
+    )
     assert review_decision["overall_recommendation_status"] in {
         "promote_to_manual_review",
         "hold_default_fixed_dca",
@@ -453,8 +476,65 @@ def test_selection_rows_hold_fixed_when_no_variant_passes() -> None:
 
     assert rows[0]["selection_group"] == "nasdaq_sp500_price"
     assert rows[0]["recommendation_status"] == "hold_default_fixed_dca"
+    assert rows[0]["runtime_default_recommendation"] == "fixed_dca"
+    assert (
+        rows[0]["smart_mode_enablement_status"]
+        == "not_recommended_for_enablement"
+    )
     assert rows[0]["recommendation_reason"] == "no_candidate_passed_robustness_gate"
     assert "nasdaq_sp500_price_no_skip" in rows[0]["compared_candidates"]
+
+
+def test_review_decision_keeps_fixed_default_while_naming_manual_review_candidate() -> None:
+    scenarios = {
+        "monthly_day_1": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1030.0,
+                max_drawdown=0.08,
+            ),
+        },
+        "monthly_day_25": {
+            "fixed": _research_result("fixed", terminal_value=1000.0),
+            "nasdaq_sp500_price_no_skip": _research_result(
+                "nasdaq_sp500_price_no_skip",
+                terminal_value=1040.0,
+                max_drawdown=0.08,
+            ),
+        },
+    }
+
+    rows = scenario_results_to_selection_rows(
+        scenarios,
+        min_review_scenarios=1,
+    )
+    decision = scenario_results_to_review_decision(
+        scenarios,
+        min_review_scenarios=1,
+    )
+
+    assert rows[0]["selected_name"] == "nasdaq_sp500_price_no_skip"
+    assert rows[0]["recommendation_status"] == "promote_to_manual_review"
+    assert rows[0]["runtime_default_recommendation"] == "fixed_dca"
+    assert rows[0]["smart_mode_enablement_status"] == "manual_review_candidate"
+    assert decision["overall_recommendation_status"] == "promote_to_manual_review"
+    assert decision["runtime_default_recommendation"] == "fixed_dca"
+    assert decision["runtime_default_change_policy"] == (
+        "manual_review_required_no_auto_enable"
+    )
+    assert decision["smart_mode_enablement_status"] == "manual_review_candidate"
+    assert decision["manual_review_candidate_names"] == (
+        "nasdaq_sp500_price_no_skip",
+    )
+    assert decision["observed_best_smart_candidates"] == (
+        {
+            "selection_group": "nasdaq_sp500_price",
+            "name": "nasdaq_sp500_price_no_skip",
+            "status": "promote_to_manual_review",
+            "reason": "selected_candidate_passed_all_scenarios",
+        },
+    )
 
 
 def test_selection_rows_require_minimum_robustness_scenarios() -> None:

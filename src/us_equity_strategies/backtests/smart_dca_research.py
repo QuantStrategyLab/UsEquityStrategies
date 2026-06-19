@@ -1361,11 +1361,19 @@ def scenario_results_to_selection_rows(
                 "selected_candidate_definition_sha256": _candidate_definition_sha256(
                     str(selected["name"])
                 ),
+                "selected_candidate_role": "best_observed_smart_candidate",
                 "selection_policy": "fixed_preset_no_parameter_search",
                 "recommendation_status": (
                     "promote_to_manual_review"
                     if promotion_ready
                     else "hold_default_fixed_dca"
+                ),
+                "runtime_default_recommendation": "fixed_dca",
+                "runtime_default_change_policy": "manual_review_required_no_auto_enable",
+                "smart_mode_enablement_status": (
+                    "manual_review_candidate"
+                    if promotion_ready
+                    else "not_recommended_for_enablement"
                 ),
                 "recommendation_reason": _selection_recommendation_reason(
                     selected_passed=selected_passed,
@@ -1483,6 +1491,11 @@ def scenario_results_to_review_decision(
         selection_rows=selection_rows,
     )
     manual_review_ready = not blocking_reasons
+    manual_review_candidate_names = tuple(
+        str(row["selected_name"])
+        for row in selection_rows
+        if row["recommendation_status"] == "promote_to_manual_review"
+    )
     effect_size_thresholds = {
         "min_worst_relative_terminal_value_pct": (
             min_effect_worst_relative_terminal_value_pct
@@ -1500,6 +1513,22 @@ def scenario_results_to_review_decision(
         "selection_policy": "fixed_preset_no_parameter_search",
         "effect_size_policy": "fixed_minimum_effect_no_parameter_search",
         "effect_size_thresholds": effect_size_thresholds,
+        "runtime_default_recommendation": "fixed_dca",
+        "runtime_default_change_policy": "manual_review_required_no_auto_enable",
+        "smart_mode_enablement_status": _smart_mode_enablement_status(
+            selection_rows,
+            manual_review_ready=manual_review_ready,
+        ),
+        "observed_best_smart_candidates": tuple(
+            {
+                "selection_group": str(row["selection_group"]),
+                "name": str(row["selected_name"]),
+                "status": str(row["recommendation_status"]),
+                "reason": str(row["recommendation_reason"]),
+            }
+            for row in selection_rows
+        ),
+        "manual_review_candidate_names": manual_review_candidate_names,
         "selection_gate_summary": {
             "matrix_coverage_gate_passed": coverage_row["coverage_gate_passed"],
             "matrix_dimension_coverage_gate_passed": coverage_row[
@@ -1539,6 +1568,21 @@ def scenario_results_to_review_decision(
         ),
         "selections": selection_rows,
     }
+
+
+def _smart_mode_enablement_status(
+    selection_rows: tuple[dict[str, object], ...],
+    *,
+    manual_review_ready: bool,
+) -> str:
+    if manual_review_ready:
+        return "manual_review_candidate"
+    if any(
+        row["recommendation_status"] == "promote_to_manual_review"
+        for row in selection_rows
+    ):
+        return "partial_manual_review_candidates"
+    return "not_recommended_for_enablement"
 
 
 def _review_decision_blocking_reasons(
