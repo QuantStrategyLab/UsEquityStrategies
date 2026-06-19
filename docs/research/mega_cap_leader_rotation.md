@@ -1,14 +1,14 @@
 # mega_cap_leader_rotation research brief
 
 Status: the static `mag7` / `expanded` variants remain research/backtest only.
-`mega_cap_leader_rotation_top50_balanced` is the retained runtime-enabled
+`russell_top50_leader_rotation_aggressive` is the retained runtime-enabled
 Top50 candidate. Narrow Top20 and aggressive Top50 profile exposure was removed
 after comparison against the balanced Top50 route.
 
 ## Objective
 
 `mega_cap_leader_rotation` tests whether a concentrated monthly rotation among
-US mega-cap leaders can keep exposure to the strongest large-cap growth names
+US Russell Top50 leaders can keep exposure to the strongest large-cap growth names
 while dropping weaker leaders.
 
 This is intentionally different from the other runtime profiles:
@@ -16,7 +16,7 @@ This is intentionally different from the other runtime profiles:
 - `russell_1000_multi_factor_defensive`: broad Russell 1000 stock selection.
 - `tech_communication_pullback_enhancement`: tech/communication pullback entry
   with an explicit cash buffer.
-- `mega_cap_leader_rotation_top50_balanced`: the current runtime-enabled Top50
+- `russell_top50_leader_rotation_aggressive`: the current runtime-enabled Top50
   leader-rotation candidate.
 
 ## Research And Runtime Scope
@@ -29,7 +29,7 @@ This is intentionally different from the other runtime profiles:
 - Research pools:
   - `mag7`: `AAPL`, `MSFT`, `NVDA`, `AMZN`, `GOOGL`, `META`, `TSLA`.
   - `expanded`: MAG7 plus `AVGO`, `NFLX`, `AMD`, `COST`, `JPM`, `BRK.B`, `LLY`.
-  - dynamic mega-cap pool: rebuilt from historical iShares Russell 1000 ETF
+  - dynamic Russell Top50 pool: rebuilt from historical iShares Russell 1000 ETF
     holdings snapshots to reduce "today's winners" look-ahead bias.
 
 ## Signal Design
@@ -49,14 +49,14 @@ The research script ranks eligible names using price-derived features:
 
 ## Retained Runtime Shape
 
-`mega_cap_leader_rotation_top50_balanced` keeps the Top50 candidate universe and
+`russell_top50_leader_rotation_aggressive` keeps the Top50 candidate universe and
 uses a fixed sleeve blend:
 
 - 50% sleeve: top 2 names, 50% single-name cap.
 - 50% sleeve: top 4 names, 25% single-name cap.
 - safe haven: `BOXX`.
 - feature snapshot input:
-  `mega_cap_leader_rotation_top50_balanced.feature_snapshot.v1`.
+  `russell_top50_leader_rotation_aggressive.feature_snapshot.v1`.
 - historical execution window: first 3 NYSE trading days after the monthly
   snapshot date.
 

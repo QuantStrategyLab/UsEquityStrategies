@@ -37,8 +37,7 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
-| `russell_1000_multi_factor_defensive` | Russell 1000 Multi-Factor | 基于 feature snapshot 的 runtime-enabled 美股大盘股选择器。 |
-| `mega_cap_leader_rotation_top50_balanced` | Mega Cap Leader Rotation Top50 Balanced | 基于 feature snapshot 的 mega-cap leader rotation。 |
+| `russell_top50_leader_rotation_aggressive` | Russell Top50 Leader Rotation Aggressive | 基于 feature snapshot 的 Russell Top50 leader rotation。 |
 
 ### 研究侧候选
 

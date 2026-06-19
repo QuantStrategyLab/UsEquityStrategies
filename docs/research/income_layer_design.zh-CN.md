@@ -15,8 +15,7 @@ _更新日期：2026-06-04_
 | `tqqq_growth_income` | `log_total_drawdown_budget` | `250000` | `20%` | `55%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
 | `soxl_soxx_trend_income` | `log_total_drawdown_budget` | `150000` | `20%` | `95%` | `SCHD 15% / DGRO 10% / SGOV 70% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_total_drawdown_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `log_total_drawdown_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `mega_cap_leader_rotation_top50_balanced` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `russell_top50_leader_rotation_aggressive` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 
 `tech_communication_pullback_enhancement` 已从可运行暴露中移除；策略实现和 bundled config 仅作为离线研究归档保留，因此不再有当前收入层默认参数。
 
@@ -45,8 +44,7 @@ _更新日期：2026-06-04_
 | `tqqq_growth_income` | 宽基杠杆增长 | `45%` | `8%` | `45%` 起，每翻倍降 `5%`，最低 `25%` | `55%` | 小资金允许接近核心波动；约 `500k` 附近预算收紧到 `40%`，约 `2M` 附近到 `30%`，但保留复利弹性。 |
 | `soxl_soxx_trend_income` | 半导体杠杆趋势 | `45%` | `6%` | `45%` 起，每翻倍降 `5%`，最低 `25%` | `95%` | SOXL 路径更尖锐，收入篮子更偏 SGOV，因此允许更高收入层上限来处理大账户压力预算。 |
 | `global_etf_rotation` | 防守型 ETF 轮动 | `30%` | `8%` | `30%` 起，每翻倍降 `1.5%`，最低 `26.7%` | `15%` | 核心本身已有 canary 和 BIL 防守，收入层只做大账户钝化；最低预算贴合 15% 收入层上限的可实现回撤。 |
-| `russell_1000_multi_factor_defensive` | 防守型多因子股票 | `30%` | `8%` | `30%` 起，每翻倍降 `1.5%`，最低 `25.6%` | `20%` | 个股组合比 Global ETF 更分散但仍有权益风险，上限略高，最低预算贴合 20% 收入层上限。 |
-| `mega_cap_leader_rotation_top50_balanced` | 高集中龙头轮动 | `35%` | `8%` | `35%` 起，每翻倍降 `2%`，最低 `28.25%` | `25%` | Top2/Top4 集中度高，预算曲线同科技增强，但上限略低，避免过度拖累强趋势。 |
+| `russell_top50_leader_rotation_aggressive` | 高集中龙头轮动 | `35%` | `8%` | `35%` 起，每翻倍降 `2%`，最低 `28.25%` | `25%` | Top2/Top4 集中度高，预算曲线同科技增强，但上限略低，避免过度拖累强趋势。 |
 
 ## 杠杆策略实盘候选复核
 

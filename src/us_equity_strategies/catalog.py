@@ -26,8 +26,7 @@ GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
-RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE = "russell_1000_multi_factor_defensive"
-MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
+RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE = "russell_top50_leader_rotation_aggressive"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 SMART_DCA_RUNTIME_DEFAULT_CONTRACT_SCHEMA_VERSION = (
@@ -42,8 +41,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     TQQQ_GROWTH_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     SOXL_SOXX_TREND_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     IBIT_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
 }
@@ -52,8 +50,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"market_history"}),
     TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: frozenset({"feature_snapshot"}),
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: frozenset({"feature_snapshot"}),
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
     IBIT_SMART_DCA_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
 }
@@ -206,25 +203,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": True,
     },
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: {
-        "benchmark_symbol": "SPY",
-        "safe_haven": "BOXX",
-        "holdings_count": 24,
-        "single_name_cap": 0.06,
-        "sector_cap": 0.20,
-        "hold_bonus": 0.15,
-        "soft_defense_exposure": 0.50,
-        "hard_defense_exposure": 0.10,
-        "soft_breadth_threshold": 0.55,
-        "hard_breadth_threshold": 0.35,
-        **income_layer_default_config(RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE),
-        "market_regime_control_enabled": True,
-        "market_regime_control_apply_risk_reduced": False,
-        "market_regime_control_apply_risk_off": False,
-        "market_regime_control_risk_reduced_scalar": 0.50,
-        "market_regime_control_risk_off_scalar": 0.0,
-    },
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: {
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: {
         "benchmark_symbol": "QQQ",
         "broad_benchmark_symbol": "SPY",
         "safe_haven": "BOXX",
@@ -246,7 +225,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "min_adv20_usd": 20000000.0,
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
-        **income_layer_default_config(MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE),
+        **income_layer_default_config(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE),
         "option_growth_overlay_enabled": True,
         "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 1000000.0,
@@ -348,8 +327,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "global_etf_rotation_entrypoint",
     TQQQ_GROWTH_INCOME_PROFILE: "tqqq_growth_income_entrypoint",
     SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "russell_1000_multi_factor_defensive_entrypoint",
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "mega_cap_leader_rotation_top50_balanced_entrypoint",
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: "russell_top50_leader_rotation_aggressive_entrypoint",
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
     IBIT_SMART_DCA_PROFILE: "ibit_smart_dca_entrypoint",
 }
@@ -358,8 +336,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "weight",
     TQQQ_GROWTH_INCOME_PROFILE: "value",
     SOXL_SOXX_TREND_INCOME_PROFILE: "value",
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: "weight",
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: "weight",
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: "weight",
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
     IBIT_SMART_DCA_PROFILE: "value",
 }
@@ -412,13 +389,8 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="allocation",
         module_path="us_equity_strategies.strategies.soxl_soxx_trend_income",
     ),
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: _build_strategy_definition(
-        RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-        component_name="signal_logic",
-        module_path="us_equity_strategies.strategies.russell_1000_multi_factor_defensive",
-    ),
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: _build_strategy_definition(
-        MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: _build_strategy_definition(
+        RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.mega_cap_leader_rotation",
     ),
@@ -469,27 +441,16 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         role="sector_offensive_income",
         status="runtime_enabled",
     ),
-    RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE: StrategyMetadata(
-        canonical_profile=RUSSELL_1000_MULTI_FACTOR_DEFENSIVE_PROFILE,
-        display_name="Russell 1000 Multi-Factor",
-        description="Monthly price-only Russell 1000 stock selection with SPY+breadth defense and BOXX parking.",
-        aliases=("r1000_multifactor_defensive",),
-        cadence="monthly",
-        asset_scope="us_large_cap_stocks",
-        benchmark="SPY",
-        role="defensive_stock_baseline",
-        status="runtime_enabled",
-    ),
-    MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE: StrategyMetadata(
-        canonical_profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
-        display_name="Mega Cap Leader Rotation Top50 Balanced",
-        description="Balanced monthly Top50 mega-cap leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
-        localized_display_names={"zh": "美股超大盘50强平衡龙头轮动"},
+    RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE: StrategyMetadata(
+        canonical_profile=RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+        display_name="Russell Top50 Leader Rotation Aggressive",
+        description="Balanced monthly Russell Top50 leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
+        localized_display_names={"zh": "罗素 Top50 领涨轮动（激进）"},
         aliases=(),
         cadence="monthly",
-        asset_scope="us_mega_cap_top50_balanced_stocks",
+        asset_scope="us_russell_top50_leader_rotation_stocks",
         benchmark="QQQ",
-        role="balanced_leader_rotation",
+        role="aggressive_leader_rotation",
         status="runtime_enabled",
     ),
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyMetadata(

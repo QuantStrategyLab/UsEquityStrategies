@@ -6,7 +6,7 @@ from us_equity_strategies.ai_extensions import build_default_ai_extension_config
 from us_equity_strategies.income_layer_defaults import income_layer_default_config
 
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
-MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE = "mega_cap_leader_rotation_top50_balanced"
+RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE = "russell_top50_leader_rotation_aggressive"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
@@ -193,36 +193,10 @@ soxl_soxx_trend_income_manifest = _manifest(
     },
 )
 
-russell_1000_multi_factor_defensive_manifest = _manifest(
-    profile="russell_1000_multi_factor_defensive",
-    display_name="Russell 1000 Multi-Factor",
-    description="Monthly price-only Russell 1000 stock selection with SPY+breadth defense and BOXX parking.",
-    aliases=("r1000_multifactor_defensive",),
-    required_inputs=frozenset({"feature_snapshot"}),
-    default_config={
-        "benchmark_symbol": "SPY",
-        "safe_haven": "BOXX",
-        "holdings_count": 24,
-        "single_name_cap": 0.06,
-        "sector_cap": 0.20,
-        "hold_bonus": 0.15,
-        "soft_defense_exposure": 0.50,
-        "hard_defense_exposure": 0.10,
-        "soft_breadth_threshold": 0.55,
-        "hard_breadth_threshold": 0.35,
-        **income_layer_default_config("russell_1000_multi_factor_defensive"),
-        "market_regime_control_enabled": True,
-        "market_regime_control_apply_risk_reduced": False,
-        "market_regime_control_apply_risk_off": False,
-        "market_regime_control_risk_reduced_scalar": 0.50,
-        "market_regime_control_risk_off_scalar": 0.0,
-    },
-)
-
-mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
-    profile=MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE,
-    display_name="Mega Cap Leader Rotation Top50 Balanced",
-    description="Balanced monthly Top50 mega-cap leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
+russell_top50_leader_rotation_aggressive_manifest = _manifest(
+    profile=RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE,
+    display_name="Russell Top50 Leader Rotation Aggressive",
+    description="Balanced monthly Russell Top50 leader rotation using a fixed 50% Top2 / 50% Top4 sleeve blend and no trend de-risking by default.",
     aliases=(),
     required_inputs=frozenset({"feature_snapshot"}),
     default_config={
@@ -247,7 +221,7 @@ mega_cap_leader_rotation_top50_balanced_manifest = _manifest(
         "min_adv20_usd": 20000000.0,
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
-        **income_layer_default_config(MEGA_CAP_LEADER_ROTATION_TOP50_BALANCED_PROFILE),
+        **income_layer_default_config(RUSSELL_TOP50_LEADER_ROTATION_AGGRESSIVE_PROFILE),
         "option_growth_overlay_enabled": True,
         "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
         "option_growth_overlay_start_usd": 1000000.0,
@@ -365,8 +339,7 @@ MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
     soxl_soxx_trend_income_manifest.profile: soxl_soxx_trend_income_manifest,
-    russell_1000_multi_factor_defensive_manifest.profile: russell_1000_multi_factor_defensive_manifest,
-    mega_cap_leader_rotation_top50_balanced_manifest.profile: mega_cap_leader_rotation_top50_balanced_manifest,
+    russell_top50_leader_rotation_aggressive_manifest.profile: russell_top50_leader_rotation_aggressive_manifest,
     nasdaq_sp500_smart_dca_manifest.profile: nasdaq_sp500_smart_dca_manifest,
     ibit_smart_dca_manifest.profile: ibit_smart_dca_manifest,
 }
@@ -389,8 +362,7 @@ __all__ = [
     "global_etf_rotation_manifest",
     "tqqq_growth_income_manifest",
     "soxl_soxx_trend_income_manifest",
-    "russell_1000_multi_factor_defensive_manifest",
-    "mega_cap_leader_rotation_top50_balanced_manifest",
+    "russell_top50_leader_rotation_aggressive_manifest",
     "nasdaq_sp500_smart_dca_manifest",
     "ibit_smart_dca_manifest",
 ]

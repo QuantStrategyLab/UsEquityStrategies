@@ -8,8 +8,7 @@ MIN_RECOMMENDED_EQUITY_USD: dict[str, float] = {
     "global_etf_rotation": 3_000.0,
     "tqqq_growth_income": 500.0,
     "soxl_soxx_trend_income": 1_000.0,
-    "russell_1000_multi_factor_defensive": 30_000.0,
-    "mega_cap_leader_rotation_top50_balanced": 10_000.0,
+    "russell_top50_leader_rotation_aggressive": 10_000.0,
     "nasdaq_sp500_smart_dca": 1_000.0,
     "ibit_smart_dca": 1_000.0,
 }

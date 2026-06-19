@@ -10,7 +10,7 @@ _更新日期：2026-06-19_
 
 ## 当前可配置 profiles
 
-这 7 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
+这 6 条 profile 是当前 `runtime_enabled` `us_equity` 集合。它们按共享文档规范设计为通用策略，平台侧通过同一份 catalog、manifest、entrypoint 和 runtime adapter 契约接入；是否部署启用仍由各部署配置和风控决定。`global_etf_confidence_vol_gate` 现在只是 `global_etf_rotation` 的 legacy alias，不再是独立 runtime profile。
 
 | Profile | 中文定位 | 输入类型 | 特点 | 当前建议 |
 | --- | --- | --- | --- | --- |
@@ -19,19 +19,20 @@ _更新日期：2026-06-19_
 | `soxl_soxx_trend_income` | SOXL/SOXX 半导体趋势收益 | 直接运行输入 | 以 `SOXX` 140 日趋势闸门控制 `SOXL` / `SOXX` / `BOXX`；默认用 `SOXX` 10 日年化实际波动率的 252 日滚动 95 分位阈值，边界 `50%`-`75%`，样本不足时回退固定 `55%`；触发后读取确定性 `soxl_step_rebound_0.25_0.50` retention context，剩余 `SOXL` 转向 `SOXX`；插件也支持 `soxl_step_softzero_rebound_0.25_0.50` 保守切换；并叠加收入层。 | 半导体高弹性直接输入策略；默认启用策略级 `market_regime_control`，但 `risk_reduced` 仓位影响默认关闭。 |
 | `nasdaq_sp500_smart_dca` | 纳斯达克 / 标普定投 | 直接运行输入 | 只买不卖；默认月度按 `base_investment_usd` 定额买入 `QQQM/SPLG`，可配置周/月/季频率和重试窗口；定投账号默认不预留现金；可打开智能倍数，用 `QQQ/SPY` 的 200 日均线距离、252 日回撤和 RSI 过热状态调整本期金额；现金不足以覆盖本期金额时不投。 | 适合没有原生定投功能的平台账户长期积累；默认月度窗口运行。 |
 | `ibit_smart_dca` | IBIT 比特币 ETF 定投 | 直接运行输入 | 只买不卖；默认月度按 `base_investment_usd` 定额买入 `IBIT`，可配置周/月/季频率和重试窗口；定投账号默认不预留现金；可打开智能倍数，优先用外部 `derived_indicators` 里的 AHR999 周期指标调整本期金额，缺失时才回退到 BTC 价格历史回撤规则；不维护额外现金池，执行日现金不足就不投。 | 适合专门跑 IBIT 积累的账户；默认定额普通定投，智能倍数只是可选配置；BTC/AHR999 数据源应由外部信号层或平台适配层维护。 |
-| `russell_1000_multi_factor_defensive` | Russell 1000 多因子防守 | feature snapshot | Russell 1000 price-only 多因子，SPY 趋势 + breadth 防守，默认 24 股。 | 可切换但更适合大账户；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响等待长周期代理研究归档。 |
-| `mega_cap_leader_rotation_top50_balanced` | Top50 平衡龙头轮动 | feature snapshot | 固定 `50% Top2 cap50 + 50% Top4 cap25` 袖子混合，不默认趋势降仓。 | 当前保留的无杠杆龙头轮动路线；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响先保持通知/证据模式。 |
+| `russell_top50_leader_rotation_aggressive` | 罗素 Top50 领涨轮动（激进） | feature snapshot | 固定 `50% Top2 cap50 + 50% Top4 cap25` 袖子混合，不默认趋势降仓。 | 当前保留的无杠杆龙头轮动路线；`market_regime_control` 本地 apply 开关默认关闭，自动仓位影响先保持通知/证据模式。 |
 
 ## 已移除的重复/较弱研究 profile 暴露
 
-按“如果比同类 runtime-enabled 策略表现差，就不要继续保留可运行入口”的口径，下面 4 条已经从 catalog、manifest、entrypoint、runtime adapter、snapshot publish 和平台 rollout 暴露中移除：
+按“如果比同类 runtime-enabled 策略表现差，就不要继续保留可运行入口”的口径，下面 6 条已经从 catalog、manifest、entrypoint、runtime adapter、snapshot publish 和平台 rollout 暴露中移除：
 
 | 已移除 profile | 移除原因 |
 | --- | --- |
-| `mega_cap_leader_rotation_dynamic_top20` | 同期 CAGR 21.51%、最大回撤 -23.14%；收益明显弱于 `mega_cap_leader_rotation_top50_balanced` 的 36.41%。 |
-| `mega_cap_leader_rotation_aggressive` | Top50 top3/cap35 CAGR 32.42%、最大回撤 -28.64%；仍弱于 Top50 balanced，且更集中。 |
+| `russell_1000_multi_factor_defensive` | 年化只小幅跑赢大盘，最大回撤与大盘接近，实盘价值弱于定投大盘，移除可运行入口。 |
+| `mega_cap_leader_rotation_top50_balanced` | 名称不再贴切；策略仍保留但改名为 `russell_top50_leader_rotation_aggressive`，旧 profile 不再兼容。 |
+| `mega_cap_leader_rotation_dynamic_top20` | 同期 CAGR 21.51%、最大回撤 -23.14%；收益明显弱于 `russell_top50_leader_rotation_aggressive` 的 36.41%。 |
+| `mega_cap_leader_rotation_aggressive` | Top50 top3/cap35 CAGR 32.42%、最大回撤 -28.64%；仍弱于 Russell Top50 aggressive，且更集中。 |
 | `dynamic_mega_leveraged_pullback` | CAGR 30.96%、最大回撤 -34.80%；2x 产品和事件反弹路线更复杂，未优于当前保留路线。 |
-| `tech_communication_pullback_enhancement` | 行业限制在科技/通信，收益明显低于 `mega_cap_leader_rotation_top50_balanced`，最大回撤也没有改善；策略实现和 bundled config 仅作为离线研究归档保留。 |
+| `tech_communication_pullback_enhancement` | 行业限制在科技/通信，收益明显低于 `russell_top50_leader_rotation_aggressive`，最大回撤也没有改善；策略实现和 bundled config 仅作为离线研究归档保留。 |
 
 历史研究输出可以继续作为离线证据查看，但这些名字不再是有效 `STRATEGY_PROFILE`，也不再保留平台 replay adapter。
 
@@ -44,8 +45,7 @@ _更新日期：2026-06-19_
 | `tqqq_growth_income` | `log_total_drawdown_budget` | `250000` | `20%` | `55%` | `SCHD 30% / DGRO 20% / SGOV 40% / SPYI 8% / QQQI 2%` |
 | `soxl_soxx_trend_income` | `log_total_drawdown_budget` | `150000` | `20%` | `95%` | `SCHD 15% / DGRO 10% / SGOV 70% / SPYI 4% / QQQI 1%` |
 | `global_etf_rotation` | `log_total_drawdown_budget` | `500000` | `10%` | `15%` | `SCHD 40% / DGRO 25% / SGOV 30% / SPYI 5%` |
-| `russell_1000_multi_factor_defensive` | `log_total_drawdown_budget` | `400000` | `10%` | `20%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
-| `mega_cap_leader_rotation_top50_balanced` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
+| `russell_top50_leader_rotation_aggressive` | `log_total_drawdown_budget` | `300000` | `15%` | `25%` | `SCHD 45% / DGRO 30% / SGOV 25%` |
 
 ## 已归档回测摘要
 
@@ -74,7 +74,7 @@ _更新日期：2026-06-19_
 | 事件反弹 / MAGS 路线 | 保持 research-only，不作为运行策略 profile。 | 对 MAGS 的正贡献不稳定，且事件反弹预算不应该混进黑天鹅逃命插件。 |
 | AI 审计 / AI 上下文 | 不进入交易路径。 | 回测结果来自确定性指标，不依赖 AI；AI 可以辅助离线 review、总结新闻或检查文档，但不能作为自动买卖开关。 |
 | Russell 1000 代理长周期回测 | 研究待补。 | 2017 年前缺少可靠 point-in-time Russell 1000 / Top50 数据，需要代理构造并明确后视偏差。 |
-| Top50 balanced paper 观察 | 当前保留候选。 | 历史结果强，且无杠杆，但 Top2 袖子仍有集中风险；要确认 snapshot、整数股、换手和通知稳定。 |
+| Russell Top50 leader rotation paper 观察 | 当前保留候选。 | 历史结果强，且无杠杆，但 Top2 袖子仍有集中风险；要确认 snapshot、整数股、换手和通知稳定。 |
 
 ## 上线判断原则
 
