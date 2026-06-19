@@ -32,22 +32,16 @@ does not overfit around whichever input happened to be easiest to rerun.
 
 | Profile | Evidence | Current decision | Main diagnosis | Reproducibility status |
 | --- | --- | --- | --- | --- |
-| `nasdaq_sp500_smart_dca` price-only baseline | `docs/research/nasdaq_sp500_smart_dca.md` 2017-06-20 through 2026-06-17 FRED `NASDAQ100`/`SP500` 50/50 proxy summary | keep fixed DCA default; no-skip smart remains explicit smart-mode baseline | best smart variant still lagged fixed by `0.80%`; small drawdown relief did not offset terminal value drag | summary is committed, but the original `NASDAQ100`/`SP500` CSV inputs are not present under `/home/ubuntu/Projects/dca_research_runs`; next rerun must persist those input files, SHA-256 records, and scenario artifacts |
+| `nasdaq_sp500_smart_dca` price-only baseline | `/home/ubuntu/Projects/dca_research_runs/nasdaq_price_proxy_20260619/strategy/nasdaq_sp500_price_proxy_matrix`; documented in `docs/research/nasdaq_price_proxy_matrix_2026-06-19.md` | keep fixed DCA default; no-skip smart remains explicit smart-mode baseline only | no-skip passed robustness but median terminal edge vs fixed was `0.00%`, below the `1.00%` effect-size gate; defensive failed 24/99 scenarios with worst terminal gap `-1.87%` | full local artifacts now exist: FRED raw CSV hashes, price proxy `research_export.v1`, trade proxy manifest, `scenario_manifest.json`, `robustness_summary.csv`, `selection_summary.csv`, and `review_decision.json` |
 | `nasdaq_sp500_smart_dca` public CAPE/VIX | `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics` | do not promote; keep fixed DCA default | `terminal_underperformance_vs_fixed`, `below_fixed_average_multiplier`, `lower_deployment_rate`; max skipped-buy ratio is `0.0` | full local artifacts exist and are documented in `docs/research/nasdaq_public_cape_vix_matrix_2026-06-19.md` |
 | `ibit_smart_dca` AHR999 helper variants | `/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics` | do not promote helper variants; keep fixed DCA default and retain AHR999 baseline for explicit smart-mode comparison | guarded helper lowers skip/cash drag, but worst 2020-cycle scenario still underperforms fixed by `4.46%`; percentile helper directly underperforms fixed | full local artifacts exist and are documented in `docs/research/ibit_ahr999_helper_matrix_2026-06-18.md` |
 
-Next research should first close the reproducibility gap for the Nasdaq
-price-only baseline, then rerun it through the same `robustness_summary.csv`,
-`selection_summary.csv`, and `review_decision.json` gates now used by the
-CAPE/VIX and IBIT helper matrices. Until that is done, the committed price-only
-summary remains directional evidence, not a fully pinned artifact chain.
-The pinned rerun should first generate the price input through the signal-source
-repository's `export_us_equity_price_proxy_research_csv` command, using local
-FRED `NASDAQ100` and `SP500` snapshots. The exported CSV becomes the strategy
-research price input, while `us_equity_price_proxy_research_csv` and its
-`research_export.v1` manifest are passed to the strategy research CLI through
-`--price-manifest` and stay beside the scenario artifacts as the raw input hash
-chain.
+The Nasdaq price-only reproducibility gap is now closed for the FRED
+`NASDAQ100`/`SP500` proxy path. Future Nasdaq research should use that pinned
+run as the price-only baseline, then compare external CAPE/VIX/breadth or
+macro/liquidity variants against the same `robustness_summary.csv`,
+`selection_summary.csv`, and `review_decision.json` gates. Adjusted-close ETF or
+total-return reruns can still be added later as separate data-quality checks.
 
 ## Shared Research Rules
 
