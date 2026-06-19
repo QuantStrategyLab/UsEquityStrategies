@@ -71,17 +71,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or args.bundle_id
                 or args.research_artifact_type
                 or args.research_transform
-                or args.require_all_known_families
-                or args.require_all_known_consumers
             ):
                 raise SignalBundleContractError(
                     "provide --consumption-audit-json without handoff, research, "
-                    "registry, bundle, index, as-of, bundle-id, or require-all options"
+                    "registry, bundle, index, as-of, bundle-id, research type, "
+                    "or research transform options"
                 )
             summary = signal_consumption_audit_summary_from_file(
                 args.consumption_audit_json,
                 consumer=args.consumer,
                 expected_canonical_input=args.canonical_input,
+                require_all_known_families=args.require_all_known_families,
+                require_all_known_consumers=args.require_all_known_consumers,
                 require_runtime_consumer_coverage=(
                     args.require_runtime_consumer_coverage
                 ),
@@ -244,13 +245,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--require-all-known-consumers is only valid with "
                 "--consumer-contract-registry, --consumer-contract-registry-manifest, "
                 "--platform-handoff-manifest, --platform-handoff-index, "
-                "or --research-handoff-manifest"
+                "--research-handoff-manifest, or --consumption-audit-json"
             )
         elif args.require_all_known_families:
             raise SignalBundleContractError(
                 "--require-all-known-families is only valid with "
                 "--platform-handoff-manifest, --platform-handoff-index, "
-                "or --research-handoff-manifest"
+                "--research-handoff-manifest, or --consumption-audit-json"
             )
         elif args.require_runtime_consumer_coverage:
             raise SignalBundleContractError(

@@ -1102,6 +1102,8 @@ def signal_consumption_audit_summary_from_file(
     consumer: str,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    require_all_known_families: bool = False,
+    require_all_known_consumers: bool = False,
     require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, Any]:
     """Validate a saved runtime consumption audit and its linked bundle manifest."""
@@ -1147,6 +1149,10 @@ def signal_consumption_audit_summary_from_file(
         audit["signal_bundle_manifest_sha256"],
         field="signal_bundle_manifest_sha256",
     )
+    bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
+        signal_bundle_manifest_path,
+        consumer=target_consumer,
+    )
     source_catalog_manifest_path = _optional_consumption_audit_artifact_path(
         audit,
         audit_path.parent.resolve(),
@@ -1160,6 +1166,19 @@ def signal_consumption_audit_summary_from_file(
             audit["source_family_catalog_manifest_sha256"],
             field="source_family_catalog_manifest_sha256",
         )
+        source_catalog_summary = signal_source_family_catalog_audit_summary_from_manifest(
+            source_catalog_manifest_path,
+            required_consumers=(target_consumer,),
+            expected_transform=str(bundle_summary["transform"]),
+            require_all_known_families=require_all_known_families,
+            require_runtime_consumer_coverage=require_runtime_consumer_coverage,
+        )
+        _validate_consumption_audit_source_catalog_identity(
+            audit,
+            source_catalog_summary=source_catalog_summary,
+        )
+    else:
+        source_catalog_summary = None
     consumer_registry_manifest_path = _optional_consumption_audit_artifact_path(
         audit,
         audit_path.parent.resolve(),
@@ -1173,10 +1192,18 @@ def signal_consumption_audit_summary_from_file(
             audit["consumer_contract_registry_manifest_sha256"],
             field="consumer_contract_registry_manifest_sha256",
         )
-    bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
-        signal_bundle_manifest_path,
-        consumer=target_consumer,
-    )
+        consumer_registry_summary = (
+            signal_consumer_contract_registry_audit_summary_from_manifest(
+                consumer_registry_manifest_path,
+                require_all_known_consumers=require_all_known_consumers,
+            )
+        )
+        _validate_consumption_audit_consumer_registry_identity(
+            audit,
+            consumer_registry_summary=consumer_registry_summary,
+        )
+    else:
+        consumer_registry_summary = None
     _validate_consumption_audit_bundle_identity(
         audit,
         bundle_summary=bundle_summary,
@@ -1224,30 +1251,68 @@ def signal_consumption_audit_summary_from_file(
                 audit.get("consumer_contract_registry_manifest_sha256", "")
             ).lower()
         ),
-        "source_family_count": audit.get("source_family_count"),
-        "source_families": tuple(str(item) for item in audit["source_families"]),
-        "matched_source_family_count": audit.get("matched_source_family_count"),
-        "matched_source_families": tuple(
-            str(item) for item in audit["matched_source_families"]
+        "source_family_count": (
+            source_catalog_summary["family_count"]
+            if source_catalog_summary is not None
+            else audit.get("source_family_count")
+        ),
+        "source_families": (
+            tuple(source_catalog_summary["families"])
+            if source_catalog_summary is not None
+            else tuple(str(item) for item in audit["source_families"])
+        ),
+        "matched_source_family_count": (
+            source_catalog_summary["matched_family_count"]
+            if source_catalog_summary is not None
+            else audit.get("matched_source_family_count")
+        ),
+        "matched_source_families": (
+            tuple(source_catalog_summary["matched_families"])
+            if source_catalog_summary is not None
+            else tuple(str(item) for item in audit["matched_source_families"])
         ),
         "all_known_source_families_present": audit.get(
             "all_known_source_families_present"
-        ),
+        )
+        if source_catalog_summary is None
+        else source_catalog_summary["all_known_families_present"],
         "all_consumer_contracts_satisfied": audit.get(
             "all_consumer_contracts_satisfied"
+        )
+        if source_catalog_summary is None
+        else source_catalog_summary["all_consumer_contracts_satisfied"],
+        "all_runtime_consumers_covered": audit.get("all_runtime_consumers_covered")
+        if source_catalog_summary is None
+        else source_catalog_summary["all_runtime_consumers_covered"],
+        "consumer_contract_count": (
+            consumer_registry_summary["consumer_count"]
+            if consumer_registry_summary is not None
+            else audit.get("consumer_contract_count")
         ),
-        "consumer_contract_count": audit.get("consumer_contract_count"),
-        "consumer_contracts": tuple(str(item) for item in audit["consumer_contracts"]),
-        "all_known_consumers_present": audit.get("all_known_consumers_present"),
-        "all_runtime_consumers_covered": audit.get("all_runtime_consumers_covered"),
-        "canonical_registry_payload_sha256": str(
-            audit.get("canonical_registry_payload_sha256", "")
+        "consumer_contracts": (
+            tuple(consumer_registry_summary["consumers"])
+            if consumer_registry_summary is not None
+            else tuple(str(item) for item in audit["consumer_contracts"])
         ),
-        "local_registry_payload_sha256": str(
-            audit.get("local_registry_payload_sha256", "")
+        "all_known_consumers_present": (
+            consumer_registry_summary["all_known_consumers_present"]
+            if consumer_registry_summary is not None
+            else audit.get("all_known_consumers_present")
         ),
-        "local_contract_registry_verified": audit.get(
-            "local_contract_registry_verified"
+        "canonical_registry_payload_sha256": (
+            str(consumer_registry_summary["canonical_registry_payload_sha256"])
+            if consumer_registry_summary is not None
+            else str(audit.get("canonical_registry_payload_sha256", ""))
+        ),
+        "local_registry_payload_sha256": (
+            str(consumer_registry_summary["local_registry_payload_sha256"])
+            if consumer_registry_summary is not None
+            else str(audit.get("local_registry_payload_sha256", ""))
+        ),
+        "local_contract_registry_verified": (
+            consumer_registry_summary["local_contract_registry_verified"]
+            if consumer_registry_summary is not None
+            else audit.get("local_contract_registry_verified")
         ),
         "ready_for_runtime_injection": True,
         "runtime_injection_allowed": True,
@@ -2617,6 +2682,82 @@ def _validate_consumption_audit_bundle_identity(
     for field, expected in expected_values.items():
         actual = str(audit.get(field, "")).strip()
         if actual != str(expected):
+            raise SignalBundleContractError(
+                f"signal consumption audit {field} mismatch: "
+                f"{actual!r} != {expected!r}"
+            )
+
+
+def _validate_consumption_audit_source_catalog_identity(
+    audit: Mapping[str, Any],
+    *,
+    source_catalog_summary: Mapping[str, Any],
+) -> None:
+    expected_values = {
+        "source_family_count": source_catalog_summary["family_count"],
+        "source_families": tuple(source_catalog_summary["families"]),
+        "matched_source_family_count": source_catalog_summary["matched_family_count"],
+        "matched_source_families": tuple(source_catalog_summary["matched_families"]),
+        "all_known_source_families_present": source_catalog_summary[
+            "all_known_families_present"
+        ],
+        "all_consumer_contracts_satisfied": source_catalog_summary[
+            "all_consumer_contracts_satisfied"
+        ],
+    }
+    if source_catalog_summary.get("runtime_consumer_coverage_present"):
+        expected_values["all_runtime_consumers_covered"] = source_catalog_summary[
+            "all_runtime_consumers_covered"
+        ]
+    _validate_consumption_audit_expected_values(
+        audit,
+        expected_values=expected_values,
+        tuple_fields={"source_families", "matched_source_families"},
+    )
+
+
+def _validate_consumption_audit_consumer_registry_identity(
+    audit: Mapping[str, Any],
+    *,
+    consumer_registry_summary: Mapping[str, Any],
+) -> None:
+    expected_values = {
+        "consumer_contract_count": consumer_registry_summary["consumer_count"],
+        "consumer_contracts": tuple(consumer_registry_summary["consumers"]),
+        "all_known_consumers_present": consumer_registry_summary[
+            "all_known_consumers_present"
+        ],
+        "canonical_registry_payload_sha256": consumer_registry_summary[
+            "canonical_registry_payload_sha256"
+        ],
+        "local_registry_payload_sha256": consumer_registry_summary[
+            "local_registry_payload_sha256"
+        ],
+        "local_contract_registry_verified": consumer_registry_summary[
+            "local_contract_registry_verified"
+        ],
+    }
+    _validate_consumption_audit_expected_values(
+        audit,
+        expected_values=expected_values,
+        tuple_fields={"consumer_contracts"},
+    )
+
+
+def _validate_consumption_audit_expected_values(
+    audit: Mapping[str, Any],
+    *,
+    expected_values: Mapping[str, Any],
+    tuple_fields: set[str],
+) -> None:
+    for field, expected in expected_values.items():
+        if field not in audit:
+            continue
+        actual = audit[field]
+        if field in tuple_fields:
+            actual = tuple(actual or ())
+            expected = tuple(expected or ())
+        if actual != expected:
             raise SignalBundleContractError(
                 f"signal consumption audit {field} mismatch: "
                 f"{actual!r} != {expected!r}"

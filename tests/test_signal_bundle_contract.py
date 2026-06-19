@@ -1381,6 +1381,8 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
     summary = signal_consumption_audit_summary_from_file(
         audit_path,
         consumer="us_equity:ibit_smart_dca",
+        require_all_known_families=True,
+        require_all_known_consumers=True,
         require_runtime_consumer_coverage=True,
     )
     market_data = extract_canonical_input_from_consumption_audit_for_consumer(
@@ -1415,7 +1417,39 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
     assert summary["bundle_identity_verified"] is True
     assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
 
-    bad_coverage = json.loads(audit_path.read_text(encoding="utf-8"))
+    original_audit = json.loads(audit_path.read_text(encoding="utf-8"))
+
+    bad_source_identity = dict(original_audit)
+    bad_source_identity["all_known_source_families_present"] = False
+    audit_path.write_text(json.dumps(bad_source_identity), encoding="utf-8")
+    with pytest.raises(
+        SignalBundleContractError,
+        match="all_known_source_families_present mismatch",
+    ):
+        signal_consumption_audit_summary_from_file(
+            audit_path,
+            consumer="us_equity:ibit_smart_dca",
+            require_all_known_families=True,
+            require_all_known_consumers=True,
+            require_runtime_consumer_coverage=True,
+        )
+
+    bad_registry_identity = dict(original_audit)
+    bad_registry_identity["canonical_registry_payload_sha256"] = "1" * 64
+    audit_path.write_text(json.dumps(bad_registry_identity), encoding="utf-8")
+    with pytest.raises(
+        SignalBundleContractError,
+        match="canonical_registry_payload_sha256 mismatch",
+    ):
+        signal_consumption_audit_summary_from_file(
+            audit_path,
+            consumer="us_equity:ibit_smart_dca",
+            require_all_known_families=True,
+            require_all_known_consumers=True,
+            require_runtime_consumer_coverage=True,
+        )
+
+    bad_coverage = dict(original_audit)
     bad_coverage["all_runtime_consumers_covered"] = False
     audit_path.write_text(json.dumps(bad_coverage), encoding="utf-8")
     with pytest.raises(
@@ -1425,6 +1459,8 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
         signal_consumption_audit_summary_from_file(
             audit_path,
             consumer="us_equity:ibit_smart_dca",
+            require_all_known_families=True,
+            require_all_known_consumers=True,
             require_runtime_consumer_coverage=True,
         )
 
@@ -1439,6 +1475,8 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
         signal_consumption_audit_summary_from_file(
             audit_path,
             consumer="us_equity:ibit_smart_dca",
+            require_all_known_families=True,
+            require_all_known_consumers=True,
             require_runtime_consumer_coverage=True,
         )
 
