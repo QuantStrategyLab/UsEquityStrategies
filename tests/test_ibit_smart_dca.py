@@ -138,7 +138,7 @@ def test_ibit_smart_dca_sells_boxx_cash_substitute_to_fund_dca() -> None:
     assert plan["cash_substitute_funding_shortfall_usd"] == 0.0
     assert plan["target_values"] == {"BOXX": 100.0, "IBIT": 2000.0}
     assert plan["managed_symbols"] == ("IBIT", "BOXX")
-    assert plan["ibit_zscore_exit"]["enabled"] is True
+    assert plan["ibit_zscore_exit"]["enabled"] is False
     assert plan["ibit_zscore_exit"]["found"] is False
     assert plan["ibit_zscore_exit"]["applied"] is False
 
@@ -364,10 +364,10 @@ def test_ibit_smart_dca_disables_platform_rebalance_threshold_by_default() -> No
 
     assert catalog_config["execution_rebalance_threshold_ratio"] == 0.0
     assert manifest_config["execution_rebalance_threshold_ratio"] == 0.0
-    assert catalog_config["ibit_zscore_exit_enabled"] is True
-    assert manifest_config["ibit_zscore_exit_enabled"] is True
-    assert catalog_config["ibit_zscore_exit_mode"] == "live"
-    assert manifest_config["ibit_zscore_exit_mode"] == "live"
+    assert catalog_config["ibit_zscore_exit_enabled"] is False
+    assert manifest_config["ibit_zscore_exit_enabled"] is False
+    assert catalog_config["ibit_zscore_exit_mode"] == "paper"
+    assert manifest_config["ibit_zscore_exit_mode"] == "paper"
     assert catalog_config["ibit_zscore_exit_parking_symbol"] == "BOXX"
     assert manifest_config["ibit_zscore_exit_parking_symbol"] == "BOXX"
     assert catalog_config["cash_substitute_for_dca_enabled"] is True
@@ -403,11 +403,11 @@ def test_ibit_zscore_exit_paper_mode_does_not_change_targets() -> None:
     assert plan["ibit_zscore_exit"]["mode"] == "paper"
 
 
-def test_ibit_zscore_exit_enabled_defaults_to_live_consumption() -> None:
+def test_ibit_zscore_exit_defaults_to_research_only_when_context_is_present() -> None:
     plan = build_rebalance_plan(
         _unavailable_history,
         _portfolio(buying_power=1000.0, ibit_value=1000.0),
-        as_of="2026-05-30",
+        as_of="2026-05-26",
         ibit_zscore_exit_context={
             "plugin": "ibit_zscore_exit",
             "schema_version": "ibit_zscore_exit.v1",
@@ -424,9 +424,11 @@ def test_ibit_zscore_exit_enabled_defaults_to_live_consumption() -> None:
         },
     )
 
-    assert plan["target_values"] == {"IBIT": 250.0, "BOXX": 750.0}
-    assert plan["ibit_zscore_exit"]["mode"] == "live"
-    assert plan["ibit_zscore_exit"]["applied"] is True
+    assert plan["target_values"] == {"IBIT": 2000.0}
+    assert plan["ibit_zscore_exit"]["mode"] == "paper"
+    assert plan["ibit_zscore_exit"]["enabled"] is False
+    assert plan["ibit_zscore_exit"]["found"] is True
+    assert plan["ibit_zscore_exit"]["applied"] is False
 
 
 def test_ibit_zscore_exit_can_be_disabled_after_default_enablement() -> None:
@@ -714,7 +716,10 @@ def test_ibit_smart_dca_entrypoint_consumes_zscore_exit_plugin_metadata() -> Non
                     ],
                 },
             ),
-            runtime_config={},
+            runtime_config={
+                "ibit_zscore_exit_enabled": True,
+                "ibit_zscore_exit_mode": "live",
+            },
         )
     )
 
