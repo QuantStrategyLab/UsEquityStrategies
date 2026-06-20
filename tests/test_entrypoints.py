@@ -804,8 +804,82 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(mega_decision.diagnostics["signal_source"], "feature_snapshot")
         self.assertEqual(mega_decision.diagnostics["selected_count"], 4)
+        self.assertEqual(mega_decision.diagnostics["leader_rotation_profile_variant"], "blend_top2_50_top4_50")
         self.assertIn("blend_sleeves", mega_decision.diagnostics)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
+
+    def test_russell_top50_runtime_variant_overrides_manifest_blend(self) -> None:
+        mega = get_strategy_entrypoint("russell_top50_leader_rotation")
+        decision = mega.evaluate(
+            StrategyContext(
+                as_of="2026-04-01",
+                market_data={"feature_snapshot": _mega_snapshot()},
+                portfolio=PortfolioSnapshot(
+                    as_of="2026-04-01",
+                    total_equity=100_000.0,
+                    buying_power=100_000.0,
+                    cash_balance=100_000.0,
+                    positions=(),
+                ),
+                runtime_config={"leader_rotation_profile_variant": "top4_baseline"},
+            )
+        )
+
+        weights = {position.symbol: position.target_weight for position in decision.positions}
+        self.assertEqual(decision.diagnostics["leader_rotation_profile_variant"], "top4_baseline")
+        self.assertNotIn("blend_sleeves", decision.diagnostics)
+        self.assertAlmostEqual(weights["NVDA"], 0.25)
+        self.assertAlmostEqual(weights["META"], 0.25)
+        self.assertAlmostEqual(weights["MSFT"], 0.25)
+        self.assertAlmostEqual(weights["AAPL"], 0.25)
+
+    def test_russell_top50_shadow_variants_do_not_change_target_positions(self) -> None:
+        mega = get_strategy_entrypoint("russell_top50_leader_rotation")
+        decision = mega.evaluate(
+            StrategyContext(
+                as_of="2026-04-01",
+                market_data={"feature_snapshot": _mega_snapshot()},
+                portfolio=PortfolioSnapshot(
+                    as_of="2026-04-01",
+                    total_equity=100_000.0,
+                    buying_power=100_000.0,
+                    cash_balance=100_000.0,
+                    positions=(),
+                ),
+                runtime_config={"leader_rotation_shadow_variants": True},
+            )
+        )
+
+        weights = {position.symbol: position.target_weight for position in decision.positions}
+        self.assertEqual(decision.diagnostics["leader_rotation_profile_variant"], "blend_top2_50_top4_50")
+        self.assertAlmostEqual(weights["NVDA"], 0.375)
+        self.assertAlmostEqual(weights["META"], 0.375)
+        self.assertAlmostEqual(weights["MSFT"], 0.125)
+        self.assertAlmostEqual(weights["AAPL"], 0.125)
+        self.assertEqual(
+            tuple(decision.diagnostics["leader_rotation_shadow_variants"]),
+            ("top4_baseline", "blend_top2_25_top4_75", "blend_top2_50_top4_50"),
+        )
+        self.assertAlmostEqual(
+            decision.diagnostics["leader_rotation_shadow_variants"]["top4_baseline"]["weight_delta_vs_active"]["NVDA"],
+            -0.125,
+        )
+        self.assertEqual(
+            decision.diagnostics["leader_rotation_shadow_review_rows"][0]["shadow_variant"],
+            "top4_baseline",
+        )
+        self.assertEqual(
+            decision.diagnostics["leader_rotation_shadow_review_schema_version"],
+            "russell_top50_shadow_review.v1",
+        )
+        self.assertEqual(
+            tuple(decision.diagnostics["leader_rotation_shadow_review_row_fields"]),
+            tuple(decision.diagnostics["leader_rotation_shadow_review_rows"][0]),
+        )
+        self.assertEqual(
+            decision.diagnostics["leader_rotation_shadow_review_rows"][0]["largest_decrease_symbol"],
+            "META",
+        )
 
     def test_weight_mode_income_layer_scales_core_weights_when_portfolio_is_large(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")

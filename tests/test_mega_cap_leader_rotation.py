@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
 
@@ -158,6 +160,127 @@ def test_build_blended_target_weights_combines_top2_and_top4_sleeves() -> None:
     assert abs(weights["META"] - 0.375) < 1e-8
     assert abs(weights["MSFT"] - 0.125) < 1e-8
     assert abs(weights["AAPL"] - 0.125) < 1e-8
+
+
+def test_compute_signals_supports_conservative_profile_variant() -> None:
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import compute_signals
+
+    weights, _signal, _is_emergency, _status_desc, metadata = compute_signals(
+        _mega_snapshot(),
+        current_holdings=set(),
+        leader_rotation_profile_variant="blend_top2_25_top4_75",
+        soft_defense_exposure=1.0,
+        hard_defense_exposure=1.0,
+    )
+
+    assert metadata["leader_rotation_profile_variant"] == "blend_top2_25_top4_75"
+    assert metadata["blend_mode"] == "fixed_weighted_sleeves"
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
+    assert abs(weights["NVDA"] - 0.3125) < 1e-8
+    assert abs(weights["META"] - 0.3125) < 1e-8
+    assert abs(weights["MSFT"] - 0.1875) < 1e-8
+    assert abs(weights["AAPL"] - 0.1875) < 1e-8
+
+
+def test_compute_signals_supports_top4_baseline_profile_variant() -> None:
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import compute_signals
+
+    weights, _signal, _is_emergency, _status_desc, metadata = compute_signals(
+        _mega_snapshot(),
+        current_holdings=set(),
+        leader_rotation_profile_variant="top4_baseline",
+        soft_defense_exposure=1.0,
+        hard_defense_exposure=1.0,
+    )
+
+    assert metadata["leader_rotation_profile_variant"] == "top4_baseline"
+    assert "blend_mode" not in metadata
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
+    assert abs(weights["NVDA"] - 0.25) < 1e-8
+    assert abs(weights["META"] - 0.25) < 1e-8
+    assert abs(weights["MSFT"] - 0.25) < 1e-8
+    assert abs(weights["AAPL"] - 0.25) < 1e-8
+
+
+def test_compute_signals_can_report_shadow_profile_variants_without_changing_weights() -> None:
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import compute_signals
+
+    weights, _signal, _is_emergency, _status_desc, metadata = compute_signals(
+        _mega_snapshot(),
+        current_holdings=set(),
+        leader_rotation_profile_variant="blend_top2_50_top4_50",
+        leader_rotation_shadow_variants="all",
+        soft_defense_exposure=1.0,
+        hard_defense_exposure=1.0,
+    )
+
+    assert metadata["leader_rotation_profile_variant"] == "blend_top2_50_top4_50"
+    assert abs(weights["NVDA"] - 0.375) < 1e-8
+    assert abs(weights["META"] - 0.375) < 1e-8
+    assert abs(weights["MSFT"] - 0.125) < 1e-8
+    assert abs(weights["AAPL"] - 0.125) < 1e-8
+
+    shadow = metadata["leader_rotation_shadow_variants"]
+    assert tuple(shadow) == (
+        "top4_baseline",
+        "blend_top2_25_top4_75",
+        "blend_top2_50_top4_50",
+    )
+    assert abs(shadow["top4_baseline"]["weights"]["NVDA"] - 0.25) < 1e-8
+    assert abs(shadow["blend_top2_25_top4_75"]["weights"]["NVDA"] - 0.3125) < 1e-8
+    assert abs(shadow["blend_top2_50_top4_50"]["weights"]["NVDA"] - 0.375) < 1e-8
+    assert abs(shadow["top4_baseline"]["weight_delta_vs_active"]["NVDA"] + 0.125) < 1e-8
+    assert abs(shadow["top4_baseline"]["weight_delta_vs_active"]["MSFT"] - 0.125) < 1e-8
+    assert abs(shadow["top4_baseline"]["turnover_delta_vs_active"] - 0.25) < 1e-8
+    assert shadow["top4_baseline"]["largest_weight_increase_vs_active"] == {"symbol": "AAPL", "delta": 0.125}
+    assert shadow["top4_baseline"]["largest_weight_decrease_vs_active"] == {"symbol": "META", "delta": -0.125}
+    assert shadow["blend_top2_50_top4_50"]["weight_delta_vs_active"] == {}
+    assert shadow["blend_top2_50_top4_50"]["turnover_delta_vs_active"] == 0.0
+    assert shadow["blend_top2_50_top4_50"]["largest_weight_increase_vs_active"] is None
+    assert shadow["blend_top2_50_top4_50"]["largest_weight_decrease_vs_active"] is None
+
+
+def test_compute_signals_builds_shadow_operator_review_rows() -> None:
+    from us_equity_strategies.strategies.mega_cap_leader_rotation import (
+        SHADOW_REVIEW_ROW_FIELDS,
+        compute_signals,
+    )
+
+    _weights, _signal, _is_emergency, _status_desc, metadata = compute_signals(
+        _mega_snapshot(),
+        current_holdings=set(),
+        leader_rotation_profile_variant="blend_top2_50_top4_50",
+        leader_rotation_shadow_variants="all",
+        soft_defense_exposure=1.0,
+        hard_defense_exposure=1.0,
+    )
+
+    rows = metadata["leader_rotation_shadow_review_rows"]
+    assert metadata["leader_rotation_shadow_review_schema_version"] == "russell_top50_shadow_review.v1"
+    assert tuple(metadata["leader_rotation_shadow_review_row_fields"]) == SHADOW_REVIEW_ROW_FIELDS
+    assert tuple(rows[0]) == SHADOW_REVIEW_ROW_FIELDS
+    assert json.loads(json.dumps(rows))[0]["shadow_variant"] == "top4_baseline"
+    assert [row["shadow_variant"] for row in rows] == [
+        "top4_baseline",
+        "blend_top2_25_top4_75",
+        "blend_top2_50_top4_50",
+    ]
+    assert all(row["active_variant"] == "blend_top2_50_top4_50" for row in rows)
+    assert all(row["schema_version"] == "russell_top50_shadow_review.v1" for row in rows)
+    assert rows[0]["largest_increase_symbol"] == "AAPL"
+    assert rows[0]["largest_increase_delta"] == 0.125
+    assert rows[0]["largest_decrease_symbol"] == "META"
+    assert rows[0]["largest_decrease_delta"] == -0.125
+    assert rows[0]["turnover_delta_vs_active"] == 0.25
+    assert rows[0]["selected_count"] == 4
+    assert rows[0]["safe_haven_weight"] == 0.0
+    assert rows[0]["review_note"] == (
+        "active=blend_top2_50_top4_50 shadow=top4_baseline "
+        "turnover_delta=25.00% max_increase=AAPL:+12.50% max_decrease=META:-12.50%"
+    )
+    assert rows[2]["largest_increase_symbol"] == ""
+    assert rows[2]["largest_decrease_symbol"] == ""
+    assert "account" not in rows[0]["review_note"].lower()
 
 
 def test_compute_signals_noops_outside_monthly_window() -> None:
