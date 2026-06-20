@@ -56,6 +56,8 @@ FEATURE_SIGNAL_KWARG_KEYS = (
     "broad_benchmark_symbol",
     "safe_haven",
     "dynamic_universe_size",
+    "leader_rotation_profile_variant",
+    "leader_rotation_shadow_variants",
     "blend_sleeves",
     "holdings_count",
     "single_name_cap",
@@ -74,10 +76,55 @@ FEATURE_SIGNAL_KWARG_KEYS = (
     "execution_cash_reserve_ratio",
 )
 
+PROFILE_VARIANT_TOP4_BASELINE = "top4_baseline"
+PROFILE_VARIANT_CONSERVATIVE_BLEND = "blend_top2_25_top4_75"
+PROFILE_VARIANT_BALANCED_BLEND = "blend_top2_50_top4_50"
+SHADOW_REVIEW_SCHEMA_VERSION = "russell_top50_shadow_review.v1"
+SHADOW_REVIEW_ROW_FIELDS = (
+    "schema_version",
+    "active_variant",
+    "shadow_variant",
+    "selected_count",
+    "realized_stock_weight",
+    "safe_haven_weight",
+    "turnover_delta_vs_active",
+    "largest_increase_symbol",
+    "largest_increase_delta",
+    "largest_decrease_symbol",
+    "largest_decrease_delta",
+    "review_note",
+)
+DEFAULT_SHADOW_PROFILE_VARIANTS = (
+    PROFILE_VARIANT_TOP4_BASELINE,
+    PROFILE_VARIANT_CONSERVATIVE_BLEND,
+    PROFILE_VARIANT_BALANCED_BLEND,
+)
+
+DEFAULT_TOP50_CONSERVATIVE_BLEND_SLEEVES = (
+    {"name": "top2_cap50", "weight": 0.25, "holdings_count": 2, "single_name_cap": 0.50},
+    {"name": "top4_cap25", "weight": 0.75, "holdings_count": 4, "single_name_cap": 0.25},
+)
 DEFAULT_TOP50_BALANCED_BLEND_SLEEVES = (
     {"name": "top2_cap50", "weight": 0.50, "holdings_count": 2, "single_name_cap": 0.50},
     {"name": "top4_cap25", "weight": 0.50, "holdings_count": 4, "single_name_cap": 0.25},
 )
+PROFILE_VARIANT_BLEND_SLEEVES = {
+    PROFILE_VARIANT_CONSERVATIVE_BLEND: DEFAULT_TOP50_CONSERVATIVE_BLEND_SLEEVES,
+    PROFILE_VARIANT_BALANCED_BLEND: DEFAULT_TOP50_BALANCED_BLEND_SLEEVES,
+}
+PROFILE_VARIANT_ALIASES = {
+    PROFILE_VARIANT_TOP4_BASELINE: PROFILE_VARIANT_TOP4_BASELINE,
+    "top4": PROFILE_VARIANT_TOP4_BASELINE,
+    "baseline": PROFILE_VARIANT_TOP4_BASELINE,
+    "fallback": PROFILE_VARIANT_TOP4_BASELINE,
+    PROFILE_VARIANT_CONSERVATIVE_BLEND: PROFILE_VARIANT_CONSERVATIVE_BLEND,
+    "conservative": PROFILE_VARIANT_CONSERVATIVE_BLEND,
+    "conservative_live_design": PROFILE_VARIANT_CONSERVATIVE_BLEND,
+    PROFILE_VARIANT_BALANCED_BLEND: PROFILE_VARIANT_BALANCED_BLEND,
+    "balanced": PROFILE_VARIANT_BALANCED_BLEND,
+    "balanced_offensive": PROFILE_VARIANT_BALANCED_BLEND,
+    "balanced_offensive_live_design": PROFILE_VARIANT_BALANCED_BLEND,
+}
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -453,6 +500,207 @@ def _normalize_blend_sleeves(blend_sleeves) -> tuple[dict[str, object], ...]:
     )
 
 
+def _normalize_profile_variant(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if not normalized:
+        return None
+    if normalized in {"custom", "custom_blend"}:
+        return "custom_blend"
+    variant = PROFILE_VARIANT_ALIASES.get(normalized)
+    if variant is None:
+        known = ", ".join(sorted(PROFILE_VARIANT_ALIASES))
+        raise ValueError(f"unknown leader_rotation_profile_variant {value!r}; known variants: {known}")
+    return variant
+
+
+def _blend_sleeves_match(left, right) -> bool:
+    left_sleeves = _normalize_blend_sleeves(left)
+    right_sleeves = _normalize_blend_sleeves(right)
+    if len(left_sleeves) != len(right_sleeves):
+        return False
+    for left_sleeve, right_sleeve in zip(left_sleeves, right_sleeves, strict=True):
+        if int(left_sleeve["holdings_count"]) != int(right_sleeve["holdings_count"]):
+            return False
+        if abs(float(left_sleeve["single_name_cap"]) - float(right_sleeve["single_name_cap"])) > 1e-12:
+            return False
+        if abs(float(left_sleeve["weight"]) - float(right_sleeve["weight"])) > 1e-12:
+            return False
+    return True
+
+
+def _infer_profile_variant_from_blend_sleeves(blend_sleeves) -> str:
+    for variant, sleeves in PROFILE_VARIANT_BLEND_SLEEVES.items():
+        if _blend_sleeves_match(blend_sleeves, sleeves):
+            return variant
+    return "custom_blend"
+
+
+def _resolve_profile_variant_config(profile_variant, blend_sleeves) -> tuple[str, object | None]:
+    variant = _normalize_profile_variant(profile_variant)
+    if variant == PROFILE_VARIANT_TOP4_BASELINE:
+        return PROFILE_VARIANT_TOP4_BASELINE, None
+    if variant in PROFILE_VARIANT_BLEND_SLEEVES:
+        return variant, PROFILE_VARIANT_BLEND_SLEEVES[variant]
+    if blend_sleeves:
+        return _infer_profile_variant_from_blend_sleeves(blend_sleeves), blend_sleeves
+    return PROFILE_VARIANT_TOP4_BASELINE, None
+
+
+def _normalize_shadow_profile_variants(value) -> tuple[str, ...]:
+    if value in (None, False):
+        return ()
+    if value is True:
+        return DEFAULT_SHADOW_PROFILE_VARIANTS
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized or normalized in {"0", "false", "no", "none", "off"}:
+            return ()
+        if normalized in {"1", "true", "yes", "all", "default"}:
+            return DEFAULT_SHADOW_PROFILE_VARIANTS
+        raw_values = tuple(part.strip() for part in value.split(","))
+    else:
+        raw_values = tuple(value)
+
+    variants: list[str] = []
+    for raw_value in raw_values:
+        variant = _normalize_profile_variant(raw_value)
+        if variant in (None, "custom_blend"):
+            continue
+        if variant not in variants:
+            variants.append(variant)
+    return tuple(variants)
+
+
+def _build_profile_variant_target_weights(
+    feature_snapshot,
+    current_holdings,
+    *,
+    profile_variant: str,
+    portfolio_total_equity: float | None,
+    kwargs: Mapping[str, object],
+) -> tuple[dict[str, float], pd.DataFrame, dict[str, object]]:
+    resolved_profile_variant, resolved_blend_sleeves = _resolve_profile_variant_config(profile_variant, None)
+    if resolved_blend_sleeves:
+        weights, ranked, metadata = build_blended_target_weights(
+            feature_snapshot,
+            current_holdings,
+            blend_sleeves=resolved_blend_sleeves,
+            portfolio_total_equity=portfolio_total_equity,
+            **dict(kwargs),
+        )
+    else:
+        weights, ranked, metadata = build_target_weights(
+            feature_snapshot,
+            current_holdings,
+            portfolio_total_equity=portfolio_total_equity,
+            **dict(kwargs),
+        )
+    metadata["leader_rotation_profile_variant"] = resolved_profile_variant
+    return weights, ranked, metadata
+
+
+def _largest_weight_delta(weight_delta_vs_active: Mapping[str, float], *, increase: bool) -> dict[str, object] | None:
+    deltas = {
+        _normalize_symbol(symbol): float(delta)
+        for symbol, delta in dict(weight_delta_vs_active or {}).items()
+        if (float(delta) > 0 if increase else float(delta) < 0)
+    }
+    if not deltas:
+        return None
+    symbol, delta = sorted(
+        deltas.items(),
+        key=lambda item: ((-item[1] if increase else item[1]), item[0]),
+    )[0]
+    return {"symbol": symbol, "delta": delta}
+
+
+def _build_shadow_profile_variant_diagnostics(
+    feature_snapshot,
+    current_holdings,
+    *,
+    shadow_profile_variants,
+    active_weights: Mapping[str, float],
+    portfolio_total_equity: float | None,
+    kwargs: Mapping[str, object],
+) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    normalized_active_weights = {
+        _normalize_symbol(symbol): float(weight)
+        for symbol, weight in dict(active_weights or {}).items()
+    }
+    for variant in _normalize_shadow_profile_variants(shadow_profile_variants):
+        weights, _ranked, metadata = _build_profile_variant_target_weights(
+            feature_snapshot,
+            current_holdings,
+            profile_variant=variant,
+            portfolio_total_equity=portfolio_total_equity,
+            kwargs=kwargs,
+        )
+        normalized_weights = {
+            _normalize_symbol(symbol): float(weight)
+            for symbol, weight in dict(weights or {}).items()
+        }
+        delta_symbols = sorted(set(normalized_weights) | set(normalized_active_weights))
+        weight_delta_vs_active = {
+            symbol: normalized_weights.get(symbol, 0.0) - normalized_active_weights.get(symbol, 0.0)
+            for symbol in delta_symbols
+            if abs(normalized_weights.get(symbol, 0.0) - normalized_active_weights.get(symbol, 0.0)) > 1e-12
+        }
+        turnover_delta_vs_active = 0.5 * sum(abs(delta) for delta in weight_delta_vs_active.values())
+        diagnostics[variant] = {
+            "weights": normalized_weights,
+            "weight_delta_vs_active": weight_delta_vs_active,
+            "turnover_delta_vs_active": float(turnover_delta_vs_active),
+            "largest_weight_increase_vs_active": _largest_weight_delta(weight_delta_vs_active, increase=True),
+            "largest_weight_decrease_vs_active": _largest_weight_delta(weight_delta_vs_active, increase=False),
+            "selected_symbols": tuple(metadata.get("selected_symbols", ())),
+            "selected_count": int(metadata.get("selected_count", 0)),
+            "realized_stock_weight": float(metadata.get("realized_stock_weight", 0.0)),
+            "safe_haven_weight": float(metadata.get("safe_haven_weight", 0.0)),
+        }
+    return diagnostics
+
+
+def build_shadow_operator_review_rows(
+    shadow_diagnostics: Mapping[str, object],
+    *,
+    active_variant: str,
+) -> tuple[dict[str, object], ...]:
+    rows: list[dict[str, object]] = []
+    for variant, raw_diagnostics in dict(shadow_diagnostics or {}).items():
+        diagnostics = dict(raw_diagnostics or {})
+        largest_increase = diagnostics.get("largest_weight_increase_vs_active") or {}
+        largest_decrease = diagnostics.get("largest_weight_decrease_vs_active") or {}
+        turnover_delta = float(diagnostics.get("turnover_delta_vs_active", 0.0))
+        largest_increase_symbol = str(largest_increase.get("symbol", ""))
+        largest_increase_delta = float(largest_increase.get("delta", 0.0) or 0.0)
+        largest_decrease_symbol = str(largest_decrease.get("symbol", ""))
+        largest_decrease_delta = float(largest_decrease.get("delta", 0.0) or 0.0)
+        row = {
+            "schema_version": SHADOW_REVIEW_SCHEMA_VERSION,
+            "active_variant": str(active_variant or ""),
+            "shadow_variant": str(variant or ""),
+            "selected_count": int(diagnostics.get("selected_count", 0)),
+            "realized_stock_weight": float(diagnostics.get("realized_stock_weight", 0.0)),
+            "safe_haven_weight": float(diagnostics.get("safe_haven_weight", 0.0)),
+            "turnover_delta_vs_active": turnover_delta,
+            "largest_increase_symbol": largest_increase_symbol,
+            "largest_increase_delta": largest_increase_delta,
+            "largest_decrease_symbol": largest_decrease_symbol,
+            "largest_decrease_delta": largest_decrease_delta,
+        }
+        row["review_note"] = (
+            f"active={row['active_variant']} shadow={row['shadow_variant']} "
+            f"turnover_delta={turnover_delta:.2%} "
+            f"max_increase={largest_increase_symbol or '-'}:{largest_increase_delta:+.2%} "
+            f"max_decrease={largest_decrease_symbol or '-'}:{largest_decrease_delta:+.2%}"
+        )
+        rows.append({field: row[field] for field in SHADOW_REVIEW_ROW_FIELDS})
+    return tuple(rows)
+
+
 def build_blended_target_weights(
     feature_snapshot,
     current_holdings: Iterable[str] | None = None,
@@ -639,7 +887,11 @@ def compute_signals(
     kwargs.pop("translator", None)
     kwargs.pop("signal_text_fn", None)
     kwargs.pop("execution_cash_reserve_ratio", None)
+    profile_variant = kwargs.pop("leader_rotation_profile_variant", None)
+    shadow_profile_variants = kwargs.pop("leader_rotation_shadow_variants", None)
     blend_sleeves = kwargs.pop("blend_sleeves", None)
+    portfolio_total_equity = kwargs.pop("portfolio_total_equity", None)
+    resolved_profile_variant, resolved_blend_sleeves = _resolve_profile_variant_config(profile_variant, blend_sleeves)
     benchmark_symbol = kwargs.get("benchmark_symbol", BENCHMARK_SYMBOL)
     broad_benchmark_symbol = kwargs.get("broad_benchmark_symbol", BROAD_BENCHMARK_SYMBOL)
     safe_haven = kwargs.get("safe_haven", SAFE_HAVEN)
@@ -695,12 +947,11 @@ def compute_signals(
             },
         )
 
-    if blend_sleeves:
-        portfolio_total_equity = kwargs.pop("portfolio_total_equity", None)
+    if resolved_blend_sleeves:
         weights, ranked, metadata = build_blended_target_weights(
             feature_snapshot,
             current_holdings,
-            blend_sleeves=blend_sleeves,
+            blend_sleeves=resolved_blend_sleeves,
             portfolio_total_equity=portfolio_total_equity,
             **kwargs,
         )
@@ -708,7 +959,25 @@ def compute_signals(
         weights, ranked, metadata = build_target_weights(
             feature_snapshot,
             current_holdings,
+            portfolio_total_equity=portfolio_total_equity,
             **kwargs,
+        )
+    metadata["leader_rotation_profile_variant"] = resolved_profile_variant
+    shadow_diagnostics = _build_shadow_profile_variant_diagnostics(
+        feature_snapshot,
+        current_holdings,
+        shadow_profile_variants=shadow_profile_variants,
+        active_weights=weights,
+        portfolio_total_equity=portfolio_total_equity,
+        kwargs=kwargs,
+    )
+    if shadow_diagnostics:
+        metadata["leader_rotation_shadow_variants"] = shadow_diagnostics
+        metadata["leader_rotation_shadow_review_schema_version"] = SHADOW_REVIEW_SCHEMA_VERSION
+        metadata["leader_rotation_shadow_review_row_fields"] = SHADOW_REVIEW_ROW_FIELDS
+        metadata["leader_rotation_shadow_review_rows"] = build_shadow_operator_review_rows(
+            shadow_diagnostics,
+            active_variant=resolved_profile_variant,
         )
     top_preview = ", ".join(
         f"{row.symbol}({row.score:.2f})"

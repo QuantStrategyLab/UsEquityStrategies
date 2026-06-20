@@ -70,6 +70,68 @@ The narrower Top20 and aggressive Top50 profile names are no longer valid
 runtime or replay profile surfaces. The shared implementation helper lives at
 `src/us_equity_strategies/strategies/mega_cap_leader_rotation.py`.
 
+Runtime can also select one of the named, deterministic variants through
+`leader_rotation_profile_variant`:
+
+- `top4_baseline`: no Top2 sleeve; top 4 names with a 25% single-name cap.
+- `blend_top2_25_top4_75`: conservative live-design blend.
+- `blend_top2_50_top4_50`: balanced offensive blend and current default shape.
+
+The lower-level `blend_sleeves` override remains available for research or
+custom replay, but production promotion should prefer the named variants above
+so diagnostics and live-readiness evidence stay comparable.
+
+For live observation, `leader_rotation_shadow_variants` can be enabled to emit
+diagnostic-only target weights for the named variants. Shadow variants never
+change the returned target positions; they are intended for comparing the
+current balanced shape against the conservative and Top4 rollback alternatives.
+Each shadow variant also reports `weight_delta_vs_active`, so operators can see
+which target weights would increase or decrease versus the active runtime
+variant. The diagnostics additionally summarize the largest single-name increase
+and decrease to make monthly review faster. `turnover_delta_vs_active` estimates
+the one-way target-weight turnover needed to switch from the active variant to
+the shadow variant.
+
+For artifact consumers, `leader_rotation_shadow_review_rows` provides a compact
+tuple of row-shaped dictionaries. The companion
+`leader_rotation_shadow_review_schema_version` is currently
+`russell_top50_shadow_review.v1`. Row field order is defined by
+`SHADOW_REVIEW_ROW_FIELDS`, and the same order is emitted in
+`leader_rotation_shadow_review_row_fields` for downstream consumers. Current
+fields:
+
+- `schema_version`
+- `active_variant`
+- `shadow_variant`
+- `selected_count`
+- `realized_stock_weight`
+- `safe_haven_weight`
+- `turnover_delta_vs_active`
+- `largest_increase_symbol`
+- `largest_increase_delta`
+- `largest_decrease_symbol`
+- `largest_decrease_delta`
+- `review_note`
+
+`review_note` is a deterministic one-line summary for human review. It includes
+the active variant, shadow variant, one-way turnover delta, and largest
+single-name increase/decrease. It must not include account identifiers,
+positions by account, tokens, or other sensitive runtime fields.
+
+Example runtime review config:
+
+```python
+{
+    "leader_rotation_profile_variant": "blend_top2_50_top4_50",
+    "leader_rotation_shadow_variants": True,
+}
+```
+
+To review a conservative override without changing the available rollback path,
+set `leader_rotation_profile_variant` to `blend_top2_25_top4_75` and keep
+`leader_rotation_shadow_variants` enabled. To roll back, set
+`leader_rotation_profile_variant` to `top4_baseline`.
+
 ## Research Commands
 
 Historical dynamic-universe check:
