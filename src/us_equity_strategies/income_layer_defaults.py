@@ -9,6 +9,35 @@ TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
 RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
 
+INCOME_LAYER_LIVE_VALIDATION_EVIDENCE: dict[str, dict[str, object]] = {
+    GLOBAL_ETF_ROTATION_PROFILE: {
+        "status": "live",
+        "evidence_status": "validated",
+        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "summary": "Defensive ETF rotation income sleeve calibrated with drawdown-budget defaults.",
+    },
+    TQQQ_GROWTH_INCOME_PROFILE: {
+        "status": "live",
+        "evidence_status": "validated",
+        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "artifact": "UsEquitySnapshotPipelines/data/output/levered_income_layer_candidate_compare_2026-05-26/",
+        "summary": "TQQQ income sleeve selected from backtested drawdown-budget candidates.",
+    },
+    SOXL_SOXX_TREND_INCOME_PROFILE: {
+        "status": "live",
+        "evidence_status": "validated",
+        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "artifact": "UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv",
+        "summary": "SOXL/SOXX income sleeve validated by archived replay and later drawdown-budget calibration.",
+    },
+    RUSSELL_TOP50_LEADER_ROTATION_PROFILE: {
+        "status": "live",
+        "evidence_status": "validated",
+        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "summary": "Leader-rotation income sleeve uses the same validated drawdown-budget curve.",
+    },
+}
+
 INCOME_LAYER_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {
     GLOBAL_ETF_ROTATION_PROFILE: {
         "income_layer_enabled": True,
@@ -39,8 +68,6 @@ INCOME_LAYER_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {
         "income_layer_base_drawdown_budget_ratio": 0.45,
         "income_layer_min_drawdown_budget_ratio": 0.25,
         "income_layer_drawdown_budget_decay_per_double": 0.05,
-        "income_layer_qqqi_weight": 0.02,
-        "income_layer_spyi_weight": 0.08,
         "income_layer_allocations": {
             "SCHD": 0.30,
             "DGRO": 0.20,
@@ -60,8 +87,6 @@ INCOME_LAYER_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {
         "income_layer_base_drawdown_budget_ratio": 0.45,
         "income_layer_min_drawdown_budget_ratio": 0.25,
         "income_layer_drawdown_budget_decay_per_double": 0.05,
-        "income_layer_qqqi_weight": 0.01,
-        "income_layer_spyi_weight": 0.04,
         "income_layer_allocations": {
             "SCHD": 0.15,
             "DGRO": 0.10,
@@ -96,6 +121,7 @@ def income_layer_default_config(profile: str) -> dict[str, object]:
 
 __all__ = [
     "INCOME_LAYER_DEFAULT_CONFIGS",
+    "INCOME_LAYER_LIVE_VALIDATION_EVIDENCE",
     "INCOME_LAYER_RATIO_MODE",
     "income_layer_default_config",
 ]

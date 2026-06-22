@@ -4,6 +4,7 @@ from quant_platform_kit.strategy_contracts import StrategyManifest
 
 from us_equity_strategies.ai_extensions import build_default_ai_extension_config
 from us_equity_strategies.income_layer_defaults import income_layer_default_config
+from us_equity_strategies.option_overlay import option_overlay_default_config
 
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
@@ -79,6 +80,7 @@ global_etf_rotation_manifest = _manifest(
         "confidence_volatility_window": 126,
         "confidence_volatility_max_ratio": 1.3,
         **income_layer_default_config("global_etf_rotation"),
+        **option_overlay_default_config("global_etf_rotation"),
         "market_regime_control_enabled": True,
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": False,
@@ -96,16 +98,11 @@ tqqq_growth_income_manifest = _manifest(
     default_config={
         "benchmark_symbol": "QQQ",
         "managed_symbols": ("TQQQ", "QQQM", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
-        "income_threshold_usd": 250000.0,
-        "qqqi_income_ratio": 0.10,
         "cash_reserve_ratio": 0.02,
         "rebalance_threshold_ratio": 0.01,
         "execution_cash_reserve_ratio": 0.0,
         **income_layer_default_config("tqqq_growth_income"),
-        "option_growth_overlay_enabled": True,
-        "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
-        "option_growth_overlay_start_usd": 250000.0,
-        "option_growth_overlay_nav_budget_ratio": 0.03,
+        **option_overlay_default_config("tqqq_growth_income"),
         "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
         "dual_drive_qqq_weight": 0.45,
         "dual_drive_tqqq_weight": 0.45,
@@ -153,10 +150,7 @@ soxl_soxx_trend_income_manifest = _manifest(
         "min_trade_floor": 100.0,
         "rebalance_threshold_ratio": 0.01,
         **income_layer_default_config("soxl_soxx_trend_income"),
-        "option_income_overlay_enabled": True,
-        "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
-        "option_income_overlay_start_usd": 1000000.0,
-        "option_income_overlay_nav_risk_ratio": 0.01,
+        **option_overlay_default_config("soxl_soxx_trend_income"),
         "trend_entry_buffer": 0.08,
         "trend_mid_buffer": 0.06,
         "trend_exit_buffer": 0.02,
@@ -222,10 +216,7 @@ russell_top50_leader_rotation_manifest = _manifest(
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
         **income_layer_default_config(RUSSELL_TOP50_LEADER_ROTATION_PROFILE),
-        "option_growth_overlay_enabled": True,
-        "option_growth_overlay_recipe": "qqq_leaps_growth_v1",
-        "option_growth_overlay_start_usd": 1000000.0,
-        "option_growth_overlay_nav_budget_ratio": 0.03,
+        **option_overlay_default_config(RUSSELL_TOP50_LEADER_ROTATION_PROFILE),
         "market_regime_control_enabled": True,
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": False,

@@ -25,6 +25,7 @@ from us_equity_strategies.manifests import (
     soxl_soxx_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
+from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
     ibit_smart_dca as ibit_smart_dca_strategy,
@@ -39,7 +40,6 @@ from ._common import (
     apply_reserved_cash_policy_to_usd_config,
     apply_income_layer_to_weights,
     apply_market_regime_control_to_weights,
-    build_option_overlay_diagnostics,
     default_signal_text_fn,
     default_translator,
     get_current_holdings,
