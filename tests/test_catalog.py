@@ -26,6 +26,12 @@ from us_equity_strategies.catalog import (
     get_strategy_platform_compatibility_map,
     resolve_canonical_profile,
 )
+from us_equity_strategies.income_layer_defaults import INCOME_LAYER_LIVE_VALIDATION_EVIDENCE
+from us_equity_strategies.option_overlay import (
+    OPTION_OVERLAY_CONFIG_KEYS,
+    OPTION_OVERLAY_DEFAULT_CONFIGS,
+    OPTION_OVERLAY_RESEARCH_CANDIDATES,
+)
 
 
 class CatalogTest(unittest.TestCase):
@@ -233,33 +239,65 @@ class CatalogTest(unittest.TestCase):
             FULL_SHARED_PLATFORM_MATRIX,
         )
 
-    def test_option_overlay_defaults_are_scoped_to_supported_profiles(self):
-        tqqq = get_strategy_definition(TQQQ_GROWTH_INCOME_PROFILE).default_config
-        self.assertIs(tqqq["option_growth_overlay_enabled"], True)
-        self.assertEqual(tqqq["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
-        self.assertEqual(tqqq["option_growth_overlay_start_usd"], 250000.0)
-        self.assertEqual(tqqq["option_growth_overlay_nav_budget_ratio"], 0.03)
-
-        soxl = get_strategy_definition(SOXL_SOXX_TREND_INCOME_PROFILE).default_config
-        self.assertIs(soxl["option_income_overlay_enabled"], True)
-        self.assertEqual(soxl["option_income_overlay_recipe"], "soxx_put_credit_spread_income_v1")
-        self.assertEqual(soxl["option_income_overlay_start_usd"], 1000000.0)
-        self.assertEqual(soxl["option_income_overlay_nav_risk_ratio"], 0.01)
-
-        mega = get_strategy_definition(RUSSELL_TOP50_LEADER_ROTATION_PROFILE).default_config
-        self.assertIs(mega["option_growth_overlay_enabled"], True)
-        self.assertEqual(mega["option_growth_overlay_recipe"], "qqq_leaps_growth_v1")
-        self.assertEqual(mega["option_growth_overlay_start_usd"], 1000000.0)
-        self.assertEqual(mega["option_growth_overlay_nav_budget_ratio"], 0.03)
-
-        self.assertNotIn(
-            "option_growth_overlay_enabled",
-            get_strategy_definition(NASDAQ_SP500_SMART_DCA_PROFILE).default_config,
+    def test_option_overlay_defaults_are_enabled_but_live_gated(self):
+        live_option_profiles = (
+            GLOBAL_ETF_ROTATION_PROFILE,
+            TQQQ_GROWTH_INCOME_PROFILE,
+            SOXL_SOXX_TREND_INCOME_PROFILE,
+            RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
         )
-        self.assertNotIn(
-            "option_growth_overlay_enabled",
-            get_strategy_definition(IBIT_SMART_DCA_PROFILE).default_config,
+        self.assertEqual(set(OPTION_OVERLAY_DEFAULT_CONFIGS), set(live_option_profiles))
+        for profile in live_option_profiles:
+            with self.subTest(profile=profile):
+                config = get_strategy_definition(profile).default_config
+                self.assertTrue(OPTION_OVERLAY_CONFIG_KEYS & set(config))
+                self.assertIs(config["option_overlay_enabled"], True)
+                if config.get("option_growth_overlay_enabled"):
+                    recipe = config["option_growth_overlay_recipe"]
+                    self.assertEqual(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["status"], "research")
+                    self.assertIs(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["promotion_evidence"], False)
+                if config.get("option_income_overlay_enabled"):
+                    recipe = config["option_income_overlay_recipe"]
+                    self.assertEqual(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["status"], "research")
+                    self.assertIs(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["promotion_evidence"], False)
+
+        for profile in (NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE):
+            with self.subTest(profile=profile):
+                config = get_strategy_definition(profile).default_config
+                self.assertFalse(OPTION_OVERLAY_CONFIG_KEYS & set(config))
+
+        self.assertEqual(
+            set(OPTION_OVERLAY_RESEARCH_CANDIDATES),
+            {
+                "tqqq_leaps_growth_v1",
+                "qqq_leaps_growth_v1",
+                "spy_leaps_growth_v1",
+                "soxx_put_credit_spread_income_v1",
+            },
         )
+        self.assertTrue(
+            all(not candidate["promotion_evidence"] for candidate in OPTION_OVERLAY_RESEARCH_CANDIDATES.values())
+        )
+
+    def test_live_income_layer_defaults_have_validation_evidence(self):
+        live_income_profiles = (
+            GLOBAL_ETF_ROTATION_PROFILE,
+            TQQQ_GROWTH_INCOME_PROFILE,
+            SOXL_SOXX_TREND_INCOME_PROFILE,
+            RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
+        )
+        self.assertEqual(set(INCOME_LAYER_LIVE_VALIDATION_EVIDENCE), set(live_income_profiles))
+        for profile in live_income_profiles:
+            with self.subTest(profile=profile):
+                config = get_strategy_definition(profile).default_config
+                evidence = INCOME_LAYER_LIVE_VALIDATION_EVIDENCE[profile]
+                self.assertIs(config["income_layer_enabled"], True)
+                self.assertNotIn("income_threshold_usd", config)
+                self.assertNotIn("qqqi_income_ratio", config)
+                self.assertNotIn("income_layer_qqqi_weight", config)
+                self.assertNotIn("income_layer_spyi_weight", config)
+                self.assertEqual(evidence["status"], "live")
+                self.assertEqual(evidence["evidence_status"], "validated")
 
     def test_dca_profiles_default_to_ordinary_dca_with_optional_smart_sizing(self):
         for profile in (NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE):

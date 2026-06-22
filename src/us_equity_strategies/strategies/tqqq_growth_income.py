@@ -500,11 +500,11 @@ def build_rebalance_plan(
     *,
     signal_text_fn,
     translator,
-    income_threshold_usd,
-    qqqi_income_ratio,
     cash_reserve_ratio,
-    cash_reserve_floor_usd=0.0,
     rebalance_threshold_ratio,
+    cash_reserve_floor_usd=0.0,
+    income_threshold_usd=None,
+    qqqi_income_ratio=None,
     income_layer_start_usd=None,
     income_layer_max_ratio=None,
     income_layer_qqqi_weight=None,
@@ -592,7 +592,13 @@ def build_rebalance_plan(
     if not isinstance(snapshot_metadata, Mapping):
         snapshot_metadata = {}
 
-    layer_start = income_threshold_usd if income_layer_start_usd is None else income_layer_start_usd
+    layer_start = (
+        0.0
+        if income_layer_start_usd is None and income_threshold_usd is None
+        else income_threshold_usd
+        if income_layer_start_usd is None
+        else income_layer_start_usd
+    )
     layer_max_ratio = 0.60 if income_layer_max_ratio is None else income_layer_max_ratio
     income_layer_plan = build_income_layer_plan(
         total_equity_usd=total_equity,
