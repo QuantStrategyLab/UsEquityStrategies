@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -8,7 +9,11 @@ from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
 from us_equity_strategies.catalog import get_runtime_enabled_profiles
-from us_equity_strategies.option_overlay import OPTION_OVERLAY_CONFIG_KEYS, build_option_overlay_diagnostics
+from us_equity_strategies.option_overlay import (
+    OPTION_OVERLAY_CONFIG_KEYS,
+    OPTION_OVERLAY_RESEARCH_CANDIDATES,
+    build_option_overlay_diagnostics,
+)
 from us_equity_strategies.runtime_adapters import describe_platform_runtime_requirements
 from us_equity_strategies.strategies.global_etf_rotation import compute_signals_from_feature_snapshot
 from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
@@ -77,33 +82,37 @@ class StrategyEntrypointTests(unittest.TestCase):
             positions=(),
         )
 
-        diagnostics = build_option_overlay_diagnostics(
-            {
-                "option_growth_overlay_enabled": True,
-                "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
-                "option_growth_overlay_start_usd": 250000.0,
-            },
-            StrategyContext(
-                as_of="2026-04-06",
-                portfolio=snapshot,
-                market_data={
-                    "option_chains": {
-                        "TQQQ": {
-                            "contracts": (
-                                {
-                                    "right": "C",
-                                    "expiration": "2028-01-21",
-                                    "strike": 70.0,
-                                    "delta": 0.74,
-                                    "bid": 29.0,
-                                    "ask": 31.0,
-                                },
-                            ),
+        with patch.dict(
+            OPTION_OVERLAY_RESEARCH_CANDIDATES,
+            {"tqqq_leaps_growth_v1": {"status": "live", "promotion_evidence": True, "reason": "test"}},
+        ):
+            diagnostics = build_option_overlay_diagnostics(
+                {
+                    "option_growth_overlay_enabled": True,
+                    "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+                    "option_growth_overlay_start_usd": 250000.0,
+                },
+                StrategyContext(
+                    as_of="2026-04-06",
+                    portfolio=snapshot,
+                    market_data={
+                        "option_chains": {
+                            "TQQQ": {
+                                "contracts": (
+                                    {
+                                        "right": "C",
+                                        "expiration": "2028-01-21",
+                                        "strike": 70.0,
+                                        "delta": 0.74,
+                                        "bid": 29.0,
+                                        "ask": 31.0,
+                                    },
+                                ),
+                            },
                         },
                     },
-                },
-            ),
-        )
+                ),
+            )
 
         self.assertIs(diagnostics["option_growth_overlay_active"], True)
         self.assertNotIn("option_growth_overlay_skip_reason", diagnostics)
@@ -124,34 +133,38 @@ class StrategyEntrypointTests(unittest.TestCase):
             positions=(),
         )
 
-        diagnostics = build_option_overlay_diagnostics(
-            {
-                "option_growth_overlay_enabled": True,
-                "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
-                "option_growth_overlay_start_usd": 250000.0,
-                "option_growth_overlay_nav_budget_ratio": 0.06,
-            },
-            StrategyContext(
-                as_of="2026-04-06",
-                portfolio=snapshot,
-                market_data={
-                    "option_chains": {
-                        "TQQQ": {
-                            "contracts": (
-                                {
-                                    "right": "C",
-                                    "expiration": "2028-01-21",
-                                    "strike": 70.0,
-                                    "delta": 0.74,
-                                    "bid": 29.0,
-                                    "ask": 31.0,
-                                },
-                            ),
+        with patch.dict(
+            OPTION_OVERLAY_RESEARCH_CANDIDATES,
+            {"tqqq_leaps_growth_v1": {"status": "live", "promotion_evidence": True, "reason": "test"}},
+        ):
+            diagnostics = build_option_overlay_diagnostics(
+                {
+                    "option_growth_overlay_enabled": True,
+                    "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+                    "option_growth_overlay_start_usd": 250000.0,
+                    "option_growth_overlay_nav_budget_ratio": 0.06,
+                },
+                StrategyContext(
+                    as_of="2026-04-06",
+                    portfolio=snapshot,
+                    market_data={
+                        "option_chains": {
+                            "TQQQ": {
+                                "contracts": (
+                                    {
+                                        "right": "C",
+                                        "expiration": "2028-01-21",
+                                        "strike": 70.0,
+                                        "delta": 0.74,
+                                        "bid": 29.0,
+                                        "ask": 31.0,
+                                    },
+                                ),
+                            },
                         },
                     },
-                },
-            ),
-        )
+                ),
+            )
 
         self.assertEqual(
             diagnostics["option_growth_overlay_recipe_detail"]["premium_budget_ratio"],
@@ -166,33 +179,37 @@ class StrategyEntrypointTests(unittest.TestCase):
             positions=(),
         )
 
-        diagnostics = build_option_overlay_diagnostics(
-            {
-                "option_growth_overlay_enabled": True,
-                "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-                "option_growth_overlay_start_usd": 250000.0,
-            },
-            StrategyContext(
-                as_of="2026-04-06",
-                portfolio=snapshot,
-                market_data={
-                    "option_chains": {
-                        "SPY": {
-                            "contracts": (
-                                {
-                                    "right": "C",
-                                    "expiration": "2028-01-21",
-                                    "strike": 620.0,
-                                    "delta": 0.76,
-                                    "bid": 148.0,
-                                    "ask": 152.0,
-                                },
-                            ),
+        with patch.dict(
+            OPTION_OVERLAY_RESEARCH_CANDIDATES,
+            {"spy_leaps_growth_v1": {"status": "live", "promotion_evidence": True, "reason": "test"}},
+        ):
+            diagnostics = build_option_overlay_diagnostics(
+                {
+                    "option_growth_overlay_enabled": True,
+                    "option_growth_overlay_recipe": "spy_leaps_growth_v1",
+                    "option_growth_overlay_start_usd": 250000.0,
+                },
+                StrategyContext(
+                    as_of="2026-04-06",
+                    portfolio=snapshot,
+                    market_data={
+                        "option_chains": {
+                            "SPY": {
+                                "contracts": (
+                                    {
+                                        "right": "C",
+                                        "expiration": "2028-01-21",
+                                        "strike": 620.0,
+                                        "delta": 0.76,
+                                        "bid": 148.0,
+                                        "ask": 152.0,
+                                    },
+                                ),
+                            },
                         },
                     },
-                },
-            ),
-        )
+                ),
+            )
 
         self.assertIs(diagnostics["option_growth_overlay_active"], True)
         self.assertEqual(
@@ -380,7 +397,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("sell_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["threshold"], legacy_plan["threshold"])
-        self.assertNotIn("option_growth_overlay_enabled", decision.diagnostics)
+        self.assertIs(decision.diagnostics["option_growth_overlay_enabled"], True)
+        self.assertIs(decision.diagnostics["option_growth_overlay_live_allowed"], False)
+        self.assertEqual(decision.diagnostics["option_growth_overlay_skip_reason"], "research_only_recipe")
         self.assertNotIn("option_order_intents", decision.diagnostics)
         self.assertFalse(decision.diagnostics["ai_extensions"]["enabled"])
         self.assertEqual(decision.diagnostics["notification_context"]["benchmark"]["symbol"], "QQQ")
@@ -466,7 +485,14 @@ class StrategyEntrypointTests(unittest.TestCase):
             {"SCHD": 0.30, "DGRO": 0.20, "SGOV": 0.40, "SPYI": 0.08, "QQQI": 0.02},
         )
         self.assertEqual(config["execution_cash_reserve_ratio"], 0.0)
-        self.assertFalse(OPTION_OVERLAY_CONFIG_KEYS & set(config))
+        self.assertIs(config["option_overlay_enabled"], True)
+        self.assertIs(config["option_growth_overlay_enabled"], True)
+        self.assertEqual(config["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
+        self.assertEqual(config["option_growth_overlay_start_usd"], 250000.0)
+        self.assertEqual(config["option_growth_overlay_nav_budget_ratio"], 0.03)
+        self.assertIs(config["option_income_overlay_enabled"], False)
+        self.assertEqual(OPTION_OVERLAY_RESEARCH_CANDIDATES["tqqq_leaps_growth_v1"]["status"], "research")
+        self.assertIs(OPTION_OVERLAY_RESEARCH_CANDIDATES["tqqq_leaps_growth_v1"]["promotion_evidence"], False)
         self.assertFalse(config["ai_extensions"]["enabled"])
         self.assertFalse(config["ai_extensions"]["modules"]["taco_panic_rebound"]["enabled"])
         self.assertFalse(config["ai_extensions"]["modules"]["crisis_regime_guard"]["enabled"])
@@ -702,7 +728,9 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("limit_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["active_risk_asset"], legacy_plan["active_risk_asset"])
-        self.assertNotIn("option_income_overlay_enabled", decision.diagnostics)
+        self.assertIs(decision.diagnostics["option_income_overlay_enabled"], True)
+        self.assertIs(decision.diagnostics["option_income_overlay_live_allowed"], False)
+        self.assertEqual(decision.diagnostics["option_income_overlay_skip_reason"], "research_only_recipe")
         self.assertNotIn("option_order_intents", decision.diagnostics)
         self.assertEqual(
             decision.diagnostics["notification_context"]["status"]["code"],
