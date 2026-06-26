@@ -415,6 +415,12 @@ def _resolve_ibit_zscore_exit_context(
     }
 
 
+def _external_signal_snapshot_provided(
+    indicator_snapshot: Mapping[str, object] | None,
+) -> bool:
+    return isinstance(indicator_snapshot, Mapping)
+
+
 def _resolve_indicator_payload(
     indicator_snapshot: Mapping[str, object] | None,
     symbol: str,
@@ -734,6 +740,11 @@ def build_rebalance_plan(
                 continue
             if cycle_metrics:
                 continue
+            if _external_signal_snapshot_provided(crypto_indicator_snapshot):
+                raise ValueError(
+                    f"{symbol} external market signal is missing or incomplete; "
+                    "configure derived_indicators with ahr999 or price indicators"
+                )
             history = market_history(broker_client, symbol)
             series = _extract_close_series(history)
             indicators.append(_indicator_from_series(symbol, series))

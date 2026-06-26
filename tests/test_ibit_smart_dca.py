@@ -264,6 +264,17 @@ def test_ibit_smart_dca_uses_external_ahr999_indicator_snapshot() -> None:
     assert plan["cycle_indicator_source"] == "derived_indicators"
 
 
+def test_ibit_smart_dca_rejects_empty_external_snapshot_without_market_history() -> None:
+    with pytest.raises(ValueError, match="external market signal is missing or incomplete"):
+        build_rebalance_plan(
+            _unavailable_history,
+            _portfolio(buying_power=2500.0, ibit_value=300.0),
+            as_of="2026-05-26",
+            smart_multiplier_enabled=True,
+            crypto_indicator_snapshot={},
+        )
+
+
 def test_ibit_smart_dca_skips_when_external_ahr999_is_expensive() -> None:
     plan = build_rebalance_plan(
         _unavailable_history,
