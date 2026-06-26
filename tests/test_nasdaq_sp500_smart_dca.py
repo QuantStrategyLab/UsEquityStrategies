@@ -189,7 +189,7 @@ def test_smart_dca_rejects_available_cash_amount_modes() -> None:
         )
 
 
-def test_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> None:
+def test_smart_dca_invests_partial_cash_when_pullback_multiplier_exceeds_balance() -> None:
     history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
 
     plan = build_rebalance_plan(
@@ -201,12 +201,34 @@ def test_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> N
         smart_multiplier_enabled=True,
     )
 
+    assert plan["actionable"] is True
+    assert plan["skip_reason"] is None
+    assert plan["requested_investment_usd"] == 1500.0
+    assert plan["planned_investment_usd"] == 1450.0
+    assert plan["cash_capped"] is True
+    assert plan["cash_shortfall_usd"] == 50.0
+    assert plan["target_values"]["QQQM"] == 1725.0
+    assert plan["target_values"]["SPLG"] == 1925.0
+
+
+def test_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> None:
+    history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
+
+    plan = build_rebalance_plan(
+        lambda _client, symbol: history[symbol],
+        _portfolio(buying_power=4.0),
+        as_of="2026-05-26",
+        investment_amount_mode="fixed",
+        max_investment_usd=2000.0,
+        smart_multiplier_enabled=True,
+    )
+
     assert plan["actionable"] is False
     assert plan["skip_reason"] == "insufficient_cash"
     assert plan["requested_investment_usd"] == 1500.0
     assert plan["planned_investment_usd"] == 0.0
     assert plan["cash_capped"] is True
-    assert plan["cash_shortfall_usd"] == 50.0
+    assert plan["cash_shortfall_usd"] == 1496.0
     assert plan["target_values"] == {}
 
 
@@ -338,10 +360,10 @@ def test_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ("no_execute",)
+    assert decision.risk_flags == ()
     assert decision.diagnostics["reserved_cash"] == 4500.0
     assert decision.diagnostics["investable_cash"] == 500.0
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
-    assert decision.diagnostics["planned_investment_usd"] == 0.0
-    assert decision.diagnostics["skip_reason"] == "insufficient_cash"
-    assert targets == {}
+    assert decision.diagnostics["planned_investment_usd"] == 500.0
+    assert decision.diagnostics["skip_reason"] is None
+    assert targets == {"QQQM": 1250.0, "SPLG": 1450.0}

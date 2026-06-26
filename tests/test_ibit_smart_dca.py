@@ -97,12 +97,60 @@ def test_ibit_smart_dca_can_run_fixed_amount_ordinary_dca() -> None:
     assert plan["target_values"]["IBIT"] == 1100.0
 
 
-def test_ibit_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> None:
+def test_ibit_smart_dca_invests_available_cash_when_multiplier_exceeds_balance() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=50.0, ibit_value=0.0),
+        as_of="2026-05-26",
+        base_investment_usd=50.0,
+        smart_multiplier_enabled=True,
+        crypto_indicator_snapshot={
+            BTC_SIGNAL_SYMBOL: {
+                "ahr999": 0.29,
+                "mayer_multiple": 0.85,
+            }
+        },
+    )
+
+    assert plan["actionable"] is True
+    assert plan["regime"] == "ahr999_bottom"
+    assert plan["multiplier"] == 3.0
+    assert plan["requested_investment_usd"] == 150.0
+    assert plan["planned_investment_usd"] == 50.0
+    assert plan["cash_capped"] is True
+    assert plan["skip_reason"] is None
+    assert plan["target_values"]["IBIT"] == 50.0
+
+
+def test_ibit_smart_dca_invests_partial_cash_when_pullback_multiplier_exceeds_balance() -> None:
     history = {BTC_SIGNAL_SYMBOL: _severe_pullback_history()}
 
     plan = build_rebalance_plan(
         lambda _client, symbol: history[symbol],
         _portfolio(buying_power=1550.0, ibit_value=300.0),
+        as_of="2026-05-26",
+        investment_amount_mode="fixed",
+        max_investment_usd=2000.0,
+        smart_multiplier_enabled=True,
+        cycle_indicator_enabled=False,
+    )
+
+    assert plan["actionable"] is True
+    assert plan["skip_reason"] is None
+    assert plan["regime"] == "severe_pullback"
+    assert plan["requested_investment_usd"] == 2000.0
+    assert plan["planned_investment_usd"] == 1550.0
+    assert plan["cash_capped"] is True
+    assert plan["cash_shortfall_usd"] == 450.0
+    assert plan["target_values"]["IBIT"] == 1850.0
+
+
+def test_ibit_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> None:
+    history = {BTC_SIGNAL_SYMBOL: _severe_pullback_history()}
+
+    plan = build_rebalance_plan(
+        lambda _client, symbol: history[symbol],
+        _portfolio(buying_power=4.0, ibit_value=300.0),
         as_of="2026-05-26",
         investment_amount_mode="fixed",
         max_investment_usd=2000.0,
@@ -116,7 +164,7 @@ def test_ibit_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount()
     assert plan["requested_investment_usd"] == 2000.0
     assert plan["planned_investment_usd"] == 0.0
     assert plan["cash_capped"] is True
-    assert plan["cash_shortfall_usd"] == 450.0
+    assert plan["cash_shortfall_usd"] == 1996.0
     assert plan["target_values"] == {}
 
 
@@ -143,10 +191,29 @@ def test_ibit_smart_dca_sells_boxx_cash_substitute_to_fund_dca() -> None:
     assert plan["ibit_zscore_exit"]["applied"] is False
 
 
-def test_ibit_smart_dca_skips_when_cash_and_boxx_are_both_insufficient() -> None:
+def test_ibit_smart_dca_uses_boxx_cash_substitute_when_cash_is_partial() -> None:
     plan = build_rebalance_plan(
         _unavailable_history,
         _portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=300.0),
+        as_of="2026-05-26",
+        base_investment_usd=1000.0,
+    )
+
+    assert plan["actionable"] is True
+    assert plan["skip_reason"] is None
+    assert plan["planned_investment_usd"] == 500.0
+    assert plan["cash_capped"] is True
+    assert plan["cash_shortfall_usd"] == 800.0
+    assert plan["cash_substitute_value_usd"] == 300.0
+    assert plan["cash_substitute_used_usd"] == 300.0
+    assert plan["cash_substitute_funding_shortfall_usd"] == 500.0
+    assert plan["target_values"] == {"BOXX": 0.0, "IBIT": 1500.0}
+
+
+def test_ibit_smart_dca_skips_when_cash_and_boxx_are_both_insufficient() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=4.0, ibit_value=1000.0, boxx_value=0.0),
         as_of="2026-05-26",
         base_investment_usd=1000.0,
     )
@@ -155,17 +222,37 @@ def test_ibit_smart_dca_skips_when_cash_and_boxx_are_both_insufficient() -> None
     assert plan["skip_reason"] == "insufficient_cash"
     assert plan["planned_investment_usd"] == 0.0
     assert plan["cash_capped"] is True
-    assert plan["cash_shortfall_usd"] == 800.0
-    assert plan["cash_substitute_value_usd"] == 300.0
+    assert plan["cash_shortfall_usd"] == 996.0
+    assert plan["cash_substitute_value_usd"] == 0.0
     assert plan["cash_substitute_used_usd"] == 0.0
-    assert plan["cash_substitute_funding_shortfall_usd"] == 500.0
+    assert plan["cash_substitute_funding_shortfall_usd"] == 996.0
     assert plan["target_values"] == {}
+
+
+def test_ibit_smart_dca_invests_available_cash_when_boxx_substitute_disabled() -> None:
+    plan = build_rebalance_plan(
+        _unavailable_history,
+        _portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=900.0),
+        as_of="2026-05-26",
+        base_investment_usd=1000.0,
+        cash_substitute_for_dca_enabled=False,
+    )
+
+    assert plan["actionable"] is True
+    assert plan["skip_reason"] is None
+    assert plan["planned_investment_usd"] == 200.0
+    assert plan["cash_capped"] is True
+    assert plan["cash_substitute_for_dca_enabled"] is False
+    assert plan["cash_substitute_symbol"] == ""
+    assert plan["cash_substitute_value_usd"] == 0.0
+    assert plan["cash_substitute_used_usd"] == 0.0
+    assert plan["target_values"]["IBIT"] == 1200.0
 
 
 def test_ibit_smart_dca_can_disable_boxx_cash_substitute_for_dca() -> None:
     plan = build_rebalance_plan(
         _unavailable_history,
-        _portfolio(buying_power=200.0, ibit_value=1000.0, boxx_value=900.0),
+        _portfolio(buying_power=4.0, ibit_value=1000.0, boxx_value=900.0),
         as_of="2026-05-26",
         base_investment_usd=1000.0,
         cash_substitute_for_dca_enabled=False,
@@ -756,10 +843,10 @@ def test_ibit_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> Non
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ("no_execute",)
+    assert decision.risk_flags == ()
     assert decision.diagnostics["reserved_cash"] == 4500.0
     assert decision.diagnostics["investable_cash"] == 500.0
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
-    assert decision.diagnostics["planned_investment_usd"] == 0.0
-    assert decision.diagnostics["skip_reason"] == "insufficient_cash"
-    assert targets == {}
+    assert decision.diagnostics["planned_investment_usd"] == 500.0
+    assert decision.diagnostics["skip_reason"] is None
+    assert targets == {"IBIT": 600.0}
