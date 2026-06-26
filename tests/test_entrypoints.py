@@ -668,7 +668,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             },
         }
         account_state = {
-            "available_cash": 10000.0,
+            "available_cash": 43000.0,
             "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 5000.0, "QQQI": 1000.0, "SPYI": 1000.0},
             "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 50, "QQQI": 10, "SPYI": 10},
             "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 50, "QQQI": 10, "SPYI": 10},
