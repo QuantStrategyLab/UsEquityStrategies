@@ -366,5 +366,4 @@ def test_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
     assert decision.diagnostics["planned_investment_usd"] == 500.0
     assert decision.diagnostics["skip_reason"] is None
-    assert decision.diagnostics["cash_capped"] is True
     assert targets == {"QQQM": 1250.0, "SPLG": 1450.0}

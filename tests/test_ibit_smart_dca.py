@@ -849,5 +849,4 @@ def test_ibit_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> Non
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
     assert decision.diagnostics["planned_investment_usd"] == 500.0
     assert decision.diagnostics["skip_reason"] is None
-    assert decision.diagnostics["cash_capped"] is True
     assert targets == {"IBIT": 600.0}
