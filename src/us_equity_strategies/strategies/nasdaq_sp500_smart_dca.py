@@ -610,7 +610,7 @@ def build_rebalance_plan(
         requested_investment = min(requested_investment, max(0.0, float(max_investment_usd)))
     cash_capped = investable_cash < requested_investment
     cash_shortfall = max(0.0, requested_investment - investable_cash)
-    planned_investment = requested_investment if not cash_capped else 0.0
+    planned_investment = min(requested_investment, investable_cash)
 
     skip_reason = None
     actionable = True
@@ -620,7 +620,7 @@ def build_rebalance_plan(
     elif multiplier <= 0.0 or requested_investment <= 0.0:
         skip_reason = "valuation_too_expensive"
         actionable = False
-    elif cash_capped or planned_investment < float(min_investment_usd):
+    elif planned_investment < float(min_investment_usd):
         skip_reason = "insufficient_cash"
         actionable = False
 

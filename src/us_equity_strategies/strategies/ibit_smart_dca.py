@@ -830,7 +830,7 @@ def build_rebalance_plan(
     cash_substitute_funding_capacity = investable_cash + cash_substitute_available_for_dca
     cash_substitute_funding_shortfall = max(0.0, requested_investment - cash_substitute_funding_capacity)
     cash_capped = cash_substitute_funding_capacity < requested_investment
-    planned_investment = requested_investment if not cash_capped else 0.0
+    planned_investment = min(requested_investment, cash_substitute_funding_capacity)
 
     skip_reason = None
     actionable = True
@@ -840,7 +840,7 @@ def build_rebalance_plan(
     elif multiplier <= 0.0 or requested_investment <= 0.0:
         skip_reason = "valuation_too_expensive"
         actionable = False
-    elif cash_capped or planned_investment < float(min_investment_usd):
+    elif planned_investment < float(min_investment_usd):
         skip_reason = "insufficient_cash"
         actionable = False
 
