@@ -171,8 +171,8 @@ def _labels(translator: Translator | None) -> dict[str, str]:
     if _translator_uses_zh(translator):
         return {
             "title": "📌 策略账户概览",
-            "total_assets": "总资产（策略标的+现金）",
-            "buying_power": "购买力",
+            "total_assets": "总资产（策略标的+现金，不含融资额度）",
+            "buying_power": "可用现金",
             "reserved_cash": "预留现金",
             "investable_cash": "可投资现金",
             "cash_by_currency": "各币种现金",
@@ -185,8 +185,8 @@ def _labels(translator: Translator | None) -> dict[str, str]:
         }
     return {
         "title": "📌 Strategy portfolio",
-        "total_assets": "Total assets (strategy symbols + cash)",
-        "buying_power": "Buying power",
+        "total_assets": "Total assets (strategy symbols + cash, ex-margin)",
+        "buying_power": "Available cash",
         "reserved_cash": "Reserved cash",
         "investable_cash": "Investable cash",
         "cash_by_currency": "Cash by currency",
@@ -227,6 +227,10 @@ def build_portfolio_dashboard(
     if total_equity is None:
         total_equity = float(getattr(snapshot, "total_equity", 0.0) or 0.0)
     buying_power = _portfolio_context_buying_power(context)
+    if buying_power is None:
+        buying_power = _as_optional_float(_metadata_mapping(snapshot).get("market_currency_cash"))
+    if buying_power is None:
+        buying_power = _as_optional_float(getattr(snapshot, "cash_balance", None))
     if buying_power is None:
         buying_power = _snapshot_buying_power(snapshot)
     lines = [

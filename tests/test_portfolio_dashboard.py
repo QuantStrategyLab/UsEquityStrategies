@@ -50,8 +50,8 @@ class PortfolioDashboardTests(unittest.TestCase):
 
         dashboard = decision.diagnostics["execution_annotations"]["dashboard_text"]
         self.assertIn("📌 策略账户概览", dashboard)
-        self.assertIn("总资产（策略标的+现金）: $0.00", dashboard)
-        self.assertIn("购买力: $0.00", dashboard)
+        self.assertIn("总资产（策略标的+现金，不含融资额度）: $0.00", dashboard)
+        self.assertIn("可用现金: $0.00", dashboard)
         self.assertIn("预留现金: $0.00", dashboard)
         self.assertIn("可投资现金: $0.00", dashboard)
         self.assertIn("各币种现金: SGD 350.00", dashboard)
@@ -91,8 +91,8 @@ class PortfolioDashboardTests(unittest.TestCase):
         )
 
         dashboard = decision.diagnostics["execution_annotations"]["dashboard_text"]
-        self.assertIn("总资产（策略标的+现金）: $12,500.00", dashboard)
-        self.assertIn("购买力: $2,500.00", dashboard)
+        self.assertIn("总资产（策略标的+现金，不含融资额度）: $12,500.00", dashboard)
+        self.assertIn("可用现金: $2,500.00", dashboard)
         self.assertIn("AAPL: $600.00 / 3股", dashboard)
         self.assertIn("BOXX: $1,000.00 / 10股", dashboard)
 
@@ -121,8 +121,8 @@ class PortfolioDashboardTests(unittest.TestCase):
         )
 
         dashboard = decision.diagnostics["execution_annotations"]["dashboard_text"]
-        self.assertIn("总资产（策略标的+现金）: $25,000.00", dashboard)
-        self.assertIn("购买力: $5,000.00", dashboard)
+        self.assertIn("总资产（策略标的+现金，不含融资额度）: $25,000.00", dashboard)
+        self.assertIn("可用现金: $5,000.00", dashboard)
         self.assertIn("BOXX: $2,000.00 / 20股", dashboard)
 
     def test_snapshot_entrypoint_renders_structured_monthly_waiting_text_in_zh(self) -> None:
@@ -202,7 +202,7 @@ class PortfolioDashboardTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("购买力: $20,000.00", dashboard)
+        self.assertIn("可用现金: $20,000.00", dashboard)
         self.assertIn("预留现金: $15,000.00", dashboard)
         self.assertIn("可投资现金: $5,000.00", dashboard)
         self.assertIn("BOXX: $12,000.00 / 120股", dashboard)
