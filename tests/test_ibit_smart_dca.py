@@ -206,7 +206,7 @@ def test_ibit_smart_dca_uses_boxx_cash_substitute_when_cash_is_partial() -> None
     assert plan["cash_shortfall_usd"] == 800.0
     assert plan["cash_substitute_value_usd"] == 300.0
     assert plan["cash_substitute_used_usd"] == 300.0
-    assert plan["cash_substitute_funding_shortfall_usd"] == 0.0
+    assert plan["cash_substitute_funding_shortfall_usd"] == 500.0
     assert plan["target_values"] == {"BOXX": 0.0, "IBIT": 1500.0}
 
 
@@ -843,10 +843,11 @@ def test_ibit_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> Non
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ("no_execute",)
+    assert decision.risk_flags == ()
     assert decision.diagnostics["reserved_cash"] == 4500.0
     assert decision.diagnostics["investable_cash"] == 500.0
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
-    assert decision.diagnostics["planned_investment_usd"] == 0.0
-    assert decision.diagnostics["skip_reason"] == "insufficient_cash"
-    assert targets == {}
+    assert decision.diagnostics["planned_investment_usd"] == 500.0
+    assert decision.diagnostics["skip_reason"] is None
+    assert decision.diagnostics["cash_capped"] is True
+    assert targets == {"IBIT": 600.0}
