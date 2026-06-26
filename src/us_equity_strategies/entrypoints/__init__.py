@@ -55,6 +55,10 @@ from ._common import (
     weights_to_positions,
 )
 from ._portfolio_dashboard import build_portfolio_dashboard
+from us_equity_strategies.cash_only_equity import (
+    compute_strategy_total_equity,
+    resolve_raw_cash_from_snapshot,
+)
 
 
 """Unified strategy entrypoints built as adapters over legacy implementations."""
@@ -607,17 +611,13 @@ def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_sym
             if isinstance(raw_sellable_quantities, Mapping)
             else quantity
         )
-    available_cash = float(
-        getattr(portfolio, "buying_power", None)
-        or getattr(portfolio, "cash_balance", None)
-        or 0.0
-    )
+    raw_cash = resolve_raw_cash_from_snapshot(portfolio)
     return {
-        "available_cash": available_cash,
+        "available_cash": raw_cash,
         "market_values": market_values,
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
-        "total_strategy_equity": float(portfolio.total_equity),
+        "total_strategy_equity": compute_strategy_total_equity(market_values, raw_cash),
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
