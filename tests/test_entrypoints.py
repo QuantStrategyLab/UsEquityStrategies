@@ -427,7 +427,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             legacy_plan["investable_buying_power"],
         )
         self.assertIn(
-            f"Buying power: ${legacy_plan['real_buying_power']:,.2f}",
+            f"Available cash: ${legacy_plan['real_buying_power']:,.2f}",
             decision.diagnostics["dashboard"],
         )
         self.assertIn(
@@ -693,25 +693,25 @@ class StrategyEntrypointTests(unittest.TestCase):
                     "portfolio_snapshot": PortfolioSnapshot(
                         as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
                         total_equity=50000.0,
-                        buying_power=10000.0,
+                        buying_power=43000.0,
                         positions=(
                             Position(symbol="BOXX", quantity=50, market_value=5000.0),
                             Position(symbol="QQQI", quantity=10, market_value=1000.0),
                             Position(symbol="SPYI", quantity=10, market_value=1000.0),
                         ),
-                        metadata={"account_hash": "demo"},
+                        metadata={"account_hash": "demo", "market_currency_cash": 43000.0},
                     ),
                 },
                 portfolio=PortfolioSnapshot(
                     as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
                     total_equity=50000.0,
-                    buying_power=10000.0,
+                    buying_power=43000.0,
                     positions=(
                         Position(symbol="BOXX", quantity=50, market_value=5000.0),
                         Position(symbol="QQQI", quantity=10, market_value=1000.0),
                         Position(symbol="SPYI", quantity=10, market_value=1000.0),
                     ),
-                    metadata={"account_hash": "demo"},
+                    metadata={"account_hash": "demo", "market_currency_cash": 43000.0},
                 ),
                 runtime_config={
                     "signal_text_fn": str,
@@ -768,7 +768,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             0.50,
         )
         self.assertIn(
-            f"Buying power: ${legacy_plan['available_cash']:,.2f}",
+            f"Available cash: ${legacy_plan['available_cash']:,.2f}",
             decision.diagnostics["dashboard"],
         )
         self.assertIn(
