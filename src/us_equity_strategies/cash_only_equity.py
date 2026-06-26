@@ -86,3 +86,27 @@ def build_cash_only_portfolio_inputs_from_snapshot(snapshot: Any, **kwargs):
         liquid_cash=raw_cash,
         sellable_quantities=sellable,
     )
+
+
+def build_portfolio_inputs_from_snapshot(snapshot: Any, *, cash_only_execution: bool = True, **kwargs):
+    if cash_only_execution:
+        return build_cash_only_portfolio_inputs_from_snapshot(snapshot, **kwargs)
+    from quant_platform_kit.common.execution_translation import (
+        build_value_target_portfolio_inputs_from_snapshot,
+    )
+
+    return build_value_target_portfolio_inputs_from_snapshot(snapshot, **kwargs)
+
+
+def normalize_account_state_from_snapshot(
+    account_state: Mapping[str, Any],
+    snapshot: Any,
+    *,
+    cash_only_execution: bool = True,
+) -> dict[str, Any]:
+    if not cash_only_execution:
+        return dict(account_state)
+    return apply_cash_only_account_state(
+        account_state,
+        raw_cash=resolve_raw_cash_from_snapshot(snapshot),
+    )
