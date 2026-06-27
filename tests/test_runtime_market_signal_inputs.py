@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from datetime import datetime, timezone
+
 from us_equity_strategies.signals import runtime_market_signal_inputs as runtime_inputs
 
 
@@ -184,3 +186,91 @@ def test_normalize_market_signal_reference_type_rejects_unknown():
 
     with pytest.raises(ValueError, match="unsupported market signal fallback mode"):
         runtime_inputs.normalize_market_signal_fallback_mode("platform")
+
+
+def test_resolve_external_market_signal_inputs_skips_unsupported_profile():
+    settings = type("Settings", (), {"market_signal_required": True})()
+
+    assert runtime_inputs.resolve_external_market_signal_inputs(
+        strategy_profile="tqqq_growth_income",
+        available_inputs={"derived_indicators"},
+        runtime_settings=settings,
+    ) == {}
+
+
+def test_resolve_external_market_signal_inputs_ibit_required_reference_missing_raises():
+    settings = type("Settings", (), {"market_signal_required": True})()
+
+    with pytest.raises(RuntimeError, match="external market signal is required"):
+        runtime_inputs.resolve_external_market_signal_inputs(
+            strategy_profile="ibit_smart_dca",
+            available_inputs={"derived_indicators"},
+            runtime_settings=settings,
+        )
+
+
+def test_resolve_external_market_signal_inputs_uses_handoff_index(monkeypatch, tmp_path):
+    calls: dict[str, object] = {}
+
+    def fake_extract(
+        reference,
+        *,
+        reference_type,
+        consumer,
+        cache_dir,
+        as_of,
+        client_factory=None,
+        fallback_mode=None,
+        fallback_max_stale_days=None,
+    ):
+        calls["extract"] = (
+            reference,
+            reference_type,
+            consumer,
+            cache_dir,
+            as_of,
+            client_factory,
+            fallback_mode,
+            fallback_max_stale_days,
+        )
+        return {"derived_indicators": {"BTC": {"mvrv_z_score": 1.0}}}, {
+            "reference_type": reference_type,
+            "source_uri": reference,
+            "materialized_count": 2,
+        }
+
+    monkeypatch.setattr(
+        runtime_inputs,
+        "extract_consumer_market_signal_inputs_from_reference",
+        fake_extract,
+    )
+    settings = type(
+        "Settings",
+        (),
+        {
+            "market_signal_handoff_index_uri": "gs://signals/platform_handoffs/index.json",
+            "market_signal_cache_dir": str(tmp_path),
+            "market_signal_required": False,
+            "market_signal_fallback_mode": "last_valid",
+            "market_signal_max_stale_days": 5,
+        },
+    )()
+
+    assert runtime_inputs.resolve_external_market_signal_inputs(
+        strategy_profile="ibit_smart_dca",
+        available_inputs={"derived_indicators"},
+        runtime_settings=settings,
+        as_of=datetime(2026, 6, 19, tzinfo=timezone.utc),
+        logger=lambda _message: None,
+        client_factory=object,
+    ) == {"derived_indicators": {"BTC": {"mvrv_z_score": 1.0}}}
+    assert calls["extract"] == (
+        "gs://signals/platform_handoffs/index.json",
+        "platform_handoff_index",
+        "us_equity:ibit_smart_dca",
+        tmp_path,
+        "2026-06-19",
+        object,
+        "last_valid",
+        5,
+    )

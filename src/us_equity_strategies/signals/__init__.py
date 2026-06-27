@@ -65,6 +65,7 @@ from .signal_bundle_contract import (
     validate_signal_bundle_indicator_fields,
 )
 from .runtime_market_signal_inputs import (
+    DEFAULT_MARKET_SIGNAL_CACHE_DIR,
     DEFAULT_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS,
     DEFAULT_MARKET_SIGNAL_FALLBACK_MODE,
     IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER,
@@ -84,6 +85,7 @@ from .runtime_market_signal_inputs import (
     market_signal_strategy_profiles,
     normalize_market_signal_fallback_mode,
     normalize_market_signal_reference_type,
+    resolve_external_market_signal_inputs,
 )
 
 __all__ = [
@@ -149,6 +151,7 @@ __all__ = [
     "validate_signal_consumer_contract_registry",
     "validate_signal_bundle_for_consumer",
     "validate_signal_bundle_indicator_fields",
+    "DEFAULT_MARKET_SIGNAL_CACHE_DIR",
     "DEFAULT_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS",
     "DEFAULT_MARKET_SIGNAL_FALLBACK_MODE",
     "IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER",
@@ -168,4 +171,5 @@ __all__ = [
     "market_signal_strategy_profiles",
     "normalize_market_signal_fallback_mode",
     "normalize_market_signal_reference_type",
+    "resolve_external_market_signal_inputs",
 ]
