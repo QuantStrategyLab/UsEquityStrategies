@@ -1,12 +1,14 @@
 # 美股策略状态与研究手册
 
-_更新日期：2026-06-23_
+[English](us_equity_strategy_status.md)
+
+_更新日期：2026-06-28_
 
 这份文档只记录当前可配置的美股策略 profile、输入形态和研究状态，不记录任何账户或服务正在运行的 profile。部署单元当前跑什么属于私有运行信息，应留在云端配置或私有运行记录里。
 
 策略实现以 `UsEquityStrategies` 为准；feature snapshot、研究回测和插件 artifact 由 `UsEquitySnapshotPipelines` 负责；券商连接、下单、通知和日志由各平台仓库负责。
 
-完整归档索引见 [us_equity_runtime_archive.zh-CN.md](./us_equity_runtime_archive.zh-CN.md)。
+完整归档索引见 [us_equity_runtime_archive.zh-CN.md](./us_equity_runtime_archive.zh-CN.md)（[English](./us_equity_runtime_archive.md)）。
 
 ## 当前可配置 profiles
 
@@ -71,9 +73,10 @@ _更新日期：2026-06-23_
 
 | 研究方向 | 当前状态 | 不直接部署的原因 |
 | --- | --- | --- |
+| `tecl_xlk_trend_income` | `research_enabled` | 重叠窗口未跑赢 live TQQQ / SOXL（2024+ CAGR 24.8%，最大回撤 -46.0%）；保留策略实现与回测入口，不进入 runtime。研究文档见 [`UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md`](../../UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md)。 |
 | `crisis_response_shadow` 插件 | 可作为 `tqqq_growth_income` 的 `shadow` 插件候选，只写信号、日志和通知上下文。 | 现在是 defense-only 黑天鹅观察流，不下单、不改 allocation；需要稳定 shadow 日志后再做 evidence review。 |
 | 事件反弹 / MAGS 路线 | 保持 research-only，不作为运行策略 profile。 | 对 MAGS 的正贡献不稳定，且事件反弹预算不应该混进黑天鹅逃命插件。 |
-| `QQQ` / `SPY` LEAPS 增长增强层 | 已有 option overlay 意图框架；组合型 live profile 默认带 `option_*` 设置，但 `spy_leaps_growth_v1` / `qqq_leaps_growth_v1` 等 recipe 仍是 research candidate，当前会以 `research_only_recipe` 跳过，不产生真实订单意图，研究设计见 [`docs/research/index_leaps_growth_overlay.zh-CN.md`](./research/index_leaps_growth_overlay.zh-CN.md)。 | 属于有限权利金预算的增长增强层，不是当前低回撤收入层的直接替代；需要真实期权链回测后才能把 recipe 晋级为 live。 |
+| `QQQ` / `SPY` LEAPS 增长增强层 | 已有 option overlay 意图框架；组合型 live profile 默认带 `option_*` 设置，但 `spy_leaps_growth_v1` / `qqq_leaps_growth_v1` 等 recipe 仍是 research candidate，当前会以 `research_only_recipe` 跳过，不产生真实订单意图，研究设计见 [`docs/research/index_leaps_growth_overlay.zh-CN.md`](./research/index_leaps_growth_overlay.zh-CN.md)（[English](./research/index_leaps_growth_overlay.md)）；代理回测见 [`UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md`](../../UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md)。 | 属于有限权利金预算的增长增强层，不是当前低回撤收入层的直接替代；需要真实期权链回测后才能把 recipe 晋级为 live。 |
 | AI 审计 / AI 上下文 | 不进入交易路径。 | 回测结果来自确定性指标，不依赖 AI；AI 可以辅助离线 review、总结新闻或检查文档，但不能作为自动买卖开关。 |
 | Russell 1000 代理长周期回测 | 研究待补。 | 2017 年前缺少可靠 point-in-time Russell 1000 / Top50 数据，需要代理构造并明确后视偏差。 |
 | Russell Top50 leader rotation paper 观察 | 当前保留候选。 | 历史结果强，且无杠杆，但 Top2 袖子仍有集中风险；要确认 snapshot、整数股、换手和通知稳定。 |

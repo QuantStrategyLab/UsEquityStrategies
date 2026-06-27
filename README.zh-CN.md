@@ -78,8 +78,8 @@ python -m pytest -q
 - [`docs/us_equity_notification_i18n_contract.md`](docs/us_equity_notification_i18n_contract.md)
 - [`docs/us_equity_notification_i18n_contract.zh-CN.md`](docs/us_equity_notification_i18n_contract.zh-CN.md)
 - [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
-- [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)
-- [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)
+- [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)（[English](docs/us_equity_runtime_archive.md)）
+- [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)（[English](docs/us_equity_strategy_status.md)）
 - [`docs/research/ibit_smart_dca.md`](docs/research/ibit_smart_dca.md)
 - [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
 
