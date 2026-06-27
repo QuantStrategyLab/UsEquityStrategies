@@ -162,6 +162,10 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.nasdaq_sp500_smart_dca",
         )
         self.assertEqual(smart_dca_definition.target_mode, "value")
+        self.assertEqual(
+            smart_dca_definition.compatible_capabilities,
+            frozenset({"fractional_share_execution"}),
+        )
 
         ibit_dca_definition = get_strategy_definition("ibit_smart_dca")
         self.assertEqual(ibit_dca_definition.profile, IBIT_SMART_DCA_PROFILE)
@@ -171,6 +175,10 @@ class CatalogTest(unittest.TestCase):
             "us_equity_strategies.strategies.ibit_smart_dca",
         )
         self.assertEqual(ibit_dca_definition.target_mode, "value")
+        self.assertEqual(
+            ibit_dca_definition.compatible_capabilities,
+            frozenset({"fractional_share_execution"}),
+        )
 
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)

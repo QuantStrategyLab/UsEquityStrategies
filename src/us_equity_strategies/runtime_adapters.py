@@ -91,12 +91,14 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyRuntimeAdapter(
         status_icon=nasdaq_sp500_smart_dca_strategy.STATUS_ICON,
         portfolio_input_name="portfolio_snapshot",
+        available_capabilities=frozenset({"fractional_share_execution"}),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
     IBIT_SMART_DCA_PROFILE: StrategyRuntimeAdapter(
         status_icon=ibit_smart_dca_strategy.STATUS_ICON,
         available_inputs=frozenset({"derived_indicators", "market_history", "portfolio_snapshot"}),
         portfolio_input_name="portfolio_snapshot",
+        available_capabilities=frozenset({"fractional_share_execution"}),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
 }
