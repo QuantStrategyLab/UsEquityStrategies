@@ -31,6 +31,15 @@ INCOME_LAYER_LIVE_VALIDATION_EVIDENCE: dict[str, dict[str, object]] = {
         "artifact": "UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv",
         "summary": "SOXL/SOXX income sleeve validated by archived replay and later drawdown-budget calibration.",
     },
+    RUSSELL_TOP50_LEADER_ROTATION_PROFILE: {
+        "status": "live",
+        "evidence_status": "validated",
+        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "summary": "Leader-rotation income sleeve uses the same validated drawdown-budget curve.",
+    },
+}
+
+INCOME_LAYER_RESEARCH_VALIDATION_EVIDENCE: dict[str, dict[str, object]] = {
     TECL_XLK_TREND_INCOME_PROFILE: {
         "status": "research",
         "evidence_status": "rejected_vs_live_leveraged",
@@ -41,12 +50,6 @@ INCOME_LAYER_LIVE_VALIDATION_EVIDENCE: dict[str, dict[str, object]] = {
             "TECL/XLK research sleeve archived after failing promotion gate versus live TQQQ and SOXL; "
             "not wired into runtime defaults."
         ),
-    },
-    RUSSELL_TOP50_LEADER_ROTATION_PROFILE: {
-        "status": "live",
-        "evidence_status": "validated",
-        "research_doc": "docs/research/income_layer_design.zh-CN.md",
-        "summary": "Leader-rotation income sleeve uses the same validated drawdown-budget curve.",
     },
 }
 
@@ -153,6 +156,7 @@ def income_layer_default_config(profile: str) -> dict[str, object]:
 __all__ = [
     "INCOME_LAYER_DEFAULT_CONFIGS",
     "INCOME_LAYER_LIVE_VALIDATION_EVIDENCE",
+    "INCOME_LAYER_RESEARCH_VALIDATION_EVIDENCE",
     "INCOME_LAYER_RATIO_MODE",
     "income_layer_default_config",
 ]

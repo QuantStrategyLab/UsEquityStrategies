@@ -126,11 +126,6 @@ OPTION_OVERLAY_DEFAULT_CONFIGS = {
         "option_income_overlay_start_usd": 150000.0,
         "option_income_overlay_nav_risk_ratio": 0.01,
     },
-    "tecl_xlk_trend_income": {
-        "option_overlay_enabled": False,
-        "option_growth_overlay_enabled": False,
-        "option_income_overlay_enabled": False,
-    },
     "russell_top50_leader_rotation": {
         "option_overlay_enabled": True,
         "option_growth_overlay_enabled": True,

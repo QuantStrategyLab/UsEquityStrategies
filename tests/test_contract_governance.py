@@ -124,6 +124,8 @@ class ContractGovernanceTests(unittest.TestCase):
 
     def test_every_compatible_platform_has_runtime_adapter_coverage(self) -> None:
         for profile, definition in get_strategy_definitions().items():
+            if profile not in BASE_RUNTIME_ADAPTERS:
+                continue
             for platform_id in definition.supported_platforms:
                 with self.subTest(profile=profile, platform_id=platform_id):
                     adapter = get_platform_runtime_adapter(profile, platform_id=platform_id)
@@ -144,7 +146,9 @@ class ContractGovernanceTests(unittest.TestCase):
         }
         for platform_id, adapters in PLATFORM_RUNTIME_ADAPTERS.items():
             supported_profiles = frozenset(
-                profile for profile, platforms in compatibility_map.items() if platform_id in platforms
+                profile
+                for profile, platforms in compatibility_map.items()
+                if platform_id in platforms and profile in BASE_RUNTIME_ADAPTERS
             )
             with self.subTest(platform_id=platform_id):
                 self.assertEqual(frozenset(adapters), supported_profiles)
@@ -152,7 +156,7 @@ class ContractGovernanceTests(unittest.TestCase):
     def test_base_runtime_adapter_specs_cover_all_strategy_profiles(self) -> None:
         self.assertEqual(
             frozenset(BASE_RUNTIME_ADAPTERS),
-            frozenset(get_strategy_definitions()),
+            frozenset(get_runtime_enabled_profiles()),
         )
 
     def test_feature_snapshot_profiles_declare_snapshot_contract_metadata(self) -> None:
