@@ -21,6 +21,7 @@ _更新日期：2026-06-03_
 
 | Profile | 状态 | 关键结果 | 处理原因 |
 | --- | --- | --- | --- |
+| `tecl_xlk_trend_income` | research_only | 2024+ CAGR 24.8%，最大回撤 -46.0%；未跑赢 SOXL（172% / -34%）与 TQQQ live proxy。 | 科技 3x 杠杆移植未过 promotion gate；保留策略实现、回测入口与研究产物，不进入 runtime。 |
 | `tech_communication_pullback_enhancement` | research_only | CAGR 24.31%，最大回撤 -30.84%。 | 行业限制在科技/通信，收益明显低于 `russell_top50_leader_rotation`，最大回撤也没有改善，因此移出 live 和自动发布。 |
 
 ## 已删除的旧研究

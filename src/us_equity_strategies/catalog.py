@@ -27,6 +27,7 @@ GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 TQQQ_GROWTH_INCOME_PROFILE = "tqqq_growth_income"
 SOXL_SOXX_TREND_INCOME_PROFILE = "soxl_soxx_trend_income"
+TECL_XLK_TREND_INCOME_PROFILE = "tecl_xlk_trend_income"
 RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
@@ -42,6 +43,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     TQQQ_GROWTH_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     SOXL_SOXX_TREND_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
+    TECL_XLK_TREND_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     IBIT_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
@@ -51,6 +53,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
     TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
+    TECL_XLK_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
     IBIT_SMART_DCA_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
@@ -197,6 +200,49 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": True,
     },
+    TECL_XLK_TREND_INCOME_PROFILE: {
+        "managed_symbols": ("TECL", "XLK", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
+        "trend_ma_window": 140,
+        "cash_reserve_ratio": 0.03,
+        "min_trade_ratio": 0.01,
+        "min_trade_floor": 100.0,
+        "rebalance_threshold_ratio": 0.01,
+        **income_layer_default_config(TECL_XLK_TREND_INCOME_PROFILE),
+        **option_overlay_default_config(TECL_XLK_TREND_INCOME_PROFILE),
+        "trend_entry_buffer": 0.08,
+        "trend_mid_buffer": 0.06,
+        "trend_exit_buffer": 0.02,
+        "attack_allocation_mode": "xlk_gate_tiered_blend",
+        "blend_gate_trend_source": "XLK",
+        "blend_gate_tecl_weight": 0.70,
+        "blend_gate_mid_tecl_weight": 0.65,
+        "blend_gate_active_xlk_weight": 0.20,
+        "blend_gate_defensive_xlk_weight": 0.15,
+        "blend_gate_rsi_cap_enabled": True,
+        "blend_gate_rsi_threshold": 70.0,
+        "blend_gate_dynamic_rsi_threshold_enabled": True,
+        "blend_gate_bollinger_cap_enabled": True,
+        "blend_gate_overlay_stack_triggers": True,
+        "blend_gate_volatility_delever_enabled": True,
+        "blend_gate_volatility_delever_symbol": "XLK",
+        "blend_gate_volatility_delever_window": 10,
+        "blend_gate_volatility_delever_threshold": 0.55,
+        "blend_gate_volatility_delever_threshold_mode": "rolling_percentile",
+        "blend_gate_volatility_delever_dynamic_lookback": 252,
+        "blend_gate_volatility_delever_dynamic_percentile": 0.95,
+        "blend_gate_volatility_delever_dynamic_min_periods": 126,
+        "blend_gate_volatility_delever_dynamic_floor": 0.50,
+        "blend_gate_volatility_delever_dynamic_cap": 0.75,
+        "blend_gate_volatility_delever_retention_ratio": 0.0,
+        "blend_gate_volatility_delever_retention_mode": "environment",
+        "blend_gate_volatility_delever_retention_policy": "tecl_step_rebound_0.25_0.50",
+        "blend_gate_volatility_delever_retention_context_required": True,
+        "blend_gate_volatility_delever_max_retention_ratio": 0.50,
+        "blend_gate_volatility_delever_redirect_symbol": "XLK",
+        "market_regime_control_enabled": True,
+        "market_regime_control_apply_risk_reduced": False,
+        "market_regime_control_apply_risk_off": True,
+    },
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: {
         "benchmark_symbol": "QQQ",
         "broad_benchmark_symbol": "SPY",
@@ -326,6 +372,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "global_etf_rotation_entrypoint",
     TQQQ_GROWTH_INCOME_PROFILE: "tqqq_growth_income_entrypoint",
     SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
+    TECL_XLK_TREND_INCOME_PROFILE: "tecl_xlk_trend_income_entrypoint",
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: "russell_top50_leader_rotation_entrypoint",
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
     IBIT_SMART_DCA_PROFILE: "ibit_smart_dca_entrypoint",
@@ -335,6 +382,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "weight",
     TQQQ_GROWTH_INCOME_PROFILE: "value",
     SOXL_SOXX_TREND_INCOME_PROFILE: "value",
+    TECL_XLK_TREND_INCOME_PROFILE: "value",
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: "weight",
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
     IBIT_SMART_DCA_PROFILE: "value",
@@ -388,6 +436,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         component_name="allocation",
         module_path="us_equity_strategies.strategies.soxl_soxx_trend_income",
     ),
+    TECL_XLK_TREND_INCOME_PROFILE: _build_strategy_definition(
+        TECL_XLK_TREND_INCOME_PROFILE,
+        component_name="allocation",
+        module_path="us_equity_strategies.strategies.tecl_xlk_trend_income",
+    ),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: _build_strategy_definition(
         RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
         component_name="signal_logic",
@@ -439,6 +492,21 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         benchmark="SOXX",
         role="sector_offensive_income",
         status="runtime_enabled",
+    ),
+    TECL_XLK_TREND_INCOME_PROFILE: StrategyMetadata(
+        canonical_profile=TECL_XLK_TREND_INCOME_PROFILE,
+        display_name="TECL/XLK Technology Trend Income",
+        description=(
+            "Research-only TECL / XLK technology trend switch with BOXX parking. "
+            "Failed promotion gate versus live TQQQ and SOXL proxies; retained for replay and bounded sweeps only."
+        ),
+        localized_display_names={"zh": "TECL/XLK 科技趋势收入策略（研究）"},
+        aliases=(),
+        cadence="daily",
+        asset_scope="technology_etf_plus_income",
+        benchmark="XLK",
+        role="sector_offensive_income",
+        status="research_enabled",
     ),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: StrategyMetadata(
         canonical_profile=RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
