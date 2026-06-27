@@ -156,6 +156,8 @@ def _build_platform_runtime_adapter_map(platform_id: str) -> dict[str, StrategyR
     for profile, definition in get_strategy_definitions().items():
         if normalized_platform not in definition.supported_platforms:
             continue
+        if profile not in BASE_RUNTIME_ADAPTERS:
+            continue
         adapters[profile] = _build_runtime_adapter_for_platform(
             profile,
             platform_id=normalized_platform,
