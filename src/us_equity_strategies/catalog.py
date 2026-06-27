@@ -390,6 +390,12 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {}
 
+FRACTIONAL_SHARE_EXECUTION_CAPABILITY = "fractional_share_execution"
+STRATEGY_COMPATIBLE_CAPABILITIES: dict[str, frozenset[str]] = {
+    NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({FRACTIONAL_SHARE_EXECUTION_CAPABILITY}),
+    IBIT_SMART_DCA_PROFILE: frozenset({FRACTIONAL_SHARE_EXECUTION_CAPABILITY}),
+}
+
 
 # `supported_platforms` 仍保留为兼容镜像，避免一次性改动所有平台 runtime。
 # 平台真正的启用状态由各自 runtime 仓库维护；UES 这里只表达策略层兼容性。
@@ -417,6 +423,7 @@ def _build_strategy_definition(
         default_config=STRATEGY_DEFAULT_CONFIG[profile],
         target_mode=STRATEGY_TARGET_MODES[profile],
         bundled_config_relpath=STRATEGY_BUNDLED_CONFIG_RELPATHS.get(profile),
+        compatible_capabilities=STRATEGY_COMPATIBLE_CAPABILITIES.get(profile, frozenset()),
     )
 
 
