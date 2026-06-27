@@ -24,4 +24,4 @@ where = ["src"]
 us_equity_strategies = ["configs/*.json"]
 
 [tool.ruff]
-target-version = "0.7.56"
+target-version = "py311"
