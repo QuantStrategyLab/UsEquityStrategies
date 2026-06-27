@@ -30,11 +30,51 @@ def resolve_raw_cash_from_snapshot(snapshot: Any) -> float:
     return 0.0
 
 
+def sum_market_values(market_values: Mapping[str, float]) -> float:
+    return sum(float(value or 0.0) for value in market_values.values())
+
+
 def compute_strategy_total_equity(
     market_values: Mapping[str, float],
     raw_cash: float,
 ) -> float:
-    return float(raw_cash) + sum(float(value or 0.0) for value in market_values.values())
+    return float(raw_cash) + sum_market_values(market_values)
+
+
+def resolve_strategy_equity_for_targets(
+    *,
+    market_values: Mapping[str, float],
+    raw_cash: float,
+    cash_only_execution: bool,
+) -> tuple[float, bool]:
+    """Return (equity_for_target_translation, cash_only_deleverage_mode)."""
+    total_equity = compute_strategy_total_equity(market_values, raw_cash)
+    if cash_only_execution and total_equity <= 0.0:
+        gross_positions = sum_market_values(market_values)
+        if gross_positions > 0.0:
+            return gross_positions, True
+    return total_equity, False
+
+
+def resolve_weight_translation_equity(
+    portfolio_inputs: Any,
+    *,
+    cash_only_execution: bool,
+) -> tuple[float, bool, bool]:
+    """Return (equity_for_translation, block_execution, deleverage_mode)."""
+    total_equity = float(getattr(portfolio_inputs, "total_equity", 0.0) or 0.0)
+    market_values = dict(getattr(portfolio_inputs, "market_values", None) or {})
+    raw_cash = float(getattr(portfolio_inputs, "liquid_cash", 0.0) or 0.0)
+    if total_equity <= 0.0:
+        effective_equity, deleverage_mode = resolve_strategy_equity_for_targets(
+            market_values=market_values,
+            raw_cash=raw_cash,
+            cash_only_execution=cash_only_execution,
+        )
+        if deleverage_mode:
+            return effective_equity, False, True
+        return total_equity, True, False
+    return total_equity, False, False
 
 
 def apply_cash_only_account_state(account_state: Mapping[str, Any], *, raw_cash: float) -> dict[str, Any]:
