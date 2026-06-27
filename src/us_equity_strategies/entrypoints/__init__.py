@@ -23,6 +23,7 @@ from us_equity_strategies.manifests import (
     russell_top50_leader_rotation_manifest,
     nasdaq_sp500_smart_dca_manifest,
     soxl_soxx_trend_income_manifest,
+    tecl_xlk_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
 from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
@@ -33,6 +34,7 @@ from us_equity_strategies.strategies import (
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
     tqqq_growth_income as tqqq_growth_income_strategy,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
+    tecl_xlk_trend_income as tecl_xlk_trend_income_strategy,
 )
 
 from ._common import (
@@ -594,7 +596,7 @@ tqqq_growth_income_strategy.build_rebalance_plan.__doc__ = (
 )
 
 
-def _build_semiconductor_account_state_from_portfolio(portfolio, *, strategy_symbols: tuple[str, ...]) -> dict[str, object]:
+def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symbols: tuple[str, ...]) -> dict[str, object]:
     market_values = {symbol: 0.0 for symbol in strategy_symbols}
     quantities = {symbol: 0.0 for symbol in strategy_symbols}
     sellable_quantities = {symbol: 0.0 for symbol in strategy_symbols}
@@ -635,7 +637,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     translator = config.pop("translator", default_translator)
     plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "derived_indicators"),
-        _build_semiconductor_account_state_from_portfolio(
+        _build_tiered_blend_account_state_from_portfolio(
             portfolio,
             strategy_symbols=strategy_symbols,
         ),
@@ -865,8 +867,256 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     )
 
 
+def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
+    config = merge_runtime_config(tecl_xlk_trend_income_manifest.default_config, ctx)
+    option_overlay_config = pop_option_overlay_config(config)
+    strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
+    config.pop("signal_text_fn", None)
+    config.pop("signal_effective_after_trading_days", None)
+    reserved_cash_policy = pop_reserved_cash_policy_config(config)
+    pop_execution_only_config(config)
+    apply_reserved_cash_policy_to_ratio_config(config, reserved_cash_policy)
+    portfolio = require_portfolio(ctx)
+    translator = config.pop("translator", default_translator)
+    plan = tecl_xlk_trend_income_strategy.build_rebalance_plan(
+        require_market_data(ctx, "derived_indicators"),
+        _build_tiered_blend_account_state_from_portfolio(
+            portfolio,
+            strategy_symbols=strategy_symbols,
+        ),
+        translator=translator,
+        **config,
+    )
+    account_size_diagnostics = _account_size_diagnostics(tecl_xlk_trend_income_manifest.profile, ctx)
+    notification_context = dict(plan.get("notification_context") or {})
+    rendered_market_status = _render_translation_context(
+        notification_context.get("status"),
+        translator=translator,
+        fallback=str(plan["market_status"]),
+    )
+    raw_signal_message = _render_translation_context(
+        notification_context.get("signal"),
+        translator=translator,
+        fallback=str(plan["signal_message"]),
+    )
+    signal_message = append_account_size_warning(
+        raw_signal_message,
+        account_size_diagnostics,
+        translator=translator,
+    )
+    dashboard_text = _build_dashboard_text(
+        ctx,
+        strategy_symbols=strategy_symbols,
+        translator=translator,
+        signal_text=signal_message,
+        portfolio_context=notification_context.get("portfolio"),
+    )
+    option_overlay_diagnostics = build_option_overlay_diagnostics(
+        option_overlay_config,
+        ctx,
+        base_diagnostics={
+            "blend_tier": plan.get("blend_tier"),
+            "active_risk_asset": plan["active_risk_asset"],
+            "notification_context": notification_context,
+        },
+    )
+    diagnostics = {
+        "market_status": rendered_market_status,
+        "signal_message": signal_message,
+        "dashboard": dashboard_text,
+        "deploy_ratio_text": plan["deploy_ratio_text"],
+        "income_ratio_text": plan["income_ratio_text"],
+        "income_locked_ratio_text": plan["income_locked_ratio_text"],
+        "active_risk_asset": plan["active_risk_asset"],
+        "investable_cash": plan["investable_cash"],
+        "threshold_value": plan["threshold_value"],
+        "current_min_trade": plan["current_min_trade"],
+        "total_strategy_equity": plan["total_strategy_equity"],
+        **option_overlay_diagnostics,
+        "allocation_mode": plan.get("allocation_mode"),
+        "trend_entry_buffer": plan.get("trend_entry_buffer"),
+        "trend_mid_buffer": plan.get("trend_mid_buffer"),
+        "trend_exit_buffer": plan.get("trend_exit_buffer"),
+        "blend_tier": plan.get("blend_tier"),
+        "base_blend_tier": plan.get("base_blend_tier"),
+        "overlay_trigger_count": plan.get("overlay_trigger_count"),
+        "overlay_trigger_reasons": plan.get("overlay_trigger_reasons"),
+        "soxl_entry_line": plan.get("soxl_entry_line"),
+        "soxl_exit_line": plan.get("soxl_exit_line"),
+        "trend_entry_line": plan.get("trend_entry_line"),
+        "trend_mid_line": plan.get("trend_mid_line"),
+        "trend_exit_line": plan.get("trend_exit_line"),
+        "trend_symbol": plan.get("trend_symbol"),
+        "trend_price": plan.get("trend_price"),
+        "trend_ma": plan.get("trend_ma"),
+        "trend_ma20": plan.get("trend_ma20"),
+        "trend_ma20_slope": plan.get("trend_ma20_slope"),
+        "trend_rsi14": plan.get("trend_rsi14"),
+        "trend_rsi14_dynamic_threshold": plan.get("trend_rsi14_dynamic_threshold"),
+        "trend_rsi14_effective_threshold": plan.get("trend_rsi14_effective_threshold"),
+        "trend_bb_upper": plan.get("trend_bb_upper"),
+        "blend_gate_volatility_delever_enabled": plan.get("blend_gate_volatility_delever_enabled"),
+        "blend_gate_volatility_delever_symbol": plan.get("blend_gate_volatility_delever_symbol"),
+        "blend_gate_volatility_delever_window": plan.get("blend_gate_volatility_delever_window"),
+        "blend_gate_volatility_delever_threshold": plan.get("blend_gate_volatility_delever_threshold"),
+        "blend_gate_volatility_delever_threshold_mode": plan.get("blend_gate_volatility_delever_threshold_mode"),
+        "blend_gate_volatility_delever_dynamic_threshold": plan.get(
+            "blend_gate_volatility_delever_dynamic_threshold"
+        ),
+        "blend_gate_volatility_delever_dynamic_sample_count": plan.get(
+            "blend_gate_volatility_delever_dynamic_sample_count"
+        ),
+        "blend_gate_volatility_delever_dynamic_lookback": plan.get(
+            "blend_gate_volatility_delever_dynamic_lookback"
+        ),
+        "blend_gate_volatility_delever_dynamic_percentile": plan.get(
+            "blend_gate_volatility_delever_dynamic_percentile"
+        ),
+        "blend_gate_volatility_delever_dynamic_min_periods": plan.get(
+            "blend_gate_volatility_delever_dynamic_min_periods"
+        ),
+        "blend_gate_volatility_delever_dynamic_floor": plan.get("blend_gate_volatility_delever_dynamic_floor"),
+        "blend_gate_volatility_delever_dynamic_cap": plan.get("blend_gate_volatility_delever_dynamic_cap"),
+        "blend_gate_volatility_delever_metric": plan.get("blend_gate_volatility_delever_metric"),
+        "blend_gate_volatility_delever_triggered": plan.get("blend_gate_volatility_delever_triggered"),
+        "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
+        "blend_gate_volatility_delever_retention_mode": plan.get(
+            "blend_gate_volatility_delever_retention_mode"
+        ),
+        "blend_gate_volatility_delever_retention_policy": plan.get(
+            "blend_gate_volatility_delever_retention_policy"
+        ),
+        "blend_gate_volatility_delever_effective_retention_ratio": plan.get(
+            "blend_gate_volatility_delever_effective_retention_ratio"
+        ),
+        "blend_gate_volatility_delever_retention_source": plan.get(
+            "blend_gate_volatility_delever_retention_source"
+        ),
+        "blend_gate_volatility_delever_retention_context_found": plan.get(
+            "blend_gate_volatility_delever_retention_context_found"
+        ),
+        "blend_gate_volatility_delever_retention_reason_codes": plan.get(
+            "blend_gate_volatility_delever_retention_reason_codes"
+        ),
+        "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
+        "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
+        "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
+        "market_regime_control_found": plan.get("market_regime_control_found"),
+        "market_regime_control_source": plan.get("market_regime_control_source"),
+        "market_regime_control_schema_version": plan.get("market_regime_control_schema_version"),
+        "market_regime_control_route": plan.get("market_regime_control_route"),
+        "market_regime_control_route_source": plan.get("market_regime_control_route_source"),
+        "market_regime_control_active": plan.get("market_regime_control_active"),
+        "market_regime_control_route_allowed": plan.get("market_regime_control_route_allowed"),
+        "market_regime_control_applied": plan.get("market_regime_control_applied"),
+        "market_regime_control_risk_budget_scalar": plan.get("market_regime_control_risk_budget_scalar"),
+        "market_regime_control_leverage_scalar": plan.get("market_regime_control_leverage_scalar"),
+        "market_regime_control_risk_asset_scalar": plan.get("market_regime_control_risk_asset_scalar"),
+        "market_regime_control_crisis_defense_required": plan.get("market_regime_control_crisis_defense_required"),
+        "market_regime_control_reason_codes": plan.get("market_regime_control_reason_codes"),
+        "market_regime_control_removed_ratio": plan.get("market_regime_control_removed_ratio"),
+        "market_regime_control_redirected_to_unlevered_ratio": plan.get(
+            "market_regime_control_redirected_to_unlevered_ratio"
+        ),
+        **account_size_diagnostics,
+        "execution_annotations": {
+            "trade_threshold_value": plan["threshold_value"],
+            "signal_display": signal_message,
+            "status_display": rendered_market_status,
+            "dashboard_text": dashboard_text,
+            "raw_buying_power": plan["available_cash"],
+            "reserved_cash": plan["reserved_cash"],
+            "deploy_ratio_text": plan["deploy_ratio_text"],
+            "income_ratio_text": plan["income_ratio_text"],
+            "income_locked_ratio_text": plan["income_locked_ratio_text"],
+            "active_risk_asset": plan["active_risk_asset"],
+            "investable_cash": plan["investable_cash"],
+            "current_min_trade": plan["current_min_trade"],
+            "allocation_mode": plan.get("allocation_mode"),
+            "trend_entry_buffer": plan.get("trend_entry_buffer"),
+            "trend_mid_buffer": plan.get("trend_mid_buffer"),
+            "trend_exit_buffer": plan.get("trend_exit_buffer"),
+            "blend_tier": plan.get("blend_tier"),
+            "base_blend_tier": plan.get("base_blend_tier"),
+            "overlay_trigger_count": plan.get("overlay_trigger_count"),
+            "overlay_trigger_reasons": plan.get("overlay_trigger_reasons"),
+            "soxl_entry_line": plan.get("soxl_entry_line"),
+            "soxl_exit_line": plan.get("soxl_exit_line"),
+            "trend_entry_line": plan.get("trend_entry_line"),
+            "trend_mid_line": plan.get("trend_mid_line"),
+            "trend_exit_line": plan.get("trend_exit_line"),
+            "trend_symbol": plan.get("trend_symbol"),
+            "trend_price": plan.get("trend_price"),
+            "trend_ma": plan.get("trend_ma"),
+            "trend_ma20": plan.get("trend_ma20"),
+            "trend_ma20_slope": plan.get("trend_ma20_slope"),
+            "trend_rsi14": plan.get("trend_rsi14"),
+            "trend_rsi14_dynamic_threshold": plan.get("trend_rsi14_dynamic_threshold"),
+            "trend_rsi14_effective_threshold": plan.get("trend_rsi14_effective_threshold"),
+            "trend_bb_upper": plan.get("trend_bb_upper"),
+            "blend_gate_volatility_delever_enabled": plan.get("blend_gate_volatility_delever_enabled"),
+            "blend_gate_volatility_delever_symbol": plan.get("blend_gate_volatility_delever_symbol"),
+            "blend_gate_volatility_delever_window": plan.get("blend_gate_volatility_delever_window"),
+            "blend_gate_volatility_delever_threshold": plan.get("blend_gate_volatility_delever_threshold"),
+            "blend_gate_volatility_delever_threshold_mode": plan.get("blend_gate_volatility_delever_threshold_mode"),
+            "blend_gate_volatility_delever_dynamic_threshold": plan.get(
+                "blend_gate_volatility_delever_dynamic_threshold"
+            ),
+            "blend_gate_volatility_delever_dynamic_sample_count": plan.get(
+                "blend_gate_volatility_delever_dynamic_sample_count"
+            ),
+            "blend_gate_volatility_delever_dynamic_lookback": plan.get(
+                "blend_gate_volatility_delever_dynamic_lookback"
+            ),
+            "blend_gate_volatility_delever_dynamic_percentile": plan.get(
+                "blend_gate_volatility_delever_dynamic_percentile"
+            ),
+            "blend_gate_volatility_delever_dynamic_min_periods": plan.get(
+                "blend_gate_volatility_delever_dynamic_min_periods"
+            ),
+            "blend_gate_volatility_delever_dynamic_floor": plan.get("blend_gate_volatility_delever_dynamic_floor"),
+            "blend_gate_volatility_delever_dynamic_cap": plan.get("blend_gate_volatility_delever_dynamic_cap"),
+            "blend_gate_volatility_delever_metric": plan.get("blend_gate_volatility_delever_metric"),
+            "blend_gate_volatility_delever_triggered": plan.get("blend_gate_volatility_delever_triggered"),
+            "blend_gate_volatility_delever_retention_ratio": plan.get("blend_gate_volatility_delever_retention_ratio"),
+            "blend_gate_volatility_delever_retention_mode": plan.get(
+                "blend_gate_volatility_delever_retention_mode"
+            ),
+            "blend_gate_volatility_delever_retention_policy": plan.get(
+                "blend_gate_volatility_delever_retention_policy"
+            ),
+            "blend_gate_volatility_delever_effective_retention_ratio": plan.get(
+                "blend_gate_volatility_delever_effective_retention_ratio"
+            ),
+            "blend_gate_volatility_delever_retention_source": plan.get(
+                "blend_gate_volatility_delever_retention_source"
+            ),
+            "blend_gate_volatility_delever_retention_context_found": plan.get(
+                "blend_gate_volatility_delever_retention_context_found"
+            ),
+            "blend_gate_volatility_delever_retention_reason_codes": plan.get(
+                "blend_gate_volatility_delever_retention_reason_codes"
+            ),
+            "blend_gate_volatility_delever_redirect_symbol": plan.get("blend_gate_volatility_delever_redirect_symbol"),
+            "blend_gate_volatility_delever_removed_ratio": plan.get("blend_gate_volatility_delever_removed_ratio"),
+            "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
+        },
+    }
+    _attach_notification_context(diagnostics, notification_context)
+    _attach_execution_timing(diagnostics, ctx)
+    return StrategyDecision(
+        positions=target_values_to_positions(plan["targets"]),
+        diagnostics=diagnostics,
+    )
+
 soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
     ((soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ or "").strip() +
+     "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
+    .strip()
+)
+
+tecl_xlk_trend_income_strategy.build_rebalance_plan.__doc__ = (
+    ((tecl_xlk_trend_income_strategy.build_rebalance_plan.__doc__ or "").strip() +
      "\n\nLegacy adapter: prefer us_equity_strategies entrypoints for new integrations.")
     .strip()
 )
@@ -1250,6 +1500,10 @@ soxl_soxx_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=soxl_soxx_trend_income_manifest,
     _evaluate=evaluate_soxl_soxx_trend_income,
 )
+tecl_xlk_trend_income_entrypoint = CallableStrategyEntrypoint(
+    manifest=tecl_xlk_trend_income_manifest,
+    _evaluate=evaluate_tecl_xlk_trend_income,
+)
 russell_top50_leader_rotation_entrypoint = CallableStrategyEntrypoint(
     manifest=russell_top50_leader_rotation_manifest,
     _evaluate=evaluate_russell_top50_leader_rotation,
@@ -1268,12 +1522,14 @@ __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
+    "tecl_xlk_trend_income_entrypoint",
     "russell_top50_leader_rotation_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
     "ibit_smart_dca_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
+    "evaluate_tecl_xlk_trend_income",
     "evaluate_russell_top50_leader_rotation",
     "evaluate_nasdaq_sp500_smart_dca",
     "evaluate_ibit_smart_dca",
