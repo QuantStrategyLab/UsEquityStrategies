@@ -35,6 +35,7 @@ INCOME_LAYER_LIVE_VALIDATION_EVIDENCE: dict[str, dict[str, object]] = {
         "status": "research",
         "evidence_status": "rejected_vs_live_leveraged",
         "research_doc": "UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md",
+        "research_doc_zh": "UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md",
         "artifact": "UsEquitySnapshotPipelines/data/output/tecl_xlk_trend_income_research_20260628/",
         "summary": (
             "TECL/XLK research sleeve archived after failing promotion gate versus live TQQQ and SOXL; "
