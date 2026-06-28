@@ -359,7 +359,7 @@ def _portfolio_cash(portfolio: Any) -> float:
 
 def _as_timestamp(value: object) -> pd.Timestamp:
     if value is None:
-        return pd.Timestamp.utcnow().tz_localize(None).normalize()
+        return pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
     timestamp = pd.Timestamp(value)
     if timestamp.tzinfo is not None:
         timestamp = timestamp.tz_convert("America/New_York").tz_localize(None)

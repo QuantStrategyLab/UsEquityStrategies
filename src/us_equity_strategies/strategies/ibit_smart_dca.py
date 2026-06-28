@@ -484,7 +484,7 @@ def _indicator_from_payload(symbol: str, payload: Mapping[str, object]) -> Symbo
 
 
 def _bitcoin_age_estimate_price(as_of: object) -> float:
-    timestamp = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.utcnow()
+    timestamp = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
     if timestamp.tzinfo is not None:
         timestamp = timestamp.tz_convert("UTC").tz_localize(None)
     age_days = max(1, int((timestamp.normalize() - BITCOIN_GENESIS_DATE).days))

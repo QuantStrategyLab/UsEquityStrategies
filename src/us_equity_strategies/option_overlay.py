@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from quant_platform_kit.strategy_contracts import StrategyContext
 
@@ -220,7 +220,7 @@ def _parse_date(value: object) -> date | None:
 
 def _as_of_date(ctx: StrategyContext) -> date:
     parsed = _parse_date(ctx.as_of)
-    return parsed or datetime.utcnow().date()
+    return parsed or datetime.now(timezone.utc).date()
 
 
 def _normalize_right(value: object) -> str:
