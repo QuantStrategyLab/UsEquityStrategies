@@ -17,6 +17,10 @@ from us_equity_strategies.ai_extensions import (
     AI_EXTENSION_SIGNAL_STATE_KEY,
     build_ai_extension_diagnostics,
 )
+from us_equity_strategies.combo_manifests import (
+    us_equity_combo_leveraged_manifest,
+    us_equity_combo_manifest,
+)
 from us_equity_strategies.manifests import (
     global_etf_rotation_manifest,
     ibit_smart_dca_manifest,
@@ -35,6 +39,8 @@ from us_equity_strategies.strategies import (
     tqqq_growth_income as tqqq_growth_income_strategy,
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
     tecl_xlk_trend_income as tecl_xlk_trend_income_strategy,
+    us_equity_combo as us_equity_combo_strategy,
+    us_equity_combo_leveraged as us_equity_combo_leveraged_strategy,
 )
 
 from ._common import (
@@ -1518,6 +1524,33 @@ ibit_smart_dca_entrypoint = CallableStrategyEntrypoint(
 )
 
 
+# ---------------------------------------------------------------------------
+# US Equity Combo entrypoints — 50/50 Russell Top50 + IBIT DCA
+# ---------------------------------------------------------------------------
+
+
+def evaluate_us_equity_combo(ctx: StrategyContext) -> StrategyDecision:
+    from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo as _eval
+    return _eval(ctx)
+
+
+us_equity_combo_entrypoint = CallableStrategyEntrypoint(
+    manifest=us_equity_combo_manifest,
+    _evaluate=evaluate_us_equity_combo,
+)
+
+
+def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision:
+    from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged as _eval
+    return _eval(ctx)
+
+
+us_equity_combo_leveraged_entrypoint = CallableStrategyEntrypoint(
+    manifest=us_equity_combo_leveraged_manifest,
+    _evaluate=evaluate_us_equity_combo_leveraged,
+)
+
+
 __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
@@ -1526,6 +1559,8 @@ __all__ = [
     "russell_top50_leader_rotation_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
     "ibit_smart_dca_entrypoint",
+    "us_equity_combo_entrypoint",
+    "us_equity_combo_leveraged_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
@@ -1533,4 +1568,6 @@ __all__ = [
     "evaluate_russell_top50_leader_rotation",
     "evaluate_nasdaq_sp500_smart_dca",
     "evaluate_ibit_smart_dca",
+    "evaluate_us_equity_combo",
+    "evaluate_us_equity_combo_leveraged",
 ]
