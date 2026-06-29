@@ -31,6 +31,11 @@ TECL_XLK_TREND_INCOME_PROFILE = "tecl_xlk_trend_income"
 RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
+US_EQUITY_COMBO_PROFILE = "us_equity_combo"
+US_EQUITY_COMBO_LEVERAGED_PROFILE = "us_equity_combo_leveraged"
+COMBO_SHARED_PLATFORM_MATRIX = frozenset(
+    {"schwab", "ibkr", "longbridge", "firstrade", "manual", "qmt"}
+)
 SMART_DCA_RUNTIME_DEFAULT_CONTRACT_SCHEMA_VERSION = (
     "smart_dca_runtime_default_contract.v1"
 )
@@ -47,6 +52,8 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     IBIT_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
+    US_EQUITY_COMBO_PROFILE: COMBO_SHARED_PLATFORM_MATRIX,
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: COMBO_SHARED_PLATFORM_MATRIX,
 }
 
 STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
@@ -57,6 +64,8 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
     IBIT_SMART_DCA_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
+    US_EQUITY_COMBO_PROFILE: frozenset({"russell_snapshot", "current_holdings"}),
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: frozenset({"market_data"}),
 }
 SMART_DCA_RUNTIME_DEFAULT_CONTRACT_PROFILES = (
     NASDAQ_SP500_SMART_DCA_PROFILE,
@@ -368,6 +377,21 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "execution_cash_reserve_ratio": 0.0,
         "execution_rebalance_threshold_ratio": 0.0,
     },
+    US_EQUITY_COMBO_PROFILE: {
+        "russell_weight": 0.50,
+        "dca_weight": 0.50,
+        "execution_cash_reserve_ratio": 0.02,
+        "rebalance_frequency": "monthly",
+        **income_layer_default_config(IBIT_SMART_DCA_PROFILE),
+        **option_overlay_default_config(IBIT_SMART_DCA_PROFILE),
+    },
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: {
+        "dynamic": True,
+        "execution_cash_reserve_ratio": 0.02,
+        "rebalance_frequency": "monthly",
+        **income_layer_default_config(IBIT_SMART_DCA_PROFILE),
+        **option_overlay_default_config(IBIT_SMART_DCA_PROFILE),
+    },
 }
 
 STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
@@ -378,6 +402,8 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: "russell_top50_leader_rotation_entrypoint",
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
     IBIT_SMART_DCA_PROFILE: "ibit_smart_dca_entrypoint",
+    US_EQUITY_COMBO_PROFILE: "us_equity_combo_entrypoint",
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: "us_equity_combo_leveraged_entrypoint",
 }
 
 STRATEGY_TARGET_MODES: dict[str, str] = {
@@ -388,6 +414,8 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: "weight",
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
     IBIT_SMART_DCA_PROFILE: "value",
+    US_EQUITY_COMBO_PROFILE: "weight",
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: "weight",
 }
 
 STRATEGY_BUNDLED_CONFIG_RELPATHS: dict[str, str] = {}
@@ -464,6 +492,16 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         IBIT_SMART_DCA_PROFILE,
         component_name="allocation",
         module_path="us_equity_strategies.strategies.ibit_smart_dca",
+    ),
+    US_EQUITY_COMBO_PROFILE: _build_strategy_definition(
+        US_EQUITY_COMBO_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.us_equity_combo",
+    ),
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: _build_strategy_definition(
+        US_EQUITY_COMBO_LEVERAGED_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.us_equity_combo_leveraged",
     ),
 }
 
@@ -554,6 +592,34 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="spot_bitcoin_etf_main_dca",
         benchmark="BTC",
         role="buy_only_bitcoin_etf_smart_dca",
+        status="runtime_enabled",
+    ),
+    US_EQUITY_COMBO_PROFILE: StrategyMetadata(
+        canonical_profile=US_EQUITY_COMBO_PROFILE,
+        display_name="US Equity Combo",
+        description=(
+            "Combined US equity strategy: Russell Top50 leader rotation (50%) "
+            "+ IBIT Smart DCA (50%) with dynamic regime-based weight adjustment."
+        ),
+        aliases=(),
+        cadence="monthly review",
+        asset_scope="us_equity_combo",
+        benchmark="SPY",
+        role="us_equity_combo",
+        status="runtime_enabled",
+    ),
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: StrategyMetadata(
+        canonical_profile=US_EQUITY_COMBO_LEVERAGED_PROFILE,
+        display_name="US Equity Combo Leveraged",
+        description=(
+            "Leveraged US combo: TQQQ (40%) + SOXL (20%) + BOXX (40%) with "
+            "SPY MA200 dynamic risk-off cut."
+        ),
+        aliases=(),
+        cadence="daily review",
+        asset_scope="us_equity_combo_leveraged",
+        benchmark="SPY",
+        role="us_equity_combo_leveraged",
         status="runtime_enabled",
     ),
 }
