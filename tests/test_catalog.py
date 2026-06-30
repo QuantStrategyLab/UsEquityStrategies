@@ -16,6 +16,8 @@ from us_equity_strategies.catalog import (
     NASDAQ_SP500_SMART_DCA_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
+    US_EQUITY_COMBO_PROFILE,
+    US_EQUITY_COMBO_LEVERAGED_PROFILE,
     audit_smart_dca_runtime_default_contract,
     get_compatible_platforms,
     get_profile_aliases,
