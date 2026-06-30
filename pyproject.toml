@@ -24,7 +24,6 @@ where = ["src"]
 us_equity_strategies = ["configs/*.json"]
 
 [tool.ruff]
-extend = "https://raw.githubusercontent.com/QuantStrategyLab/QuantPlatformKit/main/ruff-shared.toml"
 target-version = "py311"
 ignore = ["E701", "E702", "E741", "F841", "F821", "B008", "F401", "F601", "E402"]
 
