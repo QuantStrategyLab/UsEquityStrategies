@@ -382,15 +382,11 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "dca_weight": 0.50,
         "execution_cash_reserve_ratio": 0.02,
         "rebalance_frequency": "monthly",
-        **income_layer_default_config(IBIT_SMART_DCA_PROFILE),
-        **option_overlay_default_config(IBIT_SMART_DCA_PROFILE),
     },
     US_EQUITY_COMBO_LEVERAGED_PROFILE: {
         "dynamic": True,
         "execution_cash_reserve_ratio": 0.02,
         "rebalance_frequency": "monthly",
-        **income_layer_default_config(IBIT_SMART_DCA_PROFILE),
-        **option_overlay_default_config(IBIT_SMART_DCA_PROFILE),
     },
 }
 
