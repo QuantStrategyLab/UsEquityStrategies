@@ -760,5 +760,10 @@ def get_strategy_metadata(profile: str) -> StrategyMetadata:
     return get_catalog_strategy_metadata(STRATEGY_CATALOG, profile)
 
 
+# Backward-compat alias for QuantUsComboStrategies migration
+def get_qmt_rollout_allowlist() -> frozenset[str]:
+    return get_runtime_enabled_profiles()
+
+
 def get_profile_aliases() -> dict[str, str]:
     return dict(PROFILE_ALIASES)
