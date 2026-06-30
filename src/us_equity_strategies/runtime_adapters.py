@@ -101,6 +101,16 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         available_capabilities=frozenset({"fractional_share_execution"}),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
+    US_EQUITY_COMBO_PROFILE: StrategyRuntimeAdapter(
+        status_icon="\U0001f1fa\U0001f1f8",
+        available_inputs=frozenset({"russell_snapshot", "current_holdings"}),
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
+    ),
+    US_EQUITY_COMBO_LEVERAGED_PROFILE: StrategyRuntimeAdapter(
+        status_icon="\U0001f1fa\U0001f1f8",
+        available_inputs=frozenset({"market_data"}),
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
+    ),
 }
 
 

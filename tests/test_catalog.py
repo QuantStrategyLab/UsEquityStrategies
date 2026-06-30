@@ -228,7 +228,7 @@ class CatalogTest(unittest.TestCase):
         )
         self.assertEqual(
             metadata_map[NASDAQ_SP500_SMART_DCA_PROFILE].localized_display_names["zh"],
-            "纳指100 / 标普500 智能定投",
+            "纳指标普定投",
         )
         self.assertEqual(
             compatibility[NASDAQ_SP500_SMART_DCA_PROFILE],
@@ -496,6 +496,8 @@ class CatalogTest(unittest.TestCase):
                     RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
                     NASDAQ_SP500_SMART_DCA_PROFILE,
                     IBIT_SMART_DCA_PROFILE,
+                    US_EQUITY_COMBO_PROFILE,
+                    US_EQUITY_COMBO_LEVERAGED_PROFILE,
                 }
             ),
         )
