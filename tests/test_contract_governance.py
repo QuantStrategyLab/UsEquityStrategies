@@ -6,6 +6,8 @@ from pathlib import Path
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     STRATEGY_CATALOG,
+    US_EQUITY_COMBO_PROFILE,
+    US_EQUITY_COMBO_LEVERAGED_PROFILE,
     get_runtime_enabled_profiles,
 )
 from us_equity_strategies.runtime_adapters import (
@@ -31,6 +33,10 @@ CANONICAL_REQUIRED_INPUTS = frozenset(
         "portfolio_snapshot",
         "derived_indicators",
         "feature_snapshot",
+        # Combo strategy inputs (merged from QuantUsComboStrategies)
+        "russell_snapshot",
+        "current_holdings",
+        "market_data",
     }
 )
 GOVERNED_REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -208,7 +214,9 @@ class ContractGovernanceTests(unittest.TestCase):
                 self.assertEqual(STRATEGY_CATALOG.metadata[profile].aliases, ())
 
     def test_live_us_equity_profiles_now_cover_the_full_four_platform_matrix(self) -> None:
-        for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES:
+        # Combo profiles use a different platform matrix (includes manual/qmt)
+        _COMBO_PROFILES = {US_EQUITY_COMBO_PROFILE, US_EQUITY_COMBO_LEVERAGED_PROFILE}
+        for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES - _COMBO_PROFILES:
             definition = STRATEGY_CATALOG.definitions[profile]
             with self.subTest(profile=profile):
                 self.assertEqual(definition.supported_platforms, FULL_MATRIX_PLATFORMS)
