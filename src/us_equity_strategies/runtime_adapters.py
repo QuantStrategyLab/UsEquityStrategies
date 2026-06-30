@@ -14,6 +14,8 @@ from us_equity_strategies.catalog import (
     IBIT_SMART_DCA_PROFILE,
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
+    US_EQUITY_COMBO_PROFILE,
+    US_EQUITY_COMBO_LEVERAGED_PROFILE,
     get_strategy_definition,
     get_strategy_definitions,
     resolve_canonical_profile,
