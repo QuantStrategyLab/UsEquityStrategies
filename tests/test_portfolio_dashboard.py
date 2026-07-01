@@ -207,6 +207,27 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("可投资现金: $5,000.00", dashboard)
         self.assertIn("BOXX: $12,000.00 / 120股", dashboard)
 
+    def test_dashboard_relabels_cash_fields_when_margin_is_enabled(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
+            total_equity=50000.0,
+            buying_power=75000.0,
+            cash_balance=20000.0,
+            positions=(Position(symbol="TQQQ", quantity=10, market_value=8000.0),),
+            metadata={"cash_only_execution": False},
+        )
+
+        dashboard = build_portfolio_dashboard(
+            snapshot,
+            strategy_symbols=("TQQQ",),
+            translator=_zh_translator,
+        )
+
+        self.assertIn("总资产（策略净值）: $50,000.00", dashboard)
+        self.assertIn("购买力: $75,000.00", dashboard)
+        self.assertNotIn("不含融资额度", dashboard)
+        self.assertNotIn("可用现金: $20,000.00", dashboard)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -124,6 +124,39 @@ def _portfolio_context_buying_power(portfolio_context: Mapping[str, Any]) -> flo
     return None
 
 
+def _dashboard_buying_power(
+    snapshot: Any,
+    context: Mapping[str, Any],
+    *,
+    cash_only_execution: bool,
+) -> float:
+    context_value = _portfolio_context_buying_power(context)
+    if context_value is not None:
+        return context_value
+
+    metadata = _metadata_mapping(snapshot)
+    if not cash_only_execution:
+        for value in (
+            getattr(snapshot, "buying_power", None),
+            metadata.get("buying_power"),
+            metadata.get("cash_available_for_trading"),
+            metadata.get("market_currency_cash"),
+            getattr(snapshot, "cash_balance", None),
+        ):
+            parsed = _as_optional_float(value)
+            if parsed is not None:
+                return parsed
+
+    for value in (
+        metadata.get("market_currency_cash"),
+        getattr(snapshot, "cash_balance", None),
+    ):
+        parsed = _as_optional_float(value)
+        if parsed is not None:
+            return parsed
+    return _snapshot_buying_power(snapshot)
+
+
 def _portfolio_context_positions(
     portfolio_context: Mapping[str, Any],
 ) -> tuple[tuple[str, ...], dict[str, float], dict[str, object]]:
@@ -167,12 +200,35 @@ def _position_maps(snapshot: Any) -> tuple[dict[str, float], dict[str, object]]:
     return market_values, quantities
 
 
-def _labels(translator: Translator | None) -> dict[str, str]:
+def _optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
+def _dashboard_cash_only_execution(snapshot: Any, context: Mapping[str, Any]) -> bool:
+    for source in (context, _metadata_mapping(snapshot)):
+        if not isinstance(source, Mapping):
+            continue
+        value = _optional_bool(source.get("cash_only_execution"))
+        if value is not None:
+            return value
+    return True
+
+
+def _labels(translator: Translator | None, *, cash_only_execution: bool) -> dict[str, str]:
     if _translator_uses_zh(translator):
         return {
             "title": "📌 策略账户概览",
-            "total_assets": "总资产（策略标的+现金，不含融资额度）",
-            "buying_power": "可用现金",
+            "total_assets": "总资产（策略标的+现金，不含融资额度）" if cash_only_execution else "总资产（策略净值）",
+            "buying_power": "可用现金" if cash_only_execution else "购买力",
             "reserved_cash": "预留现金",
             "investable_cash": "可投资现金",
             "cash_by_currency": "各币种现金",
@@ -185,8 +241,12 @@ def _labels(translator: Translator | None) -> dict[str, str]:
         }
     return {
         "title": "📌 Strategy portfolio",
-        "total_assets": "Total assets (strategy symbols + cash, ex-margin)",
-        "buying_power": "Available cash",
+        "total_assets": (
+            "Total assets (strategy symbols + cash, ex-margin)"
+            if cash_only_execution
+            else "Total assets (strategy net liquidation)"
+        ),
+        "buying_power": "Available cash" if cash_only_execution else "Buying power",
         "reserved_cash": "Reserved cash",
         "investable_cash": "Investable cash",
         "cash_by_currency": "Cash by currency",
@@ -208,8 +268,9 @@ def build_portfolio_dashboard(
     benchmark_text: object | None = None,
     portfolio_context: Mapping[str, Any] | None = None,
 ) -> str:
-    labels = _labels(translator)
     context = _portfolio_context_mapping(portfolio_context)
+    cash_only_execution = _dashboard_cash_only_execution(snapshot, context)
+    labels = _labels(translator, cash_only_execution=cash_only_execution)
     context_symbols, context_market_values, context_quantities = _portfolio_context_positions(context)
     if context_market_values or context_quantities:
         market_values, quantities = context_market_values, context_quantities
@@ -226,13 +287,11 @@ def build_portfolio_dashboard(
     total_equity = _as_optional_float(context.get("total_equity"))
     if total_equity is None:
         total_equity = float(getattr(snapshot, "total_equity", 0.0) or 0.0)
-    buying_power = _portfolio_context_buying_power(context)
-    if buying_power is None:
-        buying_power = _as_optional_float(_metadata_mapping(snapshot).get("market_currency_cash"))
-    if buying_power is None:
-        buying_power = _as_optional_float(getattr(snapshot, "cash_balance", None))
-    if buying_power is None:
-        buying_power = _snapshot_buying_power(snapshot)
+    buying_power = _dashboard_buying_power(
+        snapshot,
+        context,
+        cash_only_execution=cash_only_execution,
+    )
     lines = [
         labels["title"],
         f"  - {labels['total_assets']}: {_format_money(total_equity)}",
