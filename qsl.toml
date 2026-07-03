@@ -2,7 +2,7 @@ tier = "strategy-library"
 ring = 1
 
 [compat]
-bundle = "2026.07.0"
+bundle = "2026.07.1"
 requires = [
   "pandas>=2.0",
   "pytz>=2024.1",
