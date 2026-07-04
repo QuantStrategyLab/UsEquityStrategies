@@ -18,6 +18,7 @@ from us_equity_strategies.ai_extensions import (
     build_ai_extension_diagnostics,
 )
 from us_equity_strategies.combo_manifests import (
+    us_equity_combo_core_manifest,
     us_equity_combo_leveraged_manifest,
     us_equity_combo_manifest,
 )
@@ -40,6 +41,7 @@ from us_equity_strategies.strategies import (
     soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
     tecl_xlk_trend_income as tecl_xlk_trend_income_strategy,
     us_equity_combo as us_equity_combo_strategy,
+    us_equity_combo_core as us_equity_combo_core_strategy,
     us_equity_combo_leveraged as us_equity_combo_leveraged_strategy,
 )
 
@@ -1540,6 +1542,17 @@ us_equity_combo_entrypoint = CallableStrategyEntrypoint(
 )
 
 
+def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
+    from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_core as _eval
+    return _eval(ctx)
+
+
+us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
+    manifest=us_equity_combo_core_manifest,
+    _evaluate=evaluate_us_equity_combo_core,
+)
+
+
 def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged as _eval
     return _eval(ctx)
@@ -1560,6 +1573,7 @@ __all__ = [
     "nasdaq_sp500_smart_dca_entrypoint",
     "ibit_smart_dca_entrypoint",
     "us_equity_combo_entrypoint",
+    "us_equity_combo_core_entrypoint",
     "us_equity_combo_leveraged_entrypoint",
     "evaluate_global_etf_rotation",
     "evaluate_tqqq_growth_income",
@@ -1569,5 +1583,6 @@ __all__ = [
     "evaluate_nasdaq_sp500_smart_dca",
     "evaluate_ibit_smart_dca",
     "evaluate_us_equity_combo",
+    "evaluate_us_equity_combo_core",
     "evaluate_us_equity_combo_leveraged",
 ]

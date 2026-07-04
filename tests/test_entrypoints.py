@@ -644,6 +644,13 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertFalse(tqqq["requires_strategy_config_path"])
         self.assertEqual(tqqq["signal_effective_after_trading_days"], 1)
 
+        core = describe_platform_runtime_requirements("us_equity_combo_core", platform_id="ibkr")
+        self.assertEqual(core["profile_group"], "direct_runtime_inputs")
+        self.assertEqual(core["input_mode"], "current_holdings+russell_snapshot")
+        self.assertFalse(core["requires_snapshot_artifacts"])
+        self.assertFalse(core["requires_strategy_config_path"])
+        self.assertEqual(core["signal_effective_after_trading_days"], 0)
+
         for removed_profile in (
             "tech_communication_pullback_enhancement",
             "qqq_tech_enhancement",
