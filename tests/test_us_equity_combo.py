@@ -60,6 +60,49 @@ def test_us_equity_combo_leveraged_supports_zero_hard_defense_shadow() -> None:
     assert metadata["hard_defense_risk_exposure"] == 0.0
 
 
+def test_us_equity_combo_leveraged_uses_multi_asset_hard_defense() -> None:
+    weights, metadata = us_equity_combo_leveraged.build_target_weights(
+        market_data={
+            "spy_above_ma200": True,
+            "qqq_above_ma200": False,
+            "soxx_above_ma200": True,
+        },
+        config={
+            "tqqq_weight": 0.35,
+            "soxl_weight": 0.20,
+            "boxx_weight": 0.45,
+            "hard_defense_risk_exposure": 0.0,
+        },
+    )
+
+    assert weights == {"TQQQ": 0.0, "SOXL": 0.0, "BOXX": 1.0}
+    assert metadata["regime_state"] == "hard_defense"
+    assert metadata["above_ma200"]["QQQ"] is False
+
+
+def test_us_equity_combo_leveraged_marks_soft_defense_without_changing_shadow_weights() -> None:
+    weights, metadata = us_equity_combo_leveraged.build_target_weights(
+        market_data={
+            "spy_above_ma200": True,
+            "qqq_above_ma200": True,
+            "soxx_above_ma200": True,
+            "spy_ma20_slope_positive": True,
+            "qqq_ma20_slope_positive": False,
+            "soxx_ma20_slope_positive": True,
+        },
+        config={
+            "tqqq_weight": 0.35,
+            "soxl_weight": 0.20,
+            "boxx_weight": 0.45,
+            "hard_defense_risk_exposure": 0.0,
+        },
+    )
+
+    assert weights == {"TQQQ": 0.35, "SOXL": 0.20, "BOXX": 0.45}
+    assert metadata["regime_state"] == "soft_defense"
+    assert metadata["ma20_slope_positive"]["QQQ"] is False
+
+
 def test_us_equity_combo_leveraged_shadow_352045_config_matches_strategy_behavior() -> None:
     config_path = (
         Path(__file__).resolve().parents[1]
@@ -123,3 +166,34 @@ def test_us_equity_combo_leveraged_loads_package_runtime_config() -> None:
     assert runtime_config["runtime_config_path"].startswith("package://us_equity_strategies/")
     assert runtime_config["tqqq_weight"] == 0.35
     assert runtime_config["hard_defense_risk_exposure"] == 0.0
+
+
+def test_us_equity_combo_leveraged_loads_402040_shadow_config() -> None:
+    runtime_config = us_equity_combo_leveraged.load_runtime_parameters(
+        config_path=(
+            "package://us_equity_strategies/"
+            "configs/us_equity_combo_leveraged_shadow_402040.json"
+        ),
+        logger=lambda _message: None,
+    )
+    risk_on_weights, _risk_on_metadata = us_equity_combo_leveraged.build_target_weights(
+        market_data={
+            "spy_above_ma200": True,
+            "qqq_above_ma200": True,
+            "soxx_above_ma200": True,
+        },
+        config=runtime_config,
+    )
+    hard_weights, hard_metadata = us_equity_combo_leveraged.build_target_weights(
+        market_data={
+            "spy_above_ma200": True,
+            "qqq_above_ma200": False,
+            "soxx_above_ma200": True,
+        },
+        config=runtime_config,
+    )
+
+    assert runtime_config["runtime_config_name"] == "us_equity_combo_leveraged_shadow_402040"
+    assert risk_on_weights == {"TQQQ": 0.4, "SOXL": 0.2, "BOXX": 0.4}
+    assert hard_weights == {"TQQQ": 0.0, "SOXL": 0.0, "BOXX": 1.0}
+    assert hard_metadata["regime_state"] == "hard_defense"

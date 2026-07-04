@@ -184,8 +184,11 @@ def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision
     risk_flags: tuple[str, ...] = ()
     if has_cash:
         risk_flags += ("cash_parked",)
-    if not metadata.get("spy_above_ma200", True):
+    regime_state = str(metadata.get("regime_state") or "")
+    if regime_state == "hard_defense":
         risk_flags += ("ma200_risk_off",)
+    elif regime_state == "soft_defense":
+        risk_flags += ("soft_defense",)
     budgets = _build_budgets(diagnostics)
     return StrategyDecision(
         positions=_weights_to_positions(weights),
