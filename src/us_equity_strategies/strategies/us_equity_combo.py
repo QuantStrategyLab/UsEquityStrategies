@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 import pandas as pd
@@ -20,6 +21,8 @@ from us_equity_strategies.strategies import (
 PROFILE_NAME: str = "us_equity_combo"
 SIGNAL_SOURCE: str = "combo"
 STATUS_ICON: str = "\U0001f1fa\U0001f1f8"  # US flag
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_STOCK_WEIGHT: float = 0.30
 DEFAULT_ETF_WEIGHT: float = 0.50
