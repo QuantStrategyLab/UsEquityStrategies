@@ -11,11 +11,15 @@ Dynamic mode
 ------------
 SPY 200-day MA regime signal:
 - SPY above MA200 (bull): normal weights
-- SPY below MA200 (bear): TQQQ cut 50% -> 20%, SOXL cut 50% -> 10%, BOXX -> 70%
+- SPY below MA200 (bear): risk legs retain 50% by default, BOXX receives the rest
 """
 
 from __future__ import annotations
 
+import json
+import math
+from importlib import resources
+from pathlib import Path
 from typing import Any
 
 from quant_platform_kit.common.strategies import compute_portfolio_drift
@@ -28,6 +32,75 @@ DEFAULT_TQQQ_WEIGHT = 0.40
 DEFAULT_SOXL_WEIGHT = 0.20
 DEFAULT_BOXX_WEIGHT = 0.40
 DEFAULT_REBALANCE_THRESHOLD = 0.05  # 5% drift triggers rebalance
+DEFAULT_HARD_DEFENSE_RISK_EXPOSURE = 0.50
+
+
+def _noop_logger(_message: str) -> None:
+    return None
+
+
+def _read_runtime_config_text(config_path: str | Path) -> tuple[str, str]:
+    raw_path = str(config_path).strip()
+    if raw_path.startswith("package://"):
+        package_resource = raw_path.removeprefix("package://")
+        package_name, separator, resource_name = package_resource.partition("/")
+        if not separator or not package_name or not resource_name:
+            raise ValueError(f"Invalid package runtime config path: {raw_path!r}")
+        resource = resources.files(package_name).joinpath(resource_name)
+        if not resource.is_file():
+            raise FileNotFoundError(f"Runtime strategy config not found: {raw_path}")
+        return resource.read_text(encoding="utf-8"), raw_path
+
+    config_file = Path(config_path)
+    if not config_file.exists():
+        raise FileNotFoundError(f"Runtime strategy config not found: {config_file}")
+    return config_file.read_text(encoding="utf-8"), str(config_file)
+
+
+def load_runtime_parameters(
+    *,
+    config_path: str | Path | None = None,
+    logger=None,
+) -> dict[str, object]:
+    if logger is None:
+        logger = _noop_logger
+    if config_path is None:
+        return {}
+
+    config_text, resolved_config_path = _read_runtime_config_text(config_path)
+    payload = json.loads(config_text)
+    if not isinstance(payload, dict):
+        raise ValueError("Runtime strategy config JSON root must be an object")
+    profile = str(payload.get("strategy_profile") or PROFILE_NAME).strip()
+    if profile != PROFILE_NAME:
+        raise ValueError(f"Runtime strategy config strategy_profile must be {PROFILE_NAME!r}")
+
+    raw_runtime_config = payload.get("runtime_config", payload)
+    if not isinstance(raw_runtime_config, dict):
+        raise ValueError("Runtime strategy config runtime_config must be an object")
+
+    runtime_config = dict(raw_runtime_config)
+    for key in ("tqqq_weight", "soxl_weight", "boxx_weight", "hard_defense_risk_exposure"):
+        if key not in runtime_config:
+            continue
+        value = float(runtime_config[key])
+        if not math.isfinite(value):
+            raise ValueError(f"Runtime strategy config {key} must be finite")
+        if value < 0.0:
+            raise ValueError(f"Runtime strategy config {key} must be non-negative")
+        runtime_config[key] = value
+    if "hard_defense_risk_exposure" in runtime_config and float(runtime_config["hard_defense_risk_exposure"]) > 1.0:
+        raise ValueError("Runtime strategy config hard_defense_risk_exposure must be in [0, 1]")
+    if all(key in runtime_config for key in ("tqqq_weight", "soxl_weight", "boxx_weight")):
+        total = sum(float(runtime_config[key]) for key in ("tqqq_weight", "soxl_weight", "boxx_weight"))
+        if total <= 0.0:
+            raise ValueError("Runtime strategy config weights must sum to a positive value")
+
+    runtime_config["runtime_config_name"] = str(payload.get("name") or Path(resolved_config_path).stem)
+    runtime_config["runtime_config_path"] = resolved_config_path
+    runtime_config["runtime_config_source"] = "external_config"
+    logger(f"[{PROFILE_NAME}] runtime config source=external_config path={resolved_config_path}")
+    return runtime_config
 
 
 def build_target_weights(
@@ -46,6 +119,9 @@ def build_target_weights(
         Override configuration.  Accepted keys:
         - tqqq_weight, soxl_weight, boxx_weight (overrides defaults)
         - dynamic (bool, default True)
+        - hard_defense_risk_exposure (float, default 0.50): retained
+          TQQQ/SOXL fraction when SPY is below MA200.  Use 0.0 for a
+          full BOXX hard-defense shadow.
 
     Returns
     -------
@@ -57,6 +133,10 @@ def build_target_weights(
     soxl_weight = float(cfg.get("soxl_weight", DEFAULT_SOXL_WEIGHT))
     boxx_weight = float(cfg.get("boxx_weight", DEFAULT_BOXX_WEIGHT))
     dynamic = bool(cfg.get("dynamic", True))
+    hard_defense_risk_exposure = min(
+        1.0,
+        max(0.0, float(cfg.get("hard_defense_risk_exposure", DEFAULT_HARD_DEFENSE_RISK_EXPOSURE))),
+    )
 
     # Dynamic mode: SPY MA200 risk-off
     spy_above_ma200 = True
@@ -64,8 +144,8 @@ def build_target_weights(
         spy_above_ma200 = bool(market_data.get("spy_above_ma200", True))
 
     if dynamic and not spy_above_ma200:
-        tqqq_weight = DEFAULT_TQQQ_WEIGHT * 0.50
-        soxl_weight = DEFAULT_SOXL_WEIGHT * 0.50
+        tqqq_weight *= hard_defense_risk_exposure
+        soxl_weight *= hard_defense_risk_exposure
         boxx_weight = 1.0 - tqqq_weight - soxl_weight
 
     # Normalize
@@ -92,6 +172,7 @@ def build_target_weights(
             "BOXX": boxx_weight,
         },
         "dynamic": dynamic,
+        "hard_defense_risk_exposure": hard_defense_risk_exposure,
         "rebalance": compute_portfolio_drift(
             weights,
             holdings=cfg.get("current_holdings_quantities", {}),

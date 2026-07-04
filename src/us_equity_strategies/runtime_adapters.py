@@ -25,6 +25,7 @@ from us_equity_strategies.strategies import (
     ibit_smart_dca as ibit_smart_dca_strategy,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
+    us_equity_combo_leveraged as us_equity_combo_leveraged_strategy,
 )
 
 
@@ -115,6 +116,10 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     US_EQUITY_COMBO_LEVERAGED_PROFILE: StrategyRuntimeAdapter(
         status_icon="\U0001f1fa\U0001f1f8",
         available_inputs=frozenset({"market_data"}),
+        runtime_parameter_loader=us_equity_combo_leveraged_strategy.load_runtime_parameters,
+        artifact_contract=StrategyArtifactContract(
+            config_source_policy="env_only",
+        ),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
 }
