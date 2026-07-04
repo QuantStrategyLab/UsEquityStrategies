@@ -3,9 +3,11 @@ from __future__ import annotations
 from quant_platform_kit.strategy_contracts import StrategyManifest
 
 from us_equity_strategies.strategies import us_equity_combo
+from us_equity_strategies.strategies import us_equity_combo_core
 from us_equity_strategies.strategies import us_equity_combo_leveraged
 
 US_EQUITY_COMBO_PROFILE = us_equity_combo.PROFILE_NAME
+US_EQUITY_COMBO_CORE_PROFILE = us_equity_combo_core.PROFILE_NAME
 US_EQUITY_COMBO_LEVERAGED_PROFILE = us_equity_combo_leveraged.PROFILE_NAME
 
 
@@ -71,6 +73,41 @@ us_equity_combo_manifest = _manifest(
     },
 )
 
+us_equity_combo_core_manifest = _manifest(
+    profile=US_EQUITY_COMBO_CORE_PROFILE,
+    domain="quant_combo",
+    display_name="US Core Combo Shadow",
+    description=(
+        "Shadow candidate: Russell Top50 leaders (40%) + Nasdaq/S&P ETF "
+        "sleeve (40%) + BOXX/SGOV-style cash defense (20%), with hard-defense "
+        "risk-off weights."
+    ),
+    aliases=(),
+    required_inputs=frozenset({"russell_snapshot", "current_holdings"}),
+    default_config={
+        "dynamic": True,
+        "shadow_candidate": True,
+        "russell_weight": 0.40,
+        "dca_weight": 0.40,
+        "safe_weight": 0.20,
+        "soft_russell_weight": 0.35,
+        "soft_dca_weight": 0.35,
+        "soft_safe_weight": 0.30,
+        "hard_russell_weight": 0.20,
+        "hard_dca_weight": 0.05,
+        "hard_safe_weight": 0.75,
+        "dca_allocations": {
+            "QQQM": 0.50,
+            "SPLG": 0.50,
+        },
+        "safe_haven": "BOXX",
+        "execution_cash_reserve_ratio": 0.02,
+        "rebalance_frequency": "monthly",
+        **_INCOME_LAYER_DEFAULT_CONFIG,
+        **_OPTION_OVERLAY_DEFAULT_CONFIG,
+    },
+)
+
 us_equity_combo_leveraged_manifest = _manifest(
     profile=US_EQUITY_COMBO_LEVERAGED_PROFILE,
     domain="quant_combo",
@@ -92,6 +129,7 @@ us_equity_combo_leveraged_manifest = _manifest(
 
 MANIFESTS = {
     us_equity_combo_manifest.profile: us_equity_combo_manifest,
+    us_equity_combo_core_manifest.profile: us_equity_combo_core_manifest,
     us_equity_combo_leveraged_manifest.profile: us_equity_combo_leveraged_manifest,
 }
 
@@ -109,9 +147,11 @@ def get_strategy_manifest(profile: str) -> StrategyManifest:
 
 __all__ = [
     "US_EQUITY_COMBO_PROFILE",
+    "US_EQUITY_COMBO_CORE_PROFILE",
     "US_EQUITY_COMBO_LEVERAGED_PROFILE",
     "MANIFESTS",
     "get_strategy_manifest",
     "us_equity_combo_manifest",
+    "us_equity_combo_core_manifest",
     "us_equity_combo_leveraged_manifest",
 ]

@@ -3,8 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from us_equity_strategies.combo_manifests import us_equity_combo_manifest
-from us_equity_strategies.strategies import us_equity_combo, us_equity_combo_leveraged
+from us_equity_strategies.combo_manifests import (
+    us_equity_combo_core_manifest,
+    us_equity_combo_manifest,
+)
+from us_equity_strategies.strategies import (
+    us_equity_combo,
+    us_equity_combo_core,
+    us_equity_combo_leveraged,
+)
 
 from tests.test_mega_cap_leader_rotation import _mega_snapshot
 
@@ -33,6 +40,47 @@ def test_us_equity_combo_accepts_manifest_weight_aliases() -> None:
     assert weights
     assert diagnostics["stock_weight"] == 0.50
     assert diagnostics["etf_weight"] == 0.50
+
+
+def test_us_equity_combo_core_uses_core_shadow_weights_in_risk_on() -> None:
+    weights, _signal_desc, is_emergency, _status_desc, diagnostics = (
+        us_equity_combo_core.compute_signals(
+            _mega_snapshot(),
+            current_holdings=set(),
+            config=dict(us_equity_combo_core_manifest.default_config),
+        )
+    )
+
+    assert is_emergency is False
+    assert diagnostics["profile_name"] == "us_equity_combo_core"
+    assert diagnostics["regime_state"] == "risk_on"
+    assert diagnostics["effective_russell_weight"] == 0.40
+    assert diagnostics["effective_dca_weight"] == 0.40
+    assert diagnostics["effective_safe_weight"] == 0.20
+    assert weights["QQQM"] == 0.20
+    assert weights["SPLG"] == 0.20
+    assert weights["BOXX"] == 0.20
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
+
+
+def test_us_equity_combo_core_switches_to_hard_defense_when_trend_breaks() -> None:
+    weights, _signal_desc, is_emergency, _status_desc, diagnostics = (
+        us_equity_combo_core.compute_signals(
+            _mega_snapshot(qqq_sma200_gap=-0.02),
+            current_holdings=set(),
+            config=dict(us_equity_combo_core_manifest.default_config),
+        )
+    )
+
+    assert is_emergency is True
+    assert diagnostics["regime_state"] == "hard_defense"
+    assert diagnostics["effective_russell_weight"] == 0.20
+    assert diagnostics["effective_dca_weight"] == 0.05
+    assert diagnostics["effective_safe_weight"] == 0.75
+    assert weights["QQQM"] == 0.025
+    assert weights["SPLG"] == 0.025
+    assert weights["BOXX"] >= 0.75
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
 
 
 def test_us_equity_combo_leveraged_risk_off_uses_configured_weights() -> None:

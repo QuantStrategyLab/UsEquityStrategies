@@ -16,6 +16,7 @@ from us_equity_strategies.catalog import (
     NASDAQ_SP500_SMART_DCA_PROFILE,
     TQQQ_GROWTH_INCOME_PROFILE,
     SOXL_SOXX_TREND_INCOME_PROFILE,
+    US_EQUITY_COMBO_CORE_PROFILE,
     US_EQUITY_COMBO_PROFILE,
     US_EQUITY_COMBO_LEVERAGED_PROFILE,
     audit_smart_dca_runtime_default_contract,
@@ -96,6 +97,13 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(
             catalog[IBIT_SMART_DCA_PROFILE].required_inputs,
             frozenset({"derived_indicators", "portfolio_snapshot"}),
+        )
+
+        self.assertIn(US_EQUITY_COMBO_CORE_PROFILE, catalog)
+        self.assertEqual(catalog[US_EQUITY_COMBO_CORE_PROFILE].domain, "us_equity")
+        self.assertEqual(
+            catalog[US_EQUITY_COMBO_CORE_PROFILE].required_inputs,
+            frozenset({"russell_snapshot", "current_holdings"}),
         )
 
     def test_supported_platforms_remains_only_a_compatibility_mirror(self):
@@ -247,6 +255,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(
             compatibility[IBIT_SMART_DCA_PROFILE],
             FULL_SHARED_PLATFORM_MATRIX,
+        )
+        self.assertEqual(
+            metadata_map[US_EQUITY_COMBO_CORE_PROFILE].role,
+            "us_equity_combo_core_shadow",
         )
 
     def test_option_overlay_defaults_are_enabled_but_live_gated(self):
@@ -499,6 +511,7 @@ class CatalogTest(unittest.TestCase):
                     NASDAQ_SP500_SMART_DCA_PROFILE,
                     IBIT_SMART_DCA_PROFILE,
                     US_EQUITY_COMBO_PROFILE,
+                    US_EQUITY_COMBO_CORE_PROFILE,
                     US_EQUITY_COMBO_LEVERAGED_PROFILE,
                 }
             ),

@@ -32,6 +32,7 @@ RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
 NASDAQ_SP500_SMART_DCA_PROFILE = "nasdaq_sp500_smart_dca"
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 US_EQUITY_COMBO_PROFILE = "us_equity_combo"
+US_EQUITY_COMBO_CORE_PROFILE = "us_equity_combo_core"
 US_EQUITY_COMBO_LEVERAGED_PROFILE = "us_equity_combo_leveraged"
 COMBO_SHARED_PLATFORM_MATRIX = frozenset(
     {"schwab", "ibkr", "longbridge", "firstrade", "manual", "qmt"}
@@ -53,6 +54,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     IBIT_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     US_EQUITY_COMBO_PROFILE: COMBO_SHARED_PLATFORM_MATRIX,
+    US_EQUITY_COMBO_CORE_PROFILE: COMBO_SHARED_PLATFORM_MATRIX,
     US_EQUITY_COMBO_LEVERAGED_PROFILE: COMBO_SHARED_PLATFORM_MATRIX,
 }
 
@@ -65,6 +67,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
     IBIT_SMART_DCA_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     US_EQUITY_COMBO_PROFILE: frozenset({"russell_snapshot", "current_holdings"}),
+    US_EQUITY_COMBO_CORE_PROFILE: frozenset({"russell_snapshot", "current_holdings"}),
     US_EQUITY_COMBO_LEVERAGED_PROFILE: frozenset({"market_data"}),
 }
 SMART_DCA_RUNTIME_DEFAULT_CONTRACT_PROFILES = (
@@ -383,6 +386,26 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "execution_cash_reserve_ratio": 0.02,
         "rebalance_frequency": "monthly",
     },
+    US_EQUITY_COMBO_CORE_PROFILE: {
+        "dynamic": True,
+        "shadow_candidate": True,
+        "russell_weight": 0.40,
+        "dca_weight": 0.40,
+        "safe_weight": 0.20,
+        "soft_russell_weight": 0.35,
+        "soft_dca_weight": 0.35,
+        "soft_safe_weight": 0.30,
+        "hard_russell_weight": 0.20,
+        "hard_dca_weight": 0.05,
+        "hard_safe_weight": 0.75,
+        "dca_allocations": {
+            "QQQM": 0.50,
+            "SPLG": 0.50,
+        },
+        "safe_haven": "BOXX",
+        "execution_cash_reserve_ratio": 0.02,
+        "rebalance_frequency": "monthly",
+    },
     US_EQUITY_COMBO_LEVERAGED_PROFILE: {
         "dynamic": True,
         "execution_cash_reserve_ratio": 0.02,
@@ -399,6 +422,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
     IBIT_SMART_DCA_PROFILE: "ibit_smart_dca_entrypoint",
     US_EQUITY_COMBO_PROFILE: "us_equity_combo_entrypoint",
+    US_EQUITY_COMBO_CORE_PROFILE: "us_equity_combo_core_entrypoint",
     US_EQUITY_COMBO_LEVERAGED_PROFILE: "us_equity_combo_leveraged_entrypoint",
 }
 
@@ -411,6 +435,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
     IBIT_SMART_DCA_PROFILE: "value",
     US_EQUITY_COMBO_PROFILE: "weight",
+    US_EQUITY_COMBO_CORE_PROFILE: "weight",
     US_EQUITY_COMBO_LEVERAGED_PROFILE: "weight",
 }
 
@@ -493,6 +518,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
         US_EQUITY_COMBO_PROFILE,
         component_name="signal_logic",
         module_path="us_equity_strategies.strategies.us_equity_combo",
+    ),
+    US_EQUITY_COMBO_CORE_PROFILE: _build_strategy_definition(
+        US_EQUITY_COMBO_CORE_PROFILE,
+        component_name="signal_logic",
+        module_path="us_equity_strategies.strategies.us_equity_combo_core",
     ),
     US_EQUITY_COMBO_LEVERAGED_PROFILE: _build_strategy_definition(
         US_EQUITY_COMBO_LEVERAGED_PROFILE,
@@ -602,6 +632,22 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_equity_combo",
         benchmark="SPY",
         role="us_equity_combo",
+        status="runtime_enabled",
+    ),
+    US_EQUITY_COMBO_CORE_PROFILE: StrategyMetadata(
+        canonical_profile=US_EQUITY_COMBO_CORE_PROFILE,
+        display_name="US Core Combo Shadow",
+        description=(
+            "Shadow candidate: Russell Top50 leaders plus Nasdaq/S&P ETF sleeve "
+            "and BOXX defense; preserves legacy US Equity Combo until shadow "
+            "evidence is accepted."
+        ),
+        localized_display_names={"zh": "美股核心组合Shadow"},
+        aliases=(),
+        cadence="monthly review",
+        asset_scope="us_equity_combo_core_shadow",
+        benchmark="SPY",
+        role="us_equity_combo_core_shadow",
         status="runtime_enabled",
     ),
     US_EQUITY_COMBO_LEVERAGED_PROFILE: StrategyMetadata(

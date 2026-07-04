@@ -11,6 +11,7 @@ from quant_platform_kit.strategy_contracts import (
 )
 
 from us_equity_strategies.combo_manifests import (
+    us_equity_combo_core_manifest,
     us_equity_combo_leveraged_manifest,
     us_equity_combo_manifest,
 )
@@ -19,6 +20,7 @@ from us_equity_strategies.combo_plugin_pipeline import (
     apply_option_overlay,
 )
 from us_equity_strategies.strategies import us_equity_combo
+from us_equity_strategies.strategies import us_equity_combo_core
 from us_equity_strategies.strategies import us_equity_combo_leveraged
 
 
@@ -145,6 +147,51 @@ us_equity_combo_entrypoint = CallableStrategyEntrypoint(
 )
 
 
+def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
+    config = merge_runtime_config(us_equity_combo_core_manifest.default_config, ctx)
+
+    weights, signal_desc, is_emergency, status_desc, metadata = (
+        us_equity_combo_core.compute_signals(
+            russell_snapshot=_require_market_data(ctx, "russell_snapshot"),
+            current_holdings=_get_current_holdings(ctx),
+            config=dict(config),
+        )
+    )
+
+    total_equity = _total_equity(ctx)
+    income_diagnostics = apply_income_layer(weights, total_equity, config)
+    option_diagnostics = apply_option_overlay(
+        weights,
+        config,
+        total_equity=total_equity,
+    )
+    diagnostics = {
+        **metadata,
+        "signal_description": signal_desc,
+        "status_description": status_desc,
+        "signal_source": us_equity_combo_core.SIGNAL_SOURCE,
+        "actionable": True,
+        "income_layer_diagnostics": income_diagnostics,
+        "option_overlay_diagnostics": option_diagnostics,
+    }
+    risk_flags: tuple[str, ...] = ()
+    if is_emergency:
+        risk_flags += ("hard_defense",)
+    budgets = _build_budgets(diagnostics)
+    return StrategyDecision(
+        positions=_weights_to_positions(weights),
+        budgets=budgets,
+        risk_flags=risk_flags,
+        diagnostics=diagnostics,
+    )
+
+
+us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
+    manifest=us_equity_combo_core_manifest,
+    _evaluate=evaluate_us_equity_combo_core,
+)
+
+
 def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(us_equity_combo_leveraged_manifest.default_config, ctx)
 
@@ -206,7 +253,9 @@ us_equity_combo_leveraged_entrypoint = CallableStrategyEntrypoint(
 
 __all__ = [
     "evaluate_us_equity_combo",
+    "evaluate_us_equity_combo_core",
     "evaluate_us_equity_combo_leveraged",
+    "us_equity_combo_core_entrypoint",
     "us_equity_combo_entrypoint",
     "us_equity_combo_leveraged_entrypoint",
 ]

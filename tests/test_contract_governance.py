@@ -6,6 +6,7 @@ from pathlib import Path
 from us_equity_strategies import get_strategy_definitions
 from us_equity_strategies.catalog import (
     STRATEGY_CATALOG,
+    US_EQUITY_COMBO_CORE_PROFILE,
     US_EQUITY_COMBO_PROFILE,
     US_EQUITY_COMBO_LEVERAGED_PROFILE,
     get_runtime_enabled_profiles,
@@ -215,7 +216,11 @@ class ContractGovernanceTests(unittest.TestCase):
 
     def test_live_us_equity_profiles_now_cover_the_full_four_platform_matrix(self) -> None:
         # Combo profiles use a different platform matrix (includes manual/qmt)
-        _COMBO_PROFILES = {US_EQUITY_COMBO_PROFILE, US_EQUITY_COMBO_LEVERAGED_PROFILE}
+        _COMBO_PROFILES = {
+            US_EQUITY_COMBO_PROFILE,
+            US_EQUITY_COMBO_CORE_PROFILE,
+            US_EQUITY_COMBO_LEVERAGED_PROFILE,
+        }
         for profile in LIVE_US_EQUITY_FULL_MATRIX_PROFILES - _COMBO_PROFILES:
             definition = STRATEGY_CATALOG.definitions[profile]
             with self.subTest(profile=profile):
