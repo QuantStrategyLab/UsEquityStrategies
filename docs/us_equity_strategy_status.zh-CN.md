@@ -71,6 +71,13 @@ _更新日期：2026-06-28_
 
 - `global_etf_rotation`：已切到 SMA250 置信度 + 相对波动门控的保留版；最新回测 CAGR 13.91%，最大回撤 -23.29%，已替代原先的等权默认档。`global_etf_confidence_vol_gate` 仅保留为同一 runtime profile 的 legacy alias / 回放名。
 
+## 当前 live 风险预算口径
+
+- `soxl_soxx_trend_income` 保持 live：它是当前高收益半导体引擎，不因回撤风险单独降级为 shadow/research。
+- `tqqq_growth_income`、`russell_top50_leader_rotation`、`global_etf_rotation` 保持 live。
+- `us_equity_combo_leveraged_shadow_402040` 只作为未来替换部分 TQQQ/SOXL 暴露的 shadow 候选，不作为额外叠加的 live 杠杆层。
+- `TECL`、CN combo、HK combo 继续 research/shadow；没有单独证据和人工确认前不进入 live。
+
 ## 研究中但未进入运行 profile 的方向
 
 | 研究方向 | 当前状态 | 不直接部署的原因 |
