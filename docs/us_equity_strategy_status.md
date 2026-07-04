@@ -26,6 +26,13 @@ Full archive index: [us_equity_runtime_archive.md](./us_equity_runtime_archive.m
 
 See the Chinese handbook for localized positioning text and default parameter tables.
 
+## Current live risk-budget stance
+
+- Keep `soxl_soxx_trend_income` live as the high-return semiconductor engine; do not downgrade it to shadow/research solely because of drawdown risk.
+- Keep `tqqq_growth_income`, `russell_top50_leader_rotation`, and `global_etf_rotation` live.
+- Treat `us_equity_combo_leveraged_shadow_402040` as a replacement candidate for part of the existing TQQQ/SOXL exposure, not an additive live layer.
+- Do not promote TECL, CN combo, or HK combo profiles to live without separate evidence and manual approval.
+
 ## Research retained, not `runtime_enabled`
 
 | Profile / track | Status | Why not live |
