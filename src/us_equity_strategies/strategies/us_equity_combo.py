@@ -24,9 +24,25 @@ STATUS_ICON: str = "\U0001f1fa\U0001f1f8"  # US flag
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STOCK_WEIGHT: float = 0.30
+DEFAULT_STOCK_WEIGHT: float = 0.50
 DEFAULT_ETF_WEIGHT: float = 0.50
 DEFAULT_REBALANCE_THRESHOLD: float = 0.05  # 5% drift triggers rebalance
+
+_COMBO_ONLY_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "execution_cash_reserve_ratio",
+        "rebalance_frequency",
+        "income_layer_enabled",
+        "income_layer_start_usd",
+        "income_layer_max_ratio",
+        "income_layer_allocations",
+        "option_overlay_enabled",
+        "option_growth_overlay_enabled",
+        "option_growth_overlay_recipe",
+        "option_growth_overlay_start_usd",
+        "option_growth_overlay_nav_budget_ratio",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -50,7 +66,9 @@ def build_target_weights(
     config :
         Optional override dictionary.  Accepted keys include:
 
-        * ``stock_weight`` / ``etf_weight`` — blend ratios
+        * ``stock_weight`` / ``etf_weight`` — blend ratios.  Runtime
+          manifests may also pass the equivalent
+          ``russell_weight`` / ``dca_weight`` aliases.
           (defaults to ``DEFAULT_STOCK_WEIGHT`` /
           ``DEFAULT_ETF_WEIGHT``).
         * ``dynamic`` — if truthy, SPY MA200 regime at runtime
@@ -69,13 +87,15 @@ def build_target_weights(
     """
     cfg = {} if config is None else dict(config)
 
-    stock_weight = float(cfg.pop("stock_weight", DEFAULT_STOCK_WEIGHT))
-    etf_weight = float(cfg.pop("etf_weight", DEFAULT_ETF_WEIGHT))
+    stock_weight = float(cfg.pop("stock_weight", cfg.pop("russell_weight", DEFAULT_STOCK_WEIGHT)))
+    etf_weight = float(cfg.pop("etf_weight", cfg.pop("dca_weight", DEFAULT_ETF_WEIGHT)))
     dynamic_enabled = bool(cfg.pop("dynamic", None))
 
     # Extract IBIT dependencies from config (caller must supply these)
     market_history = cfg.pop("market_history", None)
     portfolio = cfg.pop("portfolio", None)
+    for key in _COMBO_ONLY_CONFIG_KEYS:
+        cfg.pop(key, None)
 
     # --- Russell leg ----------------------------------------------------------
     russell_weights, ranked, russell_metadata = mega_cap_leader_rotation.build_target_weights(

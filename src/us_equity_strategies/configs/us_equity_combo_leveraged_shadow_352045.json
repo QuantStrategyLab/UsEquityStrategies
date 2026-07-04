@@ -1,0 +1,38 @@
+{
+  "role": "us_equity_combo_leveraged_shadow",
+  "status": "shadow_candidate",
+  "strategy_profile": "us_equity_combo_leveraged",
+  "name": "us_equity_combo_leveraged_shadow_352045",
+  "description": "TQQQ 35% + SOXL 20% + BOXX 45% dynamic shadow candidate with full BOXX hard defense.",
+  "runtime_config": {
+    "tqqq_weight": 0.35,
+    "soxl_weight": 0.2,
+    "boxx_weight": 0.45,
+    "dynamic": true,
+    "hard_defense_risk_exposure": 0.0
+  },
+  "required_market_data": {
+    "market_data": {
+      "spy_above_ma200": "boolean"
+    }
+  },
+  "backtest_evidence": {
+    "artifact": "/tmp/us_combo_core_sweep_20260704/ranking.csv",
+    "window": "2010-01-05 to 2026-07-02",
+    "turnover_cost_bps": 5,
+    "full_cagr": 0.222073,
+    "max_drawdown": -0.338803,
+    "sharpe": 0.9085,
+    "calmar": 0.655463
+  },
+  "promotion_state": {
+    "live_enable_candidate": false,
+    "shadow_ready": true,
+    "promotion_gate": "requires shadow observation and platform-level dry-run evidence before live"
+  },
+  "notes": [
+    "This config does not change the strategy default or any live deployment.",
+    "Risk-off behavior requires hard_defense_risk_exposure=0.0; otherwise the strategy retains the default 50% risk-leg exposure.",
+    "The backtest artifact is local research output and should be regenerated into a durable repo or CI artifact before live promotion."
+  ]
+}
