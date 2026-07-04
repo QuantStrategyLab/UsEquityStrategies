@@ -16,30 +16,50 @@ from us_equity_strategies.strategies import (
 from tests.test_mega_cap_leader_rotation import _mega_snapshot
 
 
-def test_us_equity_combo_skips_ibit_leg_without_logger_error() -> None:
+def test_us_equity_combo_uses_live_core_weights_without_ibit_leg() -> None:
     weights, signal_desc, is_emergency, status_desc, diagnostics = us_equity_combo.compute_signals(
-        _mega_snapshot(),
-        current_holdings=set(),
-        config={"dynamic": True},
-    )
-
-    assert weights
-    assert "stock=" in signal_desc
-    assert "etf=" in status_desc
-    assert is_emergency is False
-    assert diagnostics["dca_managed_symbols"] == ()
-
-
-def test_us_equity_combo_accepts_manifest_weight_aliases() -> None:
-    weights, _signal_desc, _is_emergency, _status_desc, diagnostics = us_equity_combo.compute_signals(
         _mega_snapshot(),
         current_holdings=set(),
         config=dict(us_equity_combo_manifest.default_config),
     )
 
-    assert weights
-    assert diagnostics["stock_weight"] == 0.50
-    assert diagnostics["etf_weight"] == 0.50
+    assert is_emergency is False
+    assert diagnostics["profile_name"] == "us_equity_combo"
+    assert diagnostics["signal_source"] == "combo"
+    assert diagnostics["regime_state"] == "risk_on"
+    assert diagnostics["effective_russell_weight"] == 0.40
+    assert diagnostics["effective_dca_weight"] == 0.40
+    assert diagnostics["effective_safe_weight"] == 0.20
+    assert diagnostics["stock_weight"] == 0.40
+    assert diagnostics["etf_weight"] == 0.40
+    assert diagnostics["dca_managed_symbols"] == ("QQQM", "SPLG")
+    assert "IBIT" not in weights
+    assert weights["QQQM"] == 0.20
+    assert weights["SPLG"] == 0.20
+    assert weights["BOXX"] == 0.20
+    assert "russell=40%" in signal_desc
+    assert "safe=20%" in status_desc
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
+
+
+def test_us_equity_combo_live_core_switches_to_hard_defense_when_trend_breaks() -> None:
+    weights, _signal_desc, is_emergency, _status_desc, diagnostics = us_equity_combo.compute_signals(
+        _mega_snapshot(qqq_sma200_gap=-0.02),
+        current_holdings=set(),
+        config=dict(us_equity_combo_manifest.default_config),
+    )
+
+    assert is_emergency is True
+    assert diagnostics["profile_name"] == "us_equity_combo"
+    assert diagnostics["regime_state"] == "hard_defense"
+    assert diagnostics["effective_russell_weight"] == 0.20
+    assert diagnostics["effective_dca_weight"] == 0.05
+    assert diagnostics["effective_safe_weight"] == 0.75
+    assert "IBIT" not in weights
+    assert weights["QQQM"] == 0.025
+    assert weights["SPLG"] == 0.025
+    assert weights["BOXX"] >= 0.75
+    assert abs(sum(weights.values()) - 1.0) < 1e-8
 
 
 def test_us_equity_combo_core_uses_core_shadow_weights_in_risk_on() -> None:

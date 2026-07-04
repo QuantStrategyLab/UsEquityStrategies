@@ -381,8 +381,21 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "execution_rebalance_threshold_ratio": 0.0,
     },
     US_EQUITY_COMBO_PROFILE: {
-        "russell_weight": 0.50,
-        "dca_weight": 0.50,
+        "dynamic": True,
+        "russell_weight": 0.40,
+        "dca_weight": 0.40,
+        "safe_weight": 0.20,
+        "soft_russell_weight": 0.35,
+        "soft_dca_weight": 0.35,
+        "soft_safe_weight": 0.30,
+        "hard_russell_weight": 0.20,
+        "hard_dca_weight": 0.05,
+        "hard_safe_weight": 0.75,
+        "dca_allocations": {
+            "QQQM": 0.50,
+            "SPLG": 0.50,
+        },
+        "safe_haven": "BOXX",
         "execution_cash_reserve_ratio": 0.02,
         "rebalance_frequency": "monthly",
     },
@@ -624,8 +637,8 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=US_EQUITY_COMBO_PROFILE,
         display_name="US Equity Combo",
         description=(
-            "Combined US equity strategy: Russell Top50 leader rotation (50%) "
-            "+ IBIT Smart DCA (50%) with dynamic regime-based weight adjustment."
+            "Live US core combo: Russell Top50 leaders (40%) + Nasdaq/S&P ETF "
+            "sleeve (40%) + BOXX cash defense (20%), with dynamic defense weights."
         ),
         aliases=(),
         cadence="monthly review",
@@ -638,9 +651,8 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=US_EQUITY_COMBO_CORE_PROFILE,
         display_name="US Core Combo Shadow",
         description=(
-            "Shadow candidate: Russell Top50 leaders plus Nasdaq/S&P ETF sleeve "
-            "and BOXX defense; preserves legacy US Equity Combo until shadow "
-            "evidence is accepted."
+            "Non-live shadow/internal profile for comparing the promoted US core "
+            "combo logic; live execution is exposed through us_equity_combo."
         ),
         localized_display_names={"zh": "美股核心组合Shadow"},
         aliases=(),
@@ -648,7 +660,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_equity_combo_core_shadow",
         benchmark="SPY",
         role="us_equity_combo_core_shadow",
-        status="runtime_enabled",
+        status="shadow_candidate",
     ),
     US_EQUITY_COMBO_LEVERAGED_PROFILE: StrategyMetadata(
         canonical_profile=US_EQUITY_COMBO_LEVERAGED_PROFILE,
