@@ -65,6 +65,7 @@ _更新日期：2026-06-28_
 | `global_etf_confidence_vol_gate` production-like 研究 | 2015-01-05 至 2026-05-06 | 14.77% | -23.35% | 相比同口径 Top2/SMA250 的 13.60% CAGR、-23.35% 回撤，收益和 Sharpe 改善；仍未跑赢 QQQ 长期 CAGR，因此只作为 Global ETF 自身增强候选。 | [`docs/research/global_etf_confidence_vol_gate.md`](./research/global_etf_confidence_vol_gate.md) |
 | Crisis unified response historical research，含旧 5% 反弹袖子 | 1999-03-10 至 2026-04-16 | 23.89% | -56.04% | 相比合成 TQQQ 基线显著降低 2000/2008 级别灾难回撤；但该历史版本包含旧反弹袖子，不等于当前 defense-only shadow plugin。 | `UsEquitySnapshotPipelines/data/output/crisis_response_audit_trial/external_fragility10_severe10_fin_credit/summary.csv` |
 | `us_equity_combo_leveraged_shadow_352045`，5 bps 单边成本 | 2010-01-05 至 2026-07-02 | 22.21% | -33.88% | `TQQQ 35% / SOXL 20% / BOXX 45%`，`hard_defense_risk_exposure=0`；最大回撤进入 35%-40% 可接受区间，但收益/风险仍弱于单腿最强 proxy，因此只进入 shadow 观察，不替换 live。 | `/tmp/us_combo_core_sweep_20260704/ranking.csv`；运行配置见 `src/us_equity_strategies/configs/us_equity_combo_leveraged_shadow_352045.json` |
+| `us_equity_combo_leveraged_shadow_402040`，5 bps 单边成本 | 2010-01-05 至 2026-07-02 | 23.81% | -35.53% | `TQQQ 40% / SOXL 20% / BOXX 40%`，`hard_defense_risk_exposure=0`；在 35%-40% 回撤预算下收益、Sharpe、Calmar 均优于 35/20/45，适合作为下一轮 shadow 观察配置。 | `/tmp/us_combo_rule_compare_20260704/ranking_rule_compare.csv`；运行配置见 `src/us_equity_strategies/configs/us_equity_combo_leveraged_shadow_402040.json` |
 
 暂时没有写进正式表的内容：
 
@@ -76,6 +77,7 @@ _更新日期：2026-06-28_
 | --- | --- | --- |
 | `tecl_xlk_trend_income` | `research_enabled` | 重叠窗口未跑赢 live TQQQ / SOXL（2024+ CAGR 24.8%，最大回撤 -46.0%）；保留策略实现与回测入口，不进入 runtime。研究文档见 [`UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md`](../../UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md)。 |
 | `us_equity_combo_leveraged_shadow_352045` | shadow candidate | 组合型杠杆候选：`TQQQ 35% / SOXL 20% / BOXX 45%`，risk-off 归零风险腿转 `BOXX`。当前仅提供受控 runtime_config 与测试保护，不改变默认 live；需要平台 dry-run / shadow 周期证据后才可重新评估 live。 |
+| `us_equity_combo_leveraged_shadow_402040` | shadow candidate | 组合型杠杆候选：`TQQQ 40% / SOXL 20% / BOXX 40%`，risk-off 归零风险腿转 `BOXX`。这是 35%-40% 回撤预算下的下一轮 shadow 配置，不直接替换 live。 |
 | `crisis_response_shadow` 插件 | 可作为 `tqqq_growth_income` 的 `shadow` 插件候选，只写信号、日志和通知上下文。 | 现在是 defense-only 黑天鹅观察流，不下单、不改 allocation；需要稳定 shadow 日志后再做 evidence review。 |
 | 事件反弹 / MAGS 路线 | 保持 research-only，不作为运行策略 profile。 | 对 MAGS 的正贡献不稳定，且事件反弹预算不应该混进黑天鹅逃命插件。 |
 | `QQQ` / `SPY` LEAPS 增长增强层 | 已有 option overlay 意图框架；组合型 live profile 默认带 `option_*` 设置，但 `spy_leaps_growth_v1` / `qqq_leaps_growth_v1` 等 recipe 仍是 research candidate，当前会以 `research_only_recipe` 跳过，不产生真实订单意图，研究设计见 [`docs/research/index_leaps_growth_overlay.zh-CN.md`](./research/index_leaps_growth_overlay.zh-CN.md)（[English](./research/index_leaps_growth_overlay.md)）；代理回测见 [`UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md`](../../UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md)。 | 属于有限权利金预算的增长增强层，不是当前低回撤收入层的直接替代；需要真实期权链回测后才能把 recipe 晋级为 live。 |

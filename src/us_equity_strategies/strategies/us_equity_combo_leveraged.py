@@ -9,9 +9,10 @@ Fixed: TQQQ 40%, SOXL 20%, BOXX 40%.
 
 Dynamic mode
 ------------
-SPY 200-day MA regime signal:
-- SPY above MA200 (bull): normal weights
-- SPY below MA200 (bear): risk legs retain 50% by default, BOXX receives the rest
+Multi-asset 200-day MA regime signal:
+- SPY/QQQ/SOXX all above MA200: normal weights
+- any of SPY/QQQ/SOXX below MA200: risk legs retain 50% by default, BOXX receives the rest
+- if only 20-day MA slope weakens, keep current weights and mark soft defense
 """
 
 from __future__ import annotations
@@ -33,6 +34,8 @@ DEFAULT_SOXL_WEIGHT = 0.20
 DEFAULT_BOXX_WEIGHT = 0.40
 DEFAULT_REBALANCE_THRESHOLD = 0.05  # 5% drift triggers rebalance
 DEFAULT_HARD_DEFENSE_RISK_EXPOSURE = 0.50
+DEFAULT_SOFT_DEFENSE_RISK_EXPOSURE = 1.00
+REGIME_SYMBOLS = ("SPY", "QQQ", "SOXX")
 
 
 def _noop_logger(_message: str) -> None:
@@ -80,7 +83,13 @@ def load_runtime_parameters(
         raise ValueError("Runtime strategy config runtime_config must be an object")
 
     runtime_config = dict(raw_runtime_config)
-    for key in ("tqqq_weight", "soxl_weight", "boxx_weight", "hard_defense_risk_exposure"):
+    for key in (
+        "tqqq_weight",
+        "soxl_weight",
+        "boxx_weight",
+        "hard_defense_risk_exposure",
+        "soft_defense_risk_exposure",
+    ):
         if key not in runtime_config:
             continue
         value = float(runtime_config[key])
@@ -91,6 +100,8 @@ def load_runtime_parameters(
         runtime_config[key] = value
     if "hard_defense_risk_exposure" in runtime_config and float(runtime_config["hard_defense_risk_exposure"]) > 1.0:
         raise ValueError("Runtime strategy config hard_defense_risk_exposure must be in [0, 1]")
+    if "soft_defense_risk_exposure" in runtime_config and float(runtime_config["soft_defense_risk_exposure"]) > 1.0:
+        raise ValueError("Runtime strategy config soft_defense_risk_exposure must be in [0, 1]")
     if all(key in runtime_config for key in ("tqqq_weight", "soxl_weight", "boxx_weight")):
         total = sum(float(runtime_config[key]) for key in ("tqqq_weight", "soxl_weight", "boxx_weight"))
         if total <= 0.0:
@@ -103,6 +114,37 @@ def load_runtime_parameters(
     return runtime_config
 
 
+def _market_bool(market_data: dict[str, Any], key: str, default: bool) -> bool:
+    value = market_data.get(key, default)
+    return bool(value)
+
+
+def _resolve_regime(market_data: dict[str, Any] | None) -> dict[str, object]:
+    raw = market_data if isinstance(market_data, dict) else {}
+    above_ma200 = {
+        symbol: _market_bool(raw, f"{symbol.lower()}_above_ma200", True)
+        for symbol in REGIME_SYMBOLS
+    }
+    ma20_slope_positive = {
+        symbol: _market_bool(raw, f"{symbol.lower()}_ma20_slope_positive", True)
+        for symbol in REGIME_SYMBOLS
+    }
+
+    if not all(above_ma200.values()):
+        regime_state = "hard_defense"
+    elif not all(ma20_slope_positive.values()):
+        regime_state = "soft_defense"
+    else:
+        regime_state = "risk_on"
+
+    return {
+        "regime_state": regime_state,
+        "above_ma200": above_ma200,
+        "ma20_slope_positive": ma20_slope_positive,
+        "spy_above_ma200": above_ma200["SPY"],
+    }
+
+
 def build_target_weights(
     market_data: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
@@ -113,8 +155,10 @@ def build_target_weights(
     Parameters
     ----------
     market_data : dict or None
-        Contains price/regime info.  If it holds a 'spy_above_ma200' key,
-        dynamic mode uses it.
+        Contains price/regime info.  Dynamic mode uses SPY/QQQ/SOXX
+        '<symbol>_above_ma200' and '<symbol>_ma20_slope_positive' keys when
+        available. Missing non-SPY keys default to risk-on for backwards
+        compatibility.
     config : dict or None
         Override configuration.  Accepted keys:
         - tqqq_weight, soxl_weight, boxx_weight (overrides defaults)
@@ -122,6 +166,8 @@ def build_target_weights(
         - hard_defense_risk_exposure (float, default 0.50): retained
           TQQQ/SOXL fraction when SPY is below MA200.  Use 0.0 for a
           full BOXX hard-defense shadow.
+        - soft_defense_risk_exposure (float, default 1.00): retained
+          TQQQ/SOXL fraction when MA20 slope weakens while MA200 stays intact.
 
     Returns
     -------
@@ -137,15 +183,23 @@ def build_target_weights(
         1.0,
         max(0.0, float(cfg.get("hard_defense_risk_exposure", DEFAULT_HARD_DEFENSE_RISK_EXPOSURE))),
     )
+    soft_defense_risk_exposure = min(
+        1.0,
+        max(0.0, float(cfg.get("soft_defense_risk_exposure", DEFAULT_SOFT_DEFENSE_RISK_EXPOSURE))),
+    )
 
-    # Dynamic mode: SPY MA200 risk-off
-    spy_above_ma200 = True
-    if isinstance(market_data, dict):
-        spy_above_ma200 = bool(market_data.get("spy_above_ma200", True))
+    regime = _resolve_regime(market_data)
+    regime_state = str(regime["regime_state"])
 
-    if dynamic and not spy_above_ma200:
-        tqqq_weight *= hard_defense_risk_exposure
-        soxl_weight *= hard_defense_risk_exposure
+    if dynamic and regime_state == "hard_defense":
+        risk_exposure = hard_defense_risk_exposure
+        tqqq_weight *= risk_exposure
+        soxl_weight *= risk_exposure
+        boxx_weight = 1.0 - tqqq_weight - soxl_weight
+    elif dynamic and regime_state == "soft_defense":
+        risk_exposure = soft_defense_risk_exposure
+        tqqq_weight *= risk_exposure
+        soxl_weight *= risk_exposure
         boxx_weight = 1.0 - tqqq_weight - soxl_weight
 
     # Normalize
@@ -165,7 +219,10 @@ def build_target_weights(
         "profile_name": PROFILE_NAME,
         "signal_source": SIGNAL_SOURCE,
         "status_icon": STATUS_ICON,
-        "spy_above_ma200": spy_above_ma200,
+        "regime_state": regime_state if dynamic else "risk_on",
+        "spy_above_ma200": regime["spy_above_ma200"],
+        "above_ma200": regime["above_ma200"],
+        "ma20_slope_positive": regime["ma20_slope_positive"],
         "effective_weights": {
             "TQQQ": tqqq_weight,
             "SOXL": soxl_weight,
@@ -173,6 +230,7 @@ def build_target_weights(
         },
         "dynamic": dynamic,
         "hard_defense_risk_exposure": hard_defense_risk_exposure,
+        "soft_defense_risk_exposure": soft_defense_risk_exposure,
         "rebalance": compute_portfolio_drift(
             weights,
             holdings=cfg.get("current_holdings_quantities", {}),
@@ -202,13 +260,14 @@ def compute_signals(
         **kwargs,
     )
     ew = metadata.get("effective_weights", {})
+    regime_state = str(metadata.get("regime_state") or "risk_on")
     spy_status = "MA200_up" if metadata.get("spy_above_ma200", True) else "MA200_down"
     signal_desc = (
-        f"leveraged combo {spy_status} "
+        f"leveraged combo {regime_state} {spy_status} "
         f"TQQQ={ew.get('TQQQ', 0):.0%} SOXL={ew.get('SOXL', 0):.0%} BOXX={ew.get('BOXX', 0):.0%}"
     )
     status_desc = (
-        f"{spy_status} | "
+        f"{regime_state} {spy_status} | "
         f"TQQQ={ew.get('TQQQ', 0):.0%} SOXL={ew.get('SOXL', 0):.0%} BOXX={ew.get('BOXX', 0):.0%}"
     )
     has_cash = ew.get("BOXX", 0) > 0.5
