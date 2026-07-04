@@ -53,24 +53,39 @@ _OPTION_OVERLAY_DEFAULT_CONFIG: dict[str, object] = {
     "option_growth_overlay_nav_budget_ratio": 0.015,
 }
 
+_US_CORE_COMBO_DEFAULT_CONFIG: dict[str, object] = {
+    "dynamic": True,
+    "russell_weight": 0.40,
+    "dca_weight": 0.40,
+    "safe_weight": 0.20,
+    "soft_russell_weight": 0.35,
+    "soft_dca_weight": 0.35,
+    "soft_safe_weight": 0.30,
+    "hard_russell_weight": 0.20,
+    "hard_dca_weight": 0.05,
+    "hard_safe_weight": 0.75,
+    "dca_allocations": {
+        "QQQM": 0.50,
+        "SPLG": 0.50,
+    },
+    "safe_haven": "BOXX",
+    "execution_cash_reserve_ratio": 0.02,
+    "rebalance_frequency": "monthly",
+    **_INCOME_LAYER_DEFAULT_CONFIG,
+    **_OPTION_OVERLAY_DEFAULT_CONFIG,
+}
+
 us_equity_combo_manifest = _manifest(
     profile=US_EQUITY_COMBO_PROFILE,
     domain="quant_combo",
     display_name="US Equity Combo",
     description=(
-        "Combined US equity strategy: Russell Top50 leader rotation (50%) "
-        "+ IBIT Smart DCA (50%) with dynamic regime-based weight adjustment."
+        "Live US core combo: Russell Top50 leaders (40%) + Nasdaq/S&P ETF "
+        "sleeve (40%) + BOXX cash defense (20%), with dynamic defense weights."
     ),
     aliases=(),
     required_inputs=frozenset({"russell_snapshot", "current_holdings"}),
-    default_config={
-        "russell_weight": 0.50,
-        "dca_weight": 0.50,
-        "execution_cash_reserve_ratio": 0.02,
-        "rebalance_frequency": "monthly",
-        **_INCOME_LAYER_DEFAULT_CONFIG,
-        **_OPTION_OVERLAY_DEFAULT_CONFIG,
-    },
+    default_config={**_US_CORE_COMBO_DEFAULT_CONFIG},
 )
 
 us_equity_combo_core_manifest = _manifest(
@@ -85,26 +100,8 @@ us_equity_combo_core_manifest = _manifest(
     aliases=(),
     required_inputs=frozenset({"russell_snapshot", "current_holdings"}),
     default_config={
-        "dynamic": True,
+        **_US_CORE_COMBO_DEFAULT_CONFIG,
         "shadow_candidate": True,
-        "russell_weight": 0.40,
-        "dca_weight": 0.40,
-        "safe_weight": 0.20,
-        "soft_russell_weight": 0.35,
-        "soft_dca_weight": 0.35,
-        "soft_safe_weight": 0.30,
-        "hard_russell_weight": 0.20,
-        "hard_dca_weight": 0.05,
-        "hard_safe_weight": 0.75,
-        "dca_allocations": {
-            "QQQM": 0.50,
-            "SPLG": 0.50,
-        },
-        "safe_haven": "BOXX",
-        "execution_cash_reserve_ratio": 0.02,
-        "rebalance_frequency": "monthly",
-        **_INCOME_LAYER_DEFAULT_CONFIG,
-        **_OPTION_OVERLAY_DEFAULT_CONFIG,
     },
 )
 

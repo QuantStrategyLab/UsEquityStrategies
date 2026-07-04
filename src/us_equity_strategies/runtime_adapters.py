@@ -14,7 +14,6 @@ from us_equity_strategies.catalog import (
     IBIT_SMART_DCA_PROFILE,
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
-    US_EQUITY_COMBO_CORE_PROFILE,
     US_EQUITY_COMBO_PROFILE,
     US_EQUITY_COMBO_LEVERAGED_PROFILE,
     get_strategy_definition,
@@ -26,7 +25,6 @@ from us_equity_strategies.strategies import (
     ibit_smart_dca as ibit_smart_dca_strategy,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
-    us_equity_combo_core as us_equity_combo_core_strategy,
     us_equity_combo_leveraged as us_equity_combo_leveraged_strategy,
 )
 
@@ -112,11 +110,6 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     ),
     US_EQUITY_COMBO_PROFILE: StrategyRuntimeAdapter(
         status_icon="\U0001f1fa\U0001f1f8",
-        available_inputs=frozenset({"russell_snapshot", "current_holdings"}),
-        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
-    ),
-    US_EQUITY_COMBO_CORE_PROFILE: StrategyRuntimeAdapter(
-        status_icon=us_equity_combo_core_strategy.STATUS_ICON,
         available_inputs=frozenset({"russell_snapshot", "current_holdings"}),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
