@@ -25,8 +25,8 @@ but are not in the `runtime_enabled` live list.
 
 | Profile | Status | Key result | Reason |
 | --- | --- | --- | --- |
-| `tecl_xlk_trend_income` | research_only | 2024+ CAGR 24.8%, max drawdown -46.0%; did not beat SOXL (172% / -34%) or TQQQ live proxy. | Technology 3x transplant failed promotion gate; code, backtest entrypoints, and research artifacts retained only. See `UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md`. |
-| `tech_communication_pullback_enhancement` | research_only | CAGR 24.31%, max drawdown -30.84%. | Sector-limited tech/communication sleeve underperforms `russell_top50_leader_rotation` without better drawdown. |
+| `tecl_xlk_trend_income` | research_backtest_only | 2024+ CAGR 24.8%, max drawdown -46.0%; did not beat SOXL (172% / -34%) or TQQQ live proxy. | Technology 3x transplant failed promotion gate; code, backtest entrypoints, and research artifacts retained only. See `UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md`. |
+| `tech_communication_pullback_enhancement` | research_backtest_only | CAGR 24.31%, max drawdown -30.84%. | Sector-limited tech/communication sleeve underperforms `russell_top50_leader_rotation` without better drawdown. |
 
 ## Removed legacy research
 
