@@ -17,6 +17,7 @@ from us_equity_strategies.runtime_adapters import (
     LONGBRIDGE_PLATFORM,
     PAPER_SIGNAL_PLATFORM,
     PLATFORM_RUNTIME_ADAPTERS,
+    SHADOW_RUNTIME_ADAPTERS,
     SCHWAB_PLATFORM,
     FIRSTRADE_PLATFORM,
     get_platform_runtime_adapter,
@@ -155,7 +156,7 @@ class ContractGovernanceTests(unittest.TestCase):
             supported_profiles = frozenset(
                 profile
                 for profile, platforms in compatibility_map.items()
-                if platform_id in platforms and profile in BASE_RUNTIME_ADAPTERS
+                if platform_id in platforms and profile in (BASE_RUNTIME_ADAPTERS | SHADOW_RUNTIME_ADAPTERS)
             )
             with self.subTest(platform_id=platform_id):
                 self.assertEqual(frozenset(adapters), supported_profiles)

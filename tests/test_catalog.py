@@ -264,6 +264,14 @@ class CatalogTest(unittest.TestCase):
             metadata_map[US_EQUITY_COMBO_CORE_PROFILE].status,
             "shadow_candidate",
         )
+        self.assertEqual(
+            metadata_map[US_EQUITY_COMBO_PROFILE].status,
+            "shadow_candidate",
+        )
+        self.assertEqual(
+            metadata_map[US_EQUITY_COMBO_LEVERAGED_PROFILE].status,
+            "shadow_candidate",
+        )
 
     def test_option_overlay_defaults_are_enabled_but_live_gated(self):
         live_option_profiles = (
@@ -514,8 +522,6 @@ class CatalogTest(unittest.TestCase):
                     RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
                     NASDAQ_SP500_SMART_DCA_PROFILE,
                     IBIT_SMART_DCA_PROFILE,
-                    US_EQUITY_COMBO_PROFILE,
-                    US_EQUITY_COMBO_LEVERAGED_PROFILE,
                 }
             ),
         )

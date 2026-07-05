@@ -82,7 +82,7 @@ _更新日期：2026-06-28_
 
 | 研究方向 | 当前状态 | 不直接部署的原因 |
 | --- | --- | --- |
-| `tecl_xlk_trend_income` | `research_enabled` | 重叠窗口未跑赢 live TQQQ / SOXL（2024+ CAGR 24.8%，最大回撤 -46.0%）；保留策略实现与回测入口，不进入 runtime。研究文档见 [`UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md`](../../UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md)。 |
+| `tecl_xlk_trend_income` | `research_backtest_only` | 重叠窗口未跑赢 live TQQQ / SOXL（2024+ CAGR 24.8%，最大回撤 -46.0%）；保留策略实现与回测入口，不进入 runtime。研究文档见 [`UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md`](../../UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.zh-CN.md)。 |
 | `us_equity_combo_leveraged_shadow_352045` | shadow candidate | 组合型杠杆候选：`TQQQ 35% / SOXL 20% / BOXX 45%`，risk-off 归零风险腿转 `BOXX`。当前仅提供受控 runtime_config 与测试保护，不改变默认 live；需要平台 dry-run / shadow 周期证据后才可重新评估 live。 |
 | `us_equity_combo_leveraged_shadow_402040` | shadow candidate | 组合型杠杆候选：`TQQQ 40% / SOXL 20% / BOXX 40%`，risk-off 归零风险腿转 `BOXX`。这是 35%-40% 回撤预算下的下一轮 shadow 配置，不直接替换 live。 |
 | `crisis_response_shadow` 插件 | 可作为 `tqqq_growth_income` 的 `shadow` 插件候选，只写信号、日志和通知上下文。 | 现在是 defense-only 黑天鹅观察流，不下单、不改 allocation；需要稳定 shadow 日志后再做 evidence review。 |

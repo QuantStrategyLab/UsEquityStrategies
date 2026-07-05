@@ -108,6 +108,11 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
         available_capabilities=frozenset({"fractional_share_execution"}),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),
     ),
+}
+
+# Shadow/internal combo profiles remain describable for runtime contract and
+# test coverage, but they are not treated as base live adapters.
+SHADOW_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     US_EQUITY_COMBO_PROFILE: StrategyRuntimeAdapter(
         status_icon="\U0001f1fa\U0001f1f8",
         available_inputs=frozenset({"russell_snapshot", "current_holdings"}),
@@ -182,6 +187,18 @@ def _build_platform_runtime_adapter_map(platform_id: str) -> dict[str, StrategyR
         adapters[profile] = _build_runtime_adapter_for_platform(
             profile,
             platform_id=normalized_platform,
+        )
+    for profile, base_adapter in SHADOW_RUNTIME_ADAPTERS.items():
+        definition = get_strategy_definition(profile)
+        if normalized_platform not in definition.supported_platforms:
+            continue
+        adapters[profile] = validate_strategy_runtime_adapter(
+            replace(
+                base_adapter,
+                available_inputs=frozenset(base_adapter.available_inputs or definition.required_inputs),
+                portfolio_input_name=base_adapter.portfolio_input_name
+                or ("portfolio_snapshot" if "portfolio_snapshot" in definition.required_inputs else None),
+            )
         )
     return adapters
 
