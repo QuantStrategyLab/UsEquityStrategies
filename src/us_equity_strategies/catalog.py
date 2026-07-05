@@ -595,7 +595,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="technology_etf_plus_income",
         benchmark="XLK",
         role="sector_offensive_income",
-        status="research_enabled",
+        status="research_backtest_only",
     ),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: StrategyMetadata(
         canonical_profile=RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
@@ -637,7 +637,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=US_EQUITY_COMBO_PROFILE,
         display_name="US Equity Combo",
         description=(
-            "Live US core combo: Russell Top50 leaders (40%) + Nasdaq/S&P ETF "
+            "Shadow/internal US core combo: Russell Top50 leaders (40%) + Nasdaq/S&P ETF "
             "sleeve (40%) + BOXX cash defense (20%), with dynamic defense weights."
         ),
         aliases=(),
@@ -645,7 +645,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_equity_combo",
         benchmark="SPY",
         role="us_equity_combo",
-        status="runtime_enabled",
+        status="shadow_candidate",
     ),
     US_EQUITY_COMBO_CORE_PROFILE: StrategyMetadata(
         canonical_profile=US_EQUITY_COMBO_CORE_PROFILE,
@@ -666,7 +666,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         canonical_profile=US_EQUITY_COMBO_LEVERAGED_PROFILE,
         display_name="US Equity Combo Leveraged",
         description=(
-            "Leveraged US combo: TQQQ (40%) + SOXL (20%) + BOXX (40%) with "
+            "Shadow leveraged US combo: TQQQ (40%) + SOXL (20%) + BOXX (40%) with "
             "SPY MA200 dynamic risk-off cut."
         ),
         aliases=(),
@@ -674,7 +674,7 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         asset_scope="us_equity_combo_leveraged",
         benchmark="SPY",
         role="us_equity_combo_leveraged",
-        status="runtime_enabled",
+        status="shadow_candidate",
     ),
 }
 

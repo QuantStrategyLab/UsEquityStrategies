@@ -37,7 +37,7 @@ See the Chinese handbook for localized positioning text and default parameter ta
 
 | Profile / track | Status | Why not live |
 | --- | --- | --- |
-| `tecl_xlk_trend_income` | `research_enabled` | Failed promotion versus live TQQQ and SOXL on overlapping windows (2024+ CAGR 24.8%, max drawdown -46.0%). Code and backtest tooling retained. Docs: [`UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md`](../../UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md). |
+| `tecl_xlk_trend_income` | `research_backtest_only` | Failed promotion versus live TQQQ and SOXL on overlapping windows (2024+ CAGR 24.8%, max drawdown -46.0%). Code and backtest tooling retained. Docs: [`UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md`](../../UsEquitySnapshotPipelines/docs/tecl-xlk-optimization-research.md). |
 | `tech_communication_pullback_enhancement` | research_only | Underperforms `russell_top50_leader_rotation` on return and drawdown. |
 | `QQQ` / `SPY` LEAPS growth overlay | research_only | Design: [`research/index_leaps_growth_overlay.md`](./research/index_leaps_growth_overlay.md). Proxy backtest module: `UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md`. |
 | `us_equity_combo_leveraged_shadow_352045` | shadow_candidate | TQQQ 35% / SOXL 20% / BOXX 45% with `hard_defense_risk_exposure=0.0`. Backtest evidence: 22.21% CAGR, -33.88% max drawdown over 2010-01-05 to 2026-07-02 with 5 bps cost. Runtime config: `src/us_equity_strategies/configs/us_equity_combo_leveraged_shadow_352045.json`. |
