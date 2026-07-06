@@ -1,5 +1,14 @@
 # UsEquityStrategies
 
+
+## QSL architecture role
+
+- **Layer**: `strategy-library`.
+- **Responsibility**: US equity strategy implementation package.
+- **Owns**: runtime-enabled US strategy code, manifests, execution metadata.
+- **Consumes**: QuantPlatformKit and validated US snapshot artifacts.
+- **Must not**: own broker credentials or deployment settings.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
