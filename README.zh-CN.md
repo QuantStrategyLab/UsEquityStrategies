@@ -1,5 +1,14 @@
 # UsEquityStrategies
 
+
+## QSL 架构角色
+
+- **层级**：`策略库`。
+- **职责**：美股策略实现包。
+- **事实源/归属**：runtime-enabled 美股策略代码、manifests、execution metadata。
+- **消费对象**：QuantPlatformKit 和已验证 US snapshot artifacts。
+- **禁止事项**：持有券商凭据或部署设置。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
