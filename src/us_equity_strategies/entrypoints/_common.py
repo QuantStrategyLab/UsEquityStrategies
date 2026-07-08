@@ -25,6 +25,30 @@ from us_equity_strategies.option_overlay import (
 # ---------------------------------------------------------------------------
 
 
+def _position_weight(position: PositionTarget) -> float | None:
+    if position.target_weight is not None:
+        return abs(float(position.target_weight))
+    return None
+
+
+def _reject_risk_gate(
+    decision: StrategyDecision,
+    *,
+    risk_flag: str,
+    reason: str,
+) -> StrategyDecision:
+    return StrategyDecision(
+        positions=(),
+        budgets=decision.budgets,
+        risk_flags=(risk_flag,),
+        diagnostics={
+            **(decision.diagnostics or {}),
+            "risk_gate": "REJECT",
+            "reason": reason,
+        },
+    )
+
+
 def apply_risk_gate(
     decision: StrategyDecision,
     *,
@@ -50,27 +74,32 @@ def apply_risk_gate(
     positions = decision.positions or ()
     risk_flags = list(decision.risk_flags or ())
 
-    # 空仓放行（risk_off 场景）
+    # 空仓放行（risk_off / emergency 场景仍标记 gate 通过）
     if not positions:
-        return decision
+        risk_flags.append("risk_gate:passed")
+        return StrategyDecision(
+            positions=decision.positions,
+            budgets=decision.budgets,
+            risk_flags=tuple(risk_flags),
+            diagnostics={**(decision.diagnostics or {}), "risk_gate": "APPROVE"},
+        )
 
-    # 1. 集中度检查（默认不限制，由策略自行设定）
-    if max_single_weight < 1.0:
-        for p in positions:
-            weight = abs(float(p.target_weight))
+    weight_positions = [p for p in positions if _position_weight(p) is not None]
+
+    # 1. 集中度检查（仅 weight 模式；value 目标由策略/平台约束）
+    if max_single_weight < 1.0 and weight_positions:
+        for p in weight_positions:
+            weight = _position_weight(p)
+            assert weight is not None
             if weight > max_single_weight:
                 logger.warning(
                     "risk_gate REJECT concentration: symbol=%s weight=%.2f%% limit=%.0f%%",
                     p.symbol, weight * 100, max_single_weight * 100,
                 )
-                return StrategyDecision(
-                    positions=(),
-                    risk_flags=("rejected:concentration",),
-                    diagnostics={
-                        **(decision.diagnostics or {}),
-                        "risk_gate": "REJECT",
-                        "reason": f"{p.symbol} {weight:.1%} > {max_single_weight:.0%} 上限",
-                    },
+                return _reject_risk_gate(
+                    decision,
+                    risk_flag="rejected:concentration",
+                    reason=f"{p.symbol} {weight:.1%} > {max_single_weight:.0%} 上限",
                 )
 
     # 2. 持仓数量检查
@@ -78,37 +107,31 @@ def apply_risk_gate(
         logger.warning(
             "risk_gate REJECT position_count: %d > %d", len(positions), max_positions,
         )
-        return StrategyDecision(
-            positions=(),
-            risk_flags=("rejected:too_many_positions",),
-            diagnostics={
-                **(decision.diagnostics or {}),
-                "risk_gate": "REJECT",
-                "reason": f"{len(positions)} 个持仓 > {max_positions} 上限",
-            },
+        return _reject_risk_gate(
+            decision,
+            risk_flag="rejected:too_many_positions",
+            reason=f"{len(positions)} 个持仓 > {max_positions} 上限",
         )
 
-    # 3. 总仓位检查
-    total_weight = sum(abs(float(p.target_weight)) for p in positions)
-    if total_weight > max_total_exposure + 1e-9:
-        logger.warning(
-            "risk_gate REJECT total_exposure: %.2f%% > %.0f%%",
-            total_weight * 100, max_total_exposure * 100,
-        )
-        return StrategyDecision(
-            positions=(),
-            risk_flags=("rejected:overexposed",),
-            diagnostics={
-                **(decision.diagnostics or {}),
-                "risk_gate": "REJECT",
-                "reason": f"总仓位 {total_weight:.1%} > {max_total_exposure:.0%}",
-            },
-        )
+    # 3. 总仓位检查（仅 weight 模式）
+    if weight_positions:
+        total_weight = sum(_position_weight(p) or 0.0 for p in weight_positions)
+        if total_weight > max_total_exposure + 1e-9:
+            logger.warning(
+                "risk_gate REJECT total_exposure: %.2f%% > %.0f%%",
+                total_weight * 100, max_total_exposure * 100,
+            )
+            return _reject_risk_gate(
+                decision,
+                risk_flag="rejected:overexposed",
+                reason=f"总仓位 {total_weight:.1%} > {max_total_exposure:.0%}",
+            )
 
     # 通过
     risk_flags.append("risk_gate:passed")
     return StrategyDecision(
         positions=decision.positions,
+        budgets=decision.budgets,
         risk_flags=tuple(risk_flags),
         diagnostics={**(decision.diagnostics or {}), "risk_gate": "APPROVE"},
     )
