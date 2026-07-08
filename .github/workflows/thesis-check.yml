@@ -1,0 +1,70 @@
+name: Thesis Check
+
+on:
+  schedule:
+    - cron: "0 2 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  thesis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Validate thesis ledger
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          path = pathlib.Path("docs/thesis-ledger.json")
+          if not path.exists():
+              print("::error::docs/thesis-ledger.json missing")
+              sys.exit(1)
+          data = json.loads(path.read_text())
+          strategies = data.get("strategies") or {}
+          if not strategies:
+              print("::error::no strategies in thesis ledger")
+              sys.exit(1)
+          failures = []
+          warnings = []
+          for name, row in strategies.items():
+              fals = row.get("falsification_conditions") or []
+              if not row.get("thesis"):
+                  failures.append(f"{name}: missing thesis")
+              if len(fals) < 2:
+                  failures.append(f"{name}: need >=2 falsification_conditions")
+              hit = row.get("hit_rate")
+              if hit is not None and float(hit) < 0.5:
+                  warnings.append(f"{name}: hit_rate {hit} < 0.5")
+              if str(row.get("verdict", "")).lower() in {"falsified", "failed", "reject"}:
+                  failures.append(f"{name}: verdict={row.get('verdict')}")
+          print(f"[thesis-check] strategies={len(strategies)} failures={len(failures)} warnings={len(warnings)}")
+          for item in failures:
+              print(f"::error::{item}")
+          for item in warnings:
+              print(f"::warning::{item}")
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if failures and repo and token:
+              title = f"[thesis-check] falsification/validation failures ({len(failures)})"
+              body = "\n".join(f"- {x}" for x in failures)
+              # create issue (best-effort)
+              subprocess.run([
+                  "gh", "issue", "create", "--title", title, "--body", body + "\n\ncc @Pigbibi"
+              ], check=False)
+          sys.exit(1 if failures else 0)
+          PY
