@@ -1,0 +1,52 @@
+name: Drift Check
+
+# Daily drift detection for US equity strategies.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      STRATEGY_DOMAIN: us_equity
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout QuantPlatformKit
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: main
+          path: external/QuantPlatformKit
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pandas
+          python -m pip install --no-deps -e external/QuantPlatformKit
+
+      - name: Run drift detection
+        run: quant-lifecycle drift --domain us_equity --no-alerts
+
+      - name: Sync drift alerts to GitHub Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/run_drift_github_issues.py
