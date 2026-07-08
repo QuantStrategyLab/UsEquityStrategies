@@ -1235,7 +1235,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision, max_single_weight=0.20)
+    return apply_risk_gate(decision)
 
 
 def evaluate_russell_top50_leader_rotation(ctx: StrategyContext) -> StrategyDecision:

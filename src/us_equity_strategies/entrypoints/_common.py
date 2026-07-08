@@ -74,13 +74,12 @@ def apply_risk_gate(
     positions = decision.positions or ()
     risk_flags = list(decision.risk_flags or ())
 
-    # 空仓放行（risk_off / emergency 场景仍标记 gate 通过）
+    # 空仓放行（risk_off / emergency）
     if not positions:
-        risk_flags.append("risk_gate:passed")
         return StrategyDecision(
             positions=decision.positions,
             budgets=decision.budgets,
-            risk_flags=tuple(risk_flags),
+            risk_flags=decision.risk_flags,
             diagnostics={**(decision.diagnostics or {}), "risk_gate": "APPROVE"},
         )
 
@@ -127,12 +126,10 @@ def apply_risk_gate(
                 reason=f"总仓位 {total_weight:.1%} > {max_total_exposure:.0%}",
             )
 
-    # 通过
-    risk_flags.append("risk_gate:passed")
     return StrategyDecision(
         positions=decision.positions,
         budgets=decision.budgets,
-        risk_flags=tuple(risk_flags),
+        risk_flags=decision.risk_flags,
         diagnostics={**(decision.diagnostics or {}), "risk_gate": "APPROVE"},
     )
 

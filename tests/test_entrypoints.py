@@ -264,7 +264,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
 
         self.assertTrue(expected_is_emergency)
-        self.assertEqual(decision.risk_flags, ("emergency", "risk_gate:passed"))
+        self.assertEqual(decision.risk_flags, ("emergency",))
         self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, expected_weights)
         self.assertEqual(decision.diagnostics["signal_description"], expected_signal)
         self.assertEqual(decision.diagnostics["canary_status"], expected_canary)
