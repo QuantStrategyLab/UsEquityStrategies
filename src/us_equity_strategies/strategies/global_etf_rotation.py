@@ -279,6 +279,86 @@ def compute_signals(
     signal_desc = translator("quarterly", n=top_n) + f"\n  Top: {top_str}{confidence_note}"
     return weights, signal_desc, False, canary_str
 
+
+PROFILE_NAME = "global_etf_rotation"
+DEFAULT_MIN_HISTORY_DAYS = 260
+
+
+def _closes_for_symbol(market_history: pd.DataFrame, symbol: str) -> pd.Series:
+    frame = market_history.copy()
+    frame["date"] = pd.to_datetime(frame["date"], utc=False).dt.tz_localize(None).dt.normalize()
+    frame["symbol"] = frame["symbol"].astype(str).str.strip().str.upper()
+    subset = frame.loc[frame["symbol"] == symbol.upper()].sort_values("date")
+    if subset.empty:
+        return pd.Series(dtype=float)
+    return pd.Series(subset["close"].astype(float).values, index=subset["date"])
+
+
+def extract_managed_symbols_universe(
+    *_args: Any,
+    **_kwargs: Any,
+) -> tuple[str, ...]:
+    symbols = list(dict.fromkeys([*RANKING_POOL, *CANARY_ASSETS, SAFE_HAVEN]))
+    return tuple(symbols)
+
+
+def build_target_weights(
+    market_history: Any,
+    **kwargs: Any,
+) -> tuple[dict[str, float], dict[str, object]]:
+    """History-based weights for orchestrator backtests (synthetic / proxy OHLCV)."""
+    frame = market_history.copy() if isinstance(market_history, pd.DataFrame) else pd.DataFrame(list(market_history))
+    if frame.empty:
+        return {}, {"mode": "empty_history"}
+
+    frame["date"] = pd.to_datetime(frame["date"], utc=False).dt.tz_localize(None).dt.normalize()
+    as_of = frame["date"].max()
+    min_history_days = int(kwargs.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
+    if frame["date"].nunique() < min_history_days:
+        return {}, {"mode": "insufficient_history"}
+
+    price_data: dict[str, pd.Series] = {}
+    for ticker in extract_managed_symbols_universe():
+        closes = _closes_for_symbol(frame, ticker)
+        if not closes.empty:
+            price_data[ticker] = closes
+
+    n_bad = 0
+    for ticker in CANARY_ASSETS:
+        closes = price_data.get(ticker)
+        if closes is None or closes.empty:
+            n_bad += 1
+            continue
+        mom = compute_13612w_momentum(closes, as_of_date=as_of)
+        if np.isnan(mom) or mom < 0:
+            n_bad += 1
+    if n_bad >= CANARY_BAD_THRESHOLD:
+        return {SAFE_HAVEN: 1.0}, {"mode": "emergency", "canary_bad": n_bad}
+
+    if not _snapshot_rebalance_day(as_of, rebalance_months=REBALANCE_MONTHS):
+        return {}, {"mode": "hold"}
+
+    scores: dict[str, float] = {}
+    for ticker in RANKING_POOL:
+        closes = price_data.get(ticker)
+        if closes is None or closes.empty:
+            continue
+        mom = compute_13612w_momentum(closes, as_of_date=as_of)
+        if np.isnan(mom) or not check_sma(closes, SMA_PERIOD):
+            continue
+        scores[ticker] = float(mom)
+
+    top = sorted(scores.items(), key=lambda item: -item[1])[:TOP_N]
+    if not top:
+        return {SAFE_HAVEN: 1.0}, {"mode": "safe_haven"}
+
+    per_weight = 1.0 / float(TOP_N)
+    weights = {ticker: per_weight for ticker, _score in top}
+    if len(top) < TOP_N:
+        weights[SAFE_HAVEN] = weights.get(SAFE_HAVEN, 0.0) + per_weight * (TOP_N - len(top))
+    return weights, {"mode": "rebalance", "selected": [ticker for ticker, _ in top]}
+
+
 SIGNAL_SOURCE = "feature_snapshot"
 SNAPSHOT_CONTRACT_VERSION = "global_etf_rotation.feature_snapshot.v1"
 REQUIRED_FEATURE_COLUMNS = frozenset(
