@@ -62,6 +62,7 @@ from ._common import (
     pop_option_overlay_config,
     require_market_data,
     require_portfolio,
+    record_strategy_decision,
     target_values_to_positions,
     weights_to_positions,
 )
@@ -323,7 +324,14 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision)
+    decision = apply_risk_gate(decision)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=manifest.profile,
+        domain=manifest.domain,
+    )
+    return decision
 
 
 def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
@@ -597,7 +605,14 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=tqqq_growth_income_manifest.profile,
+        domain=tqqq_growth_income_manifest.domain,
+    )
+    return decision
 
 
 tqqq_growth_income_strategy.build_rebalance_plan.__doc__ = (
@@ -876,7 +891,14 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=soxl_soxx_trend_income_manifest.profile,
+        domain=soxl_soxx_trend_income_manifest.domain,
+    )
+    return decision
 
 
 def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
@@ -1120,7 +1142,14 @@ def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=tecl_xlk_trend_income_manifest.profile,
+        domain=tecl_xlk_trend_income_manifest.domain,
+    )
+    return decision
 
 soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
     ((soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ or "").strip() +
@@ -1235,7 +1264,14 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision)
+    decision = apply_risk_gate(decision)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=manifest.profile,
+        domain=manifest.domain,
+    )
+    return decision
 
 
 def evaluate_russell_top50_leader_rotation(ctx: StrategyContext) -> StrategyDecision:
@@ -1357,7 +1393,14 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision)
+    decision = apply_risk_gate(decision)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=nasdaq_sp500_smart_dca_manifest.profile,
+        domain=nasdaq_sp500_smart_dca_manifest.domain,
+    )
+    return decision
 
 
 def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
@@ -1490,7 +1533,14 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=ibit_smart_dca_manifest.profile,
+        domain=ibit_smart_dca_manifest.domain,
+    )
+    return decision
 
 
 nasdaq_sp500_smart_dca_strategy.build_rebalance_plan.__doc__ = (
@@ -1541,7 +1591,14 @@ ibit_smart_dca_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo as _eval
-    return apply_risk_gate(_eval(ctx))
+    decision = apply_risk_gate(_eval(ctx))
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=us_equity_combo_manifest.profile,
+        domain=us_equity_combo_manifest.domain,
+    )
+    return decision
 
 
 us_equity_combo_entrypoint = CallableStrategyEntrypoint(
@@ -1552,7 +1609,14 @@ us_equity_combo_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_core as _eval
-    return apply_risk_gate(_eval(ctx))
+    decision = apply_risk_gate(_eval(ctx))
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=us_equity_combo_core_manifest.profile,
+        domain=us_equity_combo_core_manifest.domain,
+    )
+    return decision
 
 
 us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
@@ -1563,7 +1627,14 @@ us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged as _eval
-    return apply_risk_gate(_eval(ctx))
+    decision = apply_risk_gate(_eval(ctx))
+    record_strategy_decision(
+        ctx,
+        decision,
+        profile_id=us_equity_combo_leveraged_manifest.profile,
+        domain=us_equity_combo_leveraged_manifest.domain,
+    )
+    return decision
 
 
 us_equity_combo_leveraged_entrypoint = CallableStrategyEntrypoint(
