@@ -1,0 +1,76 @@
+name: Evidence Gate
+
+# Block PRs that promote catalog status without a valid evidence package.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "src/**/catalog.py"
+      - "src/**/combo_manifests.py"
+      - "docs/evidence/**"
+      - "evidence/**"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: evidence-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve QuantPlatformKit ref
+        id: quant-platform-kit-ref
+        run: |
+          set -euo pipefail
+          ref="main"
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            case "${GITHUB_HEAD_REF}" in
+              dependabot/*)
+                ;;
+              *)
+                if git ls-remote --exit-code --heads https://github.com/QuantStrategyLab/QuantPlatformKit.git "${GITHUB_HEAD_REF}" >/dev/null 2>&1; then
+                  ref="${GITHUB_HEAD_REF}"
+                fi
+                ;;
+            esac
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout QuantPlatformKit
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}
+          path: external/QuantPlatformKit
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pandas
+          python -m pip install --no-deps -e external/QuantPlatformKit
+
+      - name: Evaluate Evidence Gate
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: python scripts/gate_evidence_package.py
