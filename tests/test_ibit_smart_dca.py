@@ -713,7 +713,7 @@ def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert targets == {"IBIT": 1100.0}
     assert decision.diagnostics["signal_source"] == "derived_indicators/market_history+portfolio_snapshot"
     assert decision.diagnostics["signal_symbols"] == (BTC_SIGNAL_SYMBOL,)
@@ -750,7 +750,7 @@ def test_ibit_smart_dca_entrypoint_emits_boxx_sell_target_for_cash_substitute_dc
 
     targets = {position.symbol: position.target_value for position in decision.positions}
     roles = {position.symbol: position.role for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert targets == {"BOXX": 100.0, "IBIT": 2000.0}
     assert roles["BOXX"] == "safe_haven"
     assert decision.diagnostics["cash_substitute_used_usd"] == 800.0
@@ -779,7 +779,7 @@ def test_ibit_smart_dca_entrypoint_uses_derived_indicators_for_ahr999() -> None:
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert targets == {"IBIT": 3500.0}
     assert decision.diagnostics["regime"] == "ahr999_bottom"
     assert decision.diagnostics["multiplier"] == 3.0
@@ -817,7 +817,7 @@ def test_ibit_smart_dca_entrypoint_consumes_zscore_exit_plugin_metadata() -> Non
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert targets == {"BOXX": 750.0, "IBIT": 250.0}
     assert decision.diagnostics["planned_investment_usd"] == 0.0
     assert decision.diagnostics["ibit_zscore_exit"]["applied"] is True
@@ -843,7 +843,7 @@ def test_ibit_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> Non
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert decision.diagnostics["reserved_cash"] == 4500.0
     assert decision.diagnostics["investable_cash"] == 500.0
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
