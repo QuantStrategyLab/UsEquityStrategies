@@ -274,7 +274,7 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert targets == {"QQQM": 1500.0, "SPLG": 1700.0}
     assert decision.diagnostics["signal_source"] == "derived_indicators/market_history+portfolio_snapshot"
     assert decision.diagnostics["investment_amount_mode"] == "fixed"
@@ -360,7 +360,7 @@ def test_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
     )
 
     targets = {position.symbol: position.target_value for position in decision.positions}
-    assert decision.risk_flags == ()
+    assert decision.risk_flags == ("risk_gate:passed",)
     assert decision.diagnostics["reserved_cash"] == 4500.0
     assert decision.diagnostics["investable_cash"] == 500.0
     assert decision.diagnostics["requested_investment_usd"] == 1000.0
