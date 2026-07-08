@@ -65,5 +65,14 @@ jobs:
           CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
           AI_GATEWAY_SERVICE_URL: ${{ vars.AI_GATEWAY_SERVICE_URL }}
         run: |
-          PYTHONPATH=external/AIAuditBridge python external/AIAuditBridge/scripts/run_drift_dual_review.py \
+          script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
+          if [ ! -f "$script" ]; then
+            echo "::notice::dual-review scripts unavailable; skipping until AIAuditBridge is merged"
+            exit 0
+          fi
+          if [ -z "${CODEX_AUDIT_SERVICE_URL:-}" ]; then
+            echo "::notice::CODEX_AUDIT_SERVICE_URL not configured; skipping dual-review dispatch"
+            exit 0
+          fi
+          PYTHONPATH=external/AIAuditBridge python "$script" \
             --domain "${STRATEGY_DOMAIN}" --dispatch
