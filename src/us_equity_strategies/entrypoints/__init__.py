@@ -328,7 +328,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision)
+    decision = apply_risk_gate(decision, ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,
@@ -612,7 +612,7 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
     record_strategy_decision(
         ctx,
         decision,
@@ -901,7 +901,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
     record_strategy_decision(
         ctx,
         decision,
@@ -1155,7 +1155,7 @@ def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
     record_strategy_decision(
         ctx,
         decision,
@@ -1277,7 +1277,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision)
+    decision = apply_risk_gate(decision, ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,
@@ -1406,7 +1406,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision)
+    decision = apply_risk_gate(decision, ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,
@@ -1546,7 +1546,7 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, max_single_weight=0.20)
+    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
     record_strategy_decision(
         ctx,
         decision,
@@ -1604,7 +1604,7 @@ ibit_smart_dca_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo as _eval
-    decision = apply_risk_gate(_eval(ctx))
+    decision = apply_risk_gate(_eval(ctx), ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,
@@ -1622,7 +1622,7 @@ us_equity_combo_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_core as _eval
-    decision = apply_risk_gate(_eval(ctx))
+    decision = apply_risk_gate(_eval(ctx), ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,
@@ -1640,7 +1640,7 @@ us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged as _eval
-    decision = apply_risk_gate(_eval(ctx))
+    decision = apply_risk_gate(_eval(ctx), ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,
