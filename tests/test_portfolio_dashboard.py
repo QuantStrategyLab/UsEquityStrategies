@@ -56,11 +56,8 @@ class PortfolioDashboardTests(unittest.TestCase):
         self.assertIn("可投资现金: $0.00", dashboard)
         self.assertIn("各币种现金: SGD 350.00", dashboard)
         self.assertIn("💼 策略持仓", dashboard)
-        self.assertIn("SOXL: $0.00 / 0股", dashboard)
-        self.assertIn("SOXX: $0.00 / 0股", dashboard)
-        self.assertIn("BOXX: $0.00 / 0股", dashboard)
-        self.assertIn("QQQI: $0.00 / 0股", dashboard)
-        self.assertIn("SPYI: $0.00 / 0股", dashboard)
+        # Zero positions are now hidden; empty holdings show "空仓"
+        self.assertIn("空仓", dashboard)
         self.assertNotIn("跟踪股票池", dashboard)
 
     def test_snapshot_entrypoint_attaches_strategy_portfolio_dashboard(self) -> None:

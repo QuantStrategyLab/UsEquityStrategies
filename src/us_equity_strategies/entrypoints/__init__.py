@@ -303,6 +303,9 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         diagnostics,
         translator=translator,
     )
+    global_etf_portfolio_context = dict(notification_context.get("portfolio") or {}) if isinstance(notification_context, Mapping) else {}
+    global_etf_portfolio_context.setdefault("income_layer_enabled", income_layer_config.get("income_layer_enabled", True))
+    global_etf_portfolio_context["option_overlay_enabled"] = option_overlay_config.get("option_overlay_enabled", False)
     _attach_dashboard_text(
         diagnostics,
         _build_dashboard_text(
@@ -314,6 +317,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
             ),
             translator=translator,
             signal_text=diagnostics["signal_description"],
+            portfolio_context=global_etf_portfolio_context,
         ),
     )
     _attach_notification_context(diagnostics, notification_context)
@@ -381,13 +385,16 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         translator=translator,
     )
     benchmark_text = _build_tqqq_benchmark_text(notification_context.get("benchmark")) or str(plan["dashboard"]).splitlines()[-1]
+    portfolio_context = dict(notification_context.get("portfolio") or {})
+    portfolio_context.setdefault("income_layer_enabled", config.get("income_layer_enabled", True))
+    portfolio_context["option_overlay_enabled"] = option_overlay_config.get("option_overlay_enabled", False)
     dashboard_text = _build_dashboard_text(
         ctx,
         strategy_symbols=managed_symbols,
         translator=translator,
         signal_text=signal_display,
         benchmark_text=benchmark_text,
-        portfolio_context=notification_context.get("portfolio"),
+        portfolio_context=portfolio_context,
     )
     option_overlay_diagnostics = build_option_overlay_diagnostics(
         option_overlay_config,
@@ -687,12 +694,15 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         account_size_diagnostics,
         translator=translator,
     )
+    portfolio_context = dict(notification_context.get("portfolio") or {})
+    portfolio_context.setdefault("income_layer_enabled", config.get("income_layer_enabled", True))
+    portfolio_context["option_overlay_enabled"] = option_overlay_config.get("option_overlay_enabled", False)
     dashboard_text = _build_dashboard_text(
         ctx,
         strategy_symbols=strategy_symbols,
         translator=translator,
         signal_text=signal_message,
-        portfolio_context=notification_context.get("portfolio"),
+        portfolio_context=portfolio_context,
     )
     option_overlay_diagnostics = build_option_overlay_diagnostics(
         option_overlay_config,
@@ -938,12 +948,15 @@ def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
         account_size_diagnostics,
         translator=translator,
     )
+    portfolio_context = dict(notification_context.get("portfolio") or {})
+    portfolio_context.setdefault("income_layer_enabled", config.get("income_layer_enabled", True))
+    portfolio_context["option_overlay_enabled"] = option_overlay_config.get("option_overlay_enabled", False)
     dashboard_text = _build_dashboard_text(
         ctx,
         strategy_symbols=strategy_symbols,
         translator=translator,
         signal_text=signal_message,
-        portfolio_context=notification_context.get("portfolio"),
+        portfolio_context=portfolio_context,
     )
     option_overlay_diagnostics = build_option_overlay_diagnostics(
         option_overlay_config,

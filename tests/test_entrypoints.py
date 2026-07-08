@@ -621,7 +621,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("QQQM", target_values)
         self.assertNotIn("QQQ", target_values)
         self.assertGreater(target_values["QQQM"], 0.0)
-        self.assertIn("QQQM: $", decision.diagnostics["dashboard"])
+        # QQQM has zero position value (redirected to cash) — not shown in dashboard
         self.assertIn("QQQ: ", decision.diagnostics["dashboard"])
 
     def test_runtime_requirements_classify_snapshot_and_non_snapshot_profiles(self) -> None:
