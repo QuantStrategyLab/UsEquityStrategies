@@ -259,6 +259,36 @@ def _labels(translator: Translator | None, *, cash_only_execution: bool) -> dict
     }
 
 
+def _format_layer_indicators(
+    context: Mapping[str, Any],
+    *,
+    translator: Translator | None = None,
+) -> str:
+    use_zh = _translator_uses_zh(translator)
+    if use_zh:
+        yes_label, no_label = "是", "否"
+        parts_template = [
+            ("plugin_enabled", "插件"),
+            ("margin_enabled", "融资"),
+            ("option_overlay_enabled", "期权"),
+            ("income_layer_enabled", "收入层"),
+        ]
+    else:
+        yes_label, no_label = "yes", "no"
+        parts_template = [
+            ("plugin_enabled", "Plugin"),
+            ("margin_enabled", "Margin"),
+            ("option_overlay_enabled", "Options"),
+            ("income_layer_enabled", "Income"),
+        ]
+    parts = []
+    for field, label in parts_template:
+        value = context.get(field)
+        if value is not None:
+            parts.append(f"{label}: {yes_label if value else no_label}")
+    return " | ".join(parts) if parts else ""
+
+
 def build_portfolio_dashboard(
     snapshot: Any,
     *,
@@ -292,11 +322,14 @@ def build_portfolio_dashboard(
         context,
         cash_only_execution=cash_only_execution,
     )
-    lines = [
-        labels["title"],
+    lines = [labels["title"]]
+    indicators = _format_layer_indicators(context, translator=translator)
+    if indicators:
+        lines.append(f"  {indicators}")
+    lines.extend([
         f"  - {labels['total_assets']}: {_format_money(total_equity)}",
         f"  - {labels['buying_power']}: {_format_money(buying_power)}",
-    ]
+    ])
     reserved_cash = _as_optional_float(context.get("reserved_cash"))
     if reserved_cash is not None:
         lines.append(f"  - {labels['reserved_cash']}: {_format_money(reserved_cash)}")
@@ -314,16 +347,13 @@ def build_portfolio_dashboard(
     if formatted_cash and (len(nonzero_currencies) > 1 or "USD" not in nonzero_currencies):
         lines.append(f"  - {labels['cash_by_currency']}: {formatted_cash}")
 
-    compact_universe = len(symbols) > _COMPACT_UNIVERSE_THRESHOLD
-    if compact_universe:
-        displayed_symbols = tuple(
-            symbol
-            for symbol in symbols
-            if float(market_values.get(symbol, 0.0) or 0.0) != 0.0
-            or float(quantities.get(symbol, 0) or 0.0) != 0.0
-        )
-    else:
-        displayed_symbols = symbols
+    displayed_symbols = tuple(
+        symbol
+        for symbol in symbols
+        if float(market_values.get(symbol, 0.0) or 0.0) != 0.0
+        or float(quantities.get(symbol, 0) or 0.0) != 0.0
+    )
+    omitted_symbols = tuple(symbol for symbol in symbols if symbol not in displayed_symbols)
     lines.append(labels["holdings"])
     if displayed_symbols:
         for symbol in displayed_symbols:
@@ -333,8 +363,7 @@ def build_portfolio_dashboard(
             )
     else:
         lines.append(f"  - {labels['empty']}")
-    if compact_universe and symbols and len(displayed_symbols) < len(symbols):
-        omitted_symbols = tuple(symbol for symbol in symbols if symbol not in displayed_symbols) or symbols
+    if omitted_symbols and len(symbols) > _COMPACT_UNIVERSE_THRESHOLD:
         lines.append(
             f"  - {labels['tracked_universe']}: {len(symbols)}{labels['tracked_count_suffix']} "
             f"({_format_symbol_preview(omitted_symbols)})"
