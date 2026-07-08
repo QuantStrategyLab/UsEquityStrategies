@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   issues: write
+  id-token: write
 
 jobs:
   drift:
@@ -50,3 +51,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python scripts/run_drift_github_issues.py
+
+      - name: Checkout AIAuditBridge
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/AIAuditBridge
+          ref: main
+          path: external/AIAuditBridge
+
+      - name: Dual-review critical drift
+        env:
+          AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
+          CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
+          AI_GATEWAY_SERVICE_URL: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+        run: |
+          PYTHONPATH=external/AIAuditBridge python external/AIAuditBridge/scripts/run_drift_dual_review.py \
+            --domain "${STRATEGY_DOMAIN}" --dispatch
