@@ -46,6 +46,7 @@ from us_equity_strategies.strategies import (
 )
 
 from ._common import (
+    apply_risk_gate,
     apply_reserved_cash_policy_to_ratio_config,
     apply_reserved_cash_policy_to_usd_config,
     apply_income_layer_to_weights,
@@ -317,11 +318,12 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
     _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
     risk_flags = ("emergency",) if is_emergency else ()
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BIL"))),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision)
 
 
 def evaluate_global_etf_rotation(ctx: StrategyContext) -> StrategyDecision:
@@ -591,10 +593,11 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     }
     _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision, max_single_weight=0.20)
 
 
 tqqq_growth_income_strategy.build_rebalance_plan.__doc__ = (
@@ -869,10 +872,11 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     }
     _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision, max_single_weight=0.20)
 
 
 def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
@@ -1112,10 +1116,11 @@ def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
     }
     _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision, max_single_weight=0.20)
 
 soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ = (
     ((soxl_soxx_trend_income_strategy.build_rebalance_plan.__doc__ or "").strip() +
@@ -1225,11 +1230,12 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
         risk_flags += ("hard_defense",)
     if weights is None:
         risk_flags += ("no_execute",)
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BOXX"))),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision)
 
 
 def evaluate_russell_top50_leader_rotation(ctx: StrategyContext) -> StrategyDecision:
@@ -1346,11 +1352,12 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     )
     _attach_execution_timing(diagnostics, ctx)
     risk_flags = ("no_execute",) if not plan["actionable"] else ()
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision)
 
 
 def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
@@ -1478,11 +1485,12 @@ def evaluate_ibit_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     )
     _attach_execution_timing(diagnostics, ctx)
     risk_flags = ("no_execute",) if not plan["actionable"] else ()
-    return StrategyDecision(
+    decision = StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
+    return apply_risk_gate(decision, max_single_weight=0.20)
 
 
 nasdaq_sp500_smart_dca_strategy.build_rebalance_plan.__doc__ = (
@@ -1533,7 +1541,7 @@ ibit_smart_dca_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo as _eval
-    return _eval(ctx)
+    return apply_risk_gate(_eval(ctx))
 
 
 us_equity_combo_entrypoint = CallableStrategyEntrypoint(
@@ -1544,7 +1552,7 @@ us_equity_combo_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_core as _eval
-    return _eval(ctx)
+    return apply_risk_gate(_eval(ctx))
 
 
 us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
@@ -1555,7 +1563,7 @@ us_equity_combo_core_entrypoint = CallableStrategyEntrypoint(
 
 def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision:
     from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged as _eval
-    return _eval(ctx)
+    return apply_risk_gate(_eval(ctx))
 
 
 us_equity_combo_leveraged_entrypoint = CallableStrategyEntrypoint(
