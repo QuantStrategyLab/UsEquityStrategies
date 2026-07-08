@@ -1,0 +1,94 @@
+{
+  "strategies": {
+    "global_etf_rotation": {
+      "thesis": "全球资产ETF月度动量轮动可捕获跨市场相对强度",
+      "falsification_conditions": [
+        "滚动12个月 IC < 0.02",
+        "相对 60/40 基准滚动超额连续3个月为负"
+      ],
+      "created": "2025-06-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null
+    },
+    "tqqq_growth_income": {
+      "thesis": "TQQQ 成长仓位叠加 income 层可在趋势市提高资金效率并控制回撤",
+      "falsification_conditions": [
+        "连续亏损 > 5 笔触发熔断后恢复期仍恶化",
+        "滚动12个月 Calmar 低于回测基线 50%"
+      ],
+      "created": "2025-06-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null
+    },
+    "soxl_soxx_trend_income": {
+      "thesis": "半导体杠杆/现货趋势切换可在行业景气周期中提高风险调整收益",
+      "falsification_conditions": [
+        "相对 SOXX buy&hold 12个月超额为负",
+        "最大回撤超过策略止损预算"
+      ],
+      "created": "2025-06-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null
+    },
+    "nasdaq_sp500_smart_dca": {
+      "thesis": "纳指/标普智能定投可通过估值与回撤信号改善普通 DCA 的入场分布",
+      "falsification_conditions": [
+        "相对等额定投 12个月超额 < 0",
+        "在单边上升市连续 2 个季度显著跑输"
+      ],
+      "created": "2025-07-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null
+    },
+    "ibit_smart_dca": {
+      "thesis": "IBIT 智能定投可通过波动/估值信号降低 BTC 现货 ETF 定投痛苦指数",
+      "falsification_conditions": [
+        "相对等额定投 12个月超额 < 0",
+        "下行捕获率显著劣于基准定投"
+      ],
+      "created": "2025-08-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null
+    },
+    "us_equity_combo": {
+      "thesis": "多策略 US combo 通过去相关叠加提升组合稳定性",
+      "falsification_conditions": [
+        "组合滚动相关>0.8 导致分散失效连续3个月",
+        "任一子策略权重漂移超目标 ±20% 未修复"
+      ],
+      "created": "2026-01-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null,
+      "status_note": "shadow_candidate"
+    },
+    "us_equity_combo_core": {
+      "thesis": "核心 US combo（去杠杆）在中等风险预算下提供稳健权益敞口",
+      "falsification_conditions": [
+        "相对 SPY 12个月信息比 < 0",
+        "回撤超预算未触发降仓"
+      ],
+      "created": "2026-03-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null
+    },
+    "us_equity_combo_leveraged": {
+      "thesis": "杠杆 US combo 仅在风险闸门通过时提高 beta",
+      "falsification_conditions": [
+        "风控门被绕过或集中度越界",
+        "连续亏损熔断后仍维持高杠杆"
+      ],
+      "created": "2026-03-01",
+      "last_verified": "2026-07-08",
+      "verdict": "active",
+      "hit_rate": null,
+      "status_note": "shadow_candidate"
+    }
+  }
+}
