@@ -93,6 +93,42 @@ def _validate_with_promotion_standard(path: Path) -> tuple[bool, list[str]]:
     return False, issues or ["promotion evidence package validation failed"]
 
 
+def _run_promotion_dual_review(evidence_files: list[Path]) -> int:
+    root = Path(os.environ.get("AIAUDIT_BRIDGE_ROOT", "external/AIAuditBridge"))
+    script = root / "scripts" / "run_dual_review_pipeline.py"
+    if not script.is_file():
+        print("[evidence-gate] dual-review skipped: AIAuditBridge not found")
+        return 0
+    if str(os.environ.get("DUAL_REVIEW_GATE_SKIP", "")).strip().lower() in {"1", "true", "yes"}:
+        print("[evidence-gate] dual-review skipped by DUAL_REVIEW_GATE_SKIP")
+        return 0
+
+    worst = 0
+    for path in evidence_files:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--from-evidence",
+                str(path),
+                "--dispatch",
+            ],
+            cwd=str(root),
+            env={**os.environ, "PYTHONPATH": str(root)},
+            check=False,
+        )
+        print(f"[evidence-gate] dual-review {path.name} exit={proc.returncode}")
+        if proc.stdout:
+            print(proc.stdout.strip())
+        if proc.stderr:
+            print(proc.stderr.strip(), file=sys.stderr)
+        worst = max(worst, proc.returncode)
+    if worst >= 2:
+        print("::error::Dual-review blocked promotion (disagreement or reject)", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     base_ref = os.environ.get("GITHUB_BASE_REF", "main").strip() or "main"
     diff = _git_diff(base_ref)
@@ -122,7 +158,9 @@ def main() -> int:
         for issue in lifecycle_issues + standard_issues:
             print(f"  - {issue}", file=sys.stderr)
 
-    return 1 if failed else 0
+    if failed:
+        return 1
+    return _run_promotion_dual_review(evidence_files)
 
 
 if __name__ == "__main__":

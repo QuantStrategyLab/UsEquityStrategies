@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  id-token: write
 
 concurrency:
   group: evidence-gate-${{ github.event.pull_request.number }}
@@ -70,7 +71,17 @@ jobs:
           python -m pip install -e . pandas
           python -m pip install --no-deps -e external/QuantPlatformKit
 
+      - name: Checkout AIAuditBridge
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/AIAuditBridge
+          ref: main
+          path: external/AIAuditBridge
+
       - name: Evaluate Evidence Gate
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
+          AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
+          CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
+          AI_GATEWAY_SERVICE_URL: ${{ vars.AI_GATEWAY_SERVICE_URL }}
         run: python scripts/gate_evidence_package.py
