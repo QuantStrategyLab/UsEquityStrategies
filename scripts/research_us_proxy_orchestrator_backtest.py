@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.run_walk_forward_backtest import run_walk_forward  # noqa: E402
-from us_equity_strategies.backtest.orchestrator_runner import SUPPORTED_PROFILES, UsEtfRotationBacktestRunner  # noqa: E402
+from us_equity_strategies.backtest.orchestrator_runner import SUPPORTED_PROFILES, build_backtest_runner  # noqa: E402
 from us_equity_strategies.strategies.global_etf_rotation import DEFAULT_MIN_HISTORY_DAYS, PROFILE_NAME  # noqa: E402
 
 
@@ -33,8 +33,10 @@ def main() -> int:
     if args.mode == "walk_forward":
         payload = run_walk_forward(profile=args.profile, synthetic_days=args.synthetic_days)
     else:
-        runner = UsEtfRotationBacktestRunner(synthetic_days=args.synthetic_days)
+        runner = build_backtest_runner(args.profile, synthetic_days=args.synthetic_days)
         params = {"min_history_days": DEFAULT_MIN_HISTORY_DAYS}
+        if args.profile == "us_equity_combo":
+            params["combo_mode"] = "dynamic"
         result = runner.run(args.profile, params)
         payload = {
             "profile": args.profile,
@@ -43,7 +45,7 @@ def main() -> int:
                 "max_drawdown": result.max_drawdown,
                 "cagr": result.cagr,
             },
-            "source": "UsEtfRotationBacktestRunner",
+            "source": type(runner).__name__,
         }
 
     text = json.dumps(payload, indent=2, sort_keys=True, default=str)
