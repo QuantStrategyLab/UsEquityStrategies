@@ -9,8 +9,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from us_equity_strategies.backtest.orchestrator_runner import SUPPORTED_PROFILES, UsEtfRotationBacktestRunner
+from us_equity_strategies.backtest.orchestrator_runner import SUPPORTED_PROFILES, build_backtest_runner
 from us_equity_strategies.strategies.global_etf_rotation import DEFAULT_MIN_HISTORY_DAYS, PROFILE_NAME
+from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME as US_EQUITY_COMBO_PROFILE
 
 DEFAULT_WINDOWS: tuple[tuple[date, date], ...] = (
     (date(2023, 6, 1), date(2024, 5, 31)),
@@ -19,6 +20,10 @@ DEFAULT_WINDOWS: tuple[tuple[date, date], ...] = (
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
     PROFILE_NAME: {"min_history_days": DEFAULT_MIN_HISTORY_DAYS},
+    US_EQUITY_COMBO_PROFILE: {
+        "min_history_days": DEFAULT_MIN_HISTORY_DAYS,
+        "combo_mode": "dynamic",
+    },
 }
 
 
@@ -49,7 +54,7 @@ def run_walk_forward(
         raise ValueError(f"unsupported profile={profile!r}; supported={sorted(SUPPORTED_PROFILES)}")
 
     params = dict(PROFILE_DEFAULTS.get(profile, {"min_history_days": DEFAULT_MIN_HISTORY_DAYS}))
-    runner = UsEtfRotationBacktestRunner(synthetic_days=synthetic_days)
+    runner = build_backtest_runner(profile, synthetic_days=synthetic_days)
     store = PerformanceStore(local_root=store_root or Path("/tmp/us_equity_wf_store"))
     orchestrator = BacktestOrchestrator(store=store)
     orchestrator.register_runner("us_equity", runner)
