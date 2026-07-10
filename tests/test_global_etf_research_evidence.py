@@ -123,7 +123,7 @@ def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
     ]
 
 
-def test_strategy_bundle_satisfies_evidence_prerequisite_without_legacy_package(monkeypatch) -> None:
+def test_strategy_bundle_does_not_replace_promotion_evidence_package(monkeypatch) -> None:
     gate = _load_gate_module()
     paths = [
         Path("docs/evidence/global_etf_rotation/optimization-spec.json"),
@@ -140,7 +140,7 @@ def test_strategy_bundle_satisfies_evidence_prerequisite_without_legacy_package(
     monkeypatch.setattr(gate, "_validate_strategy_specs", lambda _paths: (True, []))
     monkeypatch.setattr(gate, "_run_promotion_dual_review", lambda _files: 0)
 
-    assert gate.main() == 0
+    assert gate.main() == 1
 
 
 def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:

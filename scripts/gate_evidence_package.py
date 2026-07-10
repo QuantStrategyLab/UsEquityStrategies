@@ -457,18 +457,19 @@ def main() -> int:
             print(f"::error::{issue}", file=sys.stderr)
         return 1
 
-    if not evidence_files and not strategy_spec_paths:
-        print(
-            "::error::Catalog status promotion detected but no evidence package or strategy specs were found",
-            file=sys.stderr,
-        )
-        return 1
-
     specs_ok, spec_issues = _validate_strategy_specs(strategy_spec_paths)
     if not specs_ok:
         print("::error::Strategy specification validation failed", file=sys.stderr)
         for issue in spec_issues:
             print(f"  - {issue}", file=sys.stderr)
+        return 1
+
+    if not evidence_files:
+        print(
+            "::error::Catalog status promotion requires a separate validated promotion evidence package; "
+            "strategy specs and supporting research artifacts do not replace lifecycle review",
+            file=sys.stderr,
+        )
         return 1
 
     failed = False
