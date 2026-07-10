@@ -20,9 +20,9 @@ GATE_STAGES = frozenset(
     }
 )
 STATUS_ADDED_RE = re.compile(r'^\+.*status="([^"]+)"')
-PROFILE_ASSIGNMENT_RE = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*"([^"]+)"', re.MULTILINE)
 EVIDENCE_SUFFIXES = {".json", ".toml"}
 STRATEGY_SPEC_FILENAMES = frozenset({"research-spec.json", "optimization-spec.json"})
+STRATEGY_SPEC_ROOTS = frozenset({Path("docs/evidence"), Path("evidence")})
 RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
     "benchmark-registry.json",
     "config-snapshot.json",
@@ -67,23 +67,37 @@ def _source_diff_lines(diff: str) -> list[str]:
     return lines
 
 
-def _profile_constants() -> dict[str, str]:
+def _module_string_constants(tree: ast.AST) -> dict[str, str]:
     constants: dict[str, str] = {}
-    for path in sorted(Path("src").rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        constants.update(PROFILE_ASSIGNMENT_RE.findall(text))
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            targets = node.targets
+            value = node.value.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Constant):
+            targets = [node.target]
+            value = node.value.value
+        else:
+            continue
+        if not isinstance(value, str):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value
     return constants
 
 
 def _promoted_profiles(diff: str) -> set[str]:
-    constants = _profile_constants()
     profiles: set[str] = set()
     parsed_files: dict[Path, ast.AST] = {}
     for path, line_number, status in _promoted_status_locations(diff):
         try:
-            tree = parsed_files.setdefault(path, ast.parse(path.read_text(encoding="utf-8")))
+            tree = parsed_files.get(path)
+            if tree is None:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                parsed_files[path] = tree
         except (OSError, SyntaxError):
             continue
+        constants = _module_string_constants(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not (node.lineno <= line_number <= node.end_lineno):
                 continue
@@ -182,7 +196,10 @@ def _discover_strategy_specs(diff: str) -> dict[Path, dict[str, Path]]:
         if not line.startswith("+++ b/"):
             continue
         candidate = Path(line[6:])
-        if candidate.name not in STRATEGY_SPEC_FILENAMES or "evidence" not in candidate.parts:
+        if (
+            candidate.name not in STRATEGY_SPEC_FILENAMES
+            or candidate.parent.parent not in STRATEGY_SPEC_ROOTS
+        ):
             continue
         if candidate.exists():
             bundles.setdefault(candidate.parent, {})[candidate.name] = candidate
@@ -237,7 +254,8 @@ def _spec_bundle_for_profile(
     profile: str,
     bundles: dict[Path, dict[str, Path]],
 ) -> tuple[list[Path], list[str]]:
-    candidates = [bundle for directory, bundle in bundles.items() if directory.name == profile]
+    expected_directories = {root / profile for root in STRATEGY_SPEC_ROOTS}
+    candidates = [bundle for directory, bundle in bundles.items() if directory in expected_directories]
     if len(candidates) != 1:
         return [], [f"{profile}: expected one changed strategy-spec directory named {profile!r}"]
     bundle = candidates[0]

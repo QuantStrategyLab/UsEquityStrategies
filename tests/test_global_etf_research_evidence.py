@@ -148,9 +148,12 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
     assert issues == ["ibit_smart_dca: expected one changed strategy-spec directory named 'ibit_smart_dca'"]
 
 
-def test_promotion_gate_rejects_specs_from_different_research_runs(tmp_path: Path) -> None:
+def test_promotion_gate_rejects_specs_from_different_research_runs(
+    tmp_path: Path, monkeypatch
+) -> None:
     gate = _load_gate_module()
-    bundle_root = tmp_path / "docs/evidence/global_etf_rotation"
+    monkeypatch.chdir(tmp_path)
+    bundle_root = Path("docs/evidence/global_etf_rotation")
     bundle_root.mkdir(parents=True)
     research_path = bundle_root / "research-spec.json"
     optimization_path = bundle_root / "optimization-spec.json"
@@ -179,6 +182,41 @@ def test_promotion_gate_rejects_specs_from_different_research_runs(tmp_path: Pat
     assert issues == [
         f"{optimization_path}: research_spec_id must match {research_path} spec_id 'research.current'"
     ]
+
+
+def test_promotion_profile_constants_are_resolved_in_the_changed_module(
+    tmp_path: Path, monkeypatch
+) -> None:
+    gate = _load_gate_module()
+    source_root = tmp_path / "src/package"
+    source_root.mkdir(parents=True)
+    (source_root / "other.py").write_text('STRATEGY_PROFILE = "wrong_profile"\n', encoding="utf-8")
+    catalog = source_root / "catalog.py"
+    catalog.write_text(
+        '\n'.join(
+            (
+                'STRATEGY_PROFILE = "right_profile"',
+                'metadata = StrategyMetadata(',
+                '    canonical_profile=STRATEGY_PROFILE,',
+                '    status="runtime_enabled",',
+                ')',
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    diff = "\n".join(
+        (
+            "diff --git a/src/package/catalog.py b/src/package/catalog.py",
+            "+++ b/src/package/catalog.py",
+            "@@ -3,2 +3,2 @@",
+            "     canonical_profile=STRATEGY_PROFILE,",
+            '-    status="research_backtest_only",',
+            '+    status="runtime_enabled",',
+        )
+    )
+
+    assert gate._promoted_profiles(diff) == {"right_profile"}
 
 
 def test_promotion_detection_ignores_status_examples_outside_src() -> None:
@@ -235,6 +273,25 @@ def test_strategy_spec_discovery_does_not_mix_evidence_directories(tmp_path: Pat
             "optimization-spec.json": Path("docs/evidence/strategy_b/optimization-spec.json")
         },
     }
+
+
+def test_strategy_spec_discovery_rejects_noncanonical_evidence_roots(
+    tmp_path: Path, monkeypatch
+) -> None:
+    gate = _load_gate_module()
+    for name in ("research-spec.json", "optimization-spec.json"):
+        path = tmp_path / "tests/evidence/global_etf_rotation" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    diff = "\n".join(
+        (
+            "+++ b/tests/evidence/global_etf_rotation/research-spec.json",
+            "+++ b/tests/evidence/global_etf_rotation/optimization-spec.json",
+        )
+    )
+
+    assert gate._discover_strategy_specs(diff) == {}
 
 
 def test_promotion_evidence_discovery_excludes_research_artifacts() -> None:
