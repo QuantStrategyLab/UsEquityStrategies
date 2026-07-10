@@ -10,6 +10,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "Download latest trusted market history" in workflow
     assert "gh api --paginate --slurp" in workflow
     assert "downloaded_price_history.csv" in workflow
+    assert "us-equity-market-history-" in workflow
     assert 'head_branch") == "main"' in workflow
     assert '"path": ".github/workflows/publish-snapshot-artifacts.yml"' in workflow
     assert '"conclusion": "success"' in workflow

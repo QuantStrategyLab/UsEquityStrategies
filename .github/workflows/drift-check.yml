@@ -61,11 +61,11 @@ jobs:
           candidates = [
               item for item in artifacts
               if not item.get("expired")
-              and str(item.get("name", "")).startswith("us-equity-snapshot-global_etf_rotation-")
+              and str(item.get("name", "")).startswith("us-equity-market-history-")
               and item.get("workflow_run", {}).get("head_branch") == "main"
           ]
           if not candidates:
-              raise SystemExit("no trusted global_etf_rotation snapshot artifact is available")
+              raise SystemExit("no trusted US market-history artifact is available")
           selected = max(candidates, key=lambda item: item["created_at"])
           print(selected["id"], selected["workflow_run"]["id"])
           PY
