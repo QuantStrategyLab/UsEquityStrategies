@@ -123,6 +123,24 @@ def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
     ]
 
 
+def test_strategy_specs_satisfy_evidence_prerequisite_without_legacy_package(monkeypatch) -> None:
+    gate = _load_gate_module()
+    paths = [
+        Path("docs/evidence/global_etf_rotation/optimization-spec.json"),
+        Path("docs/evidence/global_etf_rotation/research-spec.json"),
+    ]
+    monkeypatch.setattr(gate, "_git_diff", lambda _base: "promotion diff")
+    monkeypatch.setattr(gate, "_promotion_detected", lambda _diff: True)
+    monkeypatch.setattr(gate, "_discover_evidence_files", lambda _diff: [])
+    monkeypatch.setattr(gate, "_promoted_profiles", lambda _diff: {"global_etf_rotation"})
+    monkeypatch.setattr(gate, "_discover_strategy_specs", lambda _diff: {Path("bundle"): {}})
+    monkeypatch.setattr(gate, "_spec_bundle_for_profile", lambda _profile, _bundles: (paths, []))
+    monkeypatch.setattr(gate, "_validate_strategy_specs", lambda _paths: (True, []))
+    monkeypatch.setattr(gate, "_run_promotion_dual_review", lambda _files: 0)
+
+    assert gate.main() == 0
+
+
 def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
     gate = _load_gate_module()
     diff = "\n".join(

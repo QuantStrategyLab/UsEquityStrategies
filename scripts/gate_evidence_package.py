@@ -333,14 +333,6 @@ def main() -> int:
         return 0
 
     evidence_files = _discover_evidence_files(diff)
-    if not evidence_files:
-        print(
-            "::error::Catalog status promotion detected but no evidence package file was found. "
-            "Add docs/evidence/<profile>.json with the 11 required artifacts.",
-            file=sys.stderr,
-        )
-        return 1
-
     promoted_profiles = _promoted_profiles(diff)
     if not promoted_profiles:
         print(
@@ -359,6 +351,13 @@ def main() -> int:
     if bundle_issues:
         for issue in bundle_issues:
             print(f"::error::{issue}", file=sys.stderr)
+        return 1
+
+    if not evidence_files and not strategy_spec_paths:
+        print(
+            "::error::Catalog status promotion detected but no evidence package or strategy specs were found",
+            file=sys.stderr,
+        )
         return 1
 
     specs_ok, spec_issues = _validate_strategy_specs(strategy_spec_paths)
