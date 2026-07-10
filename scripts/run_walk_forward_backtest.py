@@ -4,12 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import json
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from us_equity_strategies.backtest.orchestrator_runner import SUPPORTED_PROFILES, build_backtest_runner
+from us_equity_strategies.backtest.orchestrator_runner import _synthetic_market_history as _runner_synthetic_market_history
 from us_equity_strategies.strategies.global_etf_rotation import DEFAULT_MIN_HISTORY_DAYS, PROFILE_NAME
 from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME as US_EQUITY_COMBO_PROFILE
 
@@ -25,6 +31,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "combo_mode": "dynamic",
     },
 }
+MIN_SYNTHETIC_DAYS = 900
 
 
 def _result_payload(item: Any) -> dict[str, Any]:
@@ -38,6 +45,33 @@ def _result_payload(item: Any) -> dict[str, Any]:
         "observation_count": item.observation_count,
         "run_id": getattr(item, "run_id", None),
     }
+
+
+def _baseline_param_set_id(profile: str, params: dict[str, Any], *, synthetic_days: int) -> str:
+    identity = {
+        "params": params,
+        "synthetic_days": synthetic_days,
+    }
+    fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
+    return f"{profile}_baseline_{fingerprint}"
+
+
+def _build_runner(*, profile: str, synthetic_days: int):
+    return build_backtest_runner(profile, synthetic_days=synthetic_days)
+
+
+def _clone_market_history(market_history: pd.DataFrame) -> pd.DataFrame:
+    return market_history.copy(deep=True)
+
+
+def _shared_market_history(profile: str, params: dict[str, Any], synthetic_days: int) -> pd.DataFrame:
+    min_history_days = int(params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
+    if int(synthetic_days) < min_history_days:
+        raise ValueError(f"synthetic_days must be >= {min_history_days} for profile={profile!r}")
+    return _runner_synthetic_market_history(
+        days=int(synthetic_days),
+        include_combo_proxies=profile == US_EQUITY_COMBO_PROFILE,
+    )
 
 
 def run_walk_forward(
@@ -54,23 +88,66 @@ def run_walk_forward(
         raise ValueError(f"unsupported profile={profile!r}; supported={sorted(SUPPORTED_PROFILES)}")
 
     params = dict(PROFILE_DEFAULTS.get(profile, {"min_history_days": DEFAULT_MIN_HISTORY_DAYS}))
-    runner = build_backtest_runner(profile, synthetic_days=synthetic_days)
-    store = PerformanceStore(local_root=store_root or Path("/tmp/us_equity_wf_store"))
-    orchestrator = BacktestOrchestrator(store=store)
-    orchestrator.register_runner("us_equity", runner)
-
-    baseline = runner.run(profile, params)
-    wf_results = orchestrator.walk_forward(
+    store_root = store_root or Path("/tmp/us_equity_wf_store")
+    store_root.mkdir(parents=True, exist_ok=True)
+    baseline_params = copy.deepcopy(params)
+    shared_market_history = _shared_market_history(profile, baseline_params, synthetic_days)
+    baseline_runner = build_backtest_runner(
         profile,
+        synthetic_days=synthetic_days,
+        market_history=_clone_market_history(shared_market_history),
+    )
+    baseline_raw = baseline_runner.run(
+        profile,
+        copy.deepcopy(baseline_params),
+        start_date=None,
+        end_date=None,
+    )
+    with tempfile.TemporaryDirectory(prefix=f"{profile}_wf_", dir=store_root) as scratch_dir:
+        scratch_store = PerformanceStore(local_root=Path(scratch_dir))
+        scratch_orchestrator = BacktestOrchestrator(store=scratch_store)
+        scratch_orchestrator.register_runner(
+            "us_equity",
+            build_backtest_runner(
+                profile,
+                synthetic_days=synthetic_days,
+                market_history=_clone_market_history(shared_market_history),
+            ),
+        )
+        via_orch = scratch_orchestrator.run(
+            profile,
+            domain="us_equity",
+            params=copy.deepcopy(baseline_params),
+            param_set_id=f"{profile}_full_compare",
+            start_date=None,
+            end_date=None,
+        )
+        wf_params = copy.deepcopy(baseline_params)
+        wf_results = scratch_orchestrator.walk_forward(
+            profile,
+            domain="us_equity",
+            params=wf_params,
+            windows=windows,
+            param_set_id=f"{profile}_wf",
+        )
+    store = PerformanceStore(local_root=store_root)
+    orchestrator = BacktestOrchestrator(store=store)
+    baseline = orchestrator.persist_result(
+        baseline_raw,
+        strategy_profile=profile,
         domain="us_equity",
-        params=params,
-        windows=windows,
-        param_set_id=f"{profile}_wf",
+        params=baseline_params,
+        param_set_id=_baseline_param_set_id(
+            profile,
+            baseline_params,
+            synthetic_days=synthetic_days,
+        ),
     )
     return {
         "strategy_profile": profile,
         "domain": "us_equity",
         "baseline": _result_payload(baseline),
+        "orchestrator_full_window": _result_payload(via_orch),
         "walk_forward_folds": [_result_payload(item) for item in wf_results],
         "source": "BacktestOrchestrator.walk_forward",
     }
