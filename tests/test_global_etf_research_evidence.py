@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from quant_platform_kit.strategy_spec import validate_strategy_spec_file
 from us_equity_strategies.manifests import global_etf_rotation_manifest
 
 
@@ -74,6 +75,17 @@ def test_optimization_spec_is_a_bounded_future_plan() -> None:
     assert promotion["automatic_risk_increase_allowed"] is False
     assert promotion["full_kelly_allowed"] is False
     assert promotion["requires_human_approval"] is True
+
+
+def test_pinned_qpk_validator_accepts_plan_and_blocks_unproven_research() -> None:
+    assert validate_strategy_spec_file(EVIDENCE_ROOT / "optimization-spec.json") == []
+    assert validate_strategy_spec_file(EVIDENCE_ROOT / "research-spec.json") == [
+        "data.point_in_time_validated must be True",
+        "data.survivorship_bias_controlled must be True",
+        "evaluation.frozen_before_oos must be True",
+        "evaluation.out_of_sample.locked must be True",
+        "trial_ledger.record_all_trials must be True",
+    ]
 
 
 def test_cost_and_trial_artifacts_expose_unresolved_research_work() -> None:
