@@ -19,6 +19,14 @@ GATE_STAGES = frozenset(
 )
 STATUS_ADDED_RE = re.compile(r'^\+.*status="([^"]+)"')
 EVIDENCE_SUFFIXES = {".json", ".toml"}
+STRATEGY_SPEC_FILENAMES = frozenset({"research-spec.json", "optimization-spec.json"})
+RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
+    "benchmark-registry.json",
+    "config-snapshot.json",
+    "cost-model.json",
+    "data-manifest.json",
+    "trial-ledger.json",
+}
 
 
 def _git_diff(base_ref: str) -> str:
@@ -50,6 +58,8 @@ def _evidence_paths_from_diff(diff: str) -> list[Path]:
         if not line.startswith("+++ b/"):
             continue
         candidate = Path(line[6:])
+        if candidate.name in RESEARCH_ARTIFACT_FILENAMES:
+            continue
         if candidate.suffix.lower() not in EVIDENCE_SUFFIXES:
             continue
         if "evidence" in candidate.parts or candidate.parent.name == "evidence":
@@ -61,11 +71,28 @@ def _discover_evidence_files(diff: str) -> list[Path]:
     discovered = _evidence_paths_from_diff(diff)
     for folder in (Path("docs/evidence"), Path("evidence")):
         if folder.is_dir():
-            discovered.extend(path for path in folder.iterdir() if path.suffix.lower() in EVIDENCE_SUFFIXES)
+            discovered.extend(
+                path
+                for path in folder.iterdir()
+                if path.suffix.lower() in EVIDENCE_SUFFIXES and path.name not in RESEARCH_ARTIFACT_FILENAMES
+            )
     explicit = os.environ.get("EVIDENCE_PACKAGE_PATH", "").strip()
     if explicit:
         discovered.append(Path(explicit))
     return sorted({path for path in discovered if path.exists()})
+
+
+def _discover_strategy_specs(diff: str) -> list[Path]:
+    paths: list[Path] = []
+    for line in diff.splitlines():
+        if not line.startswith("+++ b/"):
+            continue
+        candidate = Path(line[6:])
+        if candidate.name not in STRATEGY_SPEC_FILENAMES or "evidence" not in candidate.parts:
+            continue
+        if candidate.exists():
+            paths.append(candidate)
+    return sorted(set(paths))
 
 
 def _validate_with_lifecycle(path: Path) -> tuple[bool, list[str]]:
@@ -91,6 +118,25 @@ def _validate_with_promotion_standard(path: Path) -> tuple[bool, list[str]]:
     issues = [line for line in result.stderr.splitlines() if line.strip()]
     issues.extend(line for line in result.stdout.splitlines() if line.strip())
     return False, issues or ["promotion evidence package validation failed"]
+
+
+def _validate_strategy_specs(
+    paths: list[Path],
+    *,
+    validator=None,
+) -> tuple[bool, list[str]]:
+    if validator is None:
+        try:
+            from quant_platform_kit.strategy_lifecycle import validate_strategy_spec_file
+        except ImportError:
+            return False, ["QuantPlatformKit does not provide strategy spec validation; update the QPK pin first"]
+        validator = validate_strategy_spec_file
+
+    issues: list[str] = []
+    for path in paths:
+        for issue in validator(path):
+            issues.append(f"{path}: {issue}")
+    return not issues, issues
 
 
 def _run_promotion_dual_review(evidence_files: list[Path]) -> int:
@@ -144,6 +190,23 @@ def main() -> int:
             "Add docs/evidence/<profile>.json with the 11 required artifacts.",
             file=sys.stderr,
         )
+        return 1
+
+    strategy_specs = _discover_strategy_specs(diff)
+    spec_names = {path.name for path in strategy_specs}
+    if spec_names != STRATEGY_SPEC_FILENAMES:
+        missing = sorted(STRATEGY_SPEC_FILENAMES - spec_names)
+        print(
+            "::error::Catalog status promotion requires changed evidence/research-spec.json and "
+            f"evidence/optimization-spec.json files; missing: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        return 1
+    specs_ok, spec_issues = _validate_strategy_specs(strategy_specs)
+    if not specs_ok:
+        print("::error::Strategy specification validation failed", file=sys.stderr)
+        for issue in spec_issues:
+            print(f"  - {issue}", file=sys.stderr)
         return 1
 
     failed = False

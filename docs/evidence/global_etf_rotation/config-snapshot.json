@@ -1,0 +1,32 @@
+{
+  "schema_version": "global_etf_rotation.config_snapshot.v1",
+  "artifact_id": "global_etf_rotation.config_snapshot.2026-07-11",
+  "strategy_profile": "global_etf_rotation",
+  "source": {
+    "path": "src/us_equity_strategies/manifests/__init__.py",
+    "object": "global_etf_rotation_manifest.default_config"
+  },
+  "signal_contract": {
+    "required_input": "feature_snapshot",
+    "snapshot_contract_version": "global_etf_rotation.feature_snapshot.v1",
+    "snapshot_manifest_required": true,
+    "signal_effective_after_trading_days": 1
+  },
+  "parameters": {
+    "ranking_pool": ["EWY", "EWT", "INDA", "FXI", "EWJ", "VGK", "VOO", "XLK", "SMH", "GLD", "SLV", "USO", "DBA", "XLE", "XLF", "ITA", "XLP", "XLU", "XLV", "IHI", "VNQ", "KRE"],
+    "canary_assets": ["SPY", "EFA", "EEM", "AGG"],
+    "safe_haven": "BIL",
+    "top_n": 2,
+    "hold_bonus": 0.02,
+    "canary_bad_threshold": 4,
+    "rebalance_months": [3, 6, 9, 12],
+    "sma_period": 250,
+    "confidence_weighting_enabled": true,
+    "confidence_metric": "z_gap",
+    "confidence_threshold": 1.0,
+    "confidence_top1_weight": 0.75,
+    "confidence_volatility_gate_enabled": true,
+    "confidence_volatility_window": 126,
+    "confidence_volatility_max_ratio": 1.3
+  }
+}
