@@ -17,6 +17,7 @@ import pytest
 
 import scripts.run_walk_forward_backtest as walk_forward
 from scripts.run_walk_forward_backtest import DEFAULT_WINDOWS, _baseline_param_set_id, run_walk_forward
+from scripts.run_walk_forward_backtest import _shared_market_history
 from us_equity_strategies.strategies.global_etf_rotation import extract_managed_symbols_universe
 
 
@@ -141,3 +142,22 @@ def test_run_walk_forward_uses_external_history_and_writes_return_matrix(
     assert payload["baseline"]["end_date"] == "2024-12-31"
     assert {"as_of", "global_etf_rotation", "buy_hold_SPY"} <= set(return_matrix.columns)
     assert return_matrix["global_etf_rotation"].notna().any()
+
+
+def test_shared_market_history_rejects_stale_symbol_tail() -> None:
+    dates = pd.bdate_range("2022-01-03", "2025-05-30")
+    rows = [
+        {"date": day, "symbol": symbol, "close": 100.0}
+        for symbol in extract_managed_symbols_universe()
+        for day in dates
+        if not (symbol == "EWY" and day > pd.Timestamp("2025-03-31"))
+    ]
+
+    with pytest.raises(ValueError, match="incomplete symbol coverage: EWY"):
+        _shared_market_history(
+            "global_etf_rotation",
+            {"min_history_days": 260},
+            900,
+            DEFAULT_WINDOWS,
+            pd.DataFrame(rows),
+        )

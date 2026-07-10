@@ -7,6 +7,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "preflight_backtests:" in workflow
     assert "needs: preflight_backtests" in workflow
     assert "Download latest trusted market history" in workflow
+    assert "gh api --paginate --slurp" in workflow
     assert "downloaded_price_history.csv" in workflow
     assert 'head_branch") == "main"' in workflow
     assert '"path": ".github/workflows/publish-snapshot-artifacts.yml"' in workflow
@@ -16,6 +17,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "ref: 7f0367c3bcb470306f6613d76e61365b3bf4ffcd" in workflow
     assert "python -m pip install --no-deps -e external/QuantPlatformKit" in workflow
     assert "scripts/run_walk_forward_backtest.py" in workflow
+    assert '"--list-profiles"' in workflow
     assert "--market-history" in workflow
     assert "--returns-output" in workflow
     assert "LIFECYCLE_PREFLIGHT_BUNDLE_ROOT" in workflow

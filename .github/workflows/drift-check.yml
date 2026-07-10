@@ -49,15 +49,17 @@ jobs:
             echo "::error::SNAPSHOT_REPOSITORY_TOKEN is required for market-history artifact access"
             exit 1
           fi
-          gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts?per_page=100" \
+          gh api --paginate --slurp \
+            "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts?per_page=100" \
             > "${RUNNER_TEMP}/snapshot-artifacts.json"
           python - <<'PY' > "${RUNNER_TEMP}/snapshot-artifact-selection.txt"
           import json
           import os
           from pathlib import Path
-          payload = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifacts.json").read_text())
+          pages = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifacts.json").read_text())
+          artifacts = [item for page in pages for item in page.get("artifacts", [])]
           candidates = [
-              item for item in payload.get("artifacts", [])
+              item for item in artifacts
               if not item.get("expired")
               and str(item.get("name", "")).startswith("us-equity-snapshot-global_etf_rotation-")
               and item.get("workflow_run", {}).get("head_branch") == "main"
@@ -108,13 +110,46 @@ jobs:
           MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
         run: |
           set -euo pipefail
-          store_root="${LIFECYCLE_PREFLIGHT_BUNDLE_ROOT}/data/lifecycle_store"
-          returns_output="${LIFECYCLE_PREFLIGHT_BUNDLE_ROOT}/external/UsEquitySnapshotPipelines/data/output/global_etf_rotation/portfolio_and_tracker_returns.csv"
-          python scripts/run_walk_forward_backtest.py \
-            --profile global_etf_rotation \
-            --market-history "${MARKET_HISTORY_PATH}" \
-            --store-root "${store_root}" \
-            --returns-output "${returns_output}"
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          profiles = json.loads(
+              subprocess.check_output(
+                  ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
+                  text=True,
+              )
+          )["profiles"]
+          bundle_root = Path(os.environ["LIFECYCLE_PREFLIGHT_BUNDLE_ROOT"])
+          market_history = os.environ["MARKET_HISTORY_PATH"]
+          store_root = bundle_root / "data" / "lifecycle_store"
+          for profile in profiles:
+              returns_output = (
+                  bundle_root
+                  / "external"
+                  / "UsEquitySnapshotPipelines"
+                  / "data"
+                  / "output"
+                  / profile
+                  / "portfolio_and_tracker_returns.csv"
+              )
+              subprocess.check_call(
+                  [
+                      "python",
+                      "scripts/run_walk_forward_backtest.py",
+                      "--profile",
+                      profile,
+                      "--market-history",
+                      market_history,
+                      "--store-root",
+                      str(store_root),
+                      "--returns-output",
+                      str(returns_output),
+                  ]
+              )
+          PY
 
       - name: Upload lifecycle preflight artifact
         uses: actions/upload-artifact@v4

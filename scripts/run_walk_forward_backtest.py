@@ -129,9 +129,31 @@ def _shared_market_history(
         missing_symbols = sorted(required_symbols - set(history["symbol"]))
         if missing_symbols:
             raise ValueError(f"market history is missing required symbols: {', '.join(missing_symbols)}")
-        latest_required_day = pd.bdate_range(end=latest_window_end, periods=1)[0]
-        if history.empty or history["date"].max() < latest_required_day:
-            raise ValueError("market history does not cover the latest walk-forward window")
+        reference_dates = set(history.loc[history["symbol"] == "SPY", "date"])
+        if not reference_dates:
+            raise ValueError("market history is missing SPY reference dates")
+        expected_business_dates = pd.bdate_range(lookback_start, latest_window_end)
+        latest_expected_day = expected_business_dates[-1]
+        if (
+            len(reference_dates) / len(expected_business_dates) < 0.90
+            or max(reference_dates) < latest_expected_day
+        ):
+            raise ValueError("market history has incomplete SPY reference coverage")
+        first_required_day = min(reference_dates)
+        latest_required_day = max(reference_dates)
+        incomplete_symbols: list[str] = []
+        for symbol in sorted(required_symbols):
+            symbol_dates = set(history.loc[history["symbol"] == symbol, "date"])
+            coverage_ratio = len(symbol_dates & reference_dates) / len(reference_dates)
+            if (
+                not symbol_dates
+                or min(symbol_dates) > first_required_day
+                or max(symbol_dates) < latest_required_day
+                or coverage_ratio < 0.98
+            ):
+                incomplete_symbols.append(symbol)
+        if incomplete_symbols:
+            raise ValueError(f"market history has incomplete symbol coverage: {', '.join(incomplete_symbols)}")
         return history, int(history["date"].nunique()), _market_history_fingerprint(history)
     effective_synthetic_days = max(int(synthetic_days), required_window_days)
     history = _runner_synthetic_market_history(
