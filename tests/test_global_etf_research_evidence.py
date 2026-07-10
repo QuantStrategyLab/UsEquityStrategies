@@ -86,7 +86,9 @@ def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
             "+++ b/docs/evidence/global_etf_rotation/optimization-spec.json",
         )
     )
-    paths = gate._discover_strategy_specs(diff)
+    bundles = gate._discover_strategy_specs(diff)
+    bundle = bundles[Path("docs/evidence/global_etf_rotation")]
+    paths = [bundle[name] for name in sorted(bundle)]
 
     assert [path.name for path in paths] == ["optimization-spec.json", "research-spec.json"]
     valid, issues = gate._validate_strategy_specs(paths, validator=lambda _path: [])
@@ -99,6 +101,34 @@ def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
         "docs/evidence/global_etf_rotation/optimization-spec.json: blocked by missing PIT data",
         "docs/evidence/global_etf_rotation/research-spec.json: blocked by missing PIT data",
     ]
+
+
+def test_strategy_spec_discovery_does_not_mix_evidence_directories(tmp_path: Path, monkeypatch) -> None:
+    gate = _load_gate_module()
+    for path in (
+        tmp_path / "docs/evidence/strategy_a/research-spec.json",
+        tmp_path / "docs/evidence/strategy_b/optimization-spec.json",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    diff = "\n".join(
+        (
+            "+++ b/docs/evidence/strategy_a/research-spec.json",
+            "+++ b/docs/evidence/strategy_b/optimization-spec.json",
+        )
+    )
+
+    bundles = gate._discover_strategy_specs(diff)
+
+    assert bundles == {
+        Path("docs/evidence/strategy_a"): {
+            "research-spec.json": Path("docs/evidence/strategy_a/research-spec.json")
+        },
+        Path("docs/evidence/strategy_b"): {
+            "optimization-spec.json": Path("docs/evidence/strategy_b/optimization-spec.json")
+        },
+    }
 
 
 def test_promotion_evidence_discovery_excludes_research_artifacts() -> None:

@@ -82,8 +82,8 @@ def _discover_evidence_files(diff: str) -> list[Path]:
     return sorted({path for path in discovered if path.exists()})
 
 
-def _discover_strategy_specs(diff: str) -> list[Path]:
-    paths: list[Path] = []
+def _discover_strategy_specs(diff: str) -> dict[Path, dict[str, Path]]:
+    bundles: dict[Path, dict[str, Path]] = {}
     for line in diff.splitlines():
         if not line.startswith("+++ b/"):
             continue
@@ -91,8 +91,8 @@ def _discover_strategy_specs(diff: str) -> list[Path]:
         if candidate.name not in STRATEGY_SPEC_FILENAMES or "evidence" not in candidate.parts:
             continue
         if candidate.exists():
-            paths.append(candidate)
-    return sorted(set(paths))
+            bundles.setdefault(candidate.parent, {})[candidate.name] = candidate
+    return {directory: bundles[directory] for directory in sorted(bundles)}
 
 
 def _validate_with_lifecycle(path: Path) -> tuple[bool, list[str]]:
@@ -124,12 +124,12 @@ def _validate_strategy_specs(
     paths: list[Path],
     *,
     validator=None,
-) -> tuple[bool, list[str]]:
+) -> tuple[bool | None, list[str]]:
     if validator is None:
         try:
             from quant_platform_kit.strategy_lifecycle import validate_strategy_spec_file
         except ImportError:
-            return False, ["QuantPlatformKit does not provide strategy spec validation; update the QPK pin first"]
+            return None, []
         validator = validate_strategy_spec_file
 
     issues: list[str] = []
@@ -192,18 +192,29 @@ def main() -> int:
         )
         return 1
 
-    strategy_specs = _discover_strategy_specs(diff)
-    spec_names = {path.name for path in strategy_specs}
-    if spec_names != STRATEGY_SPEC_FILENAMES:
-        missing = sorted(STRATEGY_SPEC_FILENAMES - spec_names)
+    strategy_spec_bundles = _discover_strategy_specs(diff)
+    complete_bundles = {
+        directory: bundle
+        for directory, bundle in strategy_spec_bundles.items()
+        if set(bundle) == STRATEGY_SPEC_FILENAMES
+    }
+    promotion_count = sum(
+        1 for line in diff.splitlines() if (match := STATUS_ADDED_RE.match(line)) and match.group(1) in GATE_STAGES
+    )
+    if len(complete_bundles) < promotion_count:
+        missing = promotion_count - len(complete_bundles)
         print(
-            "::error::Catalog status promotion requires changed evidence/research-spec.json and "
-            f"evidence/optimization-spec.json files; missing: {', '.join(missing)}",
+            "::error::Each catalog status promotion requires a changed evidence-directory pair of "
+            "research-spec.json and optimization-spec.json; "
+            f"missing complete bundle(s): {missing}",
             file=sys.stderr,
         )
         return 1
-    specs_ok, spec_issues = _validate_strategy_specs(strategy_specs)
-    if not specs_ok:
+    strategy_spec_paths = [path for bundle in complete_bundles.values() for path in bundle.values()]
+    specs_ok, spec_issues = _validate_strategy_specs(strategy_spec_paths)
+    if specs_ok is None:
+        print("[evidence-gate] QPK strategy spec validator unavailable; using legacy promotion validation")
+    elif not specs_ok:
         print("::error::Strategy specification validation failed", file=sys.stderr)
         for issue in spec_issues:
             print(f"  - {issue}", file=sys.stderr)
