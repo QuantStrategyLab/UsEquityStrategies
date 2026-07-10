@@ -857,6 +857,52 @@ def main() -> int:
         print(text)
         return 0
 
+    if args.orchestrator:
+        from datetime import date as date_type
+
+        from us_equity_strategies.backtest.orchestrator_research import run_combo_profile_backtest
+        from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME
+
+        combo_mode = "dynamic" if args.mode in ("dynamic", "both") else "static"
+        if args.symbols_file:
+            price_matrix = pd.read_csv(args.symbols_file, index_col=0, parse_dates=True)
+        else:
+            warmup_start = _compute_warmup_start(args.start)
+            all_symbols: list[str] = list(
+                dict.fromkeys(
+                    [SPY_SYMBOL, DCA_TARGET_SYMBOL, RUSSELL_BENCHMARK, RUSSELL_SAFE_HAVEN, GLOBAL_SAFE_HAVEN]
+                    + list(MEGA_CAP_POOL)
+                    + list(GLOBAL_ETF_RANKING_POOL)
+                    + list(GLOBAL_CANARY_ASSETS)
+                )
+            )
+            price_matrix = download_yfinance_prices(all_symbols, start=warmup_start, end=args.end)
+
+        market_history = _price_matrix_to_market_history(price_matrix)
+        start_date = date_type.fromisoformat(args.start) if args.start else None
+        end_date = date_type.fromisoformat(args.end) if args.end else None
+        payload = run_combo_profile_backtest(
+            PROFILE_NAME,
+            market_history=market_history,
+            start_date=start_date,
+            end_date=end_date,
+            params={"combo_mode": combo_mode},
+        )
+        output = {
+            "orchestrator": True,
+            "profile": payload["profile"],
+            "params": payload["params"],
+            "metrics": payload["metrics"],
+            "source": payload["source"],
+            "data_rows": int(len(market_history)),
+        }
+        text = json.dumps(_json_safe(output), indent=2, sort_keys=True)
+        if args.json_output:
+            Path(args.json_output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.json_output).write_text(text + "\n", encoding="utf-8")
+        print(text)
+        return 0
+
     modes: list[str] = ["static", "dynamic"] if args.mode == "both" else [args.mode]
     weight_sets = parse_weight_sets(args.weights)
 
