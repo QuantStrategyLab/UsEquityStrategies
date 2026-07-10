@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
 import pytest
 
 import scripts.run_walk_forward_backtest as walk_forward
-from scripts.run_walk_forward_backtest import DEFAULT_WINDOWS, _baseline_param_set_id, run_walk_forward
+from scripts.run_walk_forward_backtest import DEFAULT_WINDOWS, _baseline_from_return_tail, _baseline_param_set_id, run_walk_forward
 from scripts.run_walk_forward_backtest import _shared_market_history
 from us_equity_strategies.strategies.global_etf_rotation import extract_managed_symbols_universe
 
@@ -163,3 +163,20 @@ def test_shared_market_history_rejects_stale_symbol_tail() -> None:
             DEFAULT_WINDOWS,
             pd.DataFrame(rows),
         )
+
+
+def test_baseline_uses_exact_tail_of_full_return_stream() -> None:
+    from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+
+    index = pd.date_range("2024-01-01", periods=200, freq="D")
+    returns = pd.Series(range(200), index=index, dtype=float) / 100000
+    full_result = BacktestResult(
+        strategy_profile="global_etf_rotation", domain="us_equity", param_set_id="", params={}
+    )
+
+    baseline = _baseline_from_return_tail(full_result, returns)
+
+    expected = returns.tail(126)
+    assert baseline.start_date == expected.index.min().date()
+    assert baseline.end_date == expected.index.max().date()
+    assert baseline.observation_count == len(expected)

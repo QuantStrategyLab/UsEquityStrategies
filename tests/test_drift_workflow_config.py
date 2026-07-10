@@ -9,6 +9,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert workflow.count("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)") == 2
     assert "Download latest trusted market history" in workflow
     assert "gh api --paginate --slurp" in workflow
+    assert "trusted-snapshot-runs.json" in workflow
     assert "downloaded_price_history.csv" in workflow
     assert "us-equity-market-history-" in workflow
     assert 'head_branch") == "main"' in workflow
