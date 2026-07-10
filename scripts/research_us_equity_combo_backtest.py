@@ -718,9 +718,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional CSV file with pre-downloaded price data (symbol=columns, date=index)",
     )
     parser.add_argument(
+        "--legacy",
+        "--analysis",
+        dest="legacy",
+        action="store_true",
+        help="Run the legacy research-simulation path instead of BacktestOrchestrator.",
+    )
+    parser.add_argument(
         "--orchestrator",
         action="store_true",
-        help="Run via UsEquityComboBacktestRunner instead of full research simulation.",
+        help="Deprecated compatibility flag; default path already uses BacktestOrchestrator.",
     )
     return parser
 
@@ -802,8 +809,9 @@ def print_metrics_table(
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    use_legacy = bool(args.legacy)
 
-    if args.orchestrator:
+    if not use_legacy:
         from datetime import date as date_type
 
         from us_equity_strategies.backtest.orchestrator_research import run_combo_profile_backtest
