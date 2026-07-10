@@ -154,7 +154,7 @@ jobs:
       - name: Upload lifecycle preflight artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lifecycle-preflight-${{ github.run_id }}
+          name: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lifecycle-preflight-bundle
           if-no-files-found: error
 
@@ -174,7 +174,7 @@ jobs:
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
       quant_platform_kit_ref: 9bb8f31e898ea238a6446472f9f5e58133128d0c
-      lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}
+      lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
       snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN }}
