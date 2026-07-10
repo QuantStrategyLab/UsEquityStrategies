@@ -16,7 +16,11 @@ from us_equity_strategies.backtest.combo_simulator import (
     UsComboBacktestConfig,
     run_combo_backtest,
 )
-from us_equity_strategies.backtest.etf_rotation_simulator import UsRotationBacktestConfig, run_etf_rotation_backtest
+from us_equity_strategies.backtest.etf_rotation_simulator import (
+    UsRotationBacktestConfig,
+    compute_backtest_metrics,
+    run_etf_rotation_backtest,
+)
 from us_equity_strategies.strategies.global_etf_rotation import (
     DEFAULT_MIN_HISTORY_DAYS,
     PROFILE_NAME,
@@ -75,6 +79,21 @@ def _slice_history(
     if end_date is not None:
         frame = frame[frame["date"] <= pd.Timestamp(end_date)]
     return frame.sort_values(["date", "symbol"]).reset_index(drop=True)
+
+
+def _slice_daily_returns(
+    returns: pd.Series,
+    *,
+    start_date: date | None,
+    end_date: date | None,
+) -> pd.Series:
+    sliced = returns.copy()
+    sliced.index = pd.to_datetime(sliced.index, utc=False).tz_localize(None).normalize()
+    if start_date is not None:
+        sliced = sliced.loc[sliced.index >= pd.Timestamp(start_date)]
+    if end_date is not None:
+        sliced = sliced.loc[sliced.index <= pd.Timestamp(end_date)]
+    return sliced
 
 
 def _signal_fn(history: Any, **kwargs: Any):
@@ -166,7 +185,11 @@ class UsEtfRotationBacktestRunner:
             universe_symbols=extract_managed_symbols_universe(),
             strategy_kwargs={"min_history_days": min_history_days},
         )
-        self._last_daily_returns = result.daily_returns.copy()
+        self._last_daily_returns = _slice_daily_returns(
+            result.daily_returns,
+            start_date=start_date,
+            end_date=end_date,
+        )
         elapsed = (datetime.now(timezone.utc) - started).total_seconds()
         eval_frame = sliced
         if start_date is not None:
@@ -174,7 +197,7 @@ class UsEtfRotationBacktestRunner:
         return _metrics_to_backtest_result(
             strategy_profile=strategy_profile,
             params=params,
-            metrics=result.metrics,
+            metrics=compute_backtest_metrics(self._last_daily_returns),
             start_date=start_date or (eval_frame["date"].min().date() if not eval_frame.empty else None),
             end_date=end_date or (eval_frame["date"].max().date() if not eval_frame.empty else None),
             run_duration_seconds=elapsed,
@@ -243,7 +266,11 @@ class UsEquityComboBacktestRunner:
             universe_symbols=extract_managed_symbols_universe(),
             strategy_kwargs={"min_history_days": min_history_days},
         )
-        self._last_daily_returns = result.daily_returns.copy()
+        self._last_daily_returns = _slice_daily_returns(
+            result.daily_returns,
+            start_date=start_date,
+            end_date=end_date,
+        )
         elapsed = (datetime.now(timezone.utc) - started).total_seconds()
         eval_frame = sliced
         if start_date is not None:
@@ -251,7 +278,7 @@ class UsEquityComboBacktestRunner:
         return _metrics_to_backtest_result(
             strategy_profile=strategy_profile,
             params=params,
-            metrics=result.metrics,
+            metrics=compute_backtest_metrics(self._last_daily_returns),
             start_date=start_date or (eval_frame["date"].min().date() if not eval_frame.empty else None),
             end_date=end_date or (eval_frame["date"].max().date() if not eval_frame.empty else None),
             run_duration_seconds=elapsed,

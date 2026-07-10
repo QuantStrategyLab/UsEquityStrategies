@@ -6,6 +6,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
 
     assert "preflight_backtests:" in workflow
     assert "needs: preflight_backtests" in workflow
+    assert workflow.count("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)") == 2
     assert "Download latest trusted market history" in workflow
     assert "gh api --paginate --slurp" in workflow
     assert "downloaded_price_history.csv" in workflow
