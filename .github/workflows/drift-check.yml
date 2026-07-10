@@ -120,7 +120,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@335c7a22bc3f570bd5705427ccc40172eda6b289
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@17278db4e7aef0007346d853eb308b6c1bd8c859
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -128,6 +128,7 @@ jobs:
       snapshot_repository: QuantStrategyLab/UsEquitySnapshotPipelines
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+      lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
       snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN }}

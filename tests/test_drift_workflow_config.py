@@ -18,7 +18,7 @@ def test_drift_workflow_wires_snapshot_repo_and_lifecycle_env() -> None:
     assert "Promote staged lifecycle backtests" in workflow
     assert "head.repo.full_name == github.repository" in workflow
     assert "id-token: write" in workflow
-    assert "uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@335c7a22bc3f570bd5705427ccc40172eda6b289" in workflow
+    assert "uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@17278db4e7aef0007346d853eb308b6c1bd8c859" in workflow
     assert "strategy_domain: us_equity" in workflow
     assert "caller_event_name: ${{ github.event_name }}" in workflow
     assert "caller_pr_head_repository: ${{ github.event.pull_request.head.repo.full_name || '' }}" in workflow
