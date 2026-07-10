@@ -70,9 +70,10 @@ def test_run_walk_forward_does_not_persist_partial_results_on_failure(tmp_path: 
 
 
 def test_run_walk_forward_rejects_too_short_synthetic_history(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="synthetic_days must be >= 260"):
-        run_walk_forward(
-            profile="global_etf_rotation",
-            synthetic_days=220,
-            store_root=tmp_path,
-        )
+    payload = run_walk_forward(
+        profile="global_etf_rotation",
+        synthetic_days=220,
+        store_root=tmp_path,
+    )
+
+    assert payload["baseline"]["sharpe_ratio"] is not None

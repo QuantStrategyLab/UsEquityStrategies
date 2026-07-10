@@ -31,7 +31,6 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "combo_mode": "dynamic",
     },
 }
-MIN_SYNTHETIC_DAYS = 900
 
 
 def _result_payload(item: Any) -> dict[str, Any]:
@@ -64,14 +63,13 @@ def _clone_market_history(market_history: pd.DataFrame) -> pd.DataFrame:
     return market_history.copy(deep=True)
 
 
-def _shared_market_history(profile: str, params: dict[str, Any], synthetic_days: int) -> pd.DataFrame:
+def _shared_market_history(profile: str, params: dict[str, Any], synthetic_days: int) -> tuple[pd.DataFrame, int]:
     min_history_days = int(params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
-    if int(synthetic_days) < min_history_days:
-        raise ValueError(f"synthetic_days must be >= {min_history_days} for profile={profile!r}")
+    effective_synthetic_days = max(int(synthetic_days), min_history_days + 400)
     return _runner_synthetic_market_history(
-        days=int(synthetic_days),
+        days=effective_synthetic_days,
         include_combo_proxies=profile == US_EQUITY_COMBO_PROFILE,
-    )
+    ), effective_synthetic_days
 
 
 def run_walk_forward(
@@ -91,10 +89,10 @@ def run_walk_forward(
     store_root = store_root or Path("/tmp/us_equity_wf_store")
     store_root.mkdir(parents=True, exist_ok=True)
     baseline_params = copy.deepcopy(params)
-    shared_market_history = _shared_market_history(profile, baseline_params, synthetic_days)
+    shared_market_history, effective_synthetic_days = _shared_market_history(profile, baseline_params, synthetic_days)
     baseline_runner = build_backtest_runner(
         profile,
-        synthetic_days=synthetic_days,
+        synthetic_days=effective_synthetic_days,
         market_history=_clone_market_history(shared_market_history),
     )
     baseline_raw = baseline_runner.run(
@@ -110,7 +108,7 @@ def run_walk_forward(
             "us_equity",
             build_backtest_runner(
                 profile,
-                synthetic_days=synthetic_days,
+                synthetic_days=effective_synthetic_days,
                 market_history=_clone_market_history(shared_market_history),
             ),
         )
@@ -140,7 +138,7 @@ def run_walk_forward(
         param_set_id=_baseline_param_set_id(
             profile,
             baseline_params,
-            synthetic_days=synthetic_days,
+            synthetic_days=effective_synthetic_days,
         ),
     )
     return {

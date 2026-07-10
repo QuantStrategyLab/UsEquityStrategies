@@ -13,7 +13,55 @@ permissions:
   id-token: write
 
 jobs:
+  preflight_backtests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
+      LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pandas
+
+      - name: Persist lifecycle backtests
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+
+          profiles = json.loads(
+              subprocess.check_output(
+                  ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
+                  text=True,
+              )
+          )["profiles"]
+          for profile in profiles:
+              subprocess.check_call(
+                  [
+                      "python",
+                      "scripts/run_walk_forward_backtest.py",
+                      "--profile",
+                      profile,
+                      "--store-root",
+                      "data/lifecycle_store",
+                  ]
+              )
+          PY
+
   drift:
+    needs: preflight_backtests
     uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@335c7a22bc3f570bd5705427ccc40172eda6b289
     with:
       strategy_domain: us_equity
