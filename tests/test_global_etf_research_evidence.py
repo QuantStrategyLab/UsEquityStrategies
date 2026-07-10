@@ -98,6 +98,107 @@ def test_cost_and_trial_artifacts_expose_unresolved_research_work() -> None:
     assert ledger["entries"] == []
 
 
+def test_supporting_artifact_contracts_reject_malformed_payloads(tmp_path: Path) -> None:
+    gate = _load_gate_module()
+    bundle_root = tmp_path / "global_etf_rotation"
+    bundle_root.mkdir()
+    source_payloads = {
+        name: _load(name) for name in sorted(gate.SUPPORTING_RESEARCH_ARTIFACT_FILENAMES)
+    }
+    for name, payload in source_payloads.items():
+        (bundle_root / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    research = _load("research-spec.json")
+    optimization = _load("optimization-spec.json")
+    required_fields = {
+        "benchmark-registry.json": "benchmarks",
+        "config-snapshot.json": "parameters",
+        "cost-model.json": "implementation",
+        "data-manifest.json": "available_in_repository",
+        "trial-ledger.json": "rules",
+    }
+    for name, required_field in required_fields.items():
+        malformed = dict(source_payloads[name])
+        malformed.pop(required_field)
+        (bundle_root / name).write_text(json.dumps(malformed), encoding="utf-8")
+
+        issues = gate._validate_supporting_research_artifacts(
+            bundle_root, "global_etf_rotation", research, optimization
+        )
+
+        assert f"{bundle_root / name}: $.{required_field} is required" in issues
+        (bundle_root / name).write_text(json.dumps(source_payloads[name]), encoding="utf-8")
+
+    for name in (
+        "benchmark-registry.json",
+        "cost-model.json",
+        "data-manifest.json",
+        "trial-ledger.json",
+    ):
+        malformed = dict(source_payloads[name])
+        malformed["state"] = "approved_by_vibes"
+        (bundle_root / name).write_text(json.dumps(malformed), encoding="utf-8")
+
+        issues = gate._validate_supporting_research_artifacts(
+            bundle_root, "global_etf_rotation", research, optimization
+        )
+
+        assert f"{bundle_root / name}: $.state has unsupported value 'approved_by_vibes'" in issues
+        (bundle_root / name).write_text(json.dumps(source_payloads[name]), encoding="utf-8")
+
+    for name, contract in gate.SUPPORTING_ARTIFACT_CONTRACTS.items():
+        issues = gate._validate_artifact_contract(bundle_root / name, {}, contract)
+        for field in ("schema_version", "artifact_id", "strategy_profile"):
+            assert f"{bundle_root / name}: $.{field} is required" in issues
+
+    semantic_cases = (
+        (
+            "benchmark-registry.json",
+            ("benchmarks", 0, "kind"),
+            "uncontrolled",
+            "$.benchmarks must contain all four benchmark kinds",
+        ),
+        (
+            "config-snapshot.json",
+            ("signal_contract", "signal_effective_after_trading_days"),
+            -1,
+            "signal_effective_after_trading_days must be non-negative",
+        ),
+        (
+            "cost-model.json",
+            ("implementation", "cost_bps"),
+            -1,
+            "$.implementation.cost_bps must be finite and non-negative",
+        ),
+        (
+            "data-manifest.json",
+            ("state",),
+            "ready",
+            "ready data manifest requires all availability evidence",
+        ),
+        (
+            "trial-ledger.json",
+            ("state",),
+            "complete",
+            "complete trial ledger requires recorded trial entries",
+        ),
+    )
+    for name, field_path, invalid_value, expected_issue in semantic_cases:
+        malformed = json.loads(json.dumps(source_payloads[name]))
+        target = malformed
+        for part in field_path[:-1]:
+            target = target[part]
+        target[field_path[-1]] = invalid_value
+        (bundle_root / name).write_text(json.dumps(malformed), encoding="utf-8")
+
+        issues = gate._validate_supporting_research_artifacts(
+            bundle_root, "global_etf_rotation", research, optimization
+        )
+
+        assert f"{bundle_root / name}: {expected_issue}" in issues
+        (bundle_root / name).write_text(json.dumps(source_payloads[name]), encoding="utf-8")
+
+
 def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
     gate = _load_gate_module()
     diff = "\n".join(

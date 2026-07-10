@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import os
 import re
 import subprocess
@@ -31,6 +32,94 @@ RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
     "trial-ledger.json",
 }
 SUPPORTING_RESEARCH_ARTIFACT_FILENAMES = RESEARCH_ARTIFACT_FILENAMES - STRATEGY_SPEC_FILENAMES
+SUPPORTING_ARTIFACT_CONTRACTS: dict[str, dict[str, object]] = {
+    "benchmark-registry.json": {
+        "schema_version": str,
+        "artifact_id": str,
+        "strategy_profile": str,
+        "state": ("enum", {"planned_not_evaluated", "validated"}),
+        "benchmarks": [
+            {
+                "benchmark_id": str,
+                "kind": ("enum", {"capital", "passive", "risk_matched", "simple_rule"}),
+                "instrument": str,
+                "comparison": str,
+            }
+        ],
+        "acceptance_note": str,
+    },
+    "config-snapshot.json": {
+        "schema_version": str,
+        "artifact_id": str,
+        "strategy_profile": str,
+        "source": {"path": str, "object": str, "scope": str},
+        "excluded_runtime_default_keys": [str],
+        "signal_contract": {
+            "required_input": str,
+            "snapshot_contract_version": str,
+            "snapshot_manifest_required": bool,
+            "signal_effective_after_trading_days": int,
+        },
+        "parameters": dict,
+        "replay_boundary": str,
+    },
+    "cost-model.json": {
+        "schema_version": str,
+        "artifact_id": str,
+        "strategy_profile": str,
+        "state": ("enum", {"provisional_not_cost_stress_validated", "validated"}),
+        "implementation": {
+            "source_code": str,
+            "config_class": str,
+            "cost_bps": (int, float),
+            "application": str,
+        },
+        "required_before_promotion": [str],
+        "known_inconsistency": str,
+    },
+    "data-manifest.json": {
+        "schema_version": str,
+        "artifact_id": str,
+        "strategy_profile": str,
+        "state": ("enum", {"blocked", "ready"}),
+        "runtime_input_contract": {
+            "required_input": str,
+            "snapshot_contract_version": str,
+            "snapshot_manifest_required": bool,
+            "source_code": str,
+        },
+        "historical_research_requirements": {
+            "immutable_price_revision": str,
+            "point_in_time_universe": str,
+            "point_in_time_feature_snapshots": str,
+            "corporate_action_policy": str,
+            "delisting_and_inception_policy": str,
+        },
+        "available_in_repository": {
+            "immutable_historical_manifest": bool,
+            "point_in_time_replay_evidence": bool,
+            "real_returns_trades_positions": bool,
+        },
+        "blocker": str,
+        "next_artifact": str,
+    },
+    "trial-ledger.json": {
+        "schema_version": str,
+        "artifact_id": str,
+        "strategy_profile": str,
+        "state": ("enum", {"empty_pending_real_data_research", "complete"}),
+        "record_all_trials": bool,
+        "entries": [dict],
+        "rules": [str],
+    },
+}
+SUPPORTING_ARTIFACT_SCHEMA_KINDS = {
+    "benchmark-registry.json": "benchmark_registry",
+    "config-snapshot.json": "config_snapshot",
+    "cost-model.json": "cost_model",
+    "data-manifest.json": "data_manifest",
+    "trial-ledger.json": "trial_ledger",
+}
 
 
 def _git_diff(base_ref: str) -> str:
@@ -323,8 +412,13 @@ def _validate_supporting_research_artifacts(
             issues.append(f"{path}: supporting artifact must be a JSON object")
             continue
         artifacts[name] = payload
+        issues.extend(_validate_artifact_contract(path, payload, SUPPORTING_ARTIFACT_CONTRACTS[name]))
+        issues.extend(_validate_artifact_semantics(path, name, payload))
         if payload.get("strategy_profile") != profile:
             issues.append(f"{path}: strategy_profile must be {profile!r}")
+        expected_schema_version = f"{profile}.{SUPPORTING_ARTIFACT_SCHEMA_KINDS[name]}.v1"
+        if payload.get("schema_version") != expected_schema_version:
+            issues.append(f"{path}: schema_version must be {expected_schema_version!r}")
 
     research_data = research.get("data")
     research_reproducibility = research.get("reproducibility")
@@ -385,6 +479,85 @@ def _validate_supporting_research_artifacts(
             issues.append(
                 f"{directory / 'benchmark-registry.json'}: benchmark_ids must match both strategy specs"
             )
+    return issues
+
+
+def _validate_artifact_contract(
+    path: Path,
+    value: object,
+    contract: object,
+    field: str = "$",
+) -> list[str]:
+    if isinstance(contract, dict):
+        if not isinstance(value, dict):
+            return [f"{path}: {field} must be an object"]
+        issues: list[str] = []
+        for name, child_contract in contract.items():
+            child_field = f"{field}.{name}"
+            if name not in value:
+                issues.append(f"{path}: {child_field} is required")
+                continue
+            issues.extend(_validate_artifact_contract(path, value[name], child_contract, child_field))
+        return issues
+    if isinstance(contract, list):
+        if not isinstance(value, list):
+            return [f"{path}: {field} must be an array"]
+        item_contract = contract[0]
+        issues: list[str] = []
+        for index, item in enumerate(value):
+            issues.extend(_validate_artifact_contract(path, item, item_contract, f"{field}[{index}]"))
+        return issues
+    if isinstance(contract, tuple) and contract and contract[0] == "enum":
+        allowed = contract[1]
+        return [] if value in allowed else [f"{path}: {field} has unsupported value {value!r}"]
+    expected_types = contract if isinstance(contract, tuple) else (contract,)
+    if type(value) not in expected_types:
+        expected = " or ".join(item.__name__ for item in expected_types)
+        return [f"{path}: {field} must be {expected}"]
+    if isinstance(value, str) and not value.strip():
+        return [f"{path}: {field} must not be blank"]
+    return []
+
+
+def _validate_artifact_semantics(
+    path: Path, name: str, payload: dict[str, object]
+) -> list[str]:
+    issues: list[str] = []
+    if name == "benchmark-registry.json":
+        benchmarks = payload.get("benchmarks")
+        if isinstance(benchmarks, list):
+            ids = [item.get("benchmark_id") for item in benchmarks if isinstance(item, dict)]
+            kinds = {item.get("kind") for item in benchmarks if isinstance(item, dict)}
+            if len(ids) != len(set(ids)):
+                issues.append(f"{path}: $.benchmarks benchmark_id values must be unique")
+            if kinds != {"capital", "passive", "risk_matched", "simple_rule"}:
+                issues.append(f"{path}: $.benchmarks must contain all four benchmark kinds")
+    elif name == "config-snapshot.json":
+        signal_contract = payload.get("signal_contract")
+        delay = (
+            signal_contract.get("signal_effective_after_trading_days")
+            if isinstance(signal_contract, dict)
+            else None
+        )
+        if isinstance(delay, int) and not isinstance(delay, bool) and delay < 0:
+            issues.append(f"{path}: signal_effective_after_trading_days must be non-negative")
+    elif name == "cost-model.json":
+        implementation = payload.get("implementation")
+        cost_bps = implementation.get("cost_bps") if isinstance(implementation, dict) else None
+        if (
+            isinstance(cost_bps, (int, float))
+            and not isinstance(cost_bps, bool)
+            and ((isinstance(cost_bps, float) and not math.isfinite(cost_bps)) or cost_bps < 0)
+        ):
+            issues.append(f"{path}: $.implementation.cost_bps must be finite and non-negative")
+    elif name == "data-manifest.json" and payload.get("state") == "ready":
+        availability = payload.get("available_in_repository")
+        if not isinstance(availability, dict) or not all(availability.values()):
+            issues.append(f"{path}: ready data manifest requires all availability evidence")
+    elif name == "trial-ledger.json" and payload.get("state") == "complete":
+        entries = payload.get("entries")
+        if payload.get("record_all_trials") is not True or not isinstance(entries, list) or not entries:
+            issues.append(f"{path}: complete trial ledger requires recorded trial entries")
     return issues
 
 
