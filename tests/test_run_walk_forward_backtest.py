@@ -14,7 +14,8 @@ if str(SRC) not in sys.path:
 
 import pytest
 
-from scripts.run_walk_forward_backtest import _baseline_param_set_id, run_walk_forward
+import scripts.run_walk_forward_backtest as walk_forward
+from scripts.run_walk_forward_backtest import DEFAULT_WINDOWS, _baseline_param_set_id, run_walk_forward
 
 
 def test_run_walk_forward_persists_lifecycle_baseline(tmp_path: Path) -> None:
@@ -38,19 +39,32 @@ def test_run_walk_forward_persists_lifecycle_baseline(tmp_path: Path) -> None:
     assert payload["walk_forward_folds"]
 
 
-def test_baseline_param_set_id_tracks_synthetic_days() -> None:
+def test_baseline_param_set_id_tracks_synthetic_days_and_windows() -> None:
     first = _baseline_param_set_id(
         "global_etf_rotation",
         {"min_history_days": 260},
         synthetic_days=900,
+        windows=DEFAULT_WINDOWS,
     )
     second = _baseline_param_set_id(
         "global_etf_rotation",
         {"min_history_days": 260},
         synthetic_days=1200,
+        windows=DEFAULT_WINDOWS,
     )
 
     assert first != second
+
+    shifted_windows = (
+        (DEFAULT_WINDOWS[0][0], DEFAULT_WINDOWS[0][1]),
+        (DEFAULT_WINDOWS[1][0], DEFAULT_WINDOWS[1][1].replace(year=2026)),
+    )
+    assert first != _baseline_param_set_id(
+        "global_etf_rotation",
+        {"min_history_days": 260},
+        synthetic_days=900,
+        windows=shifted_windows,
+    )
 
 
 def test_run_walk_forward_does_not_persist_partial_results_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -77,3 +91,11 @@ def test_run_walk_forward_rejects_too_short_synthetic_history(tmp_path: Path) ->
     )
 
     assert payload["baseline"]["sharpe_ratio"] is not None
+
+
+def test_run_walk_forward_keeps_local_default_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(walk_forward, "DEFAULT_STORE_ROOT", tmp_path)
+
+    run_walk_forward(profile="global_etf_rotation", synthetic_days=900)
+
+    assert list(tmp_path.rglob("*.json"))

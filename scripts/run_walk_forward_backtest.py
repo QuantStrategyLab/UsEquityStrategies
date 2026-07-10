@@ -23,6 +23,7 @@ DEFAULT_WINDOWS: tuple[tuple[date, date], ...] = (
     (date(2023, 6, 1), date(2024, 5, 31)),
     (date(2024, 6, 1), date(2025, 5, 31)),
 )
+DEFAULT_STORE_ROOT = Path("/tmp/us_equity_wf_store")
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
     PROFILE_NAME: {"min_history_days": DEFAULT_MIN_HISTORY_DAYS},
@@ -46,10 +47,17 @@ def _result_payload(item: Any) -> dict[str, Any]:
     }
 
 
-def _baseline_param_set_id(profile: str, params: dict[str, Any], *, synthetic_days: int) -> str:
+def _baseline_param_set_id(
+    profile: str,
+    params: dict[str, Any],
+    *,
+    synthetic_days: int,
+    windows: tuple[tuple[date, date], ...],
+) -> str:
     identity = {
         "params": params,
         "synthetic_days": synthetic_days,
+        "windows": [(start.isoformat(), end.isoformat()) for start, end in windows],
     }
     fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
     return f"{profile}_baseline_{fingerprint}"
@@ -96,8 +104,8 @@ def run_walk_forward(
         raise ValueError(f"unsupported profile={profile!r}; supported={sorted(SUPPORTED_PROFILES)}")
 
     params = dict(PROFILE_DEFAULTS.get(profile, {"min_history_days": DEFAULT_MIN_HISTORY_DAYS}))
-    scratch_root = store_root or Path("/tmp/us_equity_wf_store")
-    scratch_root.mkdir(parents=True, exist_ok=True)
+    target_root = store_root or DEFAULT_STORE_ROOT
+    target_root.mkdir(parents=True, exist_ok=True)
     baseline_params = copy.deepcopy(params)
     shared_market_history, effective_synthetic_days = _shared_market_history(
         profile,
@@ -116,7 +124,7 @@ def run_walk_forward(
         start_date=None,
         end_date=None,
     )
-    with tempfile.TemporaryDirectory(prefix=f"{profile}_wf_", dir=scratch_root) as scratch_dir:
+    with tempfile.TemporaryDirectory(prefix=f"{profile}_wf_", dir=target_root) as scratch_dir:
         scratch_store = PerformanceStore(local_root=Path(scratch_dir))
         scratch_orchestrator = BacktestOrchestrator(store=scratch_store)
         scratch_orchestrator.register_runner(
@@ -143,7 +151,7 @@ def run_walk_forward(
             windows=windows,
             param_set_id=f"{profile}_wf",
         )
-    store = PerformanceStore(local_root=store_root) if store_root is not None else PerformanceStore.from_env()
+    store = PerformanceStore(local_root=target_root)
     orchestrator = BacktestOrchestrator(store=store)
     baseline = orchestrator.persist_result(
         baseline_raw,
@@ -154,6 +162,7 @@ def run_walk_forward(
             profile,
             baseline_params,
             synthetic_days=effective_synthetic_days,
+            windows=windows,
         ),
     )
     return {

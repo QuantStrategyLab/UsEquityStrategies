@@ -10,12 +10,17 @@ on:
 permissions:
   contents: read
   issues: write
-  id-token: write
 
 jobs:
   preflight_backtests:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
@@ -50,11 +55,15 @@ jobs:
           python -m pip install -e . pandas
           python -m pip install --no-deps -e external/QuantPlatformKit
 
-      - name: Persist lifecycle backtests
+      - name: Build lifecycle backtests in staging
+        env:
+          LIFECYCLE_PREFLIGHT_STAGING_ROOT: ${{ runner.temp }}/lifecycle_preflight
         run: |
           python - <<'PY'
           import json
+          import os
           import subprocess
+          from pathlib import Path
 
           profiles = json.loads(
               subprocess.check_output(
@@ -62,6 +71,7 @@ jobs:
                   text=True,
               )
           )["profiles"]
+          staging_root = Path(os.environ["LIFECYCLE_PREFLIGHT_STAGING_ROOT"])
           for profile in profiles:
               subprocess.check_call(
                   [
@@ -69,12 +79,47 @@ jobs:
                       "scripts/run_walk_forward_backtest.py",
                       "--profile",
                       profile,
+                      "--store-root",
+                      str(staging_root),
                   ]
               )
           PY
 
+      - name: Promote staged lifecycle backtests
+        env:
+          LIFECYCLE_PREFLIGHT_STAGING_ROOT: ${{ runner.temp }}/lifecycle_preflight
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
+          domain = "us_equity"
+          staging_root = Path(os.environ["LIFECYCLE_PREFLIGHT_STAGING_ROOT"])
+          source = PerformanceStore(local_root=staging_root)
+          target = PerformanceStore.from_env()
+          profiles = json.loads(
+              subprocess.check_output(
+                  ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
+                  text=True,
+              )
+          )["profiles"]
+          results = [source.load_latest_backtest(domain, profile) for profile in profiles]
+          if any(result is None for result in results):
+              raise RuntimeError("staged lifecycle backtests are incomplete")
+          for result in results:
+              target.save_backtest_result(result)
+          PY
+
   drift:
     needs: preflight_backtests
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
     uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@335c7a22bc3f570bd5705427ccc40172eda6b289
     with:
       strategy_domain: us_equity
