@@ -30,6 +30,7 @@ RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
     "data-manifest.json",
     "trial-ledger.json",
 }
+SUPPORTING_RESEARCH_ARTIFACT_FILENAMES = RESEARCH_ARTIFACT_FILENAMES - STRATEGY_SPEC_FILENAMES
 
 
 def _git_diff(base_ref: str) -> str:
@@ -87,7 +88,12 @@ def _module_string_constants(tree: ast.AST) -> dict[str, str]:
 
 
 def _promoted_profiles(diff: str) -> set[str]:
+    return _resolve_promoted_profiles(diff)[0]
+
+
+def _resolve_promoted_profiles(diff: str) -> tuple[set[str], list[str]]:
     profiles: set[str] = set()
+    unresolved: list[str] = []
     parsed_files: dict[Path, ast.AST] = {}
     for path, line_number, status in _promoted_status_locations(diff):
         try:
@@ -95,9 +101,11 @@ def _promoted_profiles(diff: str) -> set[str]:
             if tree is None:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
                 parsed_files[path] = tree
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            unresolved.append(f"{path}:{line_number}: cannot resolve promoted profile: {exc}")
             continue
         constants = _module_string_constants(tree)
+        matches: list[str] = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not (node.lineno <= line_number <= node.end_lineno):
                 continue
@@ -116,11 +124,16 @@ def _promoted_profiles(diff: str) -> set[str]:
                 continue
             value = profile_keyword.value
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                profiles.add(value.value)
+                matches.append(value.value)
             elif isinstance(value, ast.Name) and value.id in constants:
-                profiles.add(constants[value.id])
-            break
-    return profiles
+                matches.append(constants[value.id])
+        if len(matches) != 1:
+            unresolved.append(
+                f"{path}:{line_number}: promoted status {status!r} must resolve to exactly one profile"
+            )
+            continue
+        profiles.add(matches[0])
+    return profiles, unresolved
 
 
 def _promoted_status_locations(diff: str) -> list[tuple[Path, int, str]]:
@@ -255,10 +268,12 @@ def _spec_bundle_for_profile(
     bundles: dict[Path, dict[str, Path]],
 ) -> tuple[list[Path], list[str]]:
     expected_directories = {root / profile for root in STRATEGY_SPEC_ROOTS}
-    candidates = [bundle for directory, bundle in bundles.items() if directory in expected_directories]
+    candidates = [
+        (directory, bundle) for directory, bundle in bundles.items() if directory in expected_directories
+    ]
     if len(candidates) != 1:
         return [], [f"{profile}: expected one changed strategy-spec directory named {profile!r}"]
-    bundle = candidates[0]
+    directory, bundle = candidates[0]
     missing = sorted(STRATEGY_SPEC_FILENAMES - set(bundle))
     if missing:
         return [], [f"{profile}: missing changed strategy spec files: {', '.join(missing)}"]
@@ -285,7 +300,92 @@ def _spec_bundle_for_profile(
                 f"{bundle['optimization-spec.json']}: research_spec_id must match "
                 f"{bundle['research-spec.json']} spec_id {expected_research_spec_id!r}"
             )
+        issues.extend(_validate_supporting_research_artifacts(directory, profile, research, optimization))
     return paths, issues
+
+
+def _validate_supporting_research_artifacts(
+    directory: Path,
+    profile: str,
+    research: dict[str, object],
+    optimization: dict[str, object],
+) -> list[str]:
+    issues: list[str] = []
+    artifacts: dict[str, dict[str, object]] = {}
+    for name in sorted(SUPPORTING_RESEARCH_ARTIFACT_FILENAMES):
+        path = directory / name
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            issues.append(f"{path}: required supporting artifact is unavailable: {exc}")
+            continue
+        if not isinstance(payload, dict):
+            issues.append(f"{path}: supporting artifact must be a JSON object")
+            continue
+        artifacts[name] = payload
+        if payload.get("strategy_profile") != profile:
+            issues.append(f"{path}: strategy_profile must be {profile!r}")
+
+    research_data = research.get("data")
+    research_reproducibility = research.get("reproducibility")
+    research_cost_model = research.get("cost_model")
+    research_trial_ledger = research.get("trial_ledger")
+    frozen_inputs = optimization.get("frozen_inputs")
+    references = {
+        "data-manifest.json": [
+            research_data.get("manifest_id") if isinstance(research_data, dict) else None,
+            frozen_inputs.get("data_manifest_id") if isinstance(frozen_inputs, dict) else None,
+        ],
+        "config-snapshot.json": [
+            research_reproducibility.get("config_artifact_id")
+            if isinstance(research_reproducibility, dict)
+            else None,
+            frozen_inputs.get("universe_id") if isinstance(frozen_inputs, dict) else None,
+        ],
+        "cost-model.json": [
+            research_cost_model.get("model_id") if isinstance(research_cost_model, dict) else None,
+            frozen_inputs.get("cost_model_id") if isinstance(frozen_inputs, dict) else None,
+        ],
+        "trial-ledger.json": [
+            research_trial_ledger.get("artifact_id")
+            if isinstance(research_trial_ledger, dict)
+            else None
+        ],
+    }
+    for name, expected_ids in references.items():
+        payload = artifacts.get(name)
+        if payload is None:
+            continue
+        artifact_id = payload.get("artifact_id")
+        for expected_id in expected_ids:
+            if artifact_id != expected_id:
+                issues.append(
+                    f"{directory / name}: artifact_id {artifact_id!r} does not match reference {expected_id!r}"
+                )
+
+    registry = artifacts.get("benchmark-registry.json")
+    if registry is not None:
+        registry_benchmarks = registry.get("benchmarks")
+        registered_ids = (
+            {item.get("benchmark_id") for item in registry_benchmarks if isinstance(item, dict)}
+            if isinstance(registry_benchmarks, list)
+            else set()
+        )
+        research_benchmarks = research.get("benchmarks")
+        research_ids = (
+            {item.get("benchmark_id") for item in research_benchmarks if isinstance(item, dict)}
+            if isinstance(research_benchmarks, list)
+            else set()
+        )
+        frozen_benchmark_ids = (
+            frozen_inputs.get("benchmark_ids", []) if isinstance(frozen_inputs, dict) else []
+        )
+        optimization_ids = set(frozen_benchmark_ids) if isinstance(frozen_benchmark_ids, list) else set()
+        if registered_ids != research_ids or registered_ids != optimization_ids:
+            issues.append(
+                f"{directory / 'benchmark-registry.json'}: benchmark_ids must match both strategy specs"
+            )
+    return issues
 
 
 def _run_promotion_dual_review(evidence_files: list[Path]) -> int:
@@ -333,7 +433,11 @@ def main() -> int:
         return 0
 
     evidence_files = _discover_evidence_files(diff)
-    promoted_profiles = _promoted_profiles(diff)
+    promoted_profiles, unresolved_promotions = _resolve_promoted_profiles(diff)
+    if unresolved_promotions:
+        for issue in unresolved_promotions:
+            print(f"::error::{issue}", file=sys.stderr)
+        return 1
     if not promoted_profiles:
         print(
             "::error::Catalog status promotion detected but the promoted strategy profile could not be resolved",

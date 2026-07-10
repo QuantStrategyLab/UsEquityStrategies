@@ -123,7 +123,7 @@ def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
     ]
 
 
-def test_strategy_specs_satisfy_evidence_prerequisite_without_legacy_package(monkeypatch) -> None:
+def test_strategy_bundle_satisfies_evidence_prerequisite_without_legacy_package(monkeypatch) -> None:
     gate = _load_gate_module()
     paths = [
         Path("docs/evidence/global_etf_rotation/optimization-spec.json"),
@@ -132,7 +132,9 @@ def test_strategy_specs_satisfy_evidence_prerequisite_without_legacy_package(mon
     monkeypatch.setattr(gate, "_git_diff", lambda _base: "promotion diff")
     monkeypatch.setattr(gate, "_promotion_detected", lambda _diff: True)
     monkeypatch.setattr(gate, "_discover_evidence_files", lambda _diff: [])
-    monkeypatch.setattr(gate, "_promoted_profiles", lambda _diff: {"global_etf_rotation"})
+    monkeypatch.setattr(
+        gate, "_resolve_promoted_profiles", lambda _diff: ({"global_etf_rotation"}, [])
+    )
     monkeypatch.setattr(gate, "_discover_strategy_specs", lambda _diff: {Path("bundle"): {}})
     monkeypatch.setattr(gate, "_spec_bundle_for_profile", lambda _profile, _bundles: (paths, []))
     monkeypatch.setattr(gate, "_validate_strategy_specs", lambda _paths: (True, []))
@@ -197,9 +199,10 @@ def test_promotion_gate_rejects_specs_from_different_research_runs(
     )
 
     assert paths == [optimization_path, research_path]
-    assert issues == [
+    assert (
         f"{optimization_path}: research_spec_id must match {research_path} spec_id 'research.current'"
-    ]
+        in issues
+    )
 
 
 def test_promotion_profile_constants_are_resolved_in_the_changed_module(
@@ -235,6 +238,51 @@ def test_promotion_profile_constants_are_resolved_in_the_changed_module(
     )
 
     assert gate._promoted_profiles(diff) == {"right_profile"}
+
+
+def test_promotion_gate_reports_every_unresolved_status_location(tmp_path: Path, monkeypatch) -> None:
+    gate = _load_gate_module()
+    source = tmp_path / "src/package/catalog.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            (
+                'PROFILE_A = "strategy_a"',
+                "first = StrategyMetadata(",
+                "    canonical_profile=PROFILE_A,",
+                '    status="runtime_enabled",',
+                ")",
+                "second = StrategyMetadata(",
+                "    canonical_profile=make_profile(),",
+                '    status="shadow_candidate",',
+                ")",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    diff = "\n".join(
+        (
+            "diff --git a/src/package/catalog.py b/src/package/catalog.py",
+            "+++ b/src/package/catalog.py",
+            "@@ -3,6 +3,6 @@",
+            "     canonical_profile=PROFILE_A,",
+            '-    status="research_backtest_only",',
+            '+    status="runtime_enabled",',
+            " )",
+            " second = StrategyMetadata(",
+            "     canonical_profile=make_profile(),",
+            '-    status="research_backtest_only",',
+            '+    status="shadow_candidate",',
+        )
+    )
+
+    profiles, unresolved = gate._resolve_promoted_profiles(diff)
+
+    assert profiles == {"strategy_a"}
+    assert unresolved == [
+        "src/package/catalog.py:8: promoted status 'shadow_candidate' must resolve to exactly one profile"
+    ]
 
 
 def test_promotion_detection_ignores_status_examples_outside_src() -> None:
