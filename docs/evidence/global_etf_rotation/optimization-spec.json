@@ -24,7 +24,8 @@
       "no research result is eligible until the data manifest is point-in-time validated",
       "max_drawdown and expected_shortfall must remain within the approved mandate",
       "all 1x/2x/3x cost-stress scenarios must pass",
-      "candidate must provide incremental value versus every registered benchmark"
+      "candidate must provide incremental value versus every registered benchmark",
+      "research runner must consume the frozen runtime feature-snapshot configuration before trials start"
     ]
   },
   "search": {"method": "random", "max_trials": 72, "random_seed": 20260711},

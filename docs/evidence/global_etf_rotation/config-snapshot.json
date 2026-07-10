@@ -3,9 +3,9 @@
   "artifact_id": "global_etf_rotation.config_snapshot.2026-07-11",
   "strategy_profile": "global_etf_rotation",
   "source": {
-    "path": "src/us_equity_strategies/manifests/__init__.py",
-    "object": "global_etf_rotation_manifest.default_config",
-    "scope": "core_signal_only"
+    "path": "src/us_equity_strategies/strategies/global_etf_rotation.py",
+    "object": "build_target_weights",
+    "scope": "orchestrator_market_history_proxy_backtest"
   },
   "excluded_runtime_default_keys": [
     "income_layer_activation_band_ratio",
@@ -32,27 +32,44 @@
     "option_overlay_enabled"
   ],
   "signal_contract": {
-    "required_input": "feature_snapshot",
-    "snapshot_contract_version": "global_etf_rotation.feature_snapshot.v1",
-    "snapshot_manifest_required": true,
+    "required_input": "market_history",
+    "snapshot_contract_version": "not_applicable_raw_market_history_proxy",
+    "snapshot_manifest_required": false,
     "signal_effective_after_trading_days": 1
+  },
+  "runtime_feature_defaults": {
+    "source": {
+      "path": "src/us_equity_strategies/manifests/__init__.py",
+      "object": "global_etf_rotation_manifest.default_config"
+    },
+    "parameters": {
+      "ranking_pool": ["EWY", "EWT", "INDA", "FXI", "EWJ", "VGK", "VOO", "XLK", "SMH", "GLD", "SLV", "USO", "DBA", "XLE", "XLF", "ITA", "XLP", "XLU", "XLV", "IHI", "VNQ", "KRE"],
+      "canary_assets": ["SPY", "EFA", "EEM", "AGG"],
+      "safe_haven": "BIL",
+      "top_n": 2,
+      "hold_bonus": 0.02,
+      "canary_bad_threshold": 4,
+      "rebalance_months": [3, 6, 9, 12],
+      "sma_period": 250,
+      "confidence_weighting_enabled": true,
+      "confidence_metric": "z_gap",
+      "confidence_threshold": 1.0,
+      "confidence_top1_weight": 0.75,
+      "confidence_volatility_gate_enabled": true,
+      "confidence_volatility_window": 126,
+      "confidence_volatility_max_ratio": 1.3
+    }
   },
   "parameters": {
     "ranking_pool": ["EWY", "EWT", "INDA", "FXI", "EWJ", "VGK", "VOO", "XLK", "SMH", "GLD", "SLV", "USO", "DBA", "XLE", "XLF", "ITA", "XLP", "XLU", "XLV", "IHI", "VNQ", "KRE"],
     "canary_assets": ["SPY", "EFA", "EEM", "AGG"],
     "safe_haven": "BIL",
     "top_n": 2,
-    "hold_bonus": 0.02,
     "canary_bad_threshold": 4,
     "rebalance_months": [3, 6, 9, 12],
-    "sma_period": 250,
-    "confidence_weighting_enabled": true,
-    "confidence_metric": "z_gap",
-    "confidence_threshold": 1.0,
-    "confidence_top1_weight": 0.75,
-    "confidence_volatility_gate_enabled": true,
-    "confidence_volatility_window": 126,
-    "confidence_volatility_max_ratio": 1.3
+    "sma_period": 200,
+    "hold_bonus_applied": false,
+    "confidence_weighting_enabled": false
   },
-  "replay_boundary": "This snapshot reproduces the core ETF rotation signal only. Income, option, and market-regime runtime layers require a separate full-runtime comparison before promotion."
+  "replay_boundary": "The runtime feature-snapshot defaults and the executable market-history proxy backtest are recorded separately because the proxy backtest still uses SMA200 and does not apply hold-bonus or confidence weighting. Neither scope reproduces the full income, option and market-regime profile, and optimization cannot start until the research runner consumes the frozen runtime configuration."
 }

@@ -12,10 +12,13 @@ The runtime catalog is intentionally unchanged by this bundle.  It must not be
 interpreted as an OOS pass, a live promotion, a Kelly approval, or permission
 to change capital allocation.
 
-The configuration snapshot is intentionally limited to the core ETF-rotation
-signal exercised by the orchestrator backtest. It excludes income, option and
-market-regime runtime layers and therefore cannot be presented as a replay of
-the full live profile.
+The configuration snapshot records two different boundaries: the executable
+`build_target_weights` market-history proxy backtest (SMA200, without hold
+bonus or confidence weighting), and the runtime feature-snapshot defaults
+(SMA250 with confidence controls). The proxy runner does not yet consume the
+runtime defaults. Neither boundary includes the income, option and
+market-regime layers, so neither can be presented as a replay of the full live
+profile.
 
 ## Known blockers
 
@@ -23,6 +26,9 @@ the full live profile.
   manifest for the chosen research window.
 - The lifecycle walk-forward utility can synthesize proxy market history; such
   output is not admissible as research or drift baseline evidence.
+- The executable proxy backtest and runtime feature-snapshot configuration
+  diverge. The research runner must consume one frozen configuration contract
+  before any optimization or OOS claim is allowed.
 - No complete all-trial ledger, real returns/trades/positions artifact, or
   cost-stress result exists for this specification.
 - The older research note used a 5 bps turnover assumption, while the current

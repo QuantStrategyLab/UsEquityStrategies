@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from quant_platform_kit.strategy_spec import validate_strategy_spec_file
 from us_equity_strategies.manifests import global_etf_rotation_manifest
+from us_equity_strategies.strategies import global_etf_rotation as global_etf_strategy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,20 +27,38 @@ def _load_gate_module():
     return module
 
 
-def test_config_snapshot_matches_current_global_etf_defaults() -> None:
+def test_config_snapshot_separates_executable_backtest_and_runtime_defaults() -> None:
     snapshot = _load("config-snapshot.json")
-    parameters = snapshot["parameters"]
+    runtime_defaults = snapshot["runtime_feature_defaults"]
     excluded = snapshot["excluded_runtime_default_keys"]
-    assert isinstance(parameters, dict)
+    assert isinstance(runtime_defaults, dict)
+    runtime_parameters = runtime_defaults["parameters"]
+    assert isinstance(runtime_parameters, dict)
     assert isinstance(excluded, list)
     defaults = global_etf_rotation_manifest.default_config
 
-    for name, expected in parameters.items():
+    for name, expected in runtime_parameters.items():
         expected_value = tuple(expected) if isinstance(defaults[name], tuple) else expected
         assert defaults[name] == expected_value
-    assert set(parameters) | set(excluded) == set(defaults)
-    assert set(parameters).isdisjoint(excluded)
-    assert snapshot["source"]["scope"] == "core_signal_only"
+    assert set(runtime_parameters) | set(excluded) == set(defaults)
+    assert set(runtime_parameters).isdisjoint(excluded)
+
+    assert snapshot["source"] == {
+        "path": "src/us_equity_strategies/strategies/global_etf_rotation.py",
+        "object": "build_target_weights",
+        "scope": "orchestrator_market_history_proxy_backtest",
+    }
+    assert snapshot["parameters"] == {
+        "ranking_pool": global_etf_strategy.RANKING_POOL,
+        "canary_assets": global_etf_strategy.CANARY_ASSETS,
+        "safe_haven": global_etf_strategy.SAFE_HAVEN,
+        "top_n": global_etf_strategy.TOP_N,
+        "canary_bad_threshold": global_etf_strategy.CANARY_BAD_THRESHOLD,
+        "rebalance_months": sorted(global_etf_strategy.REBALANCE_MONTHS),
+        "sma_period": global_etf_strategy.SMA_PERIOD,
+        "hold_bonus_applied": False,
+        "confidence_weighting_enabled": False,
+    }
 
 
 def test_research_spec_is_explicitly_blocked_without_oos_claim() -> None:
@@ -485,4 +504,18 @@ def test_research_artifact_names_remain_valid_legacy_evidence_outside_bundle(tmp
 
     assert gate._evidence_paths_from_diff("+++ b/docs/evidence/cost-model.json") == [
         Path("docs/evidence/cost-model.json")
+    ]
+
+
+def test_existing_nested_promotion_evidence_is_discovered_recursively(
+    tmp_path: Path, monkeypatch
+) -> None:
+    gate = _load_gate_module()
+    evidence_path = tmp_path / "docs/evidence/global_etf_rotation/promotion-evidence.json"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert gate._discover_evidence_files("") == [
+        Path("docs/evidence/global_etf_rotation/promotion-evidence.json")
     ]

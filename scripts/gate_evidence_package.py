@@ -60,6 +60,10 @@ SUPPORTING_ARTIFACT_CONTRACTS: dict[str, dict[str, object]] = {
             "snapshot_manifest_required": bool,
             "signal_effective_after_trading_days": int,
         },
+        "runtime_feature_defaults": {
+            "source": {"path": str, "object": str},
+            "parameters": dict,
+        },
         "parameters": dict,
         "replay_boundary": str,
     },
@@ -275,8 +279,10 @@ def _discover_evidence_files(diff: str) -> list[Path]:
         if folder.is_dir():
             discovered.extend(
                 path
-                for path in folder.iterdir()
-                if path.suffix.lower() in EVIDENCE_SUFFIXES and not _is_research_bundle_artifact(path)
+                for path in folder.rglob("*")
+                if path.is_file()
+                and path.suffix.lower() in EVIDENCE_SUFFIXES
+                and not _is_research_bundle_artifact(path)
             )
     explicit = os.environ.get("EVIDENCE_PACKAGE_PATH", "").strip()
     if explicit:
