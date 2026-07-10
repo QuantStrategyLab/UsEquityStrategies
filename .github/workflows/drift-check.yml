@@ -13,34 +13,18 @@ permissions:
 
 jobs:
   preflight_backtests:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Require lifecycle bucket
-        run: |
-          set -euo pipefail
-          if [ -z "${LIFECYCLE_PERFORMANCE_BUCKET:-}" ]; then
-            echo "::error::LIFECYCLE_PERFORMANCE_BUCKET must be configured for drift preflight"
-            exit 1
-          fi
 
       - name: Checkout QuantPlatformKit
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: 335c7a22bc3f570bd5705427ccc40172eda6b289
+          ref: 7f0367c3bcb470306f6613d76e61365b3bf4ffcd
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -55,64 +39,89 @@ jobs:
           python -m pip install -e . pandas
           python -m pip install --no-deps -e external/QuantPlatformKit
 
-      - name: Build lifecycle backtests in staging
+      - name: Download latest trusted market history
         env:
-          LIFECYCLE_PREFLIGHT_STAGING_ROOT: ${{ runner.temp }}/lifecycle_preflight
+          GH_TOKEN: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN }}
+          MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
         run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::SNAPSHOT_REPOSITORY_TOKEN is required for market-history artifact access"
+            exit 1
+          fi
+          gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts?per_page=100" \
+            > "${RUNNER_TEMP}/snapshot-artifacts.json"
+          python - <<'PY' > "${RUNNER_TEMP}/snapshot-artifact-selection.txt"
+          import json
+          import os
+          from pathlib import Path
+          payload = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifacts.json").read_text())
+          candidates = [
+              item for item in payload.get("artifacts", [])
+              if not item.get("expired")
+              and str(item.get("name", "")).startswith("us-equity-snapshot-global_etf_rotation-")
+              and item.get("workflow_run", {}).get("head_branch") == "main"
+          ]
+          if not candidates:
+              raise SystemExit("no trusted global_etf_rotation snapshot artifact is available")
+          selected = max(candidates, key=lambda item: item["created_at"])
+          print(selected["id"], selected["workflow_run"]["id"])
+          PY
+          read -r artifact_id workflow_run_id < "${RUNNER_TEMP}/snapshot-artifact-selection.txt"
+          gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/runs/${workflow_run_id}" \
+            > "${RUNNER_TEMP}/snapshot-workflow-run.json"
           python - <<'PY'
           import json
           import os
-          import subprocess
           from pathlib import Path
-
-          profiles = json.loads(
-              subprocess.check_output(
-                  ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
-                  text=True,
-              )
-          )["profiles"]
-          staging_root = Path(os.environ["LIFECYCLE_PREFLIGHT_STAGING_ROOT"])
-          for profile in profiles:
-              subprocess.check_call(
-                  [
-                      "python",
-                      "scripts/run_walk_forward_backtest.py",
-                      "--profile",
-                      profile,
-                      "--store-root",
-                      str(staging_root),
-                  ]
-              )
+          run = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-workflow-run.json").read_text())
+          expected = {
+              "conclusion": "success",
+              "head_branch": "main",
+              "path": ".github/workflows/publish-snapshot-artifacts.yml",
+          }
+          mismatches = {key: run.get(key) for key, value in expected.items() if run.get(key) != value}
+          if run.get("head_repository", {}).get("full_name") != "QuantStrategyLab/UsEquitySnapshotPipelines":
+              mismatches["head_repository"] = run.get("head_repository", {}).get("full_name")
+          if mismatches:
+              raise SystemExit(f"snapshot artifact provenance check failed: {mismatches}")
           PY
-
-      - name: Promote staged lifecycle backtests
-        env:
-          LIFECYCLE_PREFLIGHT_STAGING_ROOT: ${{ runner.temp }}/lifecycle_preflight
-        run: |
+          gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts/${artifact_id}/zip" \
+            > "${RUNNER_TEMP}/snapshot-artifact.zip"
           python - <<'PY'
-          import json
           import os
-          import subprocess
+          import zipfile
           from pathlib import Path
-
-          from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
-
-          domain = "us_equity"
-          staging_root = Path(os.environ["LIFECYCLE_PREFLIGHT_STAGING_ROOT"])
-          source = PerformanceStore(local_root=staging_root)
-          target = PerformanceStore.from_env()
-          profiles = json.loads(
-              subprocess.check_output(
-                  ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
-                  text=True,
-              )
-          )["profiles"]
-          results = [source.load_latest_backtest(domain, profile) for profile in profiles]
-          if any(result is None for result in results):
-              raise RuntimeError("staged lifecycle backtests are incomplete")
-          for result in results:
-              target.save_backtest_result(result)
+          archive = Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifact.zip"
+          target = Path(os.environ["MARKET_HISTORY_PATH"])
+          with zipfile.ZipFile(archive) as bundle:
+              matches = [name for name in bundle.namelist() if Path(name).name == "downloaded_price_history.csv"]
+              if len(matches) != 1:
+                  raise SystemExit(f"expected one downloaded_price_history.csv, found {len(matches)}")
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(bundle.read(matches[0]))
           PY
+
+      - name: Build lifecycle preflight bundle
+        env:
+          LIFECYCLE_PREFLIGHT_BUNDLE_ROOT: ${{ runner.temp }}/lifecycle-preflight-bundle
+          MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
+        run: |
+          set -euo pipefail
+          store_root="${LIFECYCLE_PREFLIGHT_BUNDLE_ROOT}/data/lifecycle_store"
+          returns_output="${LIFECYCLE_PREFLIGHT_BUNDLE_ROOT}/external/UsEquitySnapshotPipelines/data/output/global_etf_rotation/portfolio_and_tracker_returns.csv"
+          python scripts/run_walk_forward_backtest.py \
+            --profile global_etf_rotation \
+            --market-history "${MARKET_HISTORY_PATH}" \
+            --store-root "${store_root}" \
+            --returns-output "${returns_output}"
+
+      - name: Upload lifecycle preflight artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifecycle-preflight-${{ github.run_id }}
+          path: ${{ runner.temp }}/lifecycle-preflight-bundle
+          if-no-files-found: error
 
   drift:
     needs: preflight_backtests
@@ -120,7 +129,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@17278db4e7aef0007346d853eb308b6c1bd8c859
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@7f0367c3bcb470306f6613d76e61365b3bf4ffcd
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -128,7 +137,8 @@ jobs:
       snapshot_repository: QuantStrategyLab/UsEquitySnapshotPipelines
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
-      lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}
+      quant_platform_kit_ref: 7f0367c3bcb470306f6613d76e61365b3bf4ffcd
+      lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
       snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN }}

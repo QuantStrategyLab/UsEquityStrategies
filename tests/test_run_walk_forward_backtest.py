@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 QPK_SRC = ROOT.parent / "QuantPlatformKit" / "src"
@@ -16,6 +17,7 @@ import pytest
 
 import scripts.run_walk_forward_backtest as walk_forward
 from scripts.run_walk_forward_backtest import DEFAULT_WINDOWS, _baseline_param_set_id, run_walk_forward
+from us_equity_strategies.strategies.global_etf_rotation import extract_managed_symbols_universe
 
 
 def test_run_walk_forward_persists_lifecycle_baseline(tmp_path: Path) -> None:
@@ -99,3 +101,43 @@ def test_run_walk_forward_keeps_local_default_store(tmp_path: Path, monkeypatch:
     run_walk_forward(profile="global_etf_rotation", synthetic_days=900)
 
     assert list(tmp_path.rglob("*.json"))
+
+
+def test_run_walk_forward_uses_external_history_and_writes_return_matrix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dates = pd.bdate_range("2022-01-03", "2024-12-31")
+    rows = []
+    for symbol_index, symbol in enumerate(extract_managed_symbols_universe()):
+        for day_index, day in enumerate(dates):
+            rows.append(
+                {
+                    "as_of": day,
+                    "symbol": symbol,
+                    "close": 20.0 + symbol_index + day_index * (0.01 + symbol_index / 10000),
+                }
+            )
+    history = pd.DataFrame(rows)
+    monkeypatch.setattr(
+        walk_forward,
+        "_runner_synthetic_market_history",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("synthetic history must not be used")),
+    )
+    returns_output = tmp_path / "returns" / "portfolio_and_tracker_returns.csv"
+
+    payload = run_walk_forward(
+        profile="global_etf_rotation",
+        windows=(
+            (pd.Timestamp("2024-01-01").date(), pd.Timestamp("2024-06-30").date()),
+            (pd.Timestamp("2024-07-01").date(), pd.Timestamp("2024-12-31").date()),
+        ),
+        store_root=tmp_path / "store",
+        market_history=history,
+        returns_output=returns_output,
+    )
+
+    return_matrix = pd.read_csv(returns_output)
+    assert payload["baseline"]["end_date"] == "2024-12-31"
+    assert {"as_of", "global_etf_rotation", "buy_hold_SPY"} <= set(return_matrix.columns)
+    assert return_matrix["global_etf_rotation"].notna().any()

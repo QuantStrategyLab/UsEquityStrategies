@@ -126,6 +126,11 @@ class UsEtfRotationBacktestRunner:
     ) -> None:
         self._market_history = market_history
         self._synthetic_days = int(synthetic_days)
+        self._last_daily_returns = pd.Series(dtype=float)
+
+    @property
+    def last_daily_returns(self) -> pd.Series:
+        return self._last_daily_returns.copy()
 
     def run(
         self,
@@ -161,6 +166,7 @@ class UsEtfRotationBacktestRunner:
             universe_symbols=extract_managed_symbols_universe(),
             strategy_kwargs={"min_history_days": min_history_days},
         )
+        self._last_daily_returns = result.daily_returns.copy()
         elapsed = (datetime.now(timezone.utc) - started).total_seconds()
         eval_frame = sliced
         if start_date is not None:
@@ -186,6 +192,11 @@ class UsEquityComboBacktestRunner:
     ) -> None:
         self._market_history = market_history
         self._synthetic_days = int(synthetic_days)
+        self._last_daily_returns = pd.Series(dtype=float)
+
+    @property
+    def last_daily_returns(self) -> pd.Series:
+        return self._last_daily_returns.copy()
 
     def run(
         self,
@@ -232,6 +243,7 @@ class UsEquityComboBacktestRunner:
             universe_symbols=extract_managed_symbols_universe(),
             strategy_kwargs={"min_history_days": min_history_days},
         )
+        self._last_daily_returns = result.daily_returns.copy()
         elapsed = (datetime.now(timezone.utc) - started).total_seconds()
         eval_frame = sliced
         if start_date is not None:
