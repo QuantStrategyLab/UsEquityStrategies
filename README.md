@@ -3,7 +3,7 @@
 
 ## QSL architecture role
 
-- **Layer**: `strategy-library`.
+- **Layer**: `strategy-lib`.
 - **Responsibility**: US equity strategy implementation package.
 - **Owns**: runtime-enabled US strategy code, manifests, execution metadata.
 - **Consumes**: QuantPlatformKit and validated US snapshot artifacts.
