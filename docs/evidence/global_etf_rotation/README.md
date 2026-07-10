@@ -12,6 +12,11 @@ The runtime catalog is intentionally unchanged by this bundle.  It must not be
 interpreted as an OOS pass, a live promotion, a Kelly approval, or permission
 to change capital allocation.
 
+The configuration snapshot is intentionally limited to the core ETF-rotation
+signal exercised by the orchestrator backtest. It excludes income, option and
+market-regime runtime layers and therefore cannot be presented as a replay of
+the full live profile.
+
 ## Known blockers
 
 - The repository has no immutable point-in-time historical feature-snapshot

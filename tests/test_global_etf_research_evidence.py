@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from us_equity_strategies.manifests import global_etf_rotation_manifest
 
@@ -27,12 +28,17 @@ def _load_gate_module():
 def test_config_snapshot_matches_current_global_etf_defaults() -> None:
     snapshot = _load("config-snapshot.json")
     parameters = snapshot["parameters"]
+    excluded = snapshot["excluded_runtime_default_keys"]
     assert isinstance(parameters, dict)
+    assert isinstance(excluded, list)
     defaults = global_etf_rotation_manifest.default_config
 
     for name, expected in parameters.items():
         expected_value = tuple(expected) if isinstance(defaults[name], tuple) else expected
         assert defaults[name] == expected_value
+    assert set(parameters) | set(excluded) == set(defaults)
+    assert set(parameters).isdisjoint(excluded)
+    assert snapshot["source"]["scope"] == "core_signal_only"
 
 
 def test_research_spec_is_explicitly_blocked_without_oos_claim() -> None:
@@ -63,6 +69,8 @@ def test_optimization_spec_is_a_bounded_future_plan() -> None:
     allowed = {item["name"] for item in parameters if isinstance(item, dict)}
     assert allowed <= set(global_etf_rotation_manifest.default_config)
     assert spec["execution_state"] == "not_started_no_results"
+    assert spec["search"]["method"] == "random"
+    assert spec["search"]["max_trials"] == 72
     assert promotion["automatic_risk_increase_allowed"] is False
     assert promotion["full_kelly_allowed"] is False
     assert promotion["requires_human_approval"] is True
@@ -101,6 +109,45 @@ def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
         "docs/evidence/global_etf_rotation/optimization-spec.json: blocked by missing PIT data",
         "docs/evidence/global_etf_rotation/research-spec.json: blocked by missing PIT data",
     ]
+
+
+def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
+    gate = _load_gate_module()
+    diff = "\n".join(
+        (
+            "diff --git a/src/us_equity_strategies/catalog.py b/src/us_equity_strategies/catalog.py",
+            "@@ -550,20 +550,20 @@",
+            "     GLOBAL_ETF_ROTATION_PROFILE: StrategyMetadata(",
+            "         canonical_profile=GLOBAL_ETF_ROTATION_PROFILE,",
+            '-        status="research_backtest_only",',
+            '+        status="runtime_enabled",',
+            "+++ b/docs/evidence/global_etf_rotation/research-spec.json",
+            "+++ b/docs/evidence/global_etf_rotation/optimization-spec.json",
+        )
+    )
+    bundles = gate._discover_strategy_specs(diff)
+
+    assert gate._promoted_profiles(diff) == {"global_etf_rotation"}
+    paths, issues = gate._spec_bundle_for_profile("global_etf_rotation", bundles)
+    assert [path.name for path in paths] == ["optimization-spec.json", "research-spec.json"]
+    assert issues == []
+    paths, issues = gate._spec_bundle_for_profile("ibit_smart_dca", bundles)
+    assert paths == []
+    assert issues == ["ibit_smart_dca: expected one changed strategy-spec directory named 'ibit_smart_dca'"]
+
+
+def test_git_diff_includes_src_and_evidence_paths(monkeypatch) -> None:
+    gate = _load_gate_module()
+    calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="diff")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+
+    assert gate._git_diff("main") == "diff"
+    assert calls == [["git", "diff", "--unified=20", "origin/main...HEAD"]]
 
 
 def test_strategy_spec_discovery_does_not_mix_evidence_directories(tmp_path: Path, monkeypatch) -> None:

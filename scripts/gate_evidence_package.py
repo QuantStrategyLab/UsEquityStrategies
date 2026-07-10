@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -18,6 +19,8 @@ GATE_STAGES = frozenset(
     }
 )
 STATUS_ADDED_RE = re.compile(r'^\+.*status="([^"]+)"')
+PROFILE_ASSIGNMENT_RE = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*"([^"]+)"', re.MULTILINE)
+PROFILE_CONTEXT_RE = re.compile(r'\b(?:canonical_profile|profile)\s*=\s*("[^"]+"|[A-Z][A-Z0-9_]*)')
 EVIDENCE_SUFFIXES = {".json", ".toml"}
 STRATEGY_SPEC_FILENAMES = frozenset({"research-spec.json", "optimization-spec.json"})
 RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
@@ -31,14 +34,14 @@ RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
 
 def _git_diff(base_ref: str) -> str:
     result = subprocess.run(
-        ["git", "diff", f"origin/{base_ref}...HEAD", "--", "src"],
+        ["git", "diff", "--unified=20", f"origin/{base_ref}...HEAD"],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode != 0:
         result = subprocess.run(
-            ["git", "diff", f"{base_ref}...HEAD", "--", "src"],
+            ["git", "diff", "--unified=20", f"{base_ref}...HEAD"],
             capture_output=True,
             text=True,
             check=True,
@@ -50,6 +53,34 @@ def _promotion_detected(diff: str) -> bool:
     if "status=" not in diff:
         return False
     return any(match.group(1) in GATE_STAGES for line in diff.splitlines() if (match := STATUS_ADDED_RE.match(line)))
+
+
+def _profile_constants() -> dict[str, str]:
+    constants: dict[str, str] = {}
+    for path in sorted(Path("src").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        constants.update(PROFILE_ASSIGNMENT_RE.findall(text))
+    return constants
+
+
+def _promoted_profiles(diff: str) -> set[str]:
+    constants = _profile_constants()
+    profiles: set[str] = set()
+    current_profile: str | None = None
+    for line in diff.splitlines():
+        if line.startswith(("diff --git ", "@@")):
+            current_profile = None
+            continue
+        if line.startswith("-"):
+            continue
+        context = PROFILE_CONTEXT_RE.search(line[1:] if line.startswith(("+", " ")) else line)
+        if context:
+            token = context.group(1)
+            current_profile = token.strip('"') if token.startswith('"') else constants.get(token)
+        status = STATUS_ADDED_RE.match(line)
+        if status and status.group(1) in GATE_STAGES and current_profile:
+            profiles.add(current_profile)
+    return profiles
 
 
 def _evidence_paths_from_diff(diff: str) -> list[Path]:
@@ -139,6 +170,31 @@ def _validate_strategy_specs(
     return not issues, issues
 
 
+def _spec_bundle_for_profile(
+    profile: str,
+    bundles: dict[Path, dict[str, Path]],
+) -> tuple[list[Path], list[str]]:
+    candidates = [bundle for directory, bundle in bundles.items() if directory.name == profile]
+    if len(candidates) != 1:
+        return [], [f"{profile}: expected one changed strategy-spec directory named {profile!r}"]
+    bundle = candidates[0]
+    missing = sorted(STRATEGY_SPEC_FILENAMES - set(bundle))
+    if missing:
+        return [], [f"{profile}: missing changed strategy spec files: {', '.join(missing)}"]
+
+    paths = [bundle[name] for name in sorted(STRATEGY_SPEC_FILENAMES)]
+    issues: list[str] = []
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            issues.append(f"{path}: cannot read strategy profile: {exc}")
+            continue
+        if not isinstance(payload, dict) or payload.get("strategy_profile") != profile:
+            issues.append(f"{path}: strategy_profile must be {profile!r}")
+    return paths, issues
+
+
 def _run_promotion_dual_review(evidence_files: list[Path]) -> int:
     root = Path(os.environ.get("AIAUDIT_BRIDGE_ROOT", "external/AIAuditBridge"))
     script = root / "scripts" / "run_dual_review_pipeline.py"
@@ -192,25 +248,26 @@ def main() -> int:
         )
         return 1
 
-    strategy_spec_bundles = _discover_strategy_specs(diff)
-    complete_bundles = {
-        directory: bundle
-        for directory, bundle in strategy_spec_bundles.items()
-        if set(bundle) == STRATEGY_SPEC_FILENAMES
-    }
-    promotion_count = sum(
-        1 for line in diff.splitlines() if (match := STATUS_ADDED_RE.match(line)) and match.group(1) in GATE_STAGES
-    )
-    if len(complete_bundles) < promotion_count:
-        missing = promotion_count - len(complete_bundles)
+    promoted_profiles = _promoted_profiles(diff)
+    if not promoted_profiles:
         print(
-            "::error::Each catalog status promotion requires a changed evidence-directory pair of "
-            "research-spec.json and optimization-spec.json; "
-            f"missing complete bundle(s): {missing}",
+            "::error::Catalog status promotion detected but the promoted strategy profile could not be resolved",
             file=sys.stderr,
         )
         return 1
-    strategy_spec_paths = [path for bundle in complete_bundles.values() for path in bundle.values()]
+
+    strategy_spec_bundles = _discover_strategy_specs(diff)
+    strategy_spec_paths: list[Path] = []
+    bundle_issues: list[str] = []
+    for profile in sorted(promoted_profiles):
+        paths, issues = _spec_bundle_for_profile(profile, strategy_spec_bundles)
+        strategy_spec_paths.extend(paths)
+        bundle_issues.extend(issues)
+    if bundle_issues:
+        for issue in bundle_issues:
+            print(f"::error::{issue}", file=sys.stderr)
+        return 1
+
     specs_ok, spec_issues = _validate_strategy_specs(strategy_spec_paths)
     if specs_ok is None:
         print("[evidence-gate] QPK strategy spec validator unavailable; using legacy promotion validation")

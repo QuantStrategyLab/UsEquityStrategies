@@ -27,7 +27,7 @@
       "candidate must provide incremental value versus every registered benchmark"
     ]
   },
-  "search": {"method": "grid", "max_trials": 72, "random_seed": 20260711},
+  "search": {"method": "random", "max_trials": 72, "random_seed": 20260711},
   "validation": {
     "nested_walk_forward": {"enabled": true, "fold_count": 3, "selection_scope": "train_validation_only"},
     "locked_holdout": {"enabled": true, "reused_for_selection": false},
