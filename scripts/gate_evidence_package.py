@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -20,7 +21,6 @@ GATE_STAGES = frozenset(
 )
 STATUS_ADDED_RE = re.compile(r'^\+.*status="([^"]+)"')
 PROFILE_ASSIGNMENT_RE = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*"([^"]+)"', re.MULTILINE)
-PROFILE_CONTEXT_RE = re.compile(r'\b(?:canonical_profile|profile)\s*=\s*("[^"]+"|[A-Z][A-Z0-9_]*)')
 EVIDENCE_SUFFIXES = {".json", ".toml"}
 STRATEGY_SPEC_FILENAMES = frozenset({"research-spec.json", "optimization-spec.json"})
 RESEARCH_ARTIFACT_FILENAMES = STRATEGY_SPEC_FILENAMES | {
@@ -50,11 +50,7 @@ def _git_diff(base_ref: str) -> str:
 
 
 def _promotion_detected(diff: str) -> bool:
-    return any(
-        match.group(1) in GATE_STAGES
-        for line in _source_diff_lines(diff)
-        if (match := STATUS_ADDED_RE.match(line))
-    )
+    return bool(_promoted_status_locations(diff))
 
 
 def _source_diff_lines(diff: str) -> list[str]:
@@ -82,21 +78,64 @@ def _profile_constants() -> dict[str, str]:
 def _promoted_profiles(diff: str) -> set[str]:
     constants = _profile_constants()
     profiles: set[str] = set()
-    current_profile: str | None = None
-    for line in _source_diff_lines(diff):
-        if line.startswith(("diff --git ", "@@")):
-            current_profile = None
+    parsed_files: dict[Path, ast.AST] = {}
+    for path, line_number, status in _promoted_status_locations(diff):
+        try:
+            tree = parsed_files.setdefault(path, ast.parse(path.read_text(encoding="utf-8")))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not (node.lineno <= line_number <= node.end_lineno):
+                continue
+            status_keyword = next((item for item in node.keywords if item.arg == "status"), None)
+            if (
+                status_keyword is None
+                or status_keyword.value.lineno != line_number
+                or not isinstance(status_keyword.value, ast.Constant)
+                or status_keyword.value.value != status
+            ):
+                continue
+            profile_keyword = next(
+                (item for item in node.keywords if item.arg in {"canonical_profile", "profile"}), None
+            )
+            if profile_keyword is None:
+                continue
+            value = profile_keyword.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                profiles.add(value.value)
+            elif isinstance(value, ast.Name) and value.id in constants:
+                profiles.add(constants[value.id])
+            break
+    return profiles
+
+
+def _promoted_status_locations(diff: str) -> list[tuple[Path, int, str]]:
+    locations: list[tuple[Path, int, str]] = []
+    source_path: Path | None = None
+    new_line: int | None = None
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            source_path = None
+            new_line = None
+            continue
+        if line.startswith("+++ b/"):
+            candidate = Path(line[6:])
+            source_path = candidate if candidate.parts and candidate.parts[0] == "src" else None
+            continue
+        if line.startswith("@@"):
+            match = re.search(r"\+(\d+)(?:,\d+)?", line)
+            new_line = int(match.group(1)) if source_path is not None and match else None
+            continue
+        if source_path is None or new_line is None:
             continue
         if line.startswith("-"):
             continue
-        context = PROFILE_CONTEXT_RE.search(line[1:] if line.startswith(("+", " ")) else line)
-        if context:
-            token = context.group(1)
-            current_profile = token.strip('"') if token.startswith('"') else constants.get(token)
-        status = STATUS_ADDED_RE.match(line)
-        if status and status.group(1) in GATE_STAGES and current_profile:
-            profiles.add(current_profile)
-    return profiles
+        if line.startswith("+"):
+            match = STATUS_ADDED_RE.match(line)
+            if match and match.group(1) in GATE_STAGES:
+                locations.append((source_path, new_line, match.group(1)))
+        new_line += 1
+    return locations
 
 
 def _evidence_paths_from_diff(diff: str) -> list[Path]:
@@ -208,6 +247,7 @@ def _spec_bundle_for_profile(
 
     paths = [bundle[name] for name in sorted(STRATEGY_SPEC_FILENAMES)]
     issues: list[str] = []
+    payloads: dict[str, dict[str, object]] = {}
     for path in paths:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -216,6 +256,17 @@ def _spec_bundle_for_profile(
             continue
         if not isinstance(payload, dict) or payload.get("strategy_profile") != profile:
             issues.append(f"{path}: strategy_profile must be {profile!r}")
+        if isinstance(payload, dict):
+            payloads[path.name] = payload
+    research = payloads.get("research-spec.json")
+    optimization = payloads.get("optimization-spec.json")
+    if research is not None and optimization is not None:
+        expected_research_spec_id = research.get("spec_id")
+        if optimization.get("research_spec_id") != expected_research_spec_id:
+            issues.append(
+                f"{bundle['optimization-spec.json']}: research_spec_id must match "
+                f"{bundle['research-spec.json']} spec_id {expected_research_spec_id!r}"
+            )
     return paths, issues
 
 

@@ -129,9 +129,8 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
         (
             "diff --git a/src/us_equity_strategies/catalog.py b/src/us_equity_strategies/catalog.py",
             "+++ b/src/us_equity_strategies/catalog.py",
-            "@@ -550,20 +550,20 @@",
-            "     GLOBAL_ETF_ROTATION_PROFILE: StrategyMetadata(",
-            "         canonical_profile=GLOBAL_ETF_ROTATION_PROFILE,",
+            "@@ -558,3 +558,3 @@",
+            "         role=\"defensive_rotation\",",
             '-        status="research_backtest_only",',
             '+        status="runtime_enabled",',
             "+++ b/docs/evidence/global_etf_rotation/research-spec.json",
@@ -147,6 +146,39 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
     paths, issues = gate._spec_bundle_for_profile("ibit_smart_dca", bundles)
     assert paths == []
     assert issues == ["ibit_smart_dca: expected one changed strategy-spec directory named 'ibit_smart_dca'"]
+
+
+def test_promotion_gate_rejects_specs_from_different_research_runs(tmp_path: Path) -> None:
+    gate = _load_gate_module()
+    bundle_root = tmp_path / "docs/evidence/global_etf_rotation"
+    bundle_root.mkdir(parents=True)
+    research_path = bundle_root / "research-spec.json"
+    optimization_path = bundle_root / "optimization-spec.json"
+    research_path.write_text(
+        json.dumps({"strategy_profile": "global_etf_rotation", "spec_id": "research.current"}),
+        encoding="utf-8",
+    )
+    optimization_path.write_text(
+        json.dumps(
+            {"strategy_profile": "global_etf_rotation", "research_spec_id": "research.stale"}
+        ),
+        encoding="utf-8",
+    )
+
+    paths, issues = gate._spec_bundle_for_profile(
+        "global_etf_rotation",
+        {
+            bundle_root: {
+                "research-spec.json": research_path,
+                "optimization-spec.json": optimization_path,
+            }
+        },
+    )
+
+    assert paths == [optimization_path, research_path]
+    assert issues == [
+        f"{optimization_path}: research_spec_id must match {research_path} spec_id 'research.current'"
+    ]
 
 
 def test_promotion_detection_ignores_status_examples_outside_src() -> None:
