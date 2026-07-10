@@ -206,3 +206,15 @@ def test_promotion_evidence_discovery_excludes_research_artifacts() -> None:
     assert gate._evidence_paths_from_diff(diff) == [
         Path("docs/evidence/global_etf_rotation/promotion-evidence.json")
     ]
+
+
+def test_research_artifact_names_remain_valid_legacy_evidence_outside_bundle(tmp_path: Path, monkeypatch) -> None:
+    gate = _load_gate_module()
+    evidence_path = tmp_path / "docs/evidence/cost-model.json"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert gate._evidence_paths_from_diff("+++ b/docs/evidence/cost-model.json") == [
+        Path("docs/evidence/cost-model.json")
+    ]

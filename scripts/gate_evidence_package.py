@@ -105,7 +105,7 @@ def _evidence_paths_from_diff(diff: str) -> list[Path]:
         if not line.startswith("+++ b/"):
             continue
         candidate = Path(line[6:])
-        if candidate.name in RESEARCH_ARTIFACT_FILENAMES:
+        if _is_research_bundle_artifact(candidate):
             continue
         if candidate.suffix.lower() not in EVIDENCE_SUFFIXES:
             continue
@@ -121,12 +121,20 @@ def _discover_evidence_files(diff: str) -> list[Path]:
             discovered.extend(
                 path
                 for path in folder.iterdir()
-                if path.suffix.lower() in EVIDENCE_SUFFIXES and path.name not in RESEARCH_ARTIFACT_FILENAMES
+                if path.suffix.lower() in EVIDENCE_SUFFIXES and not _is_research_bundle_artifact(path)
             )
     explicit = os.environ.get("EVIDENCE_PACKAGE_PATH", "").strip()
     if explicit:
         discovered.append(Path(explicit))
     return sorted({path for path in discovered if path.exists()})
+
+
+def _is_research_bundle_artifact(path: Path) -> bool:
+    return (
+        path.name in RESEARCH_ARTIFACT_FILENAMES
+        and (path.parent / "research-spec.json").is_file()
+        and (path.parent / "optimization-spec.json").is_file()
+    )
 
 
 def _discover_strategy_specs(diff: str) -> dict[Path, dict[str, Path]]:
@@ -171,12 +179,12 @@ def _validate_strategy_specs(
     paths: list[Path],
     *,
     validator=None,
-) -> tuple[bool | None, list[str]]:
+) -> tuple[bool, list[str]]:
     if validator is None:
         try:
-            from quant_platform_kit.strategy_lifecycle import validate_strategy_spec_file
+            from quant_platform_kit.strategy_spec import validate_strategy_spec_file
         except ImportError:
-            return None, []
+            return False, ["QuantPlatformKit strategy-spec validator is unavailable; update the QPK pin"]
         validator = validate_strategy_spec_file
 
     issues: list[str] = []
@@ -285,9 +293,7 @@ def main() -> int:
         return 1
 
     specs_ok, spec_issues = _validate_strategy_specs(strategy_spec_paths)
-    if specs_ok is None:
-        print("[evidence-gate] QPK strategy spec validator unavailable; using legacy promotion validation")
-    elif not specs_ok:
+    if not specs_ok:
         print("::error::Strategy specification validation failed", file=sys.stderr)
         for issue in spec_issues:
             print(f"  - {issue}", file=sys.stderr)
