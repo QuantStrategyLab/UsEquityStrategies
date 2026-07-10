@@ -25,6 +25,7 @@ from us_equity_strategies.catalog import (
     get_runtime_enabled_profiles,
     get_strategy_index_rows,
     get_strategy_definition,
+    get_strategy_entrypoint,
     get_strategy_metadata_map,
     get_strategy_platform_compatibility_map,
     resolve_canonical_profile,
@@ -192,6 +193,12 @@ class CatalogTest(unittest.TestCase):
 
     def test_aliases_resolve_to_canonical_profiles(self):
         self.assertEqual(resolve_canonical_profile("global_macro_etf_rotation"), GLOBAL_ETF_ROTATION_PROFILE)
+        for alias in ("global_macro_etf_rotation", "global_etf_confidence_vol_gate"):
+            with self.subTest(profile=alias):
+                self.assertEqual(
+                    get_strategy_entrypoint(alias).manifest.profile,
+                    GLOBAL_ETF_ROTATION_PROFILE,
+                )
         for legacy_profile in (
             "hybrid_growth_income",
             "qqq_tqqq_growth_income",
