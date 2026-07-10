@@ -63,11 +63,21 @@ def _clone_market_history(market_history: pd.DataFrame) -> pd.DataFrame:
     return market_history.copy(deep=True)
 
 
-def _shared_market_history(profile: str, params: dict[str, Any], synthetic_days: int) -> tuple[pd.DataFrame, int]:
+def _shared_market_history(
+    profile: str,
+    params: dict[str, Any],
+    synthetic_days: int,
+    windows: tuple[tuple[date, date], ...],
+) -> tuple[pd.DataFrame, int]:
     min_history_days = int(params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
-    effective_synthetic_days = max(int(synthetic_days), min_history_days + 400)
+    earliest_window_start = min(start for start, _ in windows if start is not None)
+    latest_window_end = max(end for _, end in windows if end is not None)
+    lookback_start = earliest_window_start - pd.tseries.offsets.BDay(min_history_days + 5)
+    required_window_days = len(pd.bdate_range(lookback_start, latest_window_end))
+    effective_synthetic_days = max(int(synthetic_days), required_window_days)
     return _runner_synthetic_market_history(
         days=effective_synthetic_days,
+        start=pd.Timestamp(lookback_start).date().isoformat(),
         include_combo_proxies=profile == US_EQUITY_COMBO_PROFILE,
     ), effective_synthetic_days
 
@@ -86,10 +96,15 @@ def run_walk_forward(
         raise ValueError(f"unsupported profile={profile!r}; supported={sorted(SUPPORTED_PROFILES)}")
 
     params = dict(PROFILE_DEFAULTS.get(profile, {"min_history_days": DEFAULT_MIN_HISTORY_DAYS}))
-    store_root = store_root or Path("/tmp/us_equity_wf_store")
-    store_root.mkdir(parents=True, exist_ok=True)
+    scratch_root = store_root or Path("/tmp/us_equity_wf_store")
+    scratch_root.mkdir(parents=True, exist_ok=True)
     baseline_params = copy.deepcopy(params)
-    shared_market_history, effective_synthetic_days = _shared_market_history(profile, baseline_params, synthetic_days)
+    shared_market_history, effective_synthetic_days = _shared_market_history(
+        profile,
+        baseline_params,
+        synthetic_days,
+        windows,
+    )
     baseline_runner = build_backtest_runner(
         profile,
         synthetic_days=effective_synthetic_days,
@@ -101,7 +116,7 @@ def run_walk_forward(
         start_date=None,
         end_date=None,
     )
-    with tempfile.TemporaryDirectory(prefix=f"{profile}_wf_", dir=store_root) as scratch_dir:
+    with tempfile.TemporaryDirectory(prefix=f"{profile}_wf_", dir=scratch_root) as scratch_dir:
         scratch_store = PerformanceStore(local_root=Path(scratch_dir))
         scratch_orchestrator = BacktestOrchestrator(store=scratch_store)
         scratch_orchestrator.register_runner(
@@ -128,7 +143,7 @@ def run_walk_forward(
             windows=windows,
             param_set_id=f"{profile}_wf",
         )
-    store = PerformanceStore(local_root=store_root)
+    store = PerformanceStore(local_root=store_root) if store_root is not None else PerformanceStore.from_env()
     orchestrator = BacktestOrchestrator(store=store)
     baseline = orchestrator.persist_result(
         baseline_raw,

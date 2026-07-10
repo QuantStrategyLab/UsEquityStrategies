@@ -19,10 +19,24 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
-      LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Require lifecycle bucket
+        run: |
+          set -euo pipefail
+          if [ -z "${LIFECYCLE_PERFORMANCE_BUCKET:-}" ]; then
+            echo "::error::LIFECYCLE_PERFORMANCE_BUCKET must be configured for drift preflight"
+            exit 1
+          fi
+
+      - name: Checkout QuantPlatformKit
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: 335c7a22bc3f570bd5705427ccc40172eda6b289
+          path: external/QuantPlatformKit
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -34,6 +48,7 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e . pandas
+          python -m pip install --no-deps -e external/QuantPlatformKit
 
       - name: Persist lifecycle backtests
         run: |
@@ -54,8 +69,6 @@ jobs:
                       "scripts/run_walk_forward_backtest.py",
                       "--profile",
                       profile,
-                      "--store-root",
-                      "data/lifecycle_store",
                   ]
               )
           PY
