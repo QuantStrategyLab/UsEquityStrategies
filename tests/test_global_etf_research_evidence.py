@@ -116,6 +116,7 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
     diff = "\n".join(
         (
             "diff --git a/src/us_equity_strategies/catalog.py b/src/us_equity_strategies/catalog.py",
+            "+++ b/src/us_equity_strategies/catalog.py",
             "@@ -550,20 +550,20 @@",
             "     GLOBAL_ETF_ROTATION_PROFILE: StrategyMetadata(",
             "         canonical_profile=GLOBAL_ETF_ROTATION_PROFILE,",
@@ -134,6 +135,20 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
     paths, issues = gate._spec_bundle_for_profile("ibit_smart_dca", bundles)
     assert paths == []
     assert issues == ["ibit_smart_dca: expected one changed strategy-spec directory named 'ibit_smart_dca'"]
+
+
+def test_promotion_detection_ignores_status_examples_outside_src() -> None:
+    gate = _load_gate_module()
+    diff = "\n".join(
+        (
+            "diff --git a/tests/test_example.py b/tests/test_example.py",
+            "+++ b/tests/test_example.py",
+            '+    text = \'+        status="runtime_enabled"\'',
+        )
+    )
+
+    assert gate._promotion_detected(diff) is False
+    assert gate._promoted_profiles(diff) == set()
 
 
 def test_git_diff_includes_src_and_evidence_paths(monkeypatch) -> None:

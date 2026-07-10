@@ -50,9 +50,25 @@ def _git_diff(base_ref: str) -> str:
 
 
 def _promotion_detected(diff: str) -> bool:
-    if "status=" not in diff:
-        return False
-    return any(match.group(1) in GATE_STAGES for line in diff.splitlines() if (match := STATUS_ADDED_RE.match(line)))
+    return any(
+        match.group(1) in GATE_STAGES
+        for line in _source_diff_lines(diff)
+        if (match := STATUS_ADDED_RE.match(line))
+    )
+
+
+def _source_diff_lines(diff: str) -> list[str]:
+    lines: list[str] = []
+    source_file = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            source_file = False
+        elif line.startswith("+++ b/"):
+            path = Path(line[6:])
+            source_file = bool(path.parts and path.parts[0] == "src")
+        if source_file:
+            lines.append(line)
+    return lines
 
 
 def _profile_constants() -> dict[str, str]:
@@ -67,7 +83,7 @@ def _promoted_profiles(diff: str) -> set[str]:
     constants = _profile_constants()
     profiles: set[str] = set()
     current_profile: str | None = None
-    for line in diff.splitlines():
+    for line in _source_diff_lines(diff):
         if line.startswith(("diff --git ", "@@")):
             current_profile = None
             continue
