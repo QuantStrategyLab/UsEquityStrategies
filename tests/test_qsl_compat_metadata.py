@@ -11,7 +11,7 @@ def test_qsl_compat_metadata_exists_and_bundle() -> None:
     with (root / "pyproject.toml").open("rb") as f:
         project = tomllib.load(f)
 
-    assert data.get("compat", {}).get("bundle") == "2026.07.3", "compat.bundle mismatch"
+    assert data.get("compat", {}).get("bundle") == "2026.07.4", "compat.bundle mismatch"
     dependency = next(
         value for value in project["project"]["dependencies"] if value.startswith("quant-platform-kit @ ")
     )
