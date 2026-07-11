@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: bda6afdab0a2dd693c35d14493176829f4da1231
+          ref: 3d14b9697c85ab6d8d990c7a6ea74cc28f18cbf7
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -194,7 +194,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@bda6afdab0a2dd693c35d14493176829f4da1231
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@3d14b9697c85ab6d8d990c7a6ea74cc28f18cbf7
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -203,7 +203,7 @@ jobs:
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
-      quant_platform_kit_ref: bda6afdab0a2dd693c35d14493176829f4da1231
+      quant_platform_kit_ref: 3d14b9697c85ab6d8d990c7a6ea74cc28f18cbf7
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
