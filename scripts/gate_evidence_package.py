@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import json
 import math
 import os
@@ -213,13 +214,15 @@ def _resolve_promoted_profiles(diff: str) -> tuple[set[str], list[str]]:
             profile_keyword = next(
                 (item for item in node.keywords if item.arg in {"canonical_profile", "profile"}), None
             )
-            if profile_keyword is None:
-                continue
-            value = profile_keyword.value
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                matches.append(value.value)
-            elif isinstance(value, ast.Name) and value.id in constants:
-                matches.append(constants[value.id])
+            profile = (
+                _resolve_profile_expression(profile_keyword.value, constants)
+                if profile_keyword is not None
+                else None
+            )
+            if profile is None:
+                profile = _profile_from_metadata_entry(path, tree, node, constants)
+            if profile is not None:
+                matches.append(profile)
         if len(matches) != 1:
             unresolved.append(
                 f"{path}:{line_number}: promoted status {status!r} must resolve to exactly one profile"
@@ -227,6 +230,56 @@ def _resolve_promoted_profiles(diff: str) -> tuple[set[str], list[str]]:
             continue
         profiles.add(matches[0])
     return profiles, unresolved
+
+
+def _resolve_profile_expression(value: ast.expr, constants: dict[str, str]) -> str | None:
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        return value.value
+    if isinstance(value, ast.Name):
+        return constants.get(value.id)
+    return None
+
+
+def _profile_from_metadata_entry(
+    path: Path,
+    tree: ast.AST,
+    call: ast.Call,
+    constants: dict[str, str],
+) -> str | None:
+    for node in getattr(tree, "body", []):
+        target = None
+        value = None
+        if isinstance(node, ast.Assign):
+            target = next((item for item in node.targets if isinstance(item, ast.Name)), None)
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target = node.target
+            value = node.value
+        if (
+            not isinstance(target, ast.Name)
+            or target.id != "STRATEGY_METADATA"
+            or not isinstance(value, ast.Dict)
+        ):
+            continue
+        for index, (key, entry) in enumerate(zip(value.keys, value.values)):
+            if entry is not call or key is None:
+                continue
+            profile = _resolve_profile_expression(key, constants)
+            if profile is not None:
+                return profile
+            runtime_profiles = _runtime_metadata_profiles(path)
+            return runtime_profiles[index] if index < len(runtime_profiles) else None
+    return None
+
+
+def _runtime_metadata_profiles(path: Path) -> list[str]:
+    try:
+        relative = path.with_suffix("").relative_to("src")
+        module = importlib.import_module(".".join(relative.parts))
+        metadata = getattr(module, "STRATEGY_METADATA")
+    except (ImportError, AttributeError, ValueError):
+        return []
+    return [str(profile) for profile in metadata] if isinstance(metadata, dict) else []
 
 
 def _promoted_status_locations(diff: str) -> list[tuple[Path, int, str]]:
@@ -279,10 +332,15 @@ def _discover_evidence_files(diff: str) -> list[Path]:
         if folder.is_dir():
             discovered.extend(
                 path
-                for path in folder.rglob("*")
+                for path in folder.iterdir()
                 if path.is_file()
                 and path.suffix.lower() in EVIDENCE_SUFFIXES
                 and not _is_research_bundle_artifact(path)
+            )
+            discovered.extend(
+                path
+                for path in folder.rglob("promotion-evidence.json")
+                if path.is_file() and not _is_research_bundle_artifact(path)
             )
     explicit = os.environ.get("EVIDENCE_PACKAGE_PATH", "").strip()
     if explicit:

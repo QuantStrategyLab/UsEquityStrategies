@@ -360,6 +360,45 @@ def test_promotion_profile_constants_are_resolved_in_the_changed_module(
     assert gate._promoted_profiles(diff) == {"right_profile"}
 
 
+def test_promotion_profile_falls_back_to_instantiated_metadata_entry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    gate = _load_gate_module()
+    source = tmp_path / "src/package/catalog.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            (
+                "STRATEGY_METADATA = {",
+                "    imported.PROFILE: StrategyMetadata(",
+                "        canonical_profile=build_profile(),",
+                '        status="runtime_enabled",',
+                "    ),",
+                "}",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(gate, "_runtime_metadata_profiles", lambda _path: ["resolved_profile"])
+    diff = "\n".join(
+        (
+            "diff --git a/src/package/catalog.py b/src/package/catalog.py",
+            "+++ b/src/package/catalog.py",
+            "@@ -3,3 +3,3 @@",
+            "         canonical_profile=build_profile(),",
+            '-        status="research_backtest_only",',
+            '+        status="runtime_enabled",',
+            "     ),",
+        )
+    )
+
+    profiles, unresolved = gate._resolve_promoted_profiles(diff)
+
+    assert profiles == {"resolved_profile"}
+    assert unresolved == []
+
+
 def test_promotion_gate_reports_every_unresolved_status_location(tmp_path: Path, monkeypatch) -> None:
     gate = _load_gate_module()
     source = tmp_path / "src/package/catalog.py"
@@ -500,6 +539,7 @@ def test_research_artifact_names_remain_valid_legacy_evidence_outside_bundle(tmp
     evidence_path = tmp_path / "docs/evidence/cost-model.json"
     evidence_path.parent.mkdir(parents=True)
     evidence_path.write_text("{}", encoding="utf-8")
+    (evidence_path.parent / "auxiliary-research.json").write_text("{}", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert gate._evidence_paths_from_diff("+++ b/docs/evidence/cost-model.json") == [
