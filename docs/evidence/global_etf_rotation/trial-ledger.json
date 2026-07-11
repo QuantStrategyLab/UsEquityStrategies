@@ -1,0 +1,13 @@
+{
+  "schema_version": "global_etf_rotation.trial_ledger.v1",
+  "artifact_id": "global_etf_rotation.trial_ledger.p0",
+  "strategy_profile": "global_etf_rotation",
+  "state": "empty_pending_real_data_research",
+  "record_all_trials": true,
+  "entries": [],
+  "rules": [
+    "Record every candidate, rejected candidate, failed run and manually stopped run before examining the locked holdout.",
+    "Each entry must reference immutable data, configuration, cost-model and output artifact identifiers.",
+    "Synthetic proxy runs cannot be entered as real-data OOS evidence."
+  ]
+}

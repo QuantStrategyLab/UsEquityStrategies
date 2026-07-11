@@ -1,0 +1,19 @@
+{
+  "schema_version": "global_etf_rotation.cost_model.v1",
+  "artifact_id": "global_etf_rotation.orchestrator_turnover_cost.v1",
+  "strategy_profile": "global_etf_rotation",
+  "state": "provisional_not_cost_stress_validated",
+  "implementation": {
+    "source_code": "src/us_equity_strategies/backtest/etf_rotation_simulator.py",
+    "config_class": "UsRotationBacktestConfig",
+    "cost_bps": 10.0,
+    "application": "turnover * cost_bps / 10000 is subtracted from daily return"
+  },
+  "required_before_promotion": [
+    "commission schedule by venue/account",
+    "bid_ask_spread and market-impact model",
+    "1x/2x/3x cost-stress results",
+    "realized-versus-modelled slippage reconciliation"
+  ],
+  "known_inconsistency": "docs/research/global_etf_confidence_vol_gate.md describes a prior 5 bps turnover assumption. It is not accepted as equivalent to this 10 bps orchestrator configuration."
+}

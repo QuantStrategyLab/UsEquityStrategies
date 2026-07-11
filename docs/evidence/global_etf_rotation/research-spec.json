@@ -1,0 +1,54 @@
+{
+  "schema_version": "research_spec.v1",
+  "spec_id": "research.global_etf_rotation.p0",
+  "strategy_profile": "global_etf_rotation",
+  "domain": "us_equity",
+  "created_at": "2026-07-10T00:00:00Z",
+  "review_state": "blocked",
+  "hypothesis": {
+    "economic_rationale": "Cross-asset trend persistence may compensate investors for regime and crash risk; the daily canary and BIL safe haven are intended to reduce exposure during broad risk-off conditions.",
+    "falsification_conditions": [
+      "Net real-data OOS value added disappears after the same cost model is applied to every benchmark.",
+      "The result is concentrated in a small number of dates, instruments or market regimes.",
+      "Reasonable parameter and execution-delay perturbations reverse the candidate's relative value."
+    ]
+  },
+  "reproducibility": {
+    "code_revision": "to_be_pinned_when_real_data_run_starts",
+    "config_artifact_id": "global_etf_rotation.config_snapshot.2026-07-10",
+    "random_seed": 20260711
+  },
+  "data": {
+    "manifest_id": "global_etf_rotation.data_manifest.p0",
+    "revision": "not_materialized",
+    "as_of": "2026-07-10T00:00:00Z",
+    "point_in_time_validated": false,
+    "survivorship_bias_controlled": false
+  },
+  "benchmarks": [
+    {"benchmark_id": "cash.bil", "kind": "capital"},
+    {"benchmark_id": "passive.voo", "kind": "passive"},
+    {"benchmark_id": "risk_matched.voo", "kind": "risk_matched"},
+    {"benchmark_id": "simple_rule.equal_weight_monthly", "kind": "simple_rule"}
+  ],
+  "cost_model": {
+    "model_id": "global_etf_rotation.orchestrator_turnover_cost.v1",
+    "revision": "p0-provisional",
+    "net_of_costs": true
+  },
+  "evaluation": {
+    "frozen_before_oos": false,
+    "in_sample": {"start_date": "2015-01-01", "end_date": "2021-12-31"},
+    "out_of_sample": {"start_date": "2022-01-01", "end_date": "2024-12-31", "locked": false},
+    "walk_forward": {"method": "expanding", "fold_count": 3}
+  },
+  "trial_ledger": {
+    "artifact_id": "global_etf_rotation.trial_ledger.p0",
+    "record_all_trials": false
+  },
+  "blocked_by": [
+    "point-in-time historical data is not materialized",
+    "no untouched locked holdout has been established",
+    "the trial ledger has no real-data trial record"
+  ]
+}

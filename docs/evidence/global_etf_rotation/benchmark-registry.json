@@ -1,0 +1,33 @@
+{
+  "schema_version": "global_etf_rotation.benchmark_registry.v1",
+  "artifact_id": "global_etf_rotation.benchmark_registry.p0",
+  "strategy_profile": "global_etf_rotation",
+  "state": "planned_not_evaluated",
+  "benchmarks": [
+    {
+      "benchmark_id": "cash.bil",
+      "kind": "capital",
+      "instrument": "BIL",
+      "comparison": "net total return after the same cash and fee convention"
+    },
+    {
+      "benchmark_id": "passive.voo",
+      "kind": "passive",
+      "instrument": "VOO",
+      "comparison": "buy and hold over the identical real-data interval"
+    },
+    {
+      "benchmark_id": "risk_matched.voo",
+      "kind": "risk_matched",
+      "instrument": "VOO",
+      "comparison": "VOO scaled to the candidate realized volatility using only information available at each rebalance"
+    },
+    {
+      "benchmark_id": "simple_rule.equal_weight_monthly",
+      "kind": "simple_rule",
+      "instrument": "global_etf_rotation ranking pool",
+      "comparison": "monthly equal-weight rebalance with the same eligible universe and cost model"
+    }
+  ],
+  "acceptance_note": "No benchmark return, alpha, Sharpe, or OOS result is asserted by this registry."
+}

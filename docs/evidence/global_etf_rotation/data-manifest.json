@@ -1,0 +1,26 @@
+{
+  "schema_version": "global_etf_rotation.data_manifest.v1",
+  "artifact_id": "global_etf_rotation.data_manifest.p0",
+  "strategy_profile": "global_etf_rotation",
+  "state": "blocked",
+  "runtime_input_contract": {
+    "required_input": "feature_snapshot",
+    "snapshot_contract_version": "global_etf_rotation.feature_snapshot.v1",
+    "snapshot_manifest_required": true,
+    "source_code": "src/us_equity_strategies/strategies/global_etf_rotation.py"
+  },
+  "historical_research_requirements": {
+    "immutable_price_revision": "required",
+    "point_in_time_universe": "required",
+    "point_in_time_feature_snapshots": "required",
+    "corporate_action_policy": "required",
+    "delisting_and_inception_policy": "required"
+  },
+  "available_in_repository": {
+    "immutable_historical_manifest": false,
+    "point_in_time_replay_evidence": false,
+    "real_returns_trades_positions": false
+  },
+  "blocker": "The repository only defines the runtime feature-snapshot contract; it does not contain a versioned historical snapshot/data manifest suitable for an OOS claim.",
+  "next_artifact": "A data pipeline must publish a hashed, point-in-time manifest before this state can change to ready."
+}

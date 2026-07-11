@@ -1,0 +1,50 @@
+{
+  "schema_version": "optimization_spec.v1",
+  "spec_id": "optimization.global_etf_rotation.p0",
+  "research_spec_id": "research.global_etf_rotation.p0",
+  "strategy_profile": "global_etf_rotation",
+  "created_at": "2026-07-10T00:00:00Z",
+  "frozen_inputs": {
+    "data_manifest_id": "global_etf_rotation.data_manifest.p0",
+    "universe_id": "global_etf_rotation.config_snapshot.2026-07-10",
+    "benchmark_ids": ["cash.bil", "passive.voo", "risk_matched.voo", "simple_rule.equal_weight_monthly"],
+    "cost_model_id": "global_etf_rotation.orchestrator_turnover_cost.v1",
+    "code_revision": "to_be_pinned_when_real_data_run_starts"
+  },
+  "allowed_parameters": [
+    {"name": "hold_bonus", "kind": "number", "bounds": [0.0, 0.05], "step": 0.005},
+    {"name": "confidence_threshold", "kind": "number", "bounds": [0.5, 2.0], "step": 0.25},
+    {"name": "confidence_top1_weight", "kind": "number", "bounds": [0.5, 0.9], "step": 0.05},
+    {"name": "confidence_volatility_max_ratio", "kind": "number", "bounds": [1.0, 1.8], "step": 0.1}
+  ],
+  "objective": {
+    "primary_metric": "net_oos_utility",
+    "secondary_metrics": ["conservative_sharpe", "active_return_stability"],
+    "hard_constraints": [
+      "no research result is eligible until the data manifest is point-in-time validated",
+      "max_drawdown and expected_shortfall must remain within the approved mandate",
+      "all 1x/2x/3x cost-stress scenarios must pass",
+      "candidate must provide incremental value versus every registered benchmark",
+      "research runner must consume the frozen runtime feature-snapshot configuration before trials start"
+    ]
+  },
+  "search": {"method": "random", "max_trials": 72, "random_seed": 20260711},
+  "validation": {
+    "nested_walk_forward": {"enabled": true, "fold_count": 3, "selection_scope": "train_validation_only"},
+    "locked_holdout": {"enabled": true, "reused_for_selection": false},
+    "multiple_testing": {"method": "dsr", "trial_ledger_id": "global_etf_rotation.trial_ledger.p0", "record_all_trials": true},
+    "cost_stress": {"multipliers": [1, 2, 3], "required_pass": true}
+  },
+  "stop_rules": [
+    "Stop before any optimization when the P0 data manifest remains blocked.",
+    "Stop when cost stress removes the candidate's net incremental value.",
+    "Stop when the locked holdout is reused or fails."
+  ],
+  "promotion": {
+    "requires_human_approval": true,
+    "automatic_risk_increase_allowed": false,
+    "full_kelly_allowed": false,
+    "max_fractional_kelly": 0.1
+  },
+  "execution_state": "not_started_no_results"
+}
