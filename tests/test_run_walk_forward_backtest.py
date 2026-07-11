@@ -108,7 +108,7 @@ def test_run_walk_forward_uses_external_history_and_writes_return_matrix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dates = pd.bdate_range("2022-01-03", "2024-12-31")
+    dates = pd.bdate_range("2022-01-03", "2025-02-28")
     rows = []
     for symbol_index, symbol in enumerate(extract_managed_symbols_universe()):
         for day_index, day in enumerate(dates):
@@ -144,6 +144,7 @@ def test_run_walk_forward_uses_external_history_and_writes_return_matrix(
     assert {"as_of", "global_etf_rotation", "buy_hold_SPY"} <= set(return_matrix.columns)
     assert return_matrix["global_etf_rotation"].notna().any()
     assert len(return_matrix) > payload["baseline"]["observation_count"]
+    assert pd.Timestamp(return_matrix["as_of"].max()) > pd.Timestamp("2024-12-31")
 
 
 def test_shared_market_history_rejects_stale_symbol_tail() -> None:

@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 import pandas_market_calendars as mcal
+from quant_platform_kit.strategy_lifecycle.performance_metrics import compute_window_metrics
 
 from us_equity_strategies.backtest.orchestrator_runner import (
     SUPPORTED_PROFILES,
@@ -22,7 +23,6 @@ from us_equity_strategies.backtest.orchestrator_runner import (
     build_backtest_runner,
 )
 from us_equity_strategies.backtest.orchestrator_runner import _synthetic_market_history as _runner_synthetic_market_history
-from us_equity_strategies.backtest.etf_rotation_simulator import compute_backtest_metrics
 from us_equity_strategies.strategies.global_etf_rotation import (
     DEFAULT_MIN_HISTORY_DAYS,
     PROFILE_NAME,
@@ -124,9 +124,10 @@ def _shared_market_history(
     required_window_days = len(pd.bdate_range(lookback_start, latest_window_end))
     if market_history is not None:
         history = _normalize_market_history(market_history)
+        available_end = history["date"].max()
         history = history.loc[
             (history["date"] >= pd.Timestamp(lookback_start))
-            & (history["date"] <= pd.Timestamp(latest_window_end))
+            & (history["date"] <= available_end)
         ].copy()
         required_symbols = set(extract_managed_symbols_universe())
         if profile == US_EQUITY_COMBO_PROFILE:
@@ -134,13 +135,14 @@ def _shared_market_history(
         missing_symbols = sorted(required_symbols - set(history["symbol"]))
         if missing_symbols:
             raise ValueError(f"market history is missing required symbols: {', '.join(missing_symbols)}")
+        history = history.loc[history["symbol"].isin(required_symbols)].copy()
         reference_dates = set(history.loc[history["symbol"] == "SPY", "date"])
         if not reference_dates:
             raise ValueError("market history is missing SPY reference dates")
         expected_business_dates = pd.DatetimeIndex(
             mcal.get_calendar("NYSE").schedule(
                 start_date=pd.Timestamp(lookback_start),
-                end_date=pd.Timestamp(latest_window_end),
+                end_date=available_end,
             ).index
         ).tz_localize(None).normalize()
         if (
@@ -192,21 +194,21 @@ def _write_return_matrix(
 
 def _baseline_from_return_tail(full_result: Any, returns: pd.Series) -> Any:
     tail = returns.tail(DRIFT_BASELINE_HORIZON_DAYS)
-    metrics = compute_backtest_metrics(tail)
-    max_drawdown = float(metrics["max_drawdown"])
-    cagr = float(metrics["annual_return"])
+    metrics = compute_window_metrics(tail, window_days=DRIFT_BASELINE_HORIZON_DAYS)
+    max_drawdown = float(metrics.max_drawdown)
+    cagr = float(metrics.cagr)
     return replace(
         full_result,
-        sharpe_ratio=float(metrics["sharpe_ratio"]),
-        calmar_ratio=abs(cagr / max_drawdown) if max_drawdown else None,
+        sharpe_ratio=float(metrics.sharpe_ratio),
+        calmar_ratio=float(metrics.calmar_ratio),
         max_drawdown=max_drawdown,
         cagr=cagr,
-        volatility=float(metrics["annual_volatility"]),
-        win_rate=float((tail > 0.0).mean()),
-        total_return=float(metrics["total_return"]),
-        start_date=tail.index.min().date(),
-        end_date=tail.index.max().date(),
-        observation_count=int(metrics["days"]),
+        volatility=float(metrics.volatility),
+        win_rate=float(metrics.win_rate),
+        total_return=float(metrics.total_return),
+        start_date=metrics.start_date,
+        end_date=metrics.end_date,
+        observation_count=metrics.observation_count,
     )
 
 
@@ -296,10 +298,22 @@ def run_walk_forward(
         ),
     )
     if returns_output is not None:
+        current_end = shared_market_history["date"].max().date()
+        current_runner = _build_runner(
+            profile=profile,
+            synthetic_days=effective_synthetic_days,
+            market_history=shared_market_history,
+        )
+        current_runner.run(
+            profile,
+            copy.deepcopy(baseline_params),
+            start_date=full_window_start,
+            end_date=current_end,
+        )
         _write_return_matrix(
             returns_output,
             profile=profile,
-            returns=full_window_returns,
+            returns=current_runner.last_daily_returns,
             market_history=shared_market_history,
         )
     return {
