@@ -10,16 +10,14 @@ on:
 permissions:
   contents: read
   issues: write
-  id-token: write
 
 jobs:
-  drift:
+  preflight_backtests:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      STRATEGY_DOMAIN: us_equity
-
+    outputs:
+      snapshot_repository_ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -28,7 +26,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: main
+          ref: bda6afdab0a2dd693c35d14493176829f4da1231
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -40,39 +38,173 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . pandas
+          python -m pip install -e . pandas pandas_market_calendars
           python -m pip install --no-deps -e external/QuantPlatformKit
 
-      - name: Run drift detection
-        run: quant-lifecycle drift --domain us_equity --no-alerts
-
-      - name: Sync drift alerts to GitHub Issues
+      - name: Download latest trusted market history
+        id: snapshot-input
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python scripts/run_drift_github_issues.py
-
-      - name: Checkout AIAuditBridge
-        uses: actions/checkout@v6
-        with:
-          repository: QuantStrategyLab/AIAuditBridge
-          ref: main
-          path: external/AIAuditBridge
-
-      - name: Dual-review critical drift
-        env:
-          AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
-          CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
-          AI_GATEWAY_SERVICE_URL: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+          GH_TOKEN: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
+          MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
         run: |
-          script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
-          if [ ! -f "$script" ]; then
-            echo "::notice::dual-review scripts unavailable; skipping until AIAuditBridge is merged"
-            exit 0
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::SNAPSHOT_REPOSITORY_TOKEN is required for market-history artifact access"
+            exit 1
           fi
-          if [ -z "${CODEX_AUDIT_SERVICE_URL:-}" ]; then
-            echo "::notice::CODEX_AUDIT_SERVICE_URL not configured; skipping dual-review dispatch"
-            exit 0
+          gh api --paginate --slurp \
+            "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts?per_page=100" \
+            > "${RUNNER_TEMP}/snapshot-artifacts.json"
+          gh api --paginate --slurp \
+            "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/workflows/publish-snapshot-artifacts.yml/runs?branch=main&status=success&per_page=100" \
+            > "${RUNNER_TEMP}/trusted-snapshot-runs.json"
+          python - <<'PY' > "${RUNNER_TEMP}/snapshot-artifact-selection.txt"
+          import json
+          import os
+          from pathlib import Path
+          pages = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifacts.json").read_text())
+          run_pages = json.loads((Path(os.environ["RUNNER_TEMP"]) / "trusted-snapshot-runs.json").read_text())
+          artifacts = [item for page in pages for item in page.get("artifacts", [])]
+          trusted_runs = [run for page in run_pages for run in page.get("workflow_runs", [])]
+          selected = None
+          for run in sorted(
+              trusted_runs,
+              key=lambda item: (item.get("run_number", 0), item.get("run_attempt", 0)),
+              reverse=True,
+          ):
+              matches = [
+                  item for item in artifacts
+                  if not item.get("expired")
+                  and str(item.get("name", "")).startswith("us-equity-market-history-")
+                  and item.get("workflow_run", {}).get("id") == run["id"]
+              ]
+              if matches:
+                  selected = max(matches, key=lambda item: item["created_at"])
+                  break
+          if selected is None:
+              raise SystemExit("no trusted US market-history artifact is available")
+          print(selected["id"], selected["workflow_run"]["id"])
+          PY
+          read -r artifact_id workflow_run_id < "${RUNNER_TEMP}/snapshot-artifact-selection.txt"
+          gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/runs/${workflow_run_id}" \
+            > "${RUNNER_TEMP}/snapshot-workflow-run.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          run = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-workflow-run.json").read_text())
+          expected = {
+              "conclusion": "success",
+              "head_branch": "main",
+              "path": ".github/workflows/publish-snapshot-artifacts.yml",
+          }
+          mismatches = {key: run.get(key) for key, value in expected.items() if run.get(key) != value}
+          if run.get("head_repository", {}).get("full_name") != "QuantStrategyLab/UsEquitySnapshotPipelines":
+              mismatches["head_repository"] = run.get("head_repository", {}).get("full_name")
+          if mismatches:
+              raise SystemExit(f"snapshot artifact provenance check failed: {mismatches}")
+          PY
+          snapshot_repository_ref="$(python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          run = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-workflow-run.json").read_text())
+          print(run["head_sha"])
+          PY
+          )"
+          if [[ ! "${snapshot_repository_ref}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid snapshot producer head SHA"
+            exit 1
           fi
-          PYTHONPATH=external/AIAuditBridge python "$script" \
-            --domain "${STRATEGY_DOMAIN}" --dispatch
+          echo "snapshot_repository_ref=${snapshot_repository_ref}" >> "${GITHUB_OUTPUT}"
+          gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts/${artifact_id}/zip" \
+            > "${RUNNER_TEMP}/snapshot-artifact.zip"
+          python - <<'PY'
+          import os
+          import zipfile
+          from pathlib import Path
+          archive = Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifact.zip"
+          target = Path(os.environ["MARKET_HISTORY_PATH"])
+          with zipfile.ZipFile(archive) as bundle:
+              matches = [name for name in bundle.namelist() if Path(name).name == "downloaded_price_history.csv"]
+              if len(matches) != 1:
+                  raise SystemExit(f"expected one downloaded_price_history.csv, found {len(matches)}")
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(bundle.read(matches[0]))
+          PY
+
+      - name: Build lifecycle preflight bundle
+        env:
+          LIFECYCLE_PREFLIGHT_BUNDLE_ROOT: ${{ runner.temp }}/lifecycle-preflight-bundle
+          MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          profiles = json.loads(
+              subprocess.check_output(
+                  ["python", "scripts/run_walk_forward_backtest.py", "--list-lifecycle-profiles"],
+                  text=True,
+              )
+          )["profiles"]
+          bundle_root = Path(os.environ["LIFECYCLE_PREFLIGHT_BUNDLE_ROOT"])
+          market_history = os.environ["MARKET_HISTORY_PATH"]
+          store_root = bundle_root / "data" / "lifecycle_store"
+          for profile in profiles:
+              returns_output = (
+                  bundle_root
+                  / "external"
+                  / "UsEquitySnapshotPipelines"
+                  / "data"
+                  / "output"
+                  / profile
+                  / "portfolio_and_tracker_returns.csv"
+              )
+              subprocess.check_call(
+                  [
+                      "python",
+                      "scripts/run_walk_forward_backtest.py",
+                      "--profile",
+                      profile,
+                      "--market-history",
+                      market_history,
+                      "--store-root",
+                      str(store_root),
+                      "--returns-output",
+                      str(returns_output),
+                  ]
+              )
+          PY
+
+      - name: Upload lifecycle preflight artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lifecycle-preflight-bundle
+          if-no-files-found: error
+
+  drift:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: preflight_backtests
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@bda6afdab0a2dd693c35d14493176829f4da1231
+    with:
+      strategy_domain: us_equity
+      caller_event_name: ${{ github.event_name }}
+      caller_pr_head_repository: ${{ github.event.pull_request.head.repo.full_name || '' }}
+      snapshot_repository: QuantStrategyLab/UsEquitySnapshotPipelines
+      snapshot_checkout_path: external/UsEquitySnapshotPipelines
+      snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
+      ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+      quant_platform_kit_ref: bda6afdab0a2dd693c35d14493176829f4da1231
+      lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+    secrets:
+      codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
+      snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}

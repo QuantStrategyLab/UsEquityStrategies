@@ -40,6 +40,10 @@ class UsEtfRotationBacktestRunnerTests(unittest.TestCase):
         self.assertEqual(result.domain, "us_equity")
         self.assertIsNotNone(result.sharpe_ratio)
         self.assertGreater(result.observation_count, 0)
+        self.assertFalse(runner.last_daily_returns.empty)
+        self.assertGreaterEqual(runner.last_daily_returns.index.min().date(), date(2023, 6, 1))
+        self.assertLessEqual(runner.last_daily_returns.index.max().date(), date(2024, 6, 1))
+        self.assertEqual(result.observation_count, len(runner.last_daily_returns))
 
     def test_unsupported_profile_raises(self) -> None:
         runner = UsEtfRotationBacktestRunner(synthetic_days=100)
@@ -59,6 +63,7 @@ class UsEquityComboBacktestRunnerTests(unittest.TestCase):
         self.assertEqual(result.strategy_profile, US_EQUITY_COMBO_PROFILE)
         self.assertEqual(result.domain, "us_equity")
         self.assertGreater(result.observation_count, 0)
+        self.assertFalse(runner.last_daily_returns.empty)
 
     def test_walk_forward_combo_profile(self) -> None:
         from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import BacktestOrchestrator
