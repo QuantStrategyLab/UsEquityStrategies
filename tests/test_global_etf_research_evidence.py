@@ -18,6 +18,14 @@ def _load(name: str) -> dict[str, object]:
     return json.loads((EVIDENCE_ROOT / name).read_text(encoding="utf-8"))
 
 
+def _changed_files(*paths: str) -> str:
+    return "\n".join(
+        line
+        for path in paths
+        for line in (f"diff --git a/{path} b/{path}", f"+++ b/{path}")
+    )
+
+
 def _load_gate_module():
     path = ROOT / "scripts" / "gate_evidence_package.py"
     spec = importlib.util.spec_from_file_location("gate_evidence_package", path)
@@ -220,11 +228,9 @@ def test_supporting_artifact_contracts_reject_malformed_payloads(tmp_path: Path)
 
 def test_promotion_gate_requires_changed_valid_strategy_specs() -> None:
     gate = _load_gate_module()
-    diff = "\n".join(
-        (
-            "+++ b/docs/evidence/global_etf_rotation/research-spec.json",
-            "+++ b/docs/evidence/global_etf_rotation/optimization-spec.json",
-        )
+    diff = _changed_files(
+        "docs/evidence/global_etf_rotation/research-spec.json",
+        "docs/evidence/global_etf_rotation/optimization-spec.json",
     )
     bundles = gate._discover_strategy_specs(diff)
     bundle = bundles[Path("docs/evidence/global_etf_rotation")]
@@ -273,7 +279,9 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
             "         role=\"defensive_rotation\",",
             '-        status="research_backtest_only",',
             '+        status="runtime_enabled",',
+            "diff --git a/docs/evidence/global_etf_rotation/research-spec.json b/docs/evidence/global_etf_rotation/research-spec.json",
             "+++ b/docs/evidence/global_etf_rotation/research-spec.json",
+            "diff --git a/docs/evidence/global_etf_rotation/optimization-spec.json b/docs/evidence/global_etf_rotation/optimization-spec.json",
             "+++ b/docs/evidence/global_etf_rotation/optimization-spec.json",
         )
     )
@@ -482,11 +490,9 @@ def test_strategy_spec_discovery_does_not_mix_evidence_directories(tmp_path: Pat
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    diff = "\n".join(
-        (
-            "+++ b/docs/evidence/strategy_a/research-spec.json",
-            "+++ b/docs/evidence/strategy_b/optimization-spec.json",
-        )
+    diff = _changed_files(
+        "docs/evidence/strategy_a/research-spec.json",
+        "docs/evidence/strategy_b/optimization-spec.json",
     )
 
     bundles = gate._discover_strategy_specs(diff)
@@ -510,24 +516,51 @@ def test_strategy_spec_discovery_rejects_noncanonical_evidence_roots(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
+    diff = _changed_files(
+        "tests/evidence/global_etf_rotation/research-spec.json",
+        "tests/evidence/global_etf_rotation/optimization-spec.json",
+    )
+
+    assert gate._discover_strategy_specs(diff) == {}
+
+
+def test_strategy_spec_discovery_ignores_header_like_hunk_content() -> None:
+    gate = _load_gate_module()
     diff = "\n".join(
         (
-            "+++ b/tests/evidence/global_etf_rotation/research-spec.json",
-            "+++ b/tests/evidence/global_etf_rotation/optimization-spec.json",
+            "diff --git a/docs/note.md b/docs/note.md",
+            "+++ b/docs/note.md",
+            "@@ -1 +1,3 @@",
+            " note",
+            "+++ b/docs/evidence/global_etf_rotation/research-spec.json",
+            "+++ b/docs/evidence/global_etf_rotation/optimization-spec.json",
         )
     )
 
     assert gate._discover_strategy_specs(diff) == {}
 
 
-def test_promotion_evidence_discovery_excludes_research_artifacts() -> None:
+def test_promotion_detection_ignores_header_like_hunk_content_as_a_path() -> None:
     gate = _load_gate_module()
     diff = "\n".join(
         (
-            "+++ b/docs/evidence/global_etf_rotation/research-spec.json",
-            "+++ b/docs/evidence/global_etf_rotation/cost-model.json",
-            "+++ b/docs/evidence/global_etf_rotation/promotion-evidence.json",
+            "diff --git a/src/package/catalog.py b/src/package/catalog.py",
+            "+++ b/src/package/catalog.py",
+            "@@ -1 +1,2 @@",
+            "+++ b/docs/not-a-real-header.txt",
+            '+    status="runtime_enabled",',
         )
+    )
+
+    assert gate._promotion_detected(diff) is True
+
+
+def test_promotion_evidence_discovery_excludes_research_artifacts() -> None:
+    gate = _load_gate_module()
+    diff = _changed_files(
+        "docs/evidence/global_etf_rotation/research-spec.json",
+        "docs/evidence/global_etf_rotation/cost-model.json",
+        "docs/evidence/global_etf_rotation/promotion-evidence.json",
     )
 
     assert gate._evidence_paths_from_diff(diff) == [
@@ -540,10 +573,9 @@ def test_research_artifact_names_remain_valid_legacy_evidence_outside_bundle(tmp
     evidence_path = tmp_path / "docs/evidence/cost-model.json"
     evidence_path.parent.mkdir(parents=True)
     evidence_path.write_text("{}", encoding="utf-8")
-    (evidence_path.parent / "auxiliary-research.json").write_text("{}", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert gate._evidence_paths_from_diff("+++ b/docs/evidence/cost-model.json") == [
+    assert gate._evidence_paths_from_diff(_changed_files("docs/evidence/cost-model.json")) == [
         Path("docs/evidence/cost-model.json")
     ]
 
@@ -555,6 +587,7 @@ def test_existing_nested_promotion_evidence_is_discovered_recursively(
     evidence_path = tmp_path / "docs/evidence/global_etf_rotation/promotion-evidence.json"
     evidence_path.parent.mkdir(parents=True)
     evidence_path.write_text("{}", encoding="utf-8")
+    (evidence_path.parent / "auxiliary-research.json").write_text("{}", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert gate._discover_evidence_files("") == [

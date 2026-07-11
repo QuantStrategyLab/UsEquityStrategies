@@ -3,10 +3,10 @@
   "spec_id": "optimization.global_etf_rotation.p0",
   "research_spec_id": "research.global_etf_rotation.p0",
   "strategy_profile": "global_etf_rotation",
-  "created_at": "2026-07-11T00:00:00Z",
+  "created_at": "2026-07-10T00:00:00Z",
   "frozen_inputs": {
     "data_manifest_id": "global_etf_rotation.data_manifest.p0",
-    "universe_id": "global_etf_rotation.config_snapshot.2026-07-11",
+    "universe_id": "global_etf_rotation.config_snapshot.2026-07-10",
     "benchmark_ids": ["cash.bil", "passive.voo", "risk_matched.voo", "simple_rule.equal_weight_monthly"],
     "cost_model_id": "global_etf_rotation.orchestrator_turnover_cost.v1",
     "code_revision": "to_be_pinned_when_real_data_run_starts"

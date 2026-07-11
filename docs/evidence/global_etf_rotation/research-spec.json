@@ -3,7 +3,7 @@
   "spec_id": "research.global_etf_rotation.p0",
   "strategy_profile": "global_etf_rotation",
   "domain": "us_equity",
-  "created_at": "2026-07-11T00:00:00Z",
+  "created_at": "2026-07-10T00:00:00Z",
   "review_state": "blocked",
   "hypothesis": {
     "economic_rationale": "Cross-asset trend persistence may compensate investors for regime and crash risk; the daily canary and BIL safe haven are intended to reduce exposure during broad risk-off conditions.",
@@ -15,13 +15,13 @@
   },
   "reproducibility": {
     "code_revision": "to_be_pinned_when_real_data_run_starts",
-    "config_artifact_id": "global_etf_rotation.config_snapshot.2026-07-11",
+    "config_artifact_id": "global_etf_rotation.config_snapshot.2026-07-10",
     "random_seed": 20260711
   },
   "data": {
     "manifest_id": "global_etf_rotation.data_manifest.p0",
     "revision": "not_materialized",
-    "as_of": "2026-07-11T00:00:00Z",
+    "as_of": "2026-07-10T00:00:00Z",
     "point_in_time_validated": false,
     "survivorship_bias_controlled": false
   },

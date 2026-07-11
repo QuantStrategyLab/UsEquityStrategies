@@ -1,6 +1,6 @@
 {
   "schema_version": "global_etf_rotation.config_snapshot.v1",
-  "artifact_id": "global_etf_rotation.config_snapshot.2026-07-11",
+  "artifact_id": "global_etf_rotation.config_snapshot.2026-07-10",
   "strategy_profile": "global_etf_rotation",
   "source": {
     "path": "src/us_equity_strategies/strategies/global_etf_rotation.py",

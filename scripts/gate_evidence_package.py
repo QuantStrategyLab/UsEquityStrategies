@@ -147,20 +147,6 @@ def _promotion_detected(diff: str) -> bool:
     return bool(_promoted_status_locations(diff))
 
 
-def _source_diff_lines(diff: str) -> list[str]:
-    lines: list[str] = []
-    source_file = False
-    for line in diff.splitlines():
-        if line.startswith("diff --git "):
-            source_file = False
-        elif line.startswith("+++ b/"):
-            path = Path(line[6:])
-            source_file = bool(path.parts and path.parts[0] == "src")
-        if source_file:
-            lines.append(line)
-    return lines
-
-
 def _module_string_constants(tree: ast.AST) -> dict[str, str]:
     constants: dict[str, str] = {}
     for node in getattr(tree, "body", []):
@@ -382,18 +368,22 @@ def _promoted_status_locations(diff: str) -> list[tuple[Path, int, str]]:
     locations: list[tuple[Path, int, str]] = []
     source_path: Path | None = None
     new_line: int | None = None
+    awaiting_new_header = False
     for line in diff.splitlines():
         if line.startswith("diff --git "):
             source_path = None
             new_line = None
+            awaiting_new_header = True
             continue
-        if line.startswith("+++ b/"):
+        if awaiting_new_header and line.startswith("+++ b/"):
             candidate = Path(line[6:])
             source_path = candidate if candidate.parts and candidate.parts[0] == "src" else None
+            awaiting_new_header = False
             continue
         if line.startswith("@@"):
             match = re.search(r"\+(\d+)(?:,\d+)?", line)
             new_line = int(match.group(1)) if source_path is not None and match else None
+            awaiting_new_header = False
             continue
         if source_path is None or new_line is None:
             continue
@@ -407,12 +397,25 @@ def _promoted_status_locations(diff: str) -> list[tuple[Path, int, str]]:
     return locations
 
 
+def _changed_paths(diff: str) -> list[Path]:
+    paths: list[Path] = []
+    awaiting_new_header = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            awaiting_new_header = True
+            continue
+        if line.startswith("@@"):
+            awaiting_new_header = False
+            continue
+        if awaiting_new_header and line.startswith("+++ b/"):
+            paths.append(Path(line[6:]))
+            awaiting_new_header = False
+    return paths
+
+
 def _evidence_paths_from_diff(diff: str) -> list[Path]:
     paths: list[Path] = []
-    for line in diff.splitlines():
-        if not line.startswith("+++ b/"):
-            continue
-        candidate = Path(line[6:])
+    for candidate in _changed_paths(diff):
         if _is_research_bundle_artifact(candidate):
             continue
         if candidate.suffix.lower() not in EVIDENCE_SUFFIXES:
@@ -454,10 +457,7 @@ def _is_research_bundle_artifact(path: Path) -> bool:
 
 def _discover_strategy_specs(diff: str) -> dict[Path, dict[str, Path]]:
     bundles: dict[Path, dict[str, Path]] = {}
-    for line in diff.splitlines():
-        if not line.startswith("+++ b/"):
-            continue
-        candidate = Path(line[6:])
+    for candidate in _changed_paths(diff):
         if (
             candidate.name not in STRATEGY_SPEC_FILENAMES
             or candidate.parent.parent not in STRATEGY_SPEC_ROOTS
