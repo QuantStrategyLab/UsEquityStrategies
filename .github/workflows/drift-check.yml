@@ -16,6 +16,8 @@ jobs:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      snapshot_repository_ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -24,7 +26,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: 9bb8f31e898ea238a6446472f9f5e58133128d0c
+          ref: bda6afdab0a2dd693c35d14493176829f4da1231
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -36,10 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . pandas
+          python -m pip install -e . pandas pandas_market_calendars
           python -m pip install --no-deps -e external/QuantPlatformKit
 
       - name: Download latest trusted market history
+        id: snapshot-input
         env:
           GH_TOKEN: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN }}
           MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
@@ -62,17 +65,24 @@ jobs:
           pages = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-artifacts.json").read_text())
           run_pages = json.loads((Path(os.environ["RUNNER_TEMP"]) / "trusted-snapshot-runs.json").read_text())
           artifacts = [item for page in pages for item in page.get("artifacts", [])]
-          trusted_run_ids = {run["id"] for page in run_pages for run in page.get("workflow_runs", [])}
-          candidates = [
-              item for item in artifacts
-              if not item.get("expired")
-              and str(item.get("name", "")).startswith("us-equity-market-history-")
-              and item.get("workflow_run", {}).get("head_branch") == "main"
-              and item.get("workflow_run", {}).get("id") in trusted_run_ids
-          ]
-          if not candidates:
+          trusted_runs = [run for page in run_pages for run in page.get("workflow_runs", [])]
+          selected = None
+          for run in sorted(
+              trusted_runs,
+              key=lambda item: (item.get("run_number", 0), item.get("run_attempt", 0)),
+              reverse=True,
+          ):
+              matches = [
+                  item for item in artifacts
+                  if not item.get("expired")
+                  and str(item.get("name", "")).startswith("us-equity-market-history-")
+                  and item.get("workflow_run", {}).get("id") == run["id"]
+              ]
+              if matches:
+                  selected = max(matches, key=lambda item: item["created_at"])
+                  break
+          if selected is None:
               raise SystemExit("no trusted US market-history artifact is available")
-          selected = max(candidates, key=lambda item: item["created_at"])
           print(selected["id"], selected["workflow_run"]["id"])
           PY
           read -r artifact_id workflow_run_id < "${RUNNER_TEMP}/snapshot-artifact-selection.txt"
@@ -94,6 +104,19 @@ jobs:
           if mismatches:
               raise SystemExit(f"snapshot artifact provenance check failed: {mismatches}")
           PY
+          snapshot_repository_ref="$(python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          run = json.loads((Path(os.environ["RUNNER_TEMP"]) / "snapshot-workflow-run.json").read_text())
+          print(run["head_sha"])
+          PY
+          )"
+          if [[ ! "${snapshot_repository_ref}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid snapshot producer head SHA"
+            exit 1
+          fi
+          echo "snapshot_repository_ref=${snapshot_repository_ref}" >> "${GITHUB_OUTPUT}"
           gh api "/repos/QuantStrategyLab/UsEquitySnapshotPipelines/actions/artifacts/${artifact_id}/zip" \
             > "${RUNNER_TEMP}/snapshot-artifact.zip"
           python - <<'PY'
@@ -171,15 +194,16 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@9bb8f31e898ea238a6446472f9f5e58133128d0c
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@bda6afdab0a2dd693c35d14493176829f4da1231
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
       caller_pr_head_repository: ${{ github.event.pull_request.head.repo.full_name || '' }}
       snapshot_repository: QuantStrategyLab/UsEquitySnapshotPipelines
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
+      snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
-      quant_platform_kit_ref: 9bb8f31e898ea238a6446472f9f5e58133128d0c
+      quant_platform_kit_ref: bda6afdab0a2dd693c35d14493176829f4da1231
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}

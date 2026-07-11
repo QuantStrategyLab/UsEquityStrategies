@@ -6,18 +6,22 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
 
     assert "preflight_backtests:" in workflow
     assert "needs: preflight_backtests" in workflow
+    assert "snapshot_repository_ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}" in workflow
+    assert "id: snapshot-input" in workflow
+    assert 'print(run["head_sha"])' in workflow
+    assert "snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}" in workflow
     assert workflow.count("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)") == 2
     assert "Download latest trusted market history" in workflow
     assert "gh api --paginate --slurp" in workflow
     assert "trusted-snapshot-runs.json" in workflow
     assert "downloaded_price_history.csv" in workflow
     assert "us-equity-market-history-" in workflow
-    assert 'head_branch") == "main"' in workflow
+    assert '"head_branch": "main"' in workflow
     assert '"path": ".github/workflows/publish-snapshot-artifacts.yml"' in workflow
     assert '"conclusion": "success"' in workflow
     assert '"QuantStrategyLab/UsEquitySnapshotPipelines"' in workflow
     assert "repository: QuantStrategyLab/QuantPlatformKit" in workflow
-    assert "ref: 9bb8f31e898ea238a6446472f9f5e58133128d0c" in workflow
+    assert "ref: bda6afdab0a2dd693c35d14493176829f4da1231" in workflow
     assert "python -m pip install --no-deps -e external/QuantPlatformKit" in workflow
     assert "scripts/run_walk_forward_backtest.py" in workflow
     assert '"--list-profiles"' in workflow
@@ -26,7 +30,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "LIFECYCLE_PREFLIGHT_BUNDLE_ROOT" in workflow
     assert "Upload lifecycle preflight artifact" in workflow
     assert "actions/upload-artifact@v4" in workflow
-    assert "uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@9bb8f31e898ea238a6446472f9f5e58133128d0c" in workflow
+    assert "uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@bda6afdab0a2dd693c35d14493176829f4da1231" in workflow
     assert "strategy_domain: us_equity" in workflow
     assert "caller_event_name: ${{ github.event_name }}" in workflow
     assert "caller_pr_head_repository: ${{ github.event.pull_request.head.repo.full_name || '' }}" in workflow

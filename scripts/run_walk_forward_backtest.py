@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pandas_market_calendars as mcal
 
 from us_equity_strategies.backtest.orchestrator_runner import (
     SUPPORTED_PROFILES,
@@ -136,10 +137,16 @@ def _shared_market_history(
         reference_dates = set(history.loc[history["symbol"] == "SPY", "date"])
         if not reference_dates:
             raise ValueError("market history is missing SPY reference dates")
-        expected_business_dates = pd.bdate_range(lookback_start, latest_window_end)
+        expected_business_dates = pd.DatetimeIndex(
+            mcal.get_calendar("NYSE").schedule(
+                start_date=pd.Timestamp(lookback_start),
+                end_date=pd.Timestamp(latest_window_end),
+            ).index
+        ).tz_localize(None).normalize()
         if (
-            len(reference_dates) / len(expected_business_dates) < 0.90
-            or max(reference_dates) < pd.Timestamp(latest_window_end) - pd.Timedelta(days=7)
+            len(reference_dates & set(expected_business_dates)) / len(expected_business_dates) < 0.99
+            or min(reference_dates) > expected_business_dates.min()
+            or max(reference_dates) < expected_business_dates.max()
         ):
             raise ValueError("market history has incomplete SPY reference coverage")
         first_required_day = min(reference_dates)
