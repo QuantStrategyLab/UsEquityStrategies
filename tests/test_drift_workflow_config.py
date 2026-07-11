@@ -24,7 +24,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "ref: bda6afdab0a2dd693c35d14493176829f4da1231" in workflow
     assert "python -m pip install --no-deps -e external/QuantPlatformKit" in workflow
     assert "scripts/run_walk_forward_backtest.py" in workflow
-    assert '"--list-profiles"' in workflow
+    assert '"--list-lifecycle-profiles"' in workflow
     assert "--market-history" in workflow
     assert "--returns-output" in workflow
     assert "LIFECYCLE_PREFLIGHT_BUNDLE_ROOT" in workflow

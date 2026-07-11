@@ -147,7 +147,7 @@ jobs:
 
           profiles = json.loads(
               subprocess.check_output(
-                  ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
+                  ["python", "scripts/run_walk_forward_backtest.py", "--list-lifecycle-profiles"],
                   text=True,
               )
           )["profiles"]

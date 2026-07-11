@@ -44,6 +44,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "combo_mode": "dynamic",
     },
 }
+LIFECYCLE_PREFLIGHT_PROFILES = (PROFILE_NAME,)
 
 
 def _result_payload(item: Any) -> dict[str, Any]:
@@ -330,6 +331,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="US walk-forward backtest via BacktestOrchestrator.")
     parser.add_argument("--profile", default=PROFILE_NAME)
     parser.add_argument("--list-profiles", action="store_true")
+    parser.add_argument("--list-lifecycle-profiles", action="store_true")
     parser.add_argument("--json-output", type=Path)
     parser.add_argument("--synthetic-days", type=int, default=900)
     parser.add_argument("--store-root", type=Path)
@@ -339,6 +341,9 @@ def main() -> int:
 
     if args.list_profiles:
         print(json.dumps({"profiles": sorted(SUPPORTED_PROFILES)}, indent=2))
+        return 0
+    if args.list_lifecycle_profiles:
+        print(json.dumps({"profiles": sorted(LIFECYCLE_PREFLIGHT_PROFILES)}, indent=2))
         return 0
 
     market_history = pd.read_csv(args.market_history) if args.market_history else None
