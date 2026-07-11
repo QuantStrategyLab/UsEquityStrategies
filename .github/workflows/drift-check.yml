@@ -44,7 +44,7 @@ jobs:
       - name: Download latest trusted market history
         id: snapshot-input
         env:
-          GH_TOKEN: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN }}
+          GH_TOKEN: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
           MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
         run: |
           set -euo pipefail
@@ -207,4 +207,4 @@ jobs:
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
-      snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN }}
+      snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
