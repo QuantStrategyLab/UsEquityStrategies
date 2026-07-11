@@ -2,7 +2,7 @@ tier = "strategy-lib"
 upgrade_ring = "ring_b"
 
 [compat]
-bundle = "2026.07.3"
+bundle = "2026.07.4"
 requires = [
   "pandas>=2.0",
   "pytz>=2024.1",
