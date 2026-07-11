@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import json
 import math
 import os
@@ -219,6 +218,8 @@ def _resolve_promoted_profiles(diff: str) -> tuple[set[str], list[str]]:
                 if profile_keyword is not None
                 else None
             )
+            if profile is None and profile_keyword is not None:
+                profile = _resolve_static_profile_expression(path, tree, profile_keyword.value)
             if profile is None:
                 profile = _profile_from_metadata_entry(path, tree, node, constants)
             if profile is not None:
@@ -267,19 +268,114 @@ def _profile_from_metadata_entry(
             profile = _resolve_profile_expression(key, constants)
             if profile is not None:
                 return profile
-            runtime_profiles = _runtime_metadata_profiles(path)
-            return runtime_profiles[index] if index < len(runtime_profiles) else None
+            return _resolve_static_profile_expression(path, tree, key)
     return None
 
 
-def _runtime_metadata_profiles(path: Path) -> list[str]:
+def _resolve_static_profile_expression(
+    path: Path,
+    tree: ast.AST,
+    value: ast.expr,
+    visited: frozenset[tuple[Path, str]] = frozenset(),
+) -> str | None:
+    constants = _module_string_constants(tree)
+    direct = _resolve_profile_expression(value, constants)
+    if direct is not None:
+        return direct
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and not value.args:
+        function = next(
+            (
+                node
+                for node in getattr(tree, "body", [])
+                if isinstance(node, ast.FunctionDef) and node.name == value.func.id
+            ),
+            None,
+        )
+        if function is not None and len(function.body) == 1 and isinstance(function.body[0], ast.Return):
+            returned = function.body[0].value
+            if returned is not None:
+                return _resolve_static_profile_expression(path, tree, returned, visited)
+    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
+        local = _class_string_attribute(tree, value.value.id, value.attr)
+        if local is not None:
+            return local
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bound_name = alias.asname or alias.name
+                if isinstance(value, ast.Name) and bound_name == value.id:
+                    module_path = _resolve_import_path(path, node.module, node.level)
+                    return _resolve_static_export(module_path, alias.name, None, visited)
+                if (
+                    isinstance(value, ast.Attribute)
+                    and isinstance(value.value, ast.Name)
+                    and bound_name == value.value.id
+                ):
+                    if node.module is None:
+                        module_path = _resolve_import_path(path, alias.name, node.level)
+                        return _resolve_static_export(module_path, value.attr, None, visited)
+                    module_path = _resolve_import_path(path, node.module, node.level)
+                    return _resolve_static_export(module_path, alias.name, value.attr, visited)
+        elif isinstance(node, ast.Import) and isinstance(value, ast.Attribute):
+            if not isinstance(value.value, ast.Name):
+                continue
+            for alias in node.names:
+                if (alias.asname or alias.name.split(".")[-1]) == value.value.id:
+                    module_path = _resolve_import_path(path, alias.name, 0)
+                    return _resolve_static_export(module_path, value.attr, None, visited)
+    return None
+
+
+def _resolve_static_export(
+    module_path: Path | None,
+    symbol: str,
+    attribute: str | None,
+    visited: frozenset[tuple[Path, str]],
+) -> str | None:
+    if module_path is None:
+        return None
+    marker = (module_path, f"{symbol}.{attribute or ''}")
+    if marker in visited:
+        return None
     try:
-        relative = path.with_suffix("").relative_to("src")
-        module = importlib.import_module(".".join(relative.parts))
-        metadata = getattr(module, "STRATEGY_METADATA")
-    except (ImportError, AttributeError, ValueError):
-        return []
-    return [str(profile) for profile in metadata] if isinstance(metadata, dict) else []
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    if attribute is not None:
+        return _class_string_attribute(tree, symbol, attribute)
+    expression = ast.Name(id=symbol)
+    return _resolve_static_profile_expression(module_path, tree, expression, visited | {marker})
+
+
+def _class_string_attribute(tree: ast.AST, class_name: str, attribute: str) -> str | None:
+    class_node = next(
+        (
+            node
+            for node in getattr(tree, "body", [])
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        ),
+        None,
+    )
+    if class_node is None:
+        return None
+    for node in class_node.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            if any(isinstance(target, ast.Name) and target.id == attribute for target in node.targets):
+                return node.value.value if isinstance(node.value.value, str) else None
+    return None
+
+
+def _resolve_import_path(path: Path, module: str | None, level: int) -> Path | None:
+    base = Path("src") if level == 0 else path.parent
+    for _ in range(max(level - 1, 0)):
+        base = base.parent
+    parts = tuple(part for part in (module or "").split(".") if part)
+    candidate = base.joinpath(*parts)
+    file_candidate = candidate.with_suffix(".py")
+    if file_candidate.is_file():
+        return file_candidate
+    package_candidate = candidate / "__init__.py"
+    return package_candidate if package_candidate.is_file() else None
 
 
 def _promoted_status_locations(diff: str) -> list[tuple[Path, int, str]]:

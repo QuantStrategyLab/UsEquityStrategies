@@ -366,11 +366,13 @@ def test_promotion_profile_falls_back_to_instantiated_metadata_entry(
     gate = _load_gate_module()
     source = tmp_path / "src/package/catalog.py"
     source.parent.mkdir(parents=True)
+    (source.parent / "profiles.py").write_text('PROFILE = "resolved_profile"\n', encoding="utf-8")
     source.write_text(
         "\n".join(
             (
+                "from . import profiles",
                 "STRATEGY_METADATA = {",
-                "    imported.PROFILE: StrategyMetadata(",
+                "    profiles.PROFILE: StrategyMetadata(",
                 "        canonical_profile=build_profile(),",
                 '        status="runtime_enabled",',
                 "    ),",
@@ -380,12 +382,11 @@ def test_promotion_profile_falls_back_to_instantiated_metadata_entry(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(gate, "_runtime_metadata_profiles", lambda _path: ["resolved_profile"])
     diff = "\n".join(
         (
             "diff --git a/src/package/catalog.py b/src/package/catalog.py",
             "+++ b/src/package/catalog.py",
-            "@@ -3,3 +3,3 @@",
+            "@@ -4,3 +4,3 @@",
             "         canonical_profile=build_profile(),",
             '-        status="research_backtest_only",',
             '+        status="runtime_enabled",',
