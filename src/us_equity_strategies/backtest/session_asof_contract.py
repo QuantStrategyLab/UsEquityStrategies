@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 UTC = timezone.utc
 US_MARKET_ZONE = ZoneInfo("America/New_York")
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
+_WIRE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SESSION_KEYS = frozenset({"trading_date", "close_at_utc"})
 _WINDOW_KEYS = frozenset({"requested_start_date", "requested_end_date", "observed_start_date", "observed_end_date", "as_of"})
 
@@ -40,6 +41,15 @@ def _utc(value: str) -> datetime:
         return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
     except ValueError:
         raise SessionContractError("invalid close_at_utc") from None
+
+
+def _wire_date(value: object, field: str) -> date:
+    if not isinstance(value, str) or not _WIRE_DATE_RE.fullmatch(value):
+        raise SessionContractError(f"invalid {field}")
+    parsed = _date(value, field)
+    if parsed.isoformat() != value:
+        raise SessionContractError(f"invalid {field}")
+    return parsed
 
 
 def _check_keys(payload: Mapping[str, object], expected: frozenset[str]) -> None:
@@ -72,7 +82,7 @@ class SessionClose:
         _check_keys(payload, _SESSION_KEYS)
         if not all(isinstance(payload[key], str) for key in _SESSION_KEYS):
             raise SessionContractError("invalid wire value")
-        return cls(payload["trading_date"], payload["close_at_utc"])
+        return cls(_wire_date(payload["trading_date"], "trading_date"), payload["close_at_utc"])
 
 
 @dataclass(frozen=True)
@@ -115,7 +125,7 @@ class RequestedObservedWindow:
         _check_keys(payload, _WINDOW_KEYS)
         if not all(isinstance(payload[key], str) for key in _WINDOW_KEYS):
             raise SessionContractError("invalid wire value")
-        return cls(**{field: payload[field] for field in _WINDOW_KEYS})
+        return cls(**{field: _wire_date(payload[field], field) for field in _WINDOW_KEYS})
 
 
 def canonical_bytes(value: Mapping[str, object]) -> bytes:

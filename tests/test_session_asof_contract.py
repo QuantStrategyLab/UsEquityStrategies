@@ -35,6 +35,9 @@ def test_session_wire_exact_shape_and_no_alias():
         SessionClose.from_wire({**item.to_wire(), "extra": "x"})
     with pytest.raises(SessionContractError):
         SessionClose.from_wire({"trading_date": item.to_wire()["trading_date"], "close_at_utc": "bad"})
+    for value in ("20240702", "2024-W27-2", " 2024-07-02", "2024-02-30"):
+        with pytest.raises(SessionContractError):
+            SessionClose.from_wire({"trading_date": value, "close_at_utc": item.close_at_utc})
 
 
 def test_window_as_of_is_last_observed_and_end_policy_is_explicit():
@@ -51,4 +54,3 @@ def test_window_order_duplicate_and_forged_as_of_rejected():
         RequestedObservedWindow.from_sessions((session("2024-07-02"), session("2024-07-01")), requested_start_date="2024-07-01", requested_end_date="2024-07-02")
     with pytest.raises(SessionContractError):
         RequestedObservedWindow.from_wire({"requested_start_date": "2024-07-01", "requested_end_date": "2024-07-02", "observed_start_date": "2024-07-01", "observed_end_date": "2024-07-02", "as_of": "2024-07-01"})
-
