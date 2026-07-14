@@ -1,0 +1,62 @@
+from datetime import date
+
+import pytest
+
+from us_equity_strategies.backtest.session_asof import (
+    SessionClose,
+    SessionContractError,
+    build_close_snapshot,
+    derive_window_metadata,
+)
+
+
+def session(day: str, close: str = "21:00:00.000000Z") -> SessionClose:
+    return SessionClose(date.fromisoformat(day), f"{day}T{close}")
+
+
+def test_session_close_preserves_us_session_date_and_snapshot_instant():
+    item = session("2024-07-05")
+    snapshot = build_close_snapshot(item, total_equity=100_000, cash_balance=100_000)
+    assert snapshot.as_of == item.close_datetime
+    assert snapshot.as_of.date() == date(2024, 7, 5)
+
+
+def test_dst_close_instant_maps_to_same_new_york_date():
+    assert session("2024-01-02", "21:00:00.000000Z").trading_date == date(2024, 1, 2)
+    assert session("2024-07-02", "20:00:00.000000Z").trading_date == date(2024, 7, 2)
+
+
+@pytest.mark.parametrize("value", ["2024-07-05T16:00:00.000000-05:00", "2024-07-05T21:00:00Z", "2024-07-05T21:00:00.00000Z", "2024-07-05T21:00:00.000000Z "])
+def test_close_timestamp_requires_canonical_utc(value):
+    with pytest.raises(SessionContractError):
+        SessionClose(date(2024, 7, 5), value)
+
+
+def test_invalid_calendar_or_session_date_mismatch_fails_closed():
+    with pytest.raises(SessionContractError):
+        SessionClose("2024-02-30", "2024-02-30T21:00:00.000000Z")
+    with pytest.raises(SessionContractError):
+        SessionClose(date(2024, 7, 5), "2024-07-06T21:00:00.000000Z")
+
+
+def test_requested_and_observed_window_metadata_are_separate():
+    sessions = (session("2024-07-01"), session("2024-07-02"), session("2024-07-03"))
+    metadata = derive_window_metadata(sessions, requested_start_date="2024-07-01", requested_end_date="2024-07-03")
+    assert metadata.requested_end_date == date(2024, 7, 3)
+    assert metadata.observed_end_date == metadata.as_of == date(2024, 7, 3)
+
+
+def test_missing_requested_end_rejected_by_default_and_explicitly_allowed():
+    sessions = (session("2024-07-01"), session("2024-07-02"))
+    with pytest.raises(SessionContractError):
+        derive_window_metadata(sessions, requested_start_date="2024-07-01", requested_end_date="2024-07-03")
+    metadata = derive_window_metadata(sessions, requested_start_date="2024-07-01", requested_end_date="2024-07-03", require_end_observation=False)
+    assert metadata.requested_end_date == date(2024, 7, 3)
+    assert metadata.as_of == date(2024, 7, 2)
+
+
+def test_unsorted_or_duplicate_sessions_fail_closed():
+    with pytest.raises(SessionContractError):
+        derive_window_metadata((session("2024-07-02"), session("2024-07-01")), requested_start_date="2024-07-01", requested_end_date="2024-07-02")
+    with pytest.raises(SessionContractError):
+        derive_window_metadata((session("2024-07-01"), session("2024-07-01")), requested_start_date="2024-07-01", requested_end_date="2024-07-01")
