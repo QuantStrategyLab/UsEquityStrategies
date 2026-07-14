@@ -1,1 +1,1 @@
-"""US equity backtest adapters for QuantPlatformKit orchestrator."""
+"""Research-only backtest helpers."""
