@@ -160,7 +160,8 @@ def _validate_frame(frame: pd.DataFrame, start: date, end: date) -> tuple[pd.Dat
     if df["date"].isna().any() or df["symbol"].isna().any():
         raise _error("invalid input")
     df["symbol"] = df["symbol"].astype(str)
-    if not df["date"].is_monotonic_increasing:
+    pairs = list(zip(df["date"], df["symbol"], strict=True))
+    if pairs != sorted(pairs):
         raise _error("input must be sorted")
     if df.duplicated(["date", "symbol"]).any():
         raise _error("duplicate bar")
@@ -234,8 +235,13 @@ def simulate_tqqq_research(
         if index + 1 < len(eval_dates):
             nxt = eval_dates[index + 1]
             next_prices = df[df["date"] == nxt].set_index("symbol")
-            holdings = {s: value / float(next_prices.loc[s, "open"]) for s, value in clean_targets.items() if value}
-            cash = float(equity - sum(clean_targets.values()))
+            actual_open_equity = cash + sum(qty * float(next_prices.loc[symbol, "open"]) for symbol, qty in holdings.items())
+            ratios = {symbol: value / equity for symbol, value in clean_targets.items()}
+            actual_targets = {symbol: ratio * actual_open_equity for symbol, ratio in ratios.items()}
+            if sum(actual_targets.values()) > actual_open_equity + 1e-6:
+                raise _error("invalid target")
+            holdings = {s: value / float(next_prices.loc[s, "open"]) for s, value in actual_targets.items() if value}
+            cash = float(actual_open_equity - sum(actual_targets.values()))
     returns: list[tuple[str, float]] = []
     for (prev_date, prev), (cur_date, cur) in zip(curves, curves[1:]):
         returns.append((cur_date, float(cur / prev - 1.0)))

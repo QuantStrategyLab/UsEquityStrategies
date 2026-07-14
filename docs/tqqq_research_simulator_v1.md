@@ -3,7 +3,8 @@
 This is a caller-owned, offline, research-only vertical slice for
 `tqqq_growth_income`. It consumes sorted daily bars (including QQQ and every
 symbol in the manifest's managed universe), uses the existing planner at each
-close, and executes its dollar targets at the following open. The inclusive
+close, and executes its target allocation ratios against actual equity
+re-estimated at the following open (gap-adjusted execution). The inclusive
 window is marked at each close; the final close plan is discarded.
 
 The simulator has fixed $100,000 cash, fractional long-only holdings, and zero
