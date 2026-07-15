@@ -32,6 +32,7 @@ class Result:
 def run(*,bars:pd.DataFrame,sessions:tuple[SessionClose,...],window:RequestedObservedWindow,snapshot:ValidatedSessionSnapshot,source_revision:str,computed_at:str)->Result:
  if not isinstance(window,RequestedObservedWindow) or not isinstance(snapshot,ValidatedSessionSnapshot) or snapshot.window!=window: raise TqqqBaselineError('invalid session/window')
  if any(not isinstance(s,SessionClose) for s in sessions) or tuple(sessions)!=tuple(sorted(sessions,key=lambda s:s.trading_date)): raise TqqqBaselineError('invalid sessions')
+ if any(s.trading_date > window.as_of for s in sessions): raise TqqqBaselineError('session after as_of')
  final=next((s for s in sessions if s.trading_date==window.as_of),None)
  if snapshot.session!=final: raise TqqqBaselineError('invalid as_of')
  if not isinstance(source_revision,str) or not source_revision: raise TqqqBaselineError('invalid source_revision')
@@ -40,6 +41,7 @@ def run(*,bars:pd.DataFrame,sessions:tuple[SessionClose,...],window:RequestedObs
  d=bars.loc[:,['date','symbol','open','close']].copy(); parsed=pd.to_datetime(d.date,errors='coerce')
  if parsed.isna().any(): raise TqqqBaselineError('invalid bar date')
  d['date']=parsed.dt.date
+ if any(x > window.as_of for x in d.date): raise TqqqBaselineError('bar after as_of')
  pairs=list(zip(d.date,d.symbol))
  if pairs!=sorted(pairs) or len(set(pairs))!=len(pairs): raise TqqqBaselineError('bars must be sorted unique')
  for c in ('open','close'):

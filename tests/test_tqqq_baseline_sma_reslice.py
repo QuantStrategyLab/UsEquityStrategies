@@ -20,6 +20,13 @@ def test_198_prior_rejects():
  b,s,w,p=case(198)
  with pytest.raises(TqqqBaselineError): run(bars=b,sessions=s,window=w,snapshot=p,source_revision='v1',computed_at='2026-07-15T00:00:00.000000Z')
 
+def test_future_bars_and_sessions_fail_closed():
+ b,s,w,p=case()
+ future=b[b.date==w.observed_end_date].copy(); future["date"]=w.observed_end_date+timedelta(days=1)
+ with pytest.raises(TqqqBaselineError): run(bars=pd.concat([b,future]).sort_values(["date","symbol"]).reset_index(drop=True),sessions=s,window=w,snapshot=p,source_revision="v1",computed_at="2026-07-15T00:00:00.000000Z")
+ future_session=SessionClose(w.observed_end_date+timedelta(days=1),"2025-07-22T20:00:00.000000Z")
+ with pytest.raises(TqqqBaselineError): run(bars=b,sessions=s+(future_session,),window=w,snapshot=p,source_revision="v1",computed_at="2026-07-15T00:00:00.000000Z")
+
 def test_tiny_open_overflow_rejects_before_result():
  b,s,w,p=case(); b.loc[(b.date==w.observed_end_date)&(b.symbol=='TQQQ'),'open']=1e-320
  with pytest.raises(TqqqBaselineError): run(bars=b,sessions=s,window=w,snapshot=p,source_revision='v1',computed_at='2026-07-15T00:00:00.000000Z')
