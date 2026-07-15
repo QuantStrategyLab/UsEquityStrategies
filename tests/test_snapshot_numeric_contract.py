@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -53,3 +53,17 @@ def test_invalid_types_and_reserved_consistency_fail_closed():
     payload["as_of"] = "2024-07-03"
     with pytest.raises(SessionContractError):
         ValidatedSessionSnapshot.from_wire(payload)
+
+
+@pytest.mark.parametrize("as_of", [
+    datetime(2024, 7, 2, 19, 59, tzinfo=timezone.utc),
+    datetime(2024, 7, 2, 20, 1, tzinfo=timezone.utc),
+    datetime(2024, 7, 2, 20, tzinfo=timezone(timedelta(hours=-4))),
+    datetime(2024, 7, 2, 20),
+    None,
+])
+def test_source_as_of_must_be_exact_canonical_session_instant(as_of):
+    session, window, source = fixture_snapshot()
+    invalid = PortfolioSnapshot(as_of, source.total_equity, source.buying_power, source.cash_balance, source.positions)
+    with pytest.raises(SessionContractError):
+        ValidatedSessionSnapshot.from_snapshot(session, window, invalid)

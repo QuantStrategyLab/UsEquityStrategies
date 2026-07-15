@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
@@ -33,6 +34,12 @@ def _text(value: Any, field: str, *, nullable: bool = False) -> str | None:
     if not isinstance(value, str) or not value:
         raise SessionContractError(f"invalid {field}")
     return value
+
+
+def _validate_source_as_of(snapshot: PortfolioSnapshot, session: SessionClose) -> None:
+    source_as_of = snapshot.as_of
+    if not isinstance(source_as_of, datetime) or source_as_of.tzinfo is not timezone.utc or source_as_of != session.close_datetime:
+        raise SessionContractError("snapshot/session as_of mismatch")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +84,7 @@ class ValidatedSessionSnapshot:
             raise SessionContractError("invalid session/window")
         if not isinstance(snapshot, PortfolioSnapshot):
             raise SessionContractError("invalid snapshot")
+        _validate_source_as_of(snapshot, session)
         if not isinstance(snapshot.positions, (tuple, list)) or not all(isinstance(item, Position) for item in snapshot.positions):
             raise SessionContractError("invalid positions")
         return cls(session, window, _number(snapshot.total_equity, "total_equity"), _number(snapshot.buying_power, "buying_power", nullable=True), _number(snapshot.cash_balance, "cash_balance", nullable=True), tuple(ValidatedPosition.from_position(item) for item in snapshot.positions))
