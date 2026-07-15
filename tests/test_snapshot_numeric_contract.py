@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
+from dataclasses import replace
 
 import pytest
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from us_equity_strategies.backtest.session_asof_contract import RequestedObservedWindow, SessionClose, SessionContractError
-from us_equity_strategies.backtest.snapshot_numeric_contract import MAX_SAFE_JSON_NUMBER, ValidatedSessionSnapshot
+from us_equity_strategies.backtest.snapshot_numeric_contract import MAX_SAFE_JSON_NUMBER, ValidatedPosition, ValidatedSessionSnapshot
 
 
 def fixture_snapshot():
@@ -67,3 +68,19 @@ def test_source_as_of_must_be_exact_canonical_session_instant(as_of):
     invalid = PortfolioSnapshot(as_of, source.total_equity, source.buying_power, source.cash_balance, source.positions)
     with pytest.raises(SessionContractError):
         ValidatedSessionSnapshot.from_snapshot(session, window, invalid)
+
+
+def test_position_direct_constructor_and_replace_share_wire_invariants():
+    position = ValidatedPosition("TQQQ", 1, 100, None, "USD", None)
+    assert position.quantity == 1.0
+    replaced = replace(position, quantity=2)
+    assert replaced.quantity == 2.0
+    for value in ["1", True, float("nan"), float("inf"), -0.0, MAX_SAFE_JSON_NUMBER + 1, -(MAX_SAFE_JSON_NUMBER + 1)]:
+        with pytest.raises(SessionContractError):
+            replace(position, quantity=value)
+
+
+@pytest.mark.parametrize("value", [MAX_SAFE_JSON_NUMBER + 1, -(MAX_SAFE_JSON_NUMBER + 1)])
+def test_huge_integer_constructor_is_sanitized(value):
+    with pytest.raises(SessionContractError):
+        ValidatedPosition("TQQQ", value, 100, None, "USD", None)

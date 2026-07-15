@@ -22,7 +22,12 @@ def _number(value: Any, field: str, *, nullable: bool = False) -> float | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SessionContractError(f"invalid {field}")
-    result = float(value)
+    if isinstance(value, int) and abs(value) > MAX_SAFE_JSON_NUMBER:
+        raise SessionContractError(f"invalid {field}")
+    try:
+        result = float(value)
+    except (OverflowError, ValueError):
+        raise SessionContractError(f"invalid {field}") from None
     if not math.isfinite(result) or abs(result) > MAX_SAFE_JSON_NUMBER or (result == 0.0 and math.copysign(1.0, result) < 0):
         raise SessionContractError(f"invalid {field}")
     return result
@@ -51,11 +56,19 @@ class ValidatedPosition:
     currency: str
     account_id: str | None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "symbol", _text(self.symbol, "symbol"))
+        object.__setattr__(self, "quantity", _number(self.quantity, "quantity"))
+        object.__setattr__(self, "market_value", _number(self.market_value, "market_value"))
+        object.__setattr__(self, "average_cost", _number(self.average_cost, "average_cost", nullable=True))
+        object.__setattr__(self, "currency", _text(self.currency, "currency"))
+        object.__setattr__(self, "account_id", _text(self.account_id, "account_id", nullable=True))
+
     @classmethod
     def from_position(cls, item: Position) -> "ValidatedPosition":
         if not isinstance(item, Position):
             raise SessionContractError("invalid position")
-        return cls(_text(item.symbol, "symbol"), _number(item.quantity, "quantity"), _number(item.market_value, "market_value"), _number(item.average_cost, "average_cost", nullable=True), _text(item.currency, "currency"), _text(item.account_id, "account_id", nullable=True))
+        return cls(item.symbol, item.quantity, item.market_value, item.average_cost, item.currency, item.account_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +117,7 @@ class ValidatedSessionSnapshot:
         for item in payload["positions"]:
             if not isinstance(item, Mapping) or set(item) != _POSITION_KEYS:
                 raise SessionContractError("invalid position wire shape")
-            positions.append(ValidatedPosition(_text(item["symbol"], "symbol"), _number(item["quantity"], "quantity"), _number(item["market_value"], "market_value"), _number(item["average_cost"], "average_cost", nullable=True), _text(item["currency"], "currency"), _text(item["account_id"], "account_id", nullable=True)))
+            positions.append(ValidatedPosition(item["symbol"], item["quantity"], item["market_value"], item["average_cost"], item["currency"], item["account_id"]))
         return cls(session, window, _number(payload["total_equity"], "total_equity"), _number(payload["buying_power"], "buying_power", nullable=True), _number(payload["cash_balance"], "cash_balance", nullable=True), tuple(positions))
 
     def canonical_bytes(self) -> bytes:
