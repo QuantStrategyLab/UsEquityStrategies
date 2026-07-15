@@ -29,6 +29,29 @@ def test_deterministic_and_explicit_controls():
     assert a.control_policy.to_wire()=={'crisis_defense':False,'macro_risk_governor':False,'market_regime':False,'production_equivalent':False,'retention':False,'taco':False,'volatility_delever':False}
     assert a.as_of==sessions[-1] and a.observation_count==2
 
+def test_warmup_boundary_and_future_rows_do_not_fill():
+    bars,sessions,window,snap=_case()
+    pre=bars[(bars.symbol=="QQQ") & (bars.date < window.observed_start_date)]
+    assert len(pre)==200
+    short=bars.drop(pre.index[0])
+    with pytest.raises(TqqqResearchBaselineError):
+        run_tqqq_research_baseline(bars=short,sessions=sessions,window=window,validated_snapshot=snap,source_revision="v1",computed_at="2026-07-15T00:00:00.000000Z")
+    future=bars.copy()
+    extra=bars[ bars.date == window.observed_start_date ].copy()
+    extra["date"]=window.observed_end_date + timedelta(days=1)
+    future=pd.concat([future,extra], ignore_index=True).sort_values(["date","symbol"], kind="stable").reset_index(drop=True)
+    with pytest.raises(TqqqResearchBaselineError):
+        run_tqqq_research_baseline(bars=pd.concat([short, extra], ignore_index=True).sort_values(["date","symbol"], kind="stable").reset_index(drop=True),sessions=sessions,window=window,validated_snapshot=snap,source_revision="v1",computed_at="2026-07-15T00:00:00.000000Z")
+
+def test_run_identity_includes_window_and_session():
+    bars,sessions,window,snap=_case()
+    a=run_tqqq_research_baseline(bars=bars,sessions=sessions,window=window,validated_snapshot=snap,source_revision="v1",computed_at="2026-07-15T00:00:00.000000Z")
+    shifted_date=window.requested_start_date - timedelta(days=1)
+    shifted=RequestedObservedWindow(shifted_date,window.requested_end_date,window.observed_start_date,window.observed_end_date,window.as_of)
+    shifted_snap=ValidatedSessionSnapshot.from_snapshot(sessions[-1],shifted,PortfolioSnapshot(snap.session.close_datetime,100000.0,100000.0,100000.0,()))
+    b=run_tqqq_research_baseline(bars=bars,sessions=sessions,window=shifted,validated_snapshot=shifted_snap,source_revision="v1",computed_at="2026-07-15T00:00:00.000000Z")
+    assert a.run_id != b.run_id
+
 def test_strict_order_and_calendar():
     bars,sessions,window,snap=_case()
     with pytest.raises(TqqqResearchBaselineError):

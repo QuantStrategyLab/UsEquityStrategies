@@ -120,12 +120,15 @@ def run_tqqq_research_baseline(*, bars: pd.DataFrame, sessions: tuple[SessionClo
         raise TqqqResearchBaselineError("invalid source_revision")
     data = _validate_bars(bars, sessions, window)
     dates = tuple(s.trading_date for s in sessions if window.observed_start_date <= s.trading_date <= window.observed_end_date)
-    if len(dates) < 2 or len(data[data["symbol"] == "QQQ"]) < 200:
-        raise TqqqResearchBaselineError("insufficient warmup/observations")
+    pre_window_qqq = data[(data["symbol"] == "QQQ") & (data["date"] < window.observed_start_date)]
+    if len(dates) < 2 or len(pre_window_qqq) < 200:
+        raise TqqqResearchBaselineError("insufficient pre-window warmup/observations")
     input_digest = hashlib.sha256(data.to_csv(index=False, lineterminator="\n").encode()).hexdigest()
-    params = b'{"controls":"disabled","policy":"fixed_qqq_sma200","initial_cash":100000,"cost_bps":0}'
+    params = b'{"controls":"disabled","policy":"fixed_qqq_sma200","initial_cash":100000,"cost_bps":0,"execution":"next_open_v1"}'
     params_digest = hashlib.sha256(params).hexdigest()
-    run_id = hashlib.sha256((PROFILE + "|" + source_revision + "|" + input_digest + "|" + params_digest).encode()).hexdigest()
+    identity_payload = {"as_of": final_session.to_wire(), "contract_version": CONTRACT_VERSION, "execution_timing": TIMING, "input_digest": input_digest, "params_digest": params_digest, "profile": PROFILE, "source_revision": source_revision, "window": window.to_wire()}
+    identity_bytes = json.dumps(identity_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    run_id = hashlib.sha256(identity_bytes).hexdigest()
     grouped = {d: data[data["date"] == d].set_index("symbol") for d in dates}
     cash, holdings = INITIAL_CASH, {"BOXX": 0.0, "TQQQ": 0.0}
     curve: list[tuple[str, float]] = []
