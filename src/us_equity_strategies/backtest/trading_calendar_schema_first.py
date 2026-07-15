@@ -26,6 +26,13 @@ def _timestamp(value):
  if not isinstance(value,str) or not TS_RE.fullmatch(value): raise CalendarContractError('invalid timestamp')
  try:return datetime.strptime(value,'%Y-%m-%dT%H:%M:00Z').replace(tzinfo=UTC)
  except ValueError: raise CalendarContractError('invalid timestamp') from None
+
+@dataclass(frozen=True, slots=True)
+class TrustedAnchor:
+ schema: str; exchange: str; timezone: str; revision: str; source_generator_version: str; coverage_start: str; coverage_end: str; expected_session_count: int; inventory_digest: str; artifact_bytes_sha256: str
+
+TRUSTED_XNAS_ANCHOR = TrustedAnchor(SCHEMA, EXCHANGE, ZONE, "xnas-2025-research-v1", "offline.xnas.generator.v1", "2025-01-02", "2025-07-21", 137, "3e8e2933495b077abfd468eaf03c0d6dc984985f7f2bab34a0a791a5437cc2ac", "482b930456e635d9c27c1fbd96d1ea9bd1932e2c212cfb60f7247f9fd4a6b79c")
+
 @dataclass(frozen=True,slots=True)
 class Session:
  trading_date:date; kind:str; open_at_utc:str; close_at_utc:str
@@ -49,8 +56,9 @@ class TradingCalendarV1:
   p=self._base(); p.update({'artifact_digest':self.artifact_digest,'coverage':{'end':self.sessions[-1].trading_date.isoformat(),'start':self.sessions[0].trading_date.isoformat()},'session_count':len(self.sessions)}); return p
  def canonical_bytes(self): return _bytes(self.to_wire())
  @classmethod
- def from_bytes(cls,raw:bytes):
-  if not isinstance(raw,bytes): raise CalendarContractError('bytes required')
+ def from_bytes(cls,raw:bytes, *, anchor:TrustedAnchor):
+  if not isinstance(raw,bytes) or not isinstance(anchor,TrustedAnchor): raise CalendarContractError('bytes and trusted anchor required')
+  if hashlib.sha256(raw).hexdigest()!=anchor.artifact_bytes_sha256: raise CalendarContractError('artifact bytes not trusted')
   try: obj=json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs)
   except (UnicodeDecodeError,UnicodeError,json.JSONDecodeError): raise CalendarContractError('invalid calendar bytes') from None
   top={'artifact_digest','coverage','exchange','expected_inventory_digest','expected_session_count','revision','schema','session_count','sessions','source_generator_version','timezone'}
@@ -66,9 +74,10 @@ class TradingCalendarV1:
    if not isinstance(raw_session['session_kind'],str) or not isinstance(raw_session['open_at_utc'],str) or not isinstance(raw_session['close_at_utc'],str): raise CalendarContractError('invalid session types')
    sessions.append(Session(d,raw_session['session_kind'],raw_session['open_at_utc'],raw_session['close_at_utc']))
   if obj['coverage']!={'start':sessions[0].trading_date.isoformat(),'end':sessions[-1].trading_date.isoformat()}: raise CalendarContractError('invalid coverage')
+  if (obj['revision'],obj['source_generator_version'],obj['expected_inventory_digest'],n,obj['coverage']) != (anchor.revision,anchor.source_generator_version,anchor.inventory_digest,anchor.expected_session_count,{'start':anchor.coverage_start,'end':anchor.coverage_end}): raise CalendarContractError('anchor metadata mismatch')
   result=cls(obj['revision'],obj['source_generator_version'],tuple(sessions),n,obj['expected_inventory_digest'],obj['artifact_digest'])
   if result.canonical_bytes()!=raw: raise CalendarContractError('noncanonical bytes')
   return result
-def load(path: str|Path):
- try:return TradingCalendarV1.from_bytes(Path(path).read_bytes())
+def load(path: str|Path, *, anchor:TrustedAnchor):
+ try:return TradingCalendarV1.from_bytes(Path(path).read_bytes(), anchor=anchor)
  except OSError: raise CalendarContractError('calendar unavailable') from None
