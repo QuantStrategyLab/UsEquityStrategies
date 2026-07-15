@@ -54,28 +54,29 @@ class SessionBoundSnapshot:
     total_equity: float
     buying_power: float | None
     cash_balance: float | None
-    positions: tuple[Position, ...]
+    positions: tuple["SnapshotPosition", ...]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.session, SessionClose) or not isinstance(self.window, RequestedObservedWindow):
+            raise SessionContractError("invalid session/window")
         if self.window.as_of != self.session.trading_date:
             raise SessionContractError("session/window mismatch")
         object.__setattr__(self, "total_equity", _finite(self.total_equity, "total_equity"))
         object.__setattr__(self, "buying_power", _optional_finite(self.buying_power, "buying_power"))
         object.__setattr__(self, "cash_balance", _optional_finite(self.cash_balance, "cash_balance"))
-        if not isinstance(self.positions, tuple) or not all(isinstance(item, Position) for item in self.positions):
+        if not isinstance(self.positions, tuple) or not all(isinstance(item, (Position, SnapshotPosition)) for item in self.positions):
             raise SessionContractError("invalid positions")
-        normalized = tuple(Position(
-            symbol=_text(item.symbol, "symbol"), quantity=_finite(item.quantity, "quantity"),
-            market_value=_finite(item.market_value, "market_value"), average_cost=_optional_finite(item.average_cost, "average_cost"),
-            currency=_text(item.currency, "currency"), account_id=_text(item.account_id, "account_id", nullable=True),
-        ) for item in self.positions)
+        normalized = tuple(item if isinstance(item, SnapshotPosition) else SnapshotPosition.from_position(item) for item in self.positions)
         object.__setattr__(self, "positions", normalized)
 
     @classmethod
     def from_snapshot(cls, session: SessionClose, window: RequestedObservedWindow, snapshot: PortfolioSnapshot) -> "SessionBoundSnapshot":
         if not isinstance(snapshot, PortfolioSnapshot):
             raise SessionContractError("invalid snapshot")
-        return cls(session, window, snapshot.total_equity, snapshot.buying_power, snapshot.cash_balance, tuple(snapshot.positions or ()))
+        raw_positions = snapshot.positions
+        if not isinstance(raw_positions, (tuple, list)) or not all(isinstance(item, Position) for item in raw_positions):
+            raise SessionContractError("invalid positions")
+        return cls(session, window, snapshot.total_equity, snapshot.buying_power, snapshot.cash_balance, tuple(SnapshotPosition.from_position(item) for item in raw_positions))
 
     def to_wire(self) -> dict[str, object]:
         return {
@@ -105,7 +106,7 @@ class SessionBoundSnapshot:
         for item in positions_payload:
             if not isinstance(item, Mapping) or set(item) != _POSITION_KEYS:
                 raise SessionContractError("invalid position wire shape")
-            positions.append(Position(
+            positions.append(SnapshotPosition(
                 symbol=_text(item["symbol"], "symbol"), quantity=_finite(item["quantity"], "quantity"),
                 market_value=_finite(item["market_value"], "market_value"), average_cost=_optional_finite(item["average_cost"], "average_cost"),
                 currency=_text(item["currency"], "currency"), account_id=_text(item["account_id"], "account_id", nullable=True),
@@ -119,3 +120,25 @@ class SessionBoundSnapshot:
             return json.dumps(self.to_wire(), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         except (UnicodeEncodeError, TypeError, ValueError):
             raise SessionContractError("invalid snapshot canonical wire") from None
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotPosition:
+    """Deep-copied scalar position value; never exposes source Position."""
+
+    symbol: str
+    quantity: float
+    market_value: float
+    average_cost: float | None
+    currency: str
+    account_id: str | None
+
+    @classmethod
+    def from_position(cls, item: Position) -> "SnapshotPosition":
+        if not isinstance(item, Position):
+            raise SessionContractError("invalid position")
+        return cls(
+            symbol=_text(item.symbol, "symbol"), quantity=_finite(item.quantity, "quantity"),
+            market_value=_finite(item.market_value, "market_value"), average_cost=_optional_finite(item.average_cost, "average_cost"),
+            currency=_text(item.currency, "currency"), account_id=_text(item.account_id, "account_id", nullable=True),
+        )
