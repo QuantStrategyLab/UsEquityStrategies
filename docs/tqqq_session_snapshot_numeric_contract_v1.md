@@ -14,5 +14,9 @@ determinism. Values are normalized to finite floats after validation. Unknown
 keys, unsafe numbers and session/window/as-of mismatches fail closed with
 sanitized `SessionContractError`.
 
+`ValidatedPosition` applies the same checks in its direct constructor and in
+`dataclasses.replace`; huge Python integers are range-checked before float
+conversion, so overflow cannot escape as a raw exception.
+
 No algorithm, metrics, QPK/store, filesystem, network, live/order/funds or
 leverage behavior is included.
