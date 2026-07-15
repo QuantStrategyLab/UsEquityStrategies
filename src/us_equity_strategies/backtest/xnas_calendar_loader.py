@@ -41,14 +41,16 @@ def _parse(raw,anchor):
  if not isinstance(obj,dict) or set(obj)!=keys: raise CalendarContractError('invalid shape')
  if (obj['schema'],obj['exchange'],obj['timezone'],obj['revision'],obj['source_generator_version'])!=(anchor.schema,anchor.exchange,anchor.timezone,anchor.revision,anchor.generator): raise CalendarContractError('anchor metadata mismatch')
  n=obj['expected_session_count']
- if not isinstance(n,int) or isinstance(n,bool) or not 1<=n<=_MAX or n!=anchor.count or obj['session_count']!=n or not isinstance(obj['sessions'],list) or not obj['sessions']: raise CalendarContractError('invalid count')
+ if not isinstance(n,int) or isinstance(n,bool) or not 1<=n<=_MAX or n!=anchor.count or obj['session_count']!=n or not isinstance(obj['sessions'],list) or not obj['sessions'] or len(obj['sessions'])!=n: raise CalendarContractError('invalid count')
  sessions=[]; member={'close_at_utc','open_at_utc','session_kind','trading_date'}
  for item in obj['sessions']:
   if not isinstance(item,dict) or set(item)!=member or not isinstance(item['trading_date'],str) or not _DATE.fullmatch(item['trading_date']): raise CalendarContractError('invalid session wire')
   try: d=date.fromisoformat(item['trading_date'])
   except ValueError: raise CalendarContractError('invalid date') from None
   sessions.append(CalendarSession(d,item['session_kind'],item['open_at_utc'],item['close_at_utc']))
- if obj['coverage']!={'start':anchor.start,'end':anchor.end} or obj['expected_inventory_digest']!=anchor.inventory_sha256: raise CalendarContractError('anchor inventory mismatch')
+ dates=[x.trading_date for x in sessions]
+ if dates!=sorted(dates) or len(set(dates))!=len(dates): raise CalendarContractError('invalid session order')
+ if obj['coverage']!={'start':anchor.start,'end':anchor.end} or dates[0].isoformat()!=anchor.start or dates[-1].isoformat()!=anchor.end or obj['expected_inventory_digest']!=anchor.inventory_sha256: raise CalendarContractError('anchor inventory mismatch')
  base={'exchange':_EXCHANGE,'expected_inventory_digest':obj['expected_inventory_digest'],'expected_session_count':n,'revision':obj['revision'],'schema':_SCHEMA,'sessions':[x.wire() for x in sessions],'source_generator_version':obj['source_generator_version'],'timezone':_ZONE}
  if hashlib.sha256(_json_bytes([x.wire() for x in sessions])).hexdigest()!=anchor.inventory_sha256 or hashlib.sha256(_json_bytes(base)).hexdigest()!=obj['artifact_digest']: raise CalendarContractError('digest mismatch')
  canonical=dict(base); canonical.update({'artifact_digest':obj['artifact_digest'],'coverage':obj['coverage'],'session_count':n})
