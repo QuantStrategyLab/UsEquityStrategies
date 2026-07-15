@@ -1,13 +1,17 @@
-"""Trusted checked-in XNAS calendar resource loader."""
+"""Trusted checked-in XNAS calendar resource loader.
+
+Runtime trusts the reviewed raw-artifact SHA and validates UTC wire grammar;
+New York/DST boundary checks belong to offline generation/review, so loading
+does not require an IANA timezone database.
+"""
 from __future__ import annotations
 import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import date,datetime,timezone
+from datetime import date,datetime
 from importlib import resources
-from zoneinfo import ZoneInfo,ZoneInfoNotFoundError
-_SCHEMA='us_equity.trading_calendar.v1'; _EXCHANGE='XNAS'; _ZONE='America/New_York'; _UTC=timezone.utc; _DATE=re.compile(r'^\d{4}-\d{2}-\d{2}$'); _TS=re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$'); _MAX=2**53-1
+_SCHEMA='us_equity.trading_calendar.v1'; _EXCHANGE='XNAS'; _ZONE='America/New_York'; _DATE=re.compile(r'^\d{4}-\d{2}-\d{2}$'); _TS=re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$'); _MAX=2**53-1
 class CalendarContractError(ValueError): pass
 @dataclass(frozen=True,slots=True)
 class CalendarSession:
@@ -15,12 +19,9 @@ class CalendarSession:
  def __post_init__(self):
   if not isinstance(self.trading_date,date) or isinstance(self.trading_date,datetime) or self.kind not in ('regular','approved_half_day'): raise CalendarContractError('invalid session')
   if not isinstance(self.open_at_utc,str) or not isinstance(self.close_at_utc,str) or not _TS.fullmatch(self.open_at_utc) or not _TS.fullmatch(self.close_at_utc): raise CalendarContractError('invalid timestamp')
-  try:
-   op=datetime.strptime(self.open_at_utc,'%Y-%m-%dT%H:%M:00Z').replace(tzinfo=_UTC); cl=datetime.strptime(self.close_at_utc,'%Y-%m-%dT%H:%M:00Z').replace(tzinfo=_UTC); ny=ZoneInfo(_ZONE)
-  except ZoneInfoNotFoundError: raise CalendarContractError('timezone unavailable') from None
+  try: op=datetime.strptime(self.open_at_utc,'%Y-%m-%dT%H:%M:00Z'); cl=datetime.strptime(self.close_at_utc,'%Y-%m-%dT%H:%M:00Z')
   except ValueError: raise CalendarContractError('invalid timestamp') from None
-  close_hour=13 if self.kind=='approved_half_day' else 16; lo,lc=op.astimezone(ny),cl.astimezone(ny)
-  if lo.date()!=self.trading_date or lc.date()!=self.trading_date or (lo.hour,lo.minute)!=(9,30) or (lc.hour,lc.minute)!=(close_hour,0): raise CalendarContractError('invalid boundary')
+  if op.date()!=self.trading_date or cl.date()!=self.trading_date: raise CalendarContractError('invalid boundary')
  def wire(self): return {'close_at_utc':self.close_at_utc,'open_at_utc':self.open_at_utc,'session_kind':self.kind,'trading_date':self.trading_date.isoformat()}
 @dataclass(frozen=True,slots=True)
 class _TrustedAnchor:
