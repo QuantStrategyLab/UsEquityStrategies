@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
-SCHEMA="us_equity.trading_calendar.v1"; EXCHANGE="XNAS"; TZ="America/New_York"; _UTC_RE=re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$'); _DATE_RE=re.compile(r'^\d{4}-\d{2}-\d{2}$'); UTC=timezone.utc; NY=ZoneInfo(TZ)
+SCHEMA="us_equity.trading_calendar.v1"; EXPECTED_SESSION_COUNT=137; EXPECTED_INVENTORY_DIGEST="3db3962292618eb8db67ee08de00bf1b8171f365c9744e6d9cdc819e7c270f60"; EXCHANGE="XNAS"; TZ="America/New_York"; _UTC_RE=re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$'); _DATE_RE=re.compile(r'^\d{4}-\d{2}-\d{2}$'); UTC=timezone.utc; NY=ZoneInfo(TZ)
 class TradingCalendarError(ValueError): pass
 @dataclass(frozen=True,slots=True)
 class CalendarSession:
@@ -34,10 +34,11 @@ class TradingCalendarV1:
   dates=[s.trading_date for s in self.sessions]
   if len(set(dates))!=len(dates): raise TradingCalendarError('duplicate calendar session')
   expected=self._payload(self.revision,self.sessions); actual=hashlib.sha256(_bytes(expected)).hexdigest()
+  if len(dates)!=EXPECTED_SESSION_COUNT or hashlib.sha256(_bytes([s.to_wire() for s in self.sessions])).hexdigest()!=EXPECTED_INVENTORY_DIGEST: raise TradingCalendarError('calendar completeness mismatch')
   if self.digest!=actual: raise TradingCalendarError('calendar digest mismatch')
   if len(dates)>1 and any((b-a).days>4 for a,b in zip(dates,dates[1:])): raise TradingCalendarError('calendar gap')
  @staticmethod
- def _payload(revision,sessions): return {'exchange':EXCHANGE,'revision':revision,'schema':SCHEMA,'sessions':[s.to_wire() for s in sessions],'timezone':TZ}
+ def _payload(revision,sessions): return {'exchange':EXCHANGE,'revision':revision,'schema':SCHEMA,'sessions':[s.to_wire() for s in sessions],'timezone':TZ,'expected_session_count':EXPECTED_SESSION_COUNT,'expected_inventory_digest':EXPECTED_INVENTORY_DIGEST}
  def to_wire(self):
   p=self._payload(self.revision,self.sessions); p['digest']=self.digest; p['session_count']=len(self.sessions); p['coverage']={'end':self.sessions[-1].trading_date.isoformat(),'start':self.sessions[0].trading_date.isoformat()}; return p
  def canonical_bytes(self): return _bytes(self._payload(self.revision,self.sessions))
@@ -46,8 +47,8 @@ class TradingCalendarV1:
   except StopIteration: raise TradingCalendarError('date outside calendar') from None
  @classmethod
  def from_wire(cls,payload:Mapping[str,object]):
-  if not isinstance(payload,Mapping) or set(payload)!={'coverage','digest','exchange','revision','schema','session_count','sessions','timezone'}: raise TradingCalendarError('invalid calendar wire')
-  if payload['schema']!=SCHEMA or payload['exchange']!=EXCHANGE or payload['timezone']!=TZ or payload['session_count']!=len(payload['sessions']): raise TradingCalendarError('invalid calendar metadata')
+  if not isinstance(payload,Mapping) or set(payload)!={'coverage','digest','exchange','revision','schema','session_count','sessions','timezone','expected_session_count','expected_inventory_digest'}: raise TradingCalendarError('invalid calendar wire')
+  if payload['schema']!=SCHEMA or payload['exchange']!=EXCHANGE or payload['timezone']!=TZ or payload['session_count']!=len(payload['sessions']) or payload['expected_session_count']!=EXPECTED_SESSION_COUNT or payload['expected_inventory_digest']!=EXPECTED_INVENTORY_DIGEST: raise TradingCalendarError('invalid calendar metadata')
   sessions=[]
   for item in payload['sessions']:
    if not isinstance(item,Mapping) or set(item)!={'close_at_utc','open_at_utc','session_kind','trading_date'} or not _DATE_RE.fullmatch(str(item['trading_date'])): raise TradingCalendarError('invalid calendar session')
@@ -66,6 +67,7 @@ def load_calendar(path: str|Path)->TradingCalendarV1:
 
 def validate_calendar_domain(calendar:TradingCalendarV1, *, bar_dates:tuple[date,...], observed_dates:tuple[date,...], requested_start:date, as_of:date)->None:
  if not isinstance(calendar,TradingCalendarV1) or requested_start>as_of: raise TradingCalendarError('invalid calendar domain')
+ calendar.session(requested_start)
  allowed={s.trading_date for s in calendar.sessions}; unique=tuple(sorted(set(bar_dates)))
  if len(bar_dates)!=len(set(bar_dates)) or tuple(bar_dates)!=tuple(sorted(bar_dates)): raise TradingCalendarError('bar dates must be sorted unique')
  if any(d not in allowed for d in unique): raise TradingCalendarError('bar date outside calendar')
