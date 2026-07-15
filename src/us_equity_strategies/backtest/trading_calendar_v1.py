@@ -23,7 +23,8 @@ def _reject_pairs(pairs):
 class Session:
  trading_date:date; session_kind:str; open_at_utc:str; close_at_utc:str
  def __post_init__(self):
-  if not isinstance(self.trading_date,date) or isinstance(self.trading_date,datetime) or self.session_kind not in {'regular','approved_half_day'}: raise CalendarContractError('invalid session')
+  if not isinstance(self.trading_date,date) or isinstance(self.trading_date,datetime) or not isinstance(self.session_kind,str) or self.session_kind not in {'regular','approved_half_day'}: raise CalendarContractError('invalid session')
+  if not isinstance(self.open_at_utc,str) or not isinstance(self.close_at_utc,str): raise CalendarContractError('invalid timestamp')
   try: op=datetime.strptime(self.open_at_utc,'%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=UTC); cl=datetime.strptime(self.close_at_utc,'%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=UTC)
   except (TypeError,ValueError): raise CalendarContractError('invalid timestamp') from None
   if not _UTC.fullmatch(self.open_at_utc) or not _UTC.fullmatch(self.close_at_utc): raise CalendarContractError('invalid timestamp')
@@ -50,6 +51,7 @@ class TradingCalendarV1:
   if not isinstance(payload,Mapping): raise CalendarContractError('invalid calendar shape')
   expected={'artifact_digest','coverage','exchange','expected_inventory_digest','expected_session_count','revision','schema','session_count','sessions','source_generator_version','timezone'}
   if set(payload)!=expected or payload['schema']!=SCHEMA or payload['exchange']!=EXCHANGE or payload['timezone']!=TZ: raise CalendarContractError('invalid calendar shape')
+  if not isinstance(payload['sessions'],list) or not payload['sessions'] or not isinstance(payload['session_count'],int) or isinstance(payload['session_count'],bool): raise CalendarContractError('invalid sessions shape')
   sessions=[]
   for item in payload['sessions']:
    if not isinstance(item,Mapping) or set(item)!={'close_at_utc','open_at_utc','session_kind','trading_date'} or not isinstance(item['trading_date'],str) or not _DATE.fullmatch(item['trading_date']): raise CalendarContractError('invalid session wire')

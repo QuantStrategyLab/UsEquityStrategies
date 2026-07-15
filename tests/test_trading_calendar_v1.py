@@ -14,6 +14,16 @@ def test_duplicate_unknown_noncanonical_and_tamper_reject():
  with pytest.raises(CalendarContractError): TradingCalendarV1.from_bytes(raw.replace(b'{',b'{ ',1))
  p=json.loads(raw); p['sessions']=p['sessions'][1:]; p['session_count']-=1
  with pytest.raises(CalendarContractError): TradingCalendarV1.from_bytes(json.dumps(p,sort_keys=True,separators=(',',':')).encode())
+def test_malformed_session_containers_are_sanitized():
+ raw=PATH.read_bytes(); base=json.loads(raw)
+ for value in (None,"bad",{}):
+  p=dict(base); p["sessions"]=value
+  with pytest.raises(CalendarContractError): TradingCalendarV1.from_bytes(json.dumps(p,sort_keys=True,separators=(",",":")).encode())
+ p=dict(base); p["sessions"]= [None]
+ with pytest.raises(CalendarContractError): TradingCalendarV1.from_bytes(json.dumps(p,sort_keys=True,separators=(",",":")).encode())
+ p=dict(base); p["sessions"]=list(base["sessions"]); p["sessions"][0]["open_at_utc"]="2025-01-02T14:30:01.000000Z"
+ with pytest.raises(CalendarContractError): TradingCalendarV1.from_bytes(json.dumps(p,sort_keys=True,separators=(",",":")).encode())
+
 def test_digest_inventory_and_session_values():
  raw=PATH.read_bytes(); p=json.loads(raw); p['artifact_digest']='0'*64
  with pytest.raises(CalendarContractError): TradingCalendarV1.from_bytes(json.dumps(p,sort_keys=True,separators=(',',':')).encode())
