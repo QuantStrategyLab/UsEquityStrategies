@@ -84,3 +84,18 @@ def test_unknown_controls_and_nonfinite_values_fail_closed(tmp_path):
     artifact.write_text(lines)
     with pytest.raises(OfflineBaselineContractError):
         load_offline_baseline_input(manifest, artifact)
+
+def test_mismatched_symbol_date_sets_fail_closed(tmp_path):
+    manifest, artifact, _ = _artifact(tmp_path)
+    raw = artifact.read_text().replace("TQQQ,2026-01-05", "TQQQ,2026-01-04")
+    artifact.write_text(raw)
+    with pytest.raises(OfflineBaselineContractError):
+        load_offline_baseline_input(manifest, artifact)
+
+
+def test_dates_outside_manifest_window_fail_closed(tmp_path):
+    manifest, artifact, data = _artifact(tmp_path)
+    data["request"] = {"start": "2026-01-03", "end_exclusive": "2026-01-06"}
+    manifest.write_text(json.dumps(data))
+    with pytest.raises(OfflineBaselineContractError):
+        load_offline_baseline_input(manifest, artifact)

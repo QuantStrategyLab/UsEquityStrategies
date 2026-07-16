@@ -164,6 +164,15 @@ def load_offline_baseline_input(manifest_path: str | Path, artifact_path: str | 
         _fail()
     if len({(row.symbol, row.as_of) for row in rows}) != len(rows) or {row.symbol for row in rows} != set(SYMBOLS):
         _fail()
+    request = manifest["request"]
+    if any(not (request["start"] <= row.as_of < request["end_exclusive"]) for row in rows):
+        _fail()
+    dates_by_symbol = {
+        symbol: {row.as_of for row in rows if row.symbol == symbol}
+        for symbol in SYMBOLS
+    }
+    if dates_by_symbol[SYMBOLS[0]] != dates_by_symbol[SYMBOLS[1]]:
+        _fail()
     if _canonical_csv(rows) != raw:
         _fail()
     for symbol in SYMBOLS:
