@@ -132,7 +132,7 @@ def load_offline_input(manifest_path: str | Path, artifact_path: str | Path) -> 
         coverage = _dict(manifest["coverage"][symbol])
         if set(coverage) != {"start", "end"} or (coverage["start"], coverage["end"]) != (selected[0].as_of, selected[-1].as_of):
             _fail()
-    identity = {k: manifest[k] for k in ("schema", "research_only", "provider", "price_field", "provider_completeness", "calendar_authority", "source_revision", "symbols", "request", "counts", "coverage")}
+    identity = {k: manifest[k] for k in ("schema", "research_only", "provider", "price_field", "provider_completeness", "calendar_authority", "source_revision", "retrieved_at", "symbols", "request", "counts", "coverage")}
     identity.update({"artifact_sha256": manifest["sha256"], "artifact_bytes": manifest["bytes"]})
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return OfflineInput(rows, canonical, digest, manifest["source_revision"])

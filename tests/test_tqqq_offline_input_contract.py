@@ -67,3 +67,11 @@ def test_manifest_window_and_digest_binding_fail_closed(tmp_path):
     mp.write_text(json.dumps(manifest))
     changed = load_offline_input(mp, artifact)
     assert changed.input_digest != load_offline_input(*fixture(tmp_path)[:2]).input_digest
+
+def test_retrieved_at_is_bound_to_input_digest(tmp_path):
+    mp, artifact, manifest = fixture(tmp_path)
+    first = load_offline_input(mp, artifact)
+    manifest["retrieved_at"] = "2026-07-16T09:00:00Z"
+    mp.write_text(json.dumps(manifest))
+    second = load_offline_input(mp, artifact)
+    assert second.input_digest != first.input_digest
