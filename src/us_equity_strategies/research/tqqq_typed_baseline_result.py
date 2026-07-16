@@ -24,6 +24,10 @@ def _date(v):
  except (TypeError,ValueError):_fail()
  if d.isoformat()!=v:_fail()
  return v
+def _positive(v):
+ n=_num(v)
+ if n<=0:_fail()
+ return n
 def _bytes(v):
  try:return (json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)+'\n').encode()
  except (TypeError,ValueError,OverflowError):_fail()
@@ -57,9 +61,9 @@ def run_typed_baseline(source:OfflineInput)->BaselineResult:
  if len(dates)<201 or any((s,d) not in by for d in dates for s in ('QQQ','TQQQ')):_fail()
  pd=hashlib.sha256(_bytes(PARAMS)).hexdigest(); cash=100000.;qty=0.;prev=None;curve=[];returns=[];evals=0;trades=0
  for i in range(199,len(dates)-1):
-  sig,ex=dates[i],dates[i+1]; sma=_num(sum(_num(by[('QQQ',d)].close) for d in dates[i-199:i+1])/200); target=1. if _num(by[('QQQ',sig)].close)>=sma else 0.; op=_num(by[('TQQQ',ex)].open)
+  sig,ex=dates[i],dates[i+1]; sma=_num(sum(_positive(by[('QQQ',d)].close) for d in dates[i-199:i+1])/200); target=1. if _positive(by[('QQQ',sig)].close)>=sma else 0.; op=_positive(by[('TQQQ',ex)].open)
   if op<=0:_fail()
-  prior=_num(cash+qty*op); new_qty=_num(prior*target/op); new_cash=_num(prior-new_qty*op); trades+=int(bool(new_qty>0)!=bool(qty>0));cash,qty=new_cash,new_qty; close=_num(by[('TQQQ',ex)].close);eq=_num(cash+qty*close);curve.append(EquityPoint(ex,eq,cash,qty,close))
+  prior=_positive(cash+qty*op); new_qty=_num(prior*target/op); new_cash=_num(prior-new_qty*op); trades+=int(bool(new_qty>0)!=bool(qty>0));cash,qty=new_cash,new_qty; close=_positive(by[('TQQQ',ex)].close);eq=_num(cash+qty*close);curve.append(EquityPoint(ex,eq,cash,qty,close))
   if prev is not None:returns.append(ReturnPoint(ex,_num(eq/prev-1)))
   prev=eq;evals+=1
  if not curve:_fail()

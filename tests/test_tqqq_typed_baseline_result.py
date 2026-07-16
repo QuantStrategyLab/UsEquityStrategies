@@ -23,3 +23,7 @@ def test_bad_typed_input_and_points_fail_closed():
 def test_no_public_raw_json_parser_api():
  import us_equity_strategies.research.tqqq_typed_baseline_result as m
  assert not hasattr(m,'from_wire')
+
+def test_nonpositive_close_and_prior_equity_fail_closed():
+ d=inp(); rows=tuple(InputRow(r.symbol,r.as_of,r.open,r.high,r.low,0 if r.symbol=='TQQQ' and r.as_of=='2020-07-19' else r.close,r.volume) for r in d.rows)
+ with pytest.raises(BaselineResultContractError): run_typed_baseline(OfflineInput(rows,b'x','i'*64,'src'))
