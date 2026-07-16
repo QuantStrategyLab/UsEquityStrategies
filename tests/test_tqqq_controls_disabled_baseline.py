@@ -38,3 +38,17 @@ def test_result_wire_is_deterministic():
     result=run_controls_disabled_baseline(data())
     assert result.to_wire() == result.to_wire()
     assert result.result_digest == result.result_digest
+
+def test_duplicate_symbol_date_and_nonpositive_execution_open_fail_closed():
+    bad = data()
+    duplicate = OfflineInput(bad.rows + (bad.rows[0],), bad.canonical_bytes, bad.input_digest, bad.source_revision)
+    with pytest.raises(BaselineContractError):
+        run_controls_disabled_baseline(duplicate)
+    rows = tuple(InputRow(r.symbol, r.as_of, 0.0 if r.symbol == "TQQQ" and r.as_of == "2020-07-19" else r.open, r.high, r.low, r.close, r.volume) for r in bad.rows)
+    with pytest.raises(BaselineContractError):
+        run_controls_disabled_baseline(OfflineInput(rows, b"x", "d", "s"))
+
+
+def test_execution_count_includes_no_trade_observations():
+    result = run_controls_disabled_baseline(data())
+    assert result.execution_count == len(result.equity_curve)

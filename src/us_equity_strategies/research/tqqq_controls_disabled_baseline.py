@@ -25,6 +25,12 @@ def _finite(value: float) -> float:
     if not math.isfinite(number): _fail()
     return 0.0 if number == 0.0 else number
 
+def _positive(value: float) -> float:
+    number = _finite(value)
+    if number <= 0:
+        _fail()
+    return number
+
 def _json_bytes(value: Any) -> bytes:
     try: return (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
     except (TypeError, ValueError, OverflowError): _fail()
@@ -50,6 +56,8 @@ class BaselineResult:
 def run_controls_disabled_baseline(input_data: OfflineInput) -> BaselineResult:
     if not isinstance(input_data, OfflineInput) or len(input_data.rows) < 400:
         _fail()
+    if len({(r.symbol, r.as_of) for r in input_data.rows}) != len(input_data.rows):
+        _fail()
     dates=sorted({r.as_of for r in input_data.rows})
     by={(r.symbol,r.as_of):r for r in input_data.rows}
     if any(("QQQ",d) not in by or ("TQQQ",d) not in by for d in dates): _fail()
@@ -62,7 +70,7 @@ def run_controls_disabled_baseline(input_data: OfflineInput) -> BaselineResult:
         sma=_finite(sum(qqq_closes)/200.0)
         signal_close=_finite(by[("QQQ",signal_date)].close)
         target=1.0 if signal_close >= sma else 0.0
-        open_price=_finite(by[("TQQQ",execution_date)].open)
+        open_price=_positive(by[("TQQQ",execution_date)].open)
         prior_equity=_finite(cash + qty*open_price)
         target_qty=_finite((prior_equity*target)/open_price)
         cash=_finite(prior_equity-target_qty*open_price); qty=target_qty
