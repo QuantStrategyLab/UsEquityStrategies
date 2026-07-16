@@ -60,24 +60,31 @@ class ReturnPoint:
  def __post_init__(self): object.__setattr__(self,'date',_date(self.date)); object.__setattr__(self,'value',_num(self.value))
 @dataclass(frozen=True)
 class BaselineResult:
- profile:str; version:str; input_digest:str; parameter_digest:str; equity_curve:tuple[EquityPoint,...]; returns:tuple[ReturnPoint,...]; parameters:BaselineParameters
+ profile:str; version:str; input_identity:tuple; equity_curve:tuple[EquityPoint,...]; returns:tuple[ReturnPoint,...]; parameters:BaselineParameters
  def __post_init__(self):
   if type(self.equity_curve) is not tuple or type(self.returns) is not tuple or type(self.parameters) is not BaselineParameters:_fail()
   if any(type(x) is not EquityPoint for x in self.equity_curve) or any(type(x) is not ReturnPoint for x in self.returns):_fail()
+  if type(self.input_identity) is not tuple:_fail()
+  if len(self.input_identity)!=2 or type(self.input_identity[0]) is not str or type(self.input_identity[1]) is not tuple:_fail()
+  if self.parameters != BaselineParameters(): _fail()
+ @property
+ def input_digest(self): return hashlib.sha256(_bytes({'source_revision':self.input_identity[0],'rows':self.input_identity[1]})).hexdigest()
+ @property
+ def parameter_digest(self): return hashlib.sha256(_bytes({'sma_window':self.parameters.sma_window,'execution_timing':self.parameters.execution_timing,'commission_bps':self.parameters.commission_bps,'slippage_bps':self.parameters.slippage_bps,'controls_disabled':self.parameters.controls_disabled})).hexdigest()
  @property
  def evaluation_count(self): return len(self.equity_curve)
  @property
- def trade_count(self): return sum(1 for a,b in zip(self.equity_curve,self.equity_curve[1:]) if bool(a.quantity>0)!=bool(b.quantity>0))
+ def trade_count(self): return int(bool(self.equity_curve and self.equity_curve[0].quantity>0)) + sum(1 for a,b in zip(self.equity_curve,self.equity_curve[1:]) if bool(a.quantity>0)!=bool(b.quantity>0))
  def to_wire(self):
   payload={'profile':self.profile,'version':self.version,'input_digest':self.input_digest,'parameter_digest':self.parameter_digest,'equity_curve':[{'date':x.date,'equity':x.equity,'cash':x.cash,'quantity':x.quantity,'close':x.close} for x in self.equity_curve],'returns':[{'date':x.date,'value':x.value} for x in self.returns],'evaluation_count':self.evaluation_count,'trade_count':self.trade_count,'controls_disabled':True}
   return _bytes(payload)
  @property
  def result_digest(self): return hashlib.sha256(self.to_wire()).hexdigest()
 def run_baseline(src:OfflineInput)->BaselineResult:
- rows=_validate_source(src); p=BaselineParameters(); input_digest=hashlib.sha256(_bytes({'source_revision': src.source_revision, 'rows': rows})).hexdigest(); parameter_digest=hashlib.sha256(_bytes(p.__dict__)).hexdigest(); by={(r[0],r[1]):r for r in rows}; dates=sorted({r[1] for r in rows}); cash=100000.; qty=0.; prev=None; curve=[]; rets=[]
+ rows=_validate_source(src); p=BaselineParameters(); by={(r[0],r[1]):r for r in rows}; dates=sorted({r[1] for r in rows}); cash=100000.; qty=0.; prev=None; curve=[]; rets=[]
  for i in range(p.sma_window-1,len(dates)-1):
   sig,ex=dates[i],dates[i+1]; sma=_num(sum(_positive(by[('QQQ',d)][5]) for d in dates[i-p.sma_window+1:i+1])/p.sma_window); target=1. if _positive(by[('QQQ',sig)][5])>=sma else 0.; op=_positive(by[('TQQQ',ex)][2]); prior=_positive(cash+qty*op); new_qty=_num(prior*target/op); cash=_num(prior-new_qty*op); qty=new_qty; close=_positive(by[('TQQQ',ex)][5]); eq=_positive(cash+qty*close); curve.append(EquityPoint(ex,eq,cash,qty,close))
   if prev is not None: rets.append(ReturnPoint(ex,_num(eq/prev-1)))
   prev=eq
  if not curve:_fail()
- return BaselineResult(PROFILE,VERSION,input_digest,parameter_digest,tuple(curve),tuple(rets),p)
+ return BaselineResult(PROFILE,VERSION,(src.source_revision,rows),tuple(curve),tuple(rets),p)
