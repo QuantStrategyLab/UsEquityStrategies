@@ -24,3 +24,10 @@ def test_insufficient_warmup_and_duplicate_fail_closed():
 
 def test_no_trade_observation_counted():
  r=run_baseline(data()); assert r.evaluation_count == len(r.equity_curve); assert r.trade_count <= r.evaluation_count
+
+def test_result_rejects_mutable_containers_and_trade_count_is_state_transition():
+    r=run_baseline(data())
+    from us_equity_strategies.research.tqqq_baseline_value_semantics import BaselineResult
+    with pytest.raises((TypeError, BaselineContractError)):
+        BaselineResult(r.profile,r.contract_version,r.input_digest,r.parameter_digest,list(r.equity_curve),r.daily_returns,r.evaluation_count,r.trade_count)
+    assert r.trade_count <= r.evaluation_count

@@ -46,6 +46,13 @@ class BaselineResult:
  equity_curve: tuple[EquityPoint,...]; daily_returns: tuple[ReturnPoint,...]
  evaluation_count: int; trade_count: int
  controls_disabled: bool=True; provider_completeness: str="unverified"; calendar_authority: str="unverified"
+ def __post_init__(self):
+  if type(self.equity_curve) is not tuple or type(self.daily_returns) is not tuple:
+   _fail()
+  if any(type(p) is not EquityPoint for p in self.equity_curve) or any(type(p) is not ReturnPoint for p in self.daily_returns):
+   _fail()
+  if type(self.evaluation_count) is not int or type(self.trade_count) is not int or self.evaluation_count < 0 or self.trade_count < 0:
+   _fail()
  def _snapshot(self):
   return {"profile":self.profile,"contract_version":self.contract_version,"input_digest":self.input_digest,"parameter_digest":self.parameter_digest,"equity_curve":[{"date":p.date,"equity":p.equity,"cash":p.cash,"tqqq_quantity":p.tqqq_quantity,"tqqq_close":p.tqqq_close} for p in self.equity_curve],"daily_returns":[{"date":p.date,"daily_return":p.daily_return} for p in self.daily_returns],"evaluation_count":self.evaluation_count,"trade_count":self.trade_count,"controls_disabled":self.controls_disabled,"provider_completeness":self.provider_completeness,"calendar_authority":self.calendar_authority}
  def to_wire(self): return _bytes(self._snapshot())
@@ -62,7 +69,7 @@ def run_baseline(input_data: OfflineInput)->BaselineResult:
  for i in range(199,len(dates)-1):
   signal=dates[i]; execution=dates[i+1]; sma=_finite(sum(_finite(by[("QQQ",d)].close) for d in dates[i-199:i+1])/200); target=1. if _finite(by[("QQQ",signal)].close)>=sma else 0.
   open_price=_positive(by[("TQQQ",execution)].open); prior=_finite(cash+qty*open_price); new_qty=_finite(prior*target/open_price); new_cash=_finite(prior-new_qty*open_price)
-  if (new_qty != qty): trades+=1
+  if (bool(new_qty > 0) != bool(qty > 0)): trades+=1
   cash,qty=new_cash,new_qty; close=_finite(by[("TQQQ",execution)].close); equity=_finite(cash+qty*close); curve.append(EquityPoint(execution,equity,cash,qty,close))
   if prev is not None: returns.append(ReturnPoint(execution,_finite(equity/prev-1)))
   prev=equity; evaluations+=1
