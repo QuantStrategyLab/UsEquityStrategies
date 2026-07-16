@@ -7,6 +7,8 @@ import json
 import math
 from typing import Any
 
+MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991
+
 class BaselineBoundaryError(ValueError):
     """Sanitized canonical boundary failure."""
 
@@ -28,6 +30,7 @@ def _num(v):
     try: n=float(v)
     except (TypeError,ValueError,OverflowError): _fail()
     if not math.isfinite(n): _fail()
+    if type(v) is int and (abs(v) > MAX_SAFE_JSON_INTEGER or int(n) != v): _fail()
     return 0.0 if n==0.0 else n
 
 def _digest(v):
@@ -61,8 +64,8 @@ class BaselineResult:
         _text(self.profile); _text(self.contract_version); _digest(self.input_digest); _digest(self.parameter_digest)
         if type(self.equity_curve) is not tuple or type(self.daily_returns) is not tuple: _fail()
         if any(type(x) is not EquityPoint for x in self.equity_curve) or any(type(x) is not ReturnPoint for x in self.daily_returns): _fail()
-        if type(self.evaluation_count) is not int or isinstance(self.evaluation_count,bool) or self.evaluation_count<0: _fail()
-        if type(self.trade_count) is not int or isinstance(self.trade_count,bool) or self.trade_count<0: _fail()
+        if type(self.evaluation_count) is not int or isinstance(self.evaluation_count,bool) or not 0 <= self.evaluation_count <= MAX_SAFE_JSON_INTEGER: _fail()
+        if type(self.trade_count) is not int or isinstance(self.trade_count,bool) or not 0 <= self.trade_count <= MAX_SAFE_JSON_INTEGER: _fail()
         if type(self.controls_disabled) is not bool or self.controls_disabled is not True: _fail()
         if self.provider_completeness != "unverified" or self.calendar_authority != "unverified": _fail()
     def _snapshot(self):

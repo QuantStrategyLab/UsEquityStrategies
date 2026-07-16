@@ -33,3 +33,10 @@ def test_nan_inf_bool_and_mutable_state_fail_closed():
  with pytest.raises(BaselineBoundaryError): BaselineResult(x.profile,x.contract_version,x.input_digest,x.parameter_digest,list(x.equity_curve),x.daily_returns,2,1)
  object.__setattr__(x,"equity_curve",[{"date":"bad"}])
  with pytest.raises(BaselineBoundaryError): x.to_wire()
+
+def test_safe_integer_bounds_for_numeric_and_counts():
+ from us_equity_strategies.research.tqqq_baseline_canonical_boundary import MAX_SAFE_JSON_INTEGER
+ assert EquityPoint("2026-01-02",MAX_SAFE_JSON_INTEGER,0,0,1).equity == float(MAX_SAFE_JSON_INTEGER)
+ with pytest.raises(BaselineBoundaryError): EquityPoint("2026-01-02",MAX_SAFE_JSON_INTEGER+2,0,0,1)
+ x=result(); wire=json.loads(x.to_wire()); wire["evaluation_count"]=MAX_SAFE_JSON_INTEGER+1
+ with pytest.raises(BaselineBoundaryError): BaselineResult.from_wire(wire)
