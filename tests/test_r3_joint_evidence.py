@@ -9,15 +9,14 @@ from pathlib import Path
 
 import pytest
 
+import us_equity_strategies.research.r3_joint_evidence as r3
+
 from us_equity_strategies.research.r3_joint_evidence import (
     ALIGNED_DATES_SHA256,
     CONTRACT_VERSION,
-    METHOD_DIGEST,
-    METHOD_SPEC,
     PROFILE_CANONICAL_JSON,
     PROFILE_SHA256,
     SCENARIOS,
-    SOURCE_COMMIT,
     THRESHOLD_PROFILE,
     WINDOW_SPECS,
     CostScenario,
@@ -51,6 +50,9 @@ from us_equity_strategies.research.tqqq_offline_input_contract import (
 from us_equity_strategies.research.tqqq_typed_baseline_result import (
     run_typed_baseline,
 )
+
+
+TEST_SOURCE_COMMIT = "1" * 40
 
 
 def _rows(
@@ -168,7 +170,7 @@ def _handoff_input(record: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _minimal_bundle() -> dict[str, object]:
+def _minimal_bundle(source_commit: str = TEST_SOURCE_COMMIT) -> dict[str, object]:
     tqqq = _strategy_record("TQQQ", "NOT_EVALUATED")
     soxl = _strategy_record("SOXL", "NOT_EVALUATED")
     joint: dict[str, object] = {
@@ -185,7 +187,7 @@ def _minimal_bundle() -> dict[str, object]:
     handoff = {
         "schema": "qsl.research.r4_independent_sizing_evidence_input.v1",
         "scope": "RESEARCH_ONLY",
-        "source_commit": SOURCE_COMMIT,
+        "source_commit": source_commit,
         "as_of_date": "2026-07-15",
         "reference_cost_scenario": "C2_5",
         "research_eligibility_profile_sha256": PROFILE_SHA256,
@@ -210,21 +212,24 @@ def _minimal_bundle() -> dict[str, object]:
     return {
         "schema": "qsl.research.r3_joint_evidence_bundle.v1",
         "contract_version": CONTRACT_VERSION,
-        "source_commit": SOURCE_COMMIT,
-        "method_digest": METHOD_DIGEST,
+        "source_commit": source_commit,
+        "method_digest": r3._method_digest(source_commit),
         "threshold_profile": {
             "profile": THRESHOLD_PROFILE,
             "canonical_json": PROFILE_CANONICAL_JSON,
             "sha256": PROFILE_SHA256,
         },
-        "input_identity": _input_identity(False, False),
+        "input_identity": _input_identity(False, False, source_commit),
         "strategies": [tqqq, soxl],
         "joint_dependency": joint,
         "r4_handoff": handoff,
         "terminal": {
             "outcome": "R3_EVIDENCE_READY",
-            "failed_stage": None,
-            "failure_codes": [],
+            "failed_stage": "STRATEGY_EVIDENCE",
+            "failure_codes": [
+                "TQQQ_TEST_INELIGIBLE",
+                "SOXL_TEST_INELIGIBLE",
+            ],
             "eligible_strategies": [],
             "ineligible_strategies": ["TQQQ", "SOXL"],
         },
@@ -242,7 +247,8 @@ def test_profile_method_and_windows_are_frozen_before_performance() -> None:
         sort_keys=True,
         separators=(",", ":"),
     ) == PROFILE_CANONICAL_JSON
-    assert METHOD_DIGEST == _digest_value(METHOD_SPEC)
+    method_spec = r3._method_spec(TEST_SOURCE_COMMIT)
+    assert r3._method_digest(TEST_SOURCE_COMMIT) == _digest_value(method_spec)
     assert [scenario.scenario_id for scenario in SCENARIOS] == [
         "ZERO",
         "C1_2",
@@ -475,6 +481,7 @@ def test_r4_handoff_has_two_independent_records_and_no_in_band_bundle_sha() -> N
             "tail_co_loss_rate": None,
             "cost_stress_by_scenario": None,
         },
+        TEST_SOURCE_COMMIT,
     )
 
     assert "bundle_sha256" not in handoff
@@ -627,12 +634,14 @@ def test_thin_cli_emits_only_terminal_summary(
 
     bundle = _minimal_bundle()
     paths = PersistedPaths(tmp_path / "bundle", tmp_path / "sidecar", tmp_path / "readback")
-    monkeypatch.setattr(cli, "run_private_r3", lambda: (bundle, paths))
+    monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: (bundle, paths))
 
-    assert cli.main() == 0
+    assert cli.main([]) == 2
     output = json.loads(capsys.readouterr().out)
     assert set(output) == {
         "outcome",
+        "failed_stage",
+        "failure_codes",
         "eligible_strategies",
         "ineligible_strategies",
         "joint_status",
@@ -641,3 +650,189 @@ def test_thin_cli_emits_only_terminal_summary(
         "readback_path",
     }
     assert "return" not in output and "position" not in output
+
+
+def test_source_commit_uses_injected_clean_exact_revision_and_fails_closed() -> None:
+    repo_root = Path("/deterministic/repo")
+
+    def clean_git(root: Path, arguments: tuple[str, ...]) -> bytes:
+        assert root == repo_root
+        outputs = {
+            ("rev-parse", "--show-toplevel"): b"/deterministic/repo\n",
+            ("rev-parse", "--verify", "HEAD^{commit}"): (TEST_SOURCE_COMMIT + "\n").encode(),
+            ("status", "--porcelain=v1", "--untracked-files=all"): b"",
+            (
+                "cat-file",
+                "-e",
+                f"{TEST_SOURCE_COMMIT}:src/us_equity_strategies/research/r3_joint_evidence.py",
+            ): b"",
+            (
+                "cat-file",
+                "-e",
+                f"{TEST_SOURCE_COMMIT}:scripts/run_r3_joint_evidence.py",
+            ): b"",
+        }
+        return outputs[arguments]
+
+    assert r3._resolve_source_commit(repo_root, git_output=clean_git) == TEST_SOURCE_COMMIT
+    assert r3._method_spec(TEST_SOURCE_COMMIT)["source_commit"] == TEST_SOURCE_COMMIT
+    assert r3._method_digest(TEST_SOURCE_COMMIT) == r3._method_digest(TEST_SOURCE_COMMIT)
+    assert r3._method_digest(TEST_SOURCE_COMMIT) != r3._method_digest("2" * 40)
+
+    def dirty_git(root: Path, arguments: tuple[str, ...]) -> bytes:
+        if arguments == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return b" M src/us_equity_strategies/research/r3_joint_evidence.py\0"
+        return clean_git(root, arguments)
+
+    with pytest.raises(R3EvidenceError, match="SOURCE_CHECKOUT_DIRTY"):
+        r3._resolve_source_commit(repo_root, git_output=dirty_git)
+
+    def missing_runner(root: Path, arguments: tuple[str, ...]) -> bytes:
+        if arguments[0] == "cat-file":
+            raise OSError("not committed")
+        return clean_git(root, arguments)
+
+    with pytest.raises(R3EvidenceError, match="SOURCE_RUNNER_NOT_COMMITTED"):
+        r3._resolve_source_commit(repo_root, git_output=missing_runner)
+
+    with pytest.raises(R3EvidenceError, match="SOURCE_REVISION_UNVERIFIABLE"):
+        r3._resolve_source_commit(repo_root, git_output=lambda _root, _arguments: b"")
+
+
+def test_terminal_derives_only_strategy_evidence_failures_and_preserves_valid_handoff() -> None:
+    invalid_tqqq = _invalid_strategy_record("TQQQ", "FILE_IDENTITY_MISMATCH")
+    valid_soxl = _strategy_record("SOXL", "PASS")
+
+    terminal = r3._terminal_record([invalid_tqqq, valid_soxl])
+
+    assert terminal == {
+        "outcome": "R3_EVIDENCE_READY",
+        "failed_stage": "STRATEGY_EVIDENCE",
+        "failure_codes": ["TQQQ_FILE_IDENTITY_MISMATCH"],
+        "eligible_strategies": ["SOXL"],
+        "ineligible_strategies": ["TQQQ"],
+    }
+    assert invalid_tqqq["promotion_status"] == "NOT_EVALUATED"
+    assert invalid_tqqq["r4a_handoff_eligible"] is False
+    assert invalid_tqqq["size_zero_required"] is True
+
+    handoff = build_r4_handoff(
+        [_handoff_input(invalid_tqqq), _handoff_input(valid_soxl)],
+        {
+            "status": "NOT_RUN_EVIDENCE_INVALID",
+            "semantics": "REPORT_ONLY_CONTEXT_NOT_A_GATE_FOR_R4A",
+            "aligned_dates_sha256": None,
+            "sample_count": None,
+            "covariance_matrix_2x2": None,
+            "pearson_correlation": None,
+            "common_drawdown_day_rate": None,
+            "tail_co_loss_rate": None,
+            "cost_stress_by_scenario": None,
+        },
+        TEST_SOURCE_COMMIT,
+    )
+    assert handoff["per_strategy_inputs"][0]["eligible"] is False
+    assert handoff["per_strategy_inputs"][1]["eligible"] is True
+
+    valid_fail = _strategy_record("TQQQ", "FAIL")
+    assert r3._terminal_record([valid_fail, valid_soxl])["failure_codes"] == []
+
+
+def test_explicit_contract_and_prompt_paths_keep_exact_sha_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract = tmp_path / "contract.md"
+    prompt = tmp_path / "prompt.md"
+    contract.write_bytes(b"locked-contract")
+    prompt.write_bytes(b"locked-prompt")
+    monkeypatch.setattr(r3, "CONTRACT_SHA256", hashlib.sha256(contract.read_bytes()).hexdigest())
+    monkeypatch.setattr(r3, "WORKER_PROMPT_SHA256", hashlib.sha256(prompt.read_bytes()).hexdigest())
+    monkeypatch.setattr(r3, "SOURCE_MODULE_SHA256", {})
+    captured: dict[str, object] = {}
+    persist_calls: list[Path] = []
+
+    def build(source_commit: str) -> dict[str, object]:
+        captured["source_commit"] = source_commit
+        return {"source_commit": source_commit}
+
+    def persist(bundle: dict[str, object], output_root: str | Path) -> object:
+        captured["bundle"] = bundle
+        captured["output_root"] = Path(output_root)
+        persist_calls.append(Path(output_root))
+        return "persisted"
+
+    monkeypatch.setattr(r3, "_build_bundle", build)
+    monkeypatch.setattr(r3, "persist_bundle", persist)
+
+    bundle, paths = r3.run_private_r3(
+        tmp_path / "evidence",
+        contract_path=contract,
+        worker_prompt_path=prompt,
+        _source_commit_reader=lambda: TEST_SOURCE_COMMIT,
+    )
+
+    assert bundle == {"source_commit": TEST_SOURCE_COMMIT}
+    assert paths == "persisted"
+    assert captured["source_commit"] == TEST_SOURCE_COMMIT
+    assert persist_calls == [tmp_path / "evidence"]
+
+    prompt.write_bytes(b"tampered")
+    with pytest.raises(R3EvidenceError, match="FILE_IDENTITY_MISMATCH"):
+        r3.run_private_r3(
+            tmp_path / "not-published",
+            contract_path=contract,
+            worker_prompt_path=prompt,
+            _source_commit_reader=lambda: TEST_SOURCE_COMMIT,
+        )
+    assert not (tmp_path / "not-published").exists()
+    assert persist_calls == [tmp_path / "evidence"]
+
+    prompt.write_bytes(b"locked-prompt")
+    revisions = iter((TEST_SOURCE_COMMIT, "2" * 40))
+    with pytest.raises(R3EvidenceError, match="SOURCE_REVISION_CHANGED"):
+        r3.run_private_r3(
+            tmp_path / "revision-changed",
+            contract_path=contract,
+            worker_prompt_path=prompt,
+            _source_commit_reader=lambda: next(revisions),
+        )
+    assert not (tmp_path / "revision-changed").exists()
+    assert persist_calls == [tmp_path / "evidence"]
+
+
+def test_cli_passes_only_explicit_identity_paths_and_fails_on_terminal_strategy_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import scripts.run_r3_joint_evidence as cli
+    from us_equity_strategies.research.r3_joint_evidence import PersistedPaths
+
+    contract = tmp_path / "contract.md"
+    prompt = tmp_path / "prompt.md"
+    captured: dict[str, object] = {}
+    bundle = _minimal_bundle()
+    paths = PersistedPaths(tmp_path / "bundle", tmp_path / "sidecar", tmp_path / "readback")
+
+    def run_private_r3(**kwargs: object) -> tuple[dict[str, object], PersistedPaths]:
+        captured.update(kwargs)
+        return bundle, paths
+
+    monkeypatch.setattr(cli, "run_private_r3", run_private_r3)
+
+    assert cli.main(
+        [
+            "--contract-path",
+            str(contract),
+            "--worker-prompt-path",
+            str(prompt),
+        ]
+    ) == 2
+    assert captured == {
+        "contract_path": contract,
+        "worker_prompt_path": prompt,
+    }
+    output = json.loads(capsys.readouterr().out)
+    assert output["failed_stage"] == "STRATEGY_EVIDENCE"
+    assert output["failure_codes"] == [
+        "TQQQ_TEST_INELIGIBLE",
+        "SOXL_TEST_INELIGIBLE",
+    ]

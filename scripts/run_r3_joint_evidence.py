@@ -2,23 +2,37 @@
 """Run the one locked private offline R3 evidence profile."""
 from __future__ import annotations
 
+import argparse
 import json
+from pathlib import Path
 import sys
+from typing import Sequence
 
 from us_equity_strategies.research.r3_joint_evidence import (
+    CONTRACT_PATH,
     R3EvidenceError,
+    WORKER_PROMPT_PATH,
     run_private_r3,
 )
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--contract-path", type=Path, default=CONTRACT_PATH)
+    parser.add_argument("--worker-prompt-path", type=Path, default=WORKER_PROMPT_PATH)
+    args = parser.parse_args(argv)
     try:
-        bundle, paths = run_private_r3()
+        bundle, paths = run_private_r3(
+            contract_path=args.contract_path,
+            worker_prompt_path=args.worker_prompt_path,
+        )
     except R3EvidenceError as exc:
         print(f"R3 evidence failed: {exc.code}", file=sys.stderr)
         return 2
     summary = {
         "outcome": bundle["terminal"]["outcome"],
+        "failed_stage": bundle["terminal"]["failed_stage"],
+        "failure_codes": bundle["terminal"]["failure_codes"],
         "eligible_strategies": bundle["terminal"]["eligible_strategies"],
         "ineligible_strategies": bundle["terminal"]["ineligible_strategies"],
         "joint_status": bundle["joint_dependency"]["status"],
@@ -27,7 +41,7 @@ def main() -> int:
         "readback_path": str(paths.readback),
     }
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
-    return 0
+    return 2 if bundle["terminal"]["failure_codes"] else 0
 
 
 if __name__ == "__main__":

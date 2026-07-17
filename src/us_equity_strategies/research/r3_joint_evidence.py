@@ -8,6 +8,8 @@ import json
 import math
 import os
 from pathlib import Path
+import re
+import subprocess
 from typing import Any, Callable, NoReturn, Sequence
 
 from .soxl_soxx_offline_input_contract import (
@@ -30,9 +32,8 @@ BUNDLE_SCHEMA = "qsl.research.r3_joint_evidence_bundle.v1"
 READBACK_SCHEMA = "qsl.research.r3_joint_evidence_readback.v1"
 R4_HANDOFF_SCHEMA = "qsl.research.r4_independent_sizing_evidence_input.v1"
 CONTRACT_VERSION = "qsl.r3.joint_evidence.acceptance.v1"
-CONTRACT_SHA256 = "31269e3a8654506dccf10766f84911d3d3fb6f7da2eefce3ef33c7f5e7a5dee6"
-WORKER_PROMPT_SHA256 = "bb6c56156f28c6318625e22c8979e9420a3c79b79a7d01cfb71e55dd249070d6"
-SOURCE_COMMIT = "e04d1561e07ea84e6fb0decfdd714cdcf557cdfa"
+CONTRACT_SHA256 = "22ac0352bda31ceeee9faec5f94aa8c032dc7b1c522454ef05eab8f03070e670"
+WORKER_PROMPT_SHA256 = "38a3a3f33dc5dd7ce06b12400f6b6555309fab8353a580ba4f1ea0008de28a97"
 PROFILE_SHA256 = "cfc7bcffc4853d1b79ae0575287e76a8e50b679792ccd003858a317b1f42e684"
 PROFILE_CANONICAL_JSON = (
     '{"common_strategy_thresholds":{"max_mc_terminal_loss_probability_C2_5":'
@@ -64,6 +65,11 @@ CONTRACT_PATH = Path(
 WORKER_PROMPT_PATH = Path(
     "/Users/lisiyi/Documents/Codex/2026-07-14/ba-2/outputs/"
     "qsl_r3_joint_evidence_worker_prompt_v1_2026-07-17.md"
+)
+REPO_ROOT = Path(__file__).resolve().parents[3]
+COMMITTED_RUNNER_PATHS = (
+    "src/us_equity_strategies/research/r3_joint_evidence.py",
+    "scripts/run_r3_joint_evidence.py",
 )
 
 
@@ -169,50 +175,110 @@ WINDOW_SPECS = (
 METRIC_WINDOW_IDS = tuple(item.segment_id for item in WINDOW_SPECS if item.metrics_included)
 WFA_TEST_IDS = ("F1_TEST", "F2_TEST", "F3_TEST")
 
-METHOD_SPEC = {
-    "schema": "qsl.research.r3_joint_evidence_method.v1",
-    "contract_sha256": CONTRACT_SHA256,
-    "worker_prompt_sha256": WORKER_PROMPT_SHA256,
-    "source_commit": SOURCE_COMMIT,
-    "threshold_profile_sha256": PROFILE_SHA256,
-    "aligned_date_digest_method": "UTF8_LF_ONE_DATE_PER_LINE_WITH_FINAL_LF_V1",
-    "aligned_dates_sha256": ALIGNED_DATES_SHA256,
-    "baseline": {
-        "sma_window": 200,
-        "signal_rule": "INCLUSIVE_CLOSE_GREATER_THAN_OR_EQUAL_SMA",
-        "execution": "NEXT_OBSERVED_OPEN",
-        "initial_equity": "0x1.86a0000000000p+16",
-    },
-    "cost_scenarios": [
-        {
-            "scenario_id": item.scenario_id,
-            "commission_bps_per_side": item.commission_bps,
-            "adverse_slippage_bps_per_side": item.slippage_bps,
-        }
-        for item in SCENARIOS
-    ],
-    "windows": [
-        {
-            "segment_id": item.segment_id,
-            "raw_start": item.raw_start,
-            "raw_end": item.raw_end,
-            "start_date": item.start_date,
-            "end_date": item.end_date,
-            "role": item.role,
-            "metrics_included": item.metrics_included,
-        }
-        for item in WINDOW_SPECS
-    ],
-    "monte_carlo": {
-        "method": "CIRCULAR_MOVING_BLOCK_BOOTSTRAP_HMAC_SHA256_V1",
-        "seed_hex": MC_SEED_HEX,
-        "trials": MC_TRIALS,
-        "path_length": MC_PATH_LENGTH,
-        "block_length": MC_BLOCK_LENGTH,
-        "quantile": "NEAREST_RANK",
-    },
-}
-METHOD_DIGEST = _digest_value(METHOD_SPEC)
+def _require_source_commit(value: object) -> str:
+    if type(value) is not str or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        _fail("SOURCE_REVISION_UNVERIFIABLE")
+    return value
+
+
+def _git_output(repo_root: Path, arguments: tuple[str, ...]) -> bytes:
+    try:
+        completed = subprocess.run(
+            ("git", "-C", str(repo_root), *arguments),
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise OSError("git unavailable") from None
+    if completed.returncode != 0:
+        raise OSError("git verification failed")
+    return completed.stdout
+
+
+def _resolve_source_commit(
+    repo_root: Path = REPO_ROOT,
+    *,
+    git_output: Callable[[Path, tuple[str, ...]], bytes] = _git_output,
+) -> str:
+    try:
+        actual_root = git_output(repo_root, ("rev-parse", "--show-toplevel")).decode(
+            "utf-8", errors="strict"
+        ).strip()
+        head = git_output(repo_root, ("rev-parse", "--verify", "HEAD^{commit}")).decode(
+            "ascii", errors="strict"
+        ).strip()
+    except (OSError, UnicodeError):
+        _fail("SOURCE_REVISION_UNVERIFIABLE")
+    if not actual_root or Path(actual_root).resolve() != repo_root.resolve():
+        _fail("SOURCE_REVISION_UNVERIFIABLE")
+    source_commit = _require_source_commit(head)
+    try:
+        dirty = git_output(
+            repo_root,
+            ("status", "--porcelain=v1", "--untracked-files=all"),
+        )
+    except OSError:
+        _fail("SOURCE_REVISION_UNVERIFIABLE")
+    if dirty:
+        _fail("SOURCE_CHECKOUT_DIRTY")
+    for path in COMMITTED_RUNNER_PATHS:
+        try:
+            git_output(repo_root, ("cat-file", "-e", f"{source_commit}:{path}"))
+        except OSError:
+            _fail("SOURCE_RUNNER_NOT_COMMITTED")
+    return source_commit
+
+
+def _method_spec(source_commit: str) -> dict[str, Any]:
+    source_commit = _require_source_commit(source_commit)
+    return {
+        "schema": "qsl.research.r3_joint_evidence_method.v1",
+        "contract_sha256": CONTRACT_SHA256,
+        "worker_prompt_sha256": WORKER_PROMPT_SHA256,
+        "source_commit": source_commit,
+        "threshold_profile_sha256": PROFILE_SHA256,
+        "aligned_date_digest_method": "UTF8_LF_ONE_DATE_PER_LINE_WITH_FINAL_LF_V1",
+        "aligned_dates_sha256": ALIGNED_DATES_SHA256,
+        "baseline": {
+            "sma_window": 200,
+            "signal_rule": "INCLUSIVE_CLOSE_GREATER_THAN_OR_EQUAL_SMA",
+            "execution": "NEXT_OBSERVED_OPEN",
+            "initial_equity": "0x1.86a0000000000p+16",
+        },
+        "cost_scenarios": [
+            {
+                "scenario_id": item.scenario_id,
+                "commission_bps_per_side": item.commission_bps,
+                "adverse_slippage_bps_per_side": item.slippage_bps,
+            }
+            for item in SCENARIOS
+        ],
+        "windows": [
+            {
+                "segment_id": item.segment_id,
+                "raw_start": item.raw_start,
+                "raw_end": item.raw_end,
+                "start_date": item.start_date,
+                "end_date": item.end_date,
+                "role": item.role,
+                "metrics_included": item.metrics_included,
+            }
+            for item in WINDOW_SPECS
+        ],
+        "monte_carlo": {
+            "method": "CIRCULAR_MOVING_BLOCK_BOOTSTRAP_HMAC_SHA256_V1",
+            "seed_hex": MC_SEED_HEX,
+            "trials": MC_TRIALS,
+            "path_length": MC_PATH_LENGTH,
+            "block_length": MC_BLOCK_LENGTH,
+            "quantile": "NEAREST_RANK",
+        },
+    }
+
+
+def _method_digest(source_commit: str) -> str:
+    return _digest_value(_method_spec(source_commit))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1171,7 +1237,9 @@ def _handoff_input(
 def build_r4_handoff(
     per_strategy_inputs: Sequence[dict[str, Any]],
     dependency_risk: dict[str, Any],
+    source_commit: str,
 ) -> dict[str, Any]:
+    source_commit = _require_source_commit(source_commit)
     if (
         len(per_strategy_inputs) != 2
         or [item.get("strategy_id") for item in per_strategy_inputs] != ["TQQQ", "SOXL"]
@@ -1181,7 +1249,7 @@ def build_r4_handoff(
     return {
         "schema": R4_HANDOFF_SCHEMA,
         "scope": "RESEARCH_ONLY",
-        "source_commit": SOURCE_COMMIT,
+        "source_commit": source_commit,
         "as_of_date": "2026-07-15",
         "reference_cost_scenario": "C2_5",
         "research_eligibility_profile_sha256": PROFILE_SHA256,
@@ -1241,11 +1309,15 @@ def _r4_dependency(
     )  # type: ignore[return-value]
 
 
-def _input_identity(tqqq_valid: bool, soxl_valid: bool) -> dict[str, Any]:
+def _input_identity(
+    tqqq_valid: bool,
+    soxl_valid: bool,
+    source_commit: str,
+) -> dict[str, Any]:
     return {
         "contract_sha256": CONTRACT_SHA256,
         "worker_prompt_sha256": WORKER_PROMPT_SHA256,
-        "source_commit": SOURCE_COMMIT,
+        "source_commit": _require_source_commit(source_commit),
         "source_module_sha256": SOURCE_MODULE_SHA256,
         "aligned_date_count": 753,
         "aligned_dates_sha256": ALIGNED_DATES_SHA256,
@@ -1550,13 +1622,13 @@ def _check_digest(record: dict[str, Any], code: str) -> None:
         _fail(code)
 
 
-def _validate_input_identity(value: object) -> None:
+def _validate_input_identity(value: object, source_commit: str) -> None:
     if type(value) is not dict or set(value) != INPUT_IDENTITY_KEYS:
         _fail("INPUT_IDENTITY_SCHEMA_INVALID")
     if (
         value["contract_sha256"] != CONTRACT_SHA256
         or value["worker_prompt_sha256"] != WORKER_PROMPT_SHA256
-        or value["source_commit"] != SOURCE_COMMIT
+        or value["source_commit"] != source_commit
         or value["source_module_sha256"] != SOURCE_MODULE_SHA256
         or value["aligned_date_count"] != 753
         or value["aligned_dates_sha256"] != ALIGNED_DATES_SHA256
@@ -1654,14 +1726,41 @@ def _validate_joint_details(value: dict[str, Any]) -> None:
         _fail("JOINT_SCHEMA_INVALID")
 
 
+def _terminal_record(strategies: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    if (
+        len(strategies) != 2
+        or [item.get("strategy_id") for item in strategies] != ["TQQQ", "SOXL"]
+    ):
+        _fail("TERMINAL_INPUT_INVALID")
+    eligible = [item["strategy_id"] for item in strategies if item["r4a_handoff_eligible"]]
+    ineligible = [item["strategy_id"] for item in strategies if not item["r4a_handoff_eligible"]]
+    failures: list[str] = []
+    for strategy in strategies:
+        if strategy["evidence_valid"]:
+            continue
+        strategy_id = strategy["strategy_id"]
+        codes = strategy["failure_codes"] or ["EVIDENCE_INVALID"]
+        failures.extend(
+            code if code.startswith(f"{strategy_id}_") else f"{strategy_id}_{code}"
+            for code in codes
+        )
+    return {
+        "outcome": "R3_EVIDENCE_READY",
+        "failed_stage": "STRATEGY_EVIDENCE" if failures else None,
+        "failure_codes": failures,
+        "eligible_strategies": eligible,
+        "ineligible_strategies": ineligible,
+    }
+
+
 def validate_bundle(bundle: object) -> None:
     if type(bundle) is not dict or set(bundle) != TOP_LEVEL_KEYS:
         _fail("BUNDLE_SCHEMA_INVALID")
+    source_commit = _require_source_commit(bundle["source_commit"])
     if (
         bundle["schema"] != BUNDLE_SCHEMA
         or bundle["contract_version"] != CONTRACT_VERSION
-        or bundle["source_commit"] != SOURCE_COMMIT
-        or bundle["method_digest"] != METHOD_DIGEST
+        or bundle["method_digest"] != _method_digest(source_commit)
         or bundle["threshold_profile"]
         != {
             "profile": THRESHOLD_PROFILE,
@@ -1671,7 +1770,7 @@ def validate_bundle(bundle: object) -> None:
         or type(bundle["input_identity"]) is not dict
     ):
         _fail("BUNDLE_SCHEMA_INVALID")
-    _validate_input_identity(bundle["input_identity"])
+    _validate_input_identity(bundle["input_identity"], source_commit)
     strategies = bundle["strategies"]
     if (
         type(strategies) is not list
@@ -1697,6 +1796,8 @@ def validate_bundle(bundle: object) -> None:
             or (not evidence_valid and status != "NOT_EVALUATED")
             or (evidence_valid and status == "NOT_EVALUATED")
             or type(strategy["failure_codes"]) is not list
+            or any(type(code) is not str or not code for code in strategy["failure_codes"])
+            or (not evidence_valid and not strategy["failure_codes"])
         ):
             _fail("STRATEGY_STATE_INVALID")
         if evidence_valid and (strategy["windows"] is None or strategy["monte_carlo"] is None):
@@ -1731,7 +1832,7 @@ def validate_bundle(bundle: object) -> None:
     if (
         handoff["schema"] != R4_HANDOFF_SCHEMA
         or handoff["scope"] != "RESEARCH_ONLY"
-        or handoff["source_commit"] != SOURCE_COMMIT
+        or handoff["source_commit"] != source_commit
         or handoff["as_of_date"] != "2026-07-15"
         or handoff["reference_cost_scenario"] != "C2_5"
         or handoff["research_eligibility_profile_sha256"] != PROFILE_SHA256
@@ -1764,14 +1865,7 @@ def validate_bundle(bundle: object) -> None:
     terminal = bundle["terminal"]
     if type(terminal) is not dict or set(terminal) != TERMINAL_KEYS:
         _fail("TERMINAL_SCHEMA_INVALID")
-    eligible_ids = [item["strategy_id"] for item in strategies if item["r4a_handoff_eligible"]]
-    ineligible_ids = [item["strategy_id"] for item in strategies if not item["r4a_handoff_eligible"]]
-    if (
-        terminal["outcome"]
-        not in {"R3_EVIDENCE_READY", "R3_SHARED_EVIDENCE_INVALID", "DESIGN_BLOCKED"}
-        or terminal["eligible_strategies"] != eligible_ids
-        or terminal["ineligible_strategies"] != ineligible_ids
-    ):
+    if terminal != _terminal_record(strategies):
         _fail("TERMINAL_STATE_INVALID")
     _walk_keys(bundle)
 
@@ -1916,7 +2010,8 @@ def persist_bundle(
     return paths
 
 
-def _build_bundle() -> dict[str, Any]:
+def _build_bundle(source_commit: str) -> dict[str, Any]:
+    source_commit = _require_source_commit(source_commit)
     tqqq = _attempt_private_strategy(TQQQ_SPEC)
     soxl = _attempt_private_strategy(SOXL_SPEC)
     try:
@@ -1935,15 +2030,13 @@ def _build_bundle() -> dict[str, Any]:
         _handoff_input(tqqq, dependency_ref),
         _handoff_input(soxl, dependency_ref),
     ]
-    handoff = build_r4_handoff(handoff_inputs, dependency)
+    handoff = build_r4_handoff(handoff_inputs, dependency, source_commit)
     strategies = [tqqq.record, soxl.record]
-    eligible = [item["strategy_id"] for item in strategies if item["r4a_handoff_eligible"]]
-    ineligible = [item["strategy_id"] for item in strategies if not item["r4a_handoff_eligible"]]
     bundle = {
         "schema": BUNDLE_SCHEMA,
         "contract_version": CONTRACT_VERSION,
-        "source_commit": SOURCE_COMMIT,
-        "method_digest": METHOD_DIGEST,
+        "source_commit": source_commit,
+        "method_digest": _method_digest(source_commit),
         "threshold_profile": {
             "profile": THRESHOLD_PROFILE,
             "canonical_json": PROFILE_CANONICAL_JSON,
@@ -1952,17 +2045,12 @@ def _build_bundle() -> dict[str, Any]:
         "input_identity": _input_identity(
             bool(tqqq.record["evidence_valid"]),
             bool(soxl.record["evidence_valid"]),
+            source_commit,
         ),
         "strategies": strategies,
         "joint_dependency": joint,
         "r4_handoff": handoff,
-        "terminal": {
-            "outcome": "R3_EVIDENCE_READY",
-            "failed_stage": None,
-            "failure_codes": [],
-            "eligible_strategies": eligible,
-            "ineligible_strategies": ineligible,
-        },
+        "terminal": _terminal_record(strategies),
     }
     validate_bundle(bundle)
     return bundle
@@ -1970,6 +2058,10 @@ def _build_bundle() -> dict[str, Any]:
 
 def run_private_r3(
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
+    *,
+    contract_path: str | Path = CONTRACT_PATH,
+    worker_prompt_path: str | Path = WORKER_PROMPT_PATH,
+    _source_commit_reader: Callable[[], str] | None = None,
 ) -> tuple[dict[str, Any], PersistedPaths]:
     if (
         hashlib.sha256(PROFILE_CANONICAL_JSON.encode()).hexdigest() != PROFILE_SHA256
@@ -1977,15 +2069,19 @@ def run_private_r3(
         != PROFILE_CANONICAL_JSON
     ):
         _fail("PROFILE_IDENTITY_MISMATCH")
+    source_commit_reader = _source_commit_reader or _resolve_source_commit
+    source_commit = _require_source_commit(source_commit_reader())
     research_root = Path(__file__).resolve().parent
     shared_identities = (
-        FileIdentity(CONTRACT_PATH, CONTRACT_SHA256),
-        FileIdentity(WORKER_PROMPT_PATH, WORKER_PROMPT_SHA256),
+        FileIdentity(Path(contract_path), CONTRACT_SHA256),
+        FileIdentity(Path(worker_prompt_path), WORKER_PROMPT_SHA256),
         *(
             FileIdentity(research_root / name, digest)
             for name, digest in SOURCE_MODULE_SHA256.items()
         ),
     )
-    bundle = _verified_call(shared_identities, _build_bundle)
+    bundle = _verified_call(shared_identities, lambda: _build_bundle(source_commit))
+    if _require_source_commit(source_commit_reader()) != source_commit:
+        _fail("SOURCE_REVISION_CHANGED")
     paths = persist_bundle(bundle, output_root)
     return bundle, paths
