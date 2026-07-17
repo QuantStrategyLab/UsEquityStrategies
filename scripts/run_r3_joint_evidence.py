@@ -41,7 +41,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "readback_path": str(paths.readback),
     }
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
-    return 2 if bundle["terminal"]["failure_codes"] else 0
+    if bundle["terminal"]["failure_codes"]:
+        return 2
+    return 1 if bundle["terminal"]["ineligible_strategies"] else 0
 
 
 if __name__ == "__main__":

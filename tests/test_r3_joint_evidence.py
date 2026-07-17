@@ -652,6 +652,39 @@ def test_thin_cli_emits_only_terminal_summary(
     assert "return" not in output and "position" not in output
 
 
+@pytest.mark.parametrize(
+    ("failure_codes", "eligible", "ineligible", "expected_exit"),
+    [
+        (["TQQQ_INPUT_INVALID"], ["SOXL"], ["TQQQ"], 2),
+        ([], ["SOXL"], ["TQQQ"], 1),
+        ([], ["TQQQ", "SOXL"], [], 0),
+    ],
+)
+def test_cli_exit_code_distinguishes_failure_negative_evidence_and_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_codes: list[str],
+    eligible: list[str],
+    ineligible: list[str],
+    expected_exit: int,
+) -> None:
+    import scripts.run_r3_joint_evidence as cli
+    from us_equity_strategies.research.r3_joint_evidence import PersistedPaths
+
+    bundle = _minimal_bundle()
+    bundle["terminal"] = {
+        "outcome": "R3_EVIDENCE_READY",
+        "failed_stage": "STRATEGY_EVIDENCE" if failure_codes else None,
+        "failure_codes": failure_codes,
+        "eligible_strategies": eligible,
+        "ineligible_strategies": ineligible,
+    }
+    paths = PersistedPaths(tmp_path / "bundle", tmp_path / "sidecar", tmp_path / "readback")
+    monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: (bundle, paths))
+
+    assert cli.main([]) == expected_exit
+
+
 def test_source_commit_uses_injected_clean_exact_revision_and_fails_closed() -> None:
     repo_root = Path("/deterministic/repo")
 
