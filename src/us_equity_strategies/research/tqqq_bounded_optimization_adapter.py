@@ -8,8 +8,6 @@ import stat
 import subprocess
 from typing import Any, Callable
 
-from .r3_joint_evidence import TQQQ_IDENTITIES, TQQQ_SPEC
-
 
 _ADAPTER_ID = (
     "us_equity_strategies.research.tqqq_bounded_optimization_adapter."
@@ -150,6 +148,13 @@ def _canonical_bytes(value: dict[str, Any]) -> bytes:
     ).encode("ascii") + b"\n"
 
 
+def _load_current_r3_module() -> Any:
+    return __import__(
+        "us_equity_strategies.research.r3_joint_evidence",
+        fromlist=["TQQQ_IDENTITIES", "TQQQ_SPEC"],
+    )
+
+
 def _build_verified_identity_bundle(
     repo_root: Path,
     r3_module: Any,
@@ -207,10 +212,13 @@ def _build_verified_identity_bundle_for_testing(
 
 
 def build_verified_current_r3_identity_bundle() -> tuple[bytes, str]:
+    repo_root = Path(__file__).resolve().parents[3]
+    adapter_path = Path(__file__)
+    _resolve_source_identity(repo_root, adapter_path)
     return _build_verified_identity_bundle(
-        Path(__file__).resolve().parents[3],
-        __import__("us_equity_strategies.research.r3_joint_evidence", fromlist=["TQQQ_IDENTITIES"]),
-        Path(__file__),
+        repo_root,
+        _load_current_r3_module(),
+        adapter_path,
         _EXPECTED_INPUT_IDENTITY,
         _SEMANTIC_INPUT_DIGEST,
     )

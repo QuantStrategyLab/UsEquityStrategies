@@ -253,3 +253,33 @@ def test_static_boundary_excludes_persistence_callers_and_forbidden_work(
     assert not calls & forbidden
     assert not any(token in source for token in ("output_root", "sidecar", "ledger", "staging", "candidate"))
     assert "build_verified_current_r3_identity_bundle(" not in (repo / R3_PATH).read_text(encoding="ascii")
+
+
+def test_public_path_verifies_source_before_loading_r3_module(
+    synthetic_repo: tuple[Path, SimpleNamespace, Path, Path],
+) -> None:
+    repo, _, _, _ = synthetic_repo
+    tree = ast.parse((repo / ADAPTER_PATH).read_text(encoding="utf-8"))
+    assert not any(
+        isinstance(node, ast.ImportFrom) and node.module == "r3_joint_evidence" for node in tree.body
+    )
+    public_api = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "build_verified_current_r3_identity_bundle"
+    )
+    source_check = next(
+        node
+        for node in ast.walk(public_api)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_resolve_source_identity"
+    )
+    r3_loader = next(
+        node
+        for node in ast.walk(public_api)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_load_current_r3_module"
+    )
+    assert source_check.lineno < r3_loader.lineno
