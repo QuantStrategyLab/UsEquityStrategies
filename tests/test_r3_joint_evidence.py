@@ -869,3 +869,175 @@ def test_cli_passes_only_explicit_identity_paths_and_fails_on_terminal_strategy_
         "TQQQ_TEST_INELIGIBLE",
         "SOXL_TEST_INELIGIBLE",
     ]
+
+
+def test_bounded_sma_candidate_keeps_the_sma200_comparison_start() -> None:
+    closes = [100.0] * 199 + [200.0, 1.0, 300.0, 1.0]
+    signal, traded = _rows(closes)
+
+    points = r3._simulate_tqqq_sma_candidate(
+        signal,
+        traded,
+        _scenario("ZERO"),
+        sma_window=160,
+    )
+
+    assert len(points) == 3
+    assert [point.date for point in points] == [row.as_of for row in traded[200:]]
+
+
+def test_bounded_sma_selection_is_fixed_to_three_candidates_and_locked_tie_breaks() -> None:
+    candidates = [
+        {"sma_window": 160, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+        {"sma_window": 180, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+        {"sma_window": 200, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+    ]
+
+    assert r3._select_tqqq_sma_winner(candidates) == 200
+
+    candidates[1]["selection"]["primary_score"] = 1.1
+    assert r3._select_tqqq_sma_winner(candidates) == 180
+
+
+def test_bounded_candidate_marks_nonfinite_validation_sharpe_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _typed_input([200.0] * 753)
+    original_simulate = r3._simulate_tqqq_sma_candidate
+    execution_ends: list[int | None] = []
+    monkeypatch.setattr(
+        r3,
+        "_validate_private_dates",
+        lambda signal_rows, _traded_rows: tuple(row.as_of for row in signal_rows),
+    )
+    monkeypatch.setattr(
+        r3,
+        "_simulate_tqqq_sma_candidate",
+        lambda *args, **kwargs: execution_ends.append(kwargs["execution_end_exclusive"])
+        or original_simulate(*args, **kwargs),
+    )
+
+    candidate = r3.evaluate_tqqq_sma_candidate(source, sma_window=160)
+
+    assert candidate["sma_window"] == 160
+    assert candidate["selection"] == {
+        "status": "INVALID",
+        "reason": "VALIDATION_SHARPE_NONFINITE",
+        "primary_score": None,
+        "cumulative_return": None,
+        "abs_max_drawdown": None,
+    }
+    assert execution_ends == [584]
+
+
+def test_bounded_optimization_locks_the_winner_before_opening_holdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _typed_input([200.0] * 753)
+    calls: list[object] = []
+    candidates = {
+        160: {"sma_window": 160, "selection": {"status": "VALID", "primary_score": 1.1, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+        180: {"sma_window": 180, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+        200: {"sma_window": 200, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+    }
+    baseline = {
+        "wfa_c2_5_returns": (0.1, 0.1, 0.1),
+        "final_c2_5_return": 0.1,
+        "final_c2_5_abs_max_drawdown": 0.2,
+        "final_c5_10_stress_return": 0.1,
+        "mc_c2_5_loss_probability": 0.1,
+    }
+    post_lock = {
+        "sma_window": 160,
+        "r3_eligibility": "PASS",
+        "r3_eligibility_reasons": [],
+        "wfa_c2_5_returns": [0.1, 0.1, 0.1],
+        "final_c2_5_return": 0.2,
+        "final_c2_5_abs_max_drawdown": 0.2,
+        "final_c5_10_stress_return": 0.1,
+        "mc_c2_5_loss_probability": 0.1,
+    }
+    monkeypatch.setattr(r3, "validate_bundle", lambda _bundle: None)
+    monkeypatch.setattr(r3, "_tqqq_baseline_gate_metrics", lambda _bundle: baseline)
+    monkeypatch.setattr(r3, "_load_tqqq", lambda: source)
+    monkeypatch.setattr(
+        r3,
+        "evaluate_tqqq_sma_candidate",
+        lambda _source, *, sma_window: calls.append(("candidate", sma_window)) or candidates[sma_window],
+    )
+    monkeypatch.setattr(
+        r3,
+        "_evaluate_tqqq_sma_post_lock",
+        lambda _source, *, sma_window: calls.append(("holdout", sma_window)) or post_lock,
+    )
+    monkeypatch.setattr(r3, "_verified_call", lambda _identities, action: action())
+
+    report = r3.run_private_tqqq_sma_bounded_optimization(
+        {"source_commit": TEST_SOURCE_COMMIT},
+        _source_commit_reader=lambda: TEST_SOURCE_COMMIT,
+    )
+
+    assert calls == [("candidate", 160), ("candidate", 180), ("candidate", 200), ("holdout", 160)]
+    assert report["winner_sma_window"] == 160
+    assert report["outcome"] == "RESEARCH_IMPROVEMENT"
+    assert report["post_lock"]["final_c2_5_return"] == float(0.2).hex()
+
+
+def test_cli_runs_the_bounded_optimization_only_when_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import scripts.run_r3_joint_evidence as cli
+    from us_equity_strategies.research.r3_joint_evidence import PersistedPaths
+
+    bundle = _minimal_bundle()
+    paths = PersistedPaths(tmp_path / "bundle", tmp_path / "sidecar", tmp_path / "readback")
+    report = {
+        "outcome": "NO_IMPROVEMENT",
+        "winner_sma_window": 200,
+        "gate_reasons": ["WINNER_IS_BASELINE_200"],
+        "evidence_digest": "b" * 64,
+        "source_commit": TEST_SOURCE_COMMIT,
+        "runner_envelope": {
+            "checkout_verification": "GIT_CLEAN_COMMITTED",
+            "ci_provenance": "LOCAL_FOREGROUND",
+        },
+    }
+    persisted: list[tuple[dict[str, object], Path]] = []
+    monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: (bundle, paths))
+    monkeypatch.setattr(
+        cli,
+        "run_private_tqqq_sma_bounded_optimization",
+        lambda actual_bundle: report if actual_bundle is bundle else None,
+    )
+    monkeypatch.setattr(
+        cli,
+        "persist_tqqq_sma_bounded_optimization",
+        lambda actual_report, root: persisted.append((actual_report, Path(root))),
+    )
+
+    assert cli.main(["--tqqq-sma-bounded-optimization"]) == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["tqqq_sma_bounded_optimization"] == {
+        "outcome": "NO_IMPROVEMENT",
+        "winner_sma_window": 200,
+        "gate_reasons": ["WINNER_IS_BASELINE_200"],
+        "evidence_digest": "b" * 64,
+        "source_commit": TEST_SOURCE_COMMIT,
+        "checkout_verification": "GIT_CLEAN_COMMITTED",
+        "ci_provenance": "LOCAL_FOREGROUND",
+    }
+    assert persisted == [(report, tmp_path)]
+
+
+def test_bounded_optimization_report_persists_with_a_sidecar(tmp_path: Path) -> None:
+    report: dict[str, object] = {
+        "schema": r3.TQQQ_SMA_OPTIMIZATION_SCHEMA,
+        "outcome": "NO_IMPROVEMENT",
+    }
+    report["evidence_digest"] = _digest_value(report)
+
+    paths = r3.persist_tqqq_sma_bounded_optimization(report, tmp_path)
+
+    persisted = _canonical_bytes(report)
+    assert paths.report.read_bytes() == persisted
+    assert paths.sidecar.read_text() == hashlib.sha256(persisted).hexdigest() + "\n"

@@ -30,6 +30,7 @@ from .tqqq_typed_baseline_result import (
 
 BUNDLE_SCHEMA = "qsl.research.r3_joint_evidence_bundle.v1"
 READBACK_SCHEMA = "qsl.research.r3_joint_evidence_readback.v1"
+TQQQ_SMA_OPTIMIZATION_SCHEMA = "qsl.research.tqqq_sma_bounded_optimization.v1"
 R4_HANDOFF_SCHEMA = "qsl.research.r4_independent_sizing_evidence_input.v1"
 CONTRACT_VERSION = "qsl.r3.joint_evidence.acceptance.v1"
 CONTRACT_SHA256 = "22ac0352bda31ceeee9faec5f94aa8c032dc7b1c522454ef05eab8f03070e670"
@@ -136,6 +137,8 @@ SCENARIOS = (
     CostScenario("C2_5", 2, 5),
     CostScenario("C5_10_STRESS", 5, 10),
 )
+TQQQ_SMA_CANDIDATES = (160, 180, 200)
+TQQQ_SMA_COMPARISON_EXECUTION_START = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -406,11 +409,22 @@ def _simulate_strategy(
     signal_rows: Sequence[Any],
     traded_rows: Sequence[Any],
     scenario: CostScenario,
+    *,
+    sma_window: int = 200,
+    execution_start: int = 200,
+    execution_end_exclusive: int | None = None,
 ) -> tuple[DailyEvidence, ...]:
+    execution_end = len(signal_rows) if execution_end_exclusive is None else execution_end_exclusive
     if (
         type(scenario) is not CostScenario
         or len(signal_rows) != len(traded_rows)
-        or len(signal_rows) <= 200
+        or type(sma_window) is not int
+        or type(execution_start) is not int
+        or sma_window < 1
+        or execution_start < sma_window
+        or type(execution_end) is not int
+        or execution_end <= execution_start
+        or execution_end > len(signal_rows)
         or tuple(row.as_of for row in signal_rows) != tuple(row.as_of for row in traded_rows)
     ):
         _fail("SIMULATION_INPUT_INVALID")
@@ -421,13 +435,13 @@ def _simulate_strategy(
     commission_rate = scenario.commission_bps / 10_000.0
     slippage_rate = scenario.slippage_bps / 10_000.0
 
-    for execution_index in range(200, len(signal_rows)):
+    for execution_index in range(execution_start, execution_end):
         signal_index = execution_index - 1
-        window = signal_rows[execution_index - 200 : execution_index]
+        window = signal_rows[signal_index - sma_window + 1 : signal_index + 1]
         signal_close = float(signal_rows[signal_index].close)
         if any(not math.isfinite(float(row.close)) or float(row.close) <= 0.0 for row in window):
             _fail("SIMULATION_INPUT_INVALID")
-        risk_on = signal_close >= math.fsum(float(row.close) for row in window) / 200.0
+        risk_on = signal_close >= math.fsum(float(row.close) for row in window) / sma_window
         execution = traded_rows[execution_index]
         traded_open = _finite_positive(float(execution.open), "SIMULATION_INPUT_INVALID")
         traded_close = _finite_positive(float(execution.close), "SIMULATION_INPUT_INVALID")
@@ -486,6 +500,109 @@ def _simulate_strategy(
         )
         previous_equity = end_equity
     return tuple(points)
+
+
+def _simulate_tqqq_sma_candidate(
+    signal_rows: Sequence[Any],
+    traded_rows: Sequence[Any],
+    scenario: CostScenario,
+    *,
+    sma_window: int,
+    execution_end_exclusive: int | None = None,
+) -> tuple[DailyEvidence, ...]:
+    """Evaluate one preregistered TQQQ research candidate on the SMA200 horizon."""
+    if type(sma_window) is not int or sma_window not in TQQQ_SMA_CANDIDATES:
+        _fail("TQQQ_SMA_CANDIDATE_INVALID")
+    return _simulate_strategy(
+        signal_rows,
+        traded_rows,
+        scenario,
+        sma_window=sma_window,
+        execution_start=TQQQ_SMA_COMPARISON_EXECUTION_START,
+        execution_end_exclusive=execution_end_exclusive,
+    )
+
+
+def _select_tqqq_sma_winner(candidates: Sequence[dict[str, Any]]) -> int | None:
+    """Apply the locked validation-only ranking without opening FINAL_HOLDOUT."""
+    if len(candidates) != len(TQQQ_SMA_CANDIDATES):
+        _fail("TQQQ_SMA_CANDIDATE_COUNT_INVALID")
+    valid: list[tuple[float, float, float, int]] = []
+    for expected_window, candidate in zip(TQQQ_SMA_CANDIDATES, candidates, strict=True):
+        if type(candidate) is not dict or candidate.get("sma_window") != expected_window:
+            _fail("TQQQ_SMA_CANDIDATE_ORDER_INVALID")
+        selection = candidate.get("selection")
+        if type(selection) is not dict:
+            _fail("TQQQ_SMA_SELECTION_INVALID")
+        if selection.get("status") == "INVALID":
+            continue
+        primary = selection.get("primary_score")
+        cumulative_return = selection.get("cumulative_return")
+        abs_max_drawdown = selection.get("abs_max_drawdown")
+        if (
+            selection.get("status") != "VALID"
+            or type(primary) is not float
+            or type(cumulative_return) is not float
+            or type(abs_max_drawdown) is not float
+            or not all(math.isfinite(value) for value in (primary, cumulative_return, abs_max_drawdown))
+            or abs_max_drawdown < 0.0
+        ):
+            _fail("TQQQ_SMA_SELECTION_INVALID")
+        valid.append((primary, cumulative_return, abs_max_drawdown, expected_window))
+    if not valid:
+        return None
+    return min(
+        valid,
+        key=lambda item: (
+            -item[0],
+            -item[1],
+            item[2],
+            abs(item[3] - 200),
+            0 if item[3] == 200 else 1,
+        ),
+    )[3]
+
+
+def evaluate_tqqq_sma_candidate(
+    source: TqqqOfflineInput,
+    *,
+    sma_window: int,
+) -> dict[str, Any]:
+    """Evaluate one fixed TQQQ SMA candidate using validation data only."""
+    if type(source) is not TqqqOfflineInput:
+        _fail("TQQQ_SMA_CANDIDATE_INPUT_INVALID")
+    signal_rows = tuple(row for row in source.rows if row.symbol == TQQQ_SPEC.signal_asset)
+    traded_rows = tuple(row for row in source.rows if row.symbol == TQQQ_SPEC.traded_asset)
+    _validate_private_dates(signal_rows, traded_rows)
+    points = _simulate_tqqq_sma_candidate(
+        signal_rows,
+        traded_rows,
+        next(item for item in SCENARIOS if item.scenario_id == "C2_5"),
+        sma_window=sma_window,
+        execution_end_exclusive=584,
+    )
+    validation_metrics = [
+        _window_metrics(points, window.raw_start, window.raw_end)
+        for window in WINDOW_SPECS
+        if window.segment_id in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")
+    ]
+    sharpes = [item["sharpe"] for item in validation_metrics]
+    if any(type(value) is not float or not math.isfinite(value) for value in sharpes):
+        selection = {
+            "status": "INVALID",
+            "reason": "VALIDATION_SHARPE_NONFINITE",
+            "primary_score": None,
+            "cumulative_return": None,
+            "abs_max_drawdown": None,
+        }
+    else:
+        selection = {
+            "status": "VALID",
+            "primary_score": sorted(sharpes)[1],
+            "cumulative_return": sorted(item["cumulative_return"] for item in validation_metrics)[1],
+            "abs_max_drawdown": sorted(abs(item["max_drawdown"]) for item in validation_metrics)[1],
+        }
+    return {"sma_window": sma_window, "selection": selection}
 
 
 def _window_metrics(
@@ -1037,6 +1154,205 @@ def _attempt_private_strategy(spec: StrategySpec) -> StrategyEvaluation:
             None,
             None,
         )
+
+
+def _wire_float(value: object) -> float:
+    if type(value) is not str:
+        _fail("TQQQ_SMA_WIRE_VALUE_INVALID")
+    try:
+        result = float.fromhex(value)
+    except ValueError:
+        _fail("TQQQ_SMA_WIRE_VALUE_INVALID")
+    if not math.isfinite(result):
+        _fail("TQQQ_SMA_WIRE_VALUE_INVALID")
+    return result
+
+
+def _tqqq_baseline_gate_metrics(bundle: dict[str, Any]) -> dict[str, Any]:
+    tqqq = next(
+        (item for item in bundle["strategies"] if item["strategy_id"] == "TQQQ"),
+        None,
+    )
+    if type(tqqq) is not dict or not tqqq["evidence_valid"]:
+        _fail("TQQQ_SMA_BASELINE_EVIDENCE_INVALID")
+    windows = tqqq["windows"]
+    monte_carlo = tqqq["monte_carlo"]
+    if type(windows) is not dict or type(monte_carlo) is not dict:
+        _fail("TQQQ_SMA_BASELINE_EVIDENCE_INVALID")
+    metrics = windows.get("metrics")
+    scenarios = monte_carlo.get("scenarios")
+    if type(metrics) is not dict or type(scenarios) is not dict:
+        _fail("TQQQ_SMA_BASELINE_EVIDENCE_INVALID")
+    try:
+        return {
+            "wfa_c2_5_returns": tuple(
+                _wire_float(metrics[window_id]["C2_5"]["cumulative_return"])
+                for window_id in WFA_TEST_IDS
+            ),
+            "final_c2_5_return": _wire_float(
+                metrics["FINAL_HOLDOUT"]["C2_5"]["cumulative_return"]
+            ),
+            "final_c2_5_abs_max_drawdown": abs(
+                _wire_float(metrics["FINAL_HOLDOUT"]["C2_5"]["max_drawdown"])
+            ),
+            "final_c5_10_stress_return": _wire_float(
+                metrics["FINAL_HOLDOUT"]["C5_10_STRESS"]["cumulative_return"]
+            ),
+            "mc_c2_5_loss_probability": _wire_float(
+                scenarios["C2_5"]["terminal_loss_probability"]
+            ),
+        }
+    except (KeyError, TypeError):
+        _fail("TQQQ_SMA_BASELINE_EVIDENCE_INVALID")
+
+
+def _evaluate_tqqq_sma_post_lock(
+    source: TqqqOfflineInput,
+    *,
+    sma_window: int,
+) -> dict[str, Any]:
+    signal_rows = tuple(row for row in source.rows if row.symbol == TQQQ_SPEC.signal_asset)
+    traded_rows = tuple(row for row in source.rows if row.symbol == TQQQ_SPEC.traded_asset)
+    _validate_private_dates(signal_rows, traded_rows)
+    daily_by_scenario = {
+        scenario.scenario_id: _simulate_tqqq_sma_candidate(
+            signal_rows,
+            traded_rows,
+            scenario,
+            sma_window=sma_window,
+        )
+        for scenario in SCENARIOS
+    }
+    metrics = {
+        window_id: {
+            scenario_id: _window_metrics(points, window.raw_start, window.raw_end)
+            for scenario_id, points in daily_by_scenario.items()
+        }
+        for window_id in (*WFA_TEST_IDS, "FINAL_HOLDOUT")
+        for window in WINDOW_SPECS
+        if window.segment_id == window_id
+    }
+    final_start = 627 - TQQQ_SMA_COMPARISON_EXECUTION_START
+    monte_carlo = _monte_carlo(
+        {
+            scenario_id: tuple(point.daily_return for point in points[final_start:])
+            for scenario_id, points in daily_by_scenario.items()
+        },
+        f"INDEPENDENT:TQQQ:SMA{sma_window}",
+    )
+    eligibility, eligibility_reasons = _eligibility(
+        [metrics[window_id]["C2_5"]["cumulative_return"] for window_id in WFA_TEST_IDS],
+        metrics["FINAL_HOLDOUT"]["C2_5"]["cumulative_return"],
+        metrics["FINAL_HOLDOUT"]["C5_10_STRESS"]["cumulative_return"],
+        monte_carlo["C2_5"]["terminal_loss_probability"],
+    )
+    return {
+        "sma_window": sma_window,
+        "r3_eligibility": eligibility,
+        "r3_eligibility_reasons": list(eligibility_reasons),
+        "wfa_c2_5_returns": [
+            metrics[window_id]["C2_5"]["cumulative_return"] for window_id in WFA_TEST_IDS
+        ],
+        "final_c2_5_return": metrics["FINAL_HOLDOUT"]["C2_5"]["cumulative_return"],
+        "final_c2_5_abs_max_drawdown": abs(
+            metrics["FINAL_HOLDOUT"]["C2_5"]["max_drawdown"]
+        ),
+        "final_c5_10_stress_return": metrics["FINAL_HOLDOUT"]["C5_10_STRESS"][
+            "cumulative_return"
+        ],
+        "mc_c2_5_loss_probability": monte_carlo["C2_5"]["terminal_loss_probability"],
+    }
+
+
+def _tqqq_sma_gate_reasons(
+    baseline: dict[str, Any],
+    candidates: Sequence[dict[str, Any]],
+    winner_sma_window: int | None,
+    post_lock: dict[str, Any] | None,
+) -> list[str]:
+    if winner_sma_window is None:
+        return ["NO_VALID_VALIDATION_CANDIDATE"]
+    baseline_selection = candidates[-1]["selection"]
+    if baseline_selection["status"] != "VALID":
+        return ["BASELINE_VALIDATION_SCORE_INVALID"]
+    if winner_sma_window == 200:
+        return ["WINNER_IS_BASELINE_200"]
+    winner = next(item for item in candidates if item["sma_window"] == winner_sma_window)
+    if post_lock is None:
+        _fail("TQQQ_SMA_POST_LOCK_EVIDENCE_MISSING")
+    reasons: list[str] = []
+    if winner["selection"]["primary_score"] <= baseline_selection["primary_score"]:
+        reasons.append("PRIMARY_SCORE_NOT_STRICTLY_GREATER_THAN_BASELINE")
+    if post_lock["r3_eligibility"] != "PASS":
+        reasons.append("R3_INDEPENDENT_ELIGIBILITY_NOT_PASS")
+    if post_lock["final_c2_5_return"] <= baseline["final_c2_5_return"]:
+        reasons.append("FINAL_HOLDOUT_C2_5_RETURN_NOT_STRICTLY_GREATER_THAN_BASELINE")
+    if post_lock["final_c2_5_abs_max_drawdown"] > baseline["final_c2_5_abs_max_drawdown"]:
+        reasons.append("FINAL_HOLDOUT_C2_5_DRAWDOWN_WORSE_THAN_BASELINE")
+    if post_lock["final_c5_10_stress_return"] <= 0.0:
+        reasons.append("FINAL_HOLDOUT_C5_10_STRESS_RETURN_NOT_STRICTLY_POSITIVE")
+    return reasons
+
+
+def run_private_tqqq_sma_bounded_optimization(
+    bundle: dict[str, Any],
+    *,
+    _source_commit_reader: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    """Produce one preregistered, research-only TQQQ SMA comparison report."""
+    validate_bundle(bundle)
+    source_commit = _require_source_commit(bundle["source_commit"])
+    source_commit_reader = _source_commit_reader or _resolve_source_commit
+    if _require_source_commit(source_commit_reader()) != source_commit:
+        _fail("SOURCE_REVISION_CHANGED")
+    baseline = _tqqq_baseline_gate_metrics(bundle)
+
+    def action() -> dict[str, Any]:
+        source = _load_tqqq()
+        candidates = [
+            evaluate_tqqq_sma_candidate(source, sma_window=sma_window)
+            for sma_window in TQQQ_SMA_CANDIDATES
+        ]
+        winner_sma_window = _select_tqqq_sma_winner(candidates)
+        post_lock = (
+            _evaluate_tqqq_sma_post_lock(source, sma_window=winner_sma_window)
+            if winner_sma_window not in (None, 200)
+            else None
+        )
+        gate_reasons = _tqqq_sma_gate_reasons(
+            baseline,
+            candidates,
+            winner_sma_window,
+            post_lock,
+        )
+        return {
+            "schema": TQQQ_SMA_OPTIMIZATION_SCHEMA,
+            "classification": "RESEARCH_ONLY",
+            "source_commit": source_commit,
+            "runner_envelope": {
+                "checkout_verification": "GIT_CLEAN_COMMITTED",
+                "command": "scripts/run_r3_joint_evidence.py --tqqq-sma-bounded-optimization",
+                "ci_provenance": "LOCAL_FOREGROUND",
+            },
+            "input_digest": source.input_digest,
+            "candidate_order": list(TQQQ_SMA_CANDIDATES),
+            "comparison_execution_start_raw_index": TQQQ_SMA_COMPARISON_EXECUTION_START,
+            "baseline": candidates[-1],
+            "candidates": candidates,
+            "winner_sma_window": winner_sma_window,
+            "post_lock": post_lock,
+            "outcome": "RESEARCH_IMPROVEMENT" if not gate_reasons else "NO_IMPROVEMENT",
+            "gate_reasons": gate_reasons,
+        }
+
+    report = _verified_call(TQQQ_IDENTITIES, action)
+    if _require_source_commit(source_commit_reader()) != source_commit:
+        _fail("SOURCE_REVISION_CHANGED")
+    wire_report = _to_wire(report)
+    if type(wire_report) is not dict:
+        _fail("TQQQ_SMA_REPORT_INVALID")
+    wire_report["evidence_digest"] = _digest_value(wire_report)
+    return wire_report
 
 
 def _final_points(evaluation: StrategyEvaluation, scenario: str) -> tuple[DailyEvidence, ...]:
@@ -1898,11 +2214,24 @@ class PersistedPaths:
     readback: Path
 
 
+@dataclass(frozen=True, slots=True)
+class TqqqSmaOptimizationPaths:
+    report: Path
+    sidecar: Path
+
+
 def _paths(output_root: Path) -> PersistedPaths:
     return PersistedPaths(
         output_root / "r3_joint_evidence_bundle.json",
         output_root / "r3_joint_evidence_bundle.sha256",
         output_root / "r3_joint_evidence_bundle.readback.json",
+    )
+
+
+def _tqqq_sma_optimization_paths(output_root: Path) -> TqqqSmaOptimizationPaths:
+    return TqqqSmaOptimizationPaths(
+        output_root / "tqqq_sma_bounded_optimization.json",
+        output_root / "tqqq_sma_bounded_optimization.sha256",
     )
 
 
@@ -2007,6 +2336,33 @@ def persist_bundle(
             # An orphan bundle is not an authoritative artifact without its sidecar.
             pass
         raise
+    return paths
+
+
+def persist_tqqq_sma_bounded_optimization(
+    report: dict[str, Any], output_root: str | Path = DEFAULT_OUTPUT_ROOT
+) -> TqqqSmaOptimizationPaths:
+    if (
+        type(report) is not dict
+        or report.get("schema") != TQQQ_SMA_OPTIMIZATION_SCHEMA
+        or type(report.get("evidence_digest")) is not str
+    ):
+        _fail("TQQQ_SMA_REPORT_INVALID")
+    expected_digest = _digest_value(
+        {key: value for key, value in report.items() if key != "evidence_digest"}
+    )
+    if report["evidence_digest"] != expected_digest:
+        _fail("TQQQ_SMA_REPORT_INVALID")
+    root = Path(output_root)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        _fail("OUTPUT_ROOT_INVALID")
+    paths = _tqqq_sma_optimization_paths(root)
+    persisted = _canonical_bytes(report)
+    sidecar = (hashlib.sha256(persisted).hexdigest() + "\n").encode("ascii")
+    _atomic_write(paths.report, persisted)
+    _atomic_write(paths.sidecar, sidecar)
     return paths
 
 
