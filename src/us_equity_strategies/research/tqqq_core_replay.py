@@ -285,51 +285,202 @@ def run_tqqq_core_replay(manifest_bytes: bytes, artifact_bytes: bytes, *, implem
     return replay, _canonical_json(replay)
 
 
-def read_tqqq_core_replay(replay_bytes: bytes) -> tuple[dict[str, object], bytes]:
-    """Validate canonical replay bytes and produce the bounded canonical readback."""
+_REPLAY_PROFILE_SHA256 = "a7d6330ddcca9a27616e120e16e2352b77287d24db2017d33affdcd3dabe24fc"
+_REPLAY_DISCLAIMER = "Research-only deterministic replay of the QQQ-derived TQQQ/QQQM core. It excludes income, options, market-regime, macro, TACO, crisis, QPK risk-gate, PerformanceMonitor, broker/account and live controls and is not equivalent to the complete live strategy."
+_REPLAY_SCENARIOS = (("ZERO", 0, 0), ("C1_2", 1, 2), ("C2_5", 2, 5), ("C5_10_STRESS", 5, 10))
+
+
+def _readback_string(value: object) -> str:
+    if type(value) is not str:
+        _fail("INPUT_WIRE_INVALID")
+    return value
+
+
+def _readback_int(value: object, *, minimum: int | None = None) -> int:
+    if type(value) is not int or minimum is not None and value < minimum:
+        _fail("INPUT_WIRE_INVALID")
+    return value
+
+
+def _readback_bool(value: object) -> bool:
+    if type(value) is not bool:
+        _fail("INPUT_WIRE_INVALID")
+    return value
+
+
+def _readback_float_hex(value: object) -> str:
+    text = _readback_string(value)
+    try:
+        number = float.fromhex(text)
+    except (OverflowError, ValueError):
+        _fail("INPUT_WIRE_INVALID")
+    if not math.isfinite(number) or (0.0 if number == 0.0 else number).hex() != text:
+        _fail("INPUT_WIRE_INVALID")
+    return text
+
+
+def _readback_session(value: object) -> SessionClose:
+    session = _mapping(value, frozenset({"close_at_utc", "trading_date"}), "INPUT_WIRE_INVALID")
+    _readback_string(session["close_at_utc"])
+    _readback_string(session["trading_date"])
+    try:
+        parsed = SessionClose.from_wire(session)
+    except (SessionContractError, TypeError, ValueError):
+        _fail("INPUT_WIRE_INVALID")
+    if parsed.to_wire() != session:
+        _fail("INPUT_WIRE_INVALID")
+    return parsed
+
+
+def _readback_float_fields(value: object, expected: frozenset[str]) -> Mapping[str, object]:
+    payload = _mapping(value, expected, "INPUT_WIRE_INVALID")
+    for item in payload.values():
+        _readback_float_hex(item)
+    return payload
+
+
+def _readback_snapshot(value: object) -> Mapping[str, object]:
+    snapshot = _mapping(value, frozenset({"as_of_session", "cash", "holdings", "total_equity"}), "INPUT_WIRE_INVALID")
+    _readback_session(snapshot["as_of_session"])
+    _readback_float_hex(snapshot["cash"])
+    _readback_float_hex(snapshot["total_equity"])
+    if type(snapshot["holdings"]) is not list or len(snapshot["holdings"]) != 2:
+        _fail("INPUT_WIRE_INVALID")
+    for symbol, holding in zip(("TQQQ", "QQQM"), snapshot["holdings"], strict=True):
+        holding = _mapping(holding, frozenset({"market_value", "quantity", "symbol", "valuation_price"}), "INPUT_WIRE_INVALID")
+        if _readback_string(holding["symbol"]) != symbol:
+            _fail("INPUT_WIRE_INVALID")
+        for field in ("market_value", "quantity", "valuation_price"):
+            _readback_float_hex(holding[field])
+    return snapshot
+
+
+def _readback_payload(value: object, *, scenario_id: str, input_sha256: str, ordinal: int) -> tuple[SessionClose, SessionClose, Mapping[str, object]]:
+    payload = _mapping(value, _SESSION_PAYLOAD_KEYS, "INPUT_WIRE_INVALID")
+    if _readback_string(payload["allocation_route"]) not in {"TQQQ_QQQM_45_45", "QQQM_90", "CASH_100"} or _readback_string(payload["core_signal"]) not in {"TREND_ENTRY", "TREND_HOLD", "PULLBACK_RISK_ON", "RISK_OFF_EXIT", "RISK_OFF_IDLE"}:
+        _fail("INPUT_WIRE_INVALID")
+    execution = _readback_session(payload["execution_session"])
+    signal = _readback_session(payload["signal_session"])
+    if signal.trading_date >= execution.trading_date or _readback_int(payload["ordinal"], minimum=0) != ordinal:
+        _fail("INPUT_WIRE_INVALID")
+    if (_sha(payload["input_sha256"], "INPUT_WIRE_INVALID"), _readback_string(payload["profile_id"]), _sha(payload["profile_sha256"], "INPUT_WIRE_INVALID"), _readback_int(payload["profile_version"])) != (input_sha256, _PROFILE_ID, _REPLAY_PROFILE_SHA256, 1) or _readback_string(payload["scenario_id"]) != scenario_id:
+        _fail("INPUT_WIRE_INVALID")
+    if _readback_snapshot(payload["closing_snapshot"])["as_of_session"] != payload["execution_session"]:
+        _fail("INPUT_WIRE_INVALID")
+    _readback_float_fields(payload["costs"], frozenset({"commission_total", "conservation_delta", "raw_open_post_trade_nav", "slippage_impact_total"}))
+    diagnostics = _mapping(payload["decision_diagnostics"], frozenset({"above_ma200", "current_risk_active", "ma20", "ma20_slope", "ma200", "positive_ma20_slope", "pullback_low", "pullback_rebound", "pullback_risk_on", "pullback_threshold", "pullback_volatility", "qqq_close", "realized_volatility", "risk_active", "volatility_delever_entry_triggered", "volatility_delever_hysteresis_triggered", "volatility_delever_trigger_reason", "volatility_delever_triggered", "volatility_dynamic_sample_count", "volatility_dynamic_threshold", "volatility_entry_threshold", "volatility_exit_threshold"}), "INPUT_WIRE_INVALID")
+    for field in ("above_ma200", "current_risk_active", "positive_ma20_slope", "pullback_risk_on", "risk_active", "volatility_delever_entry_triggered", "volatility_delever_hysteresis_triggered", "volatility_delever_triggered"):
+        _readback_bool(diagnostics[field])
+    for field in ("ma20", "ma20_slope", "ma200", "pullback_low", "pullback_rebound", "pullback_threshold", "pullback_volatility", "qqq_close", "realized_volatility", "volatility_dynamic_threshold", "volatility_entry_threshold", "volatility_exit_threshold"):
+        _readback_float_hex(diagnostics[field])
+    if diagnostics["volatility_delever_trigger_reason"] is not None and _readback_string(diagnostics["volatility_delever_trigger_reason"]) not in {"entry_threshold", "hysteresis_hold"}:
+        _fail("INPUT_WIRE_INVALID")
+    _readback_int(diagnostics["volatility_dynamic_sample_count"], minimum=0)
+    if type(payload["fills"]) is not list or len(payload["fills"]) > 4:
+        _fail("INPUT_WIRE_INVALID")
+    ranks: list[int] = []
+    for fill in payload["fills"]:
+        fill = _mapping(fill, frozenset({"commission", "fill_notional", "fill_price", "quantity", "raw_open_notional", "raw_open_price", "side", "slippage_impact", "symbol"}), "INPUT_WIRE_INVALID")
+        pair = (_readback_string(fill["side"]), _readback_string(fill["symbol"]))
+        if pair not in (("SELL", "TQQQ"), ("SELL", "QQQM"), ("BUY", "TQQQ"), ("BUY", "QQQM")):
+            _fail("INPUT_WIRE_INVALID")
+        ranks.append((("SELL", "TQQQ"), ("SELL", "QQQM"), ("BUY", "TQQQ"), ("BUY", "QQQM")).index(pair))
+        for field in ("commission", "fill_notional", "fill_price", "quantity", "raw_open_notional", "raw_open_price", "slippage_impact"):
+            _readback_float_hex(fill[field])
+    if ranks != sorted(set(ranks)):
+        _fail("INPUT_WIRE_INVALID")
+    opening = _mapping(payload["opening_snapshot"], frozenset({"cash", "holdings", "opening_nav", "raw_open_prices"}), "INPUT_WIRE_INVALID")
+    _readback_float_hex(opening["cash"])
+    _readback_float_hex(opening["opening_nav"])
+    _readback_float_fields(opening["holdings"], frozenset({"QQQM", "TQQQ"}))
+    _readback_float_fields(opening["raw_open_prices"], frozenset({"QQQM", "TQQQ"}))
+    _readback_float_fields(payload["target_weights"], frozenset({"QQQM", "TQQQ", "cash"}))
+    _readback_float_hex(payload["threshold_value"])
+    return signal, execution, payload
+
+
+def _readback_replay(replay_bytes: bytes) -> tuple[dict[str, object], bytes]:
     if type(replay_bytes) is not bytes:
         _fail("INPUT_WIRE_INVALID")
     try:
         replay = json.loads(replay_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         _fail("INPUT_WIRE_INVALID")
-    replay_keys = frozenset({"anchor_commit", "complete_live_historical_parity", "implementation_revision", "input_sha256", "non_equivalence_disclaimer", "optimization_seam", "profile_id", "profile_sha256", "profile_version", "replay_sha256", "research_only", "scenario_order", "scenarios", "schema", "uv_lock_blob"})
-    replay = _mapping(replay, replay_keys, "INPUT_WIRE_INVALID")
+    replay = _mapping(replay, frozenset({"anchor_commit", "complete_live_historical_parity", "implementation_revision", "input_sha256", "non_equivalence_disclaimer", "optimization_seam", "profile_id", "profile_sha256", "profile_version", "replay_sha256", "research_only", "scenario_order", "scenarios", "schema", "uv_lock_blob"}), "INPUT_WIRE_INVALID")
     if _canonical_json(replay) != replay_bytes:
         _fail("INPUT_WIRE_INVALID")
-    replay_payload = {key: value for key, value in replay.items() if key != "replay_sha256"}
-    if _sha(replay["replay_sha256"], "INPUT_WIRE_INVALID") != hashlib.sha256(_canonical_json(replay_payload, terminal_lf=False)).hexdigest():
+    if (_readback_string(replay["schema"]), _readback_string(replay["anchor_commit"]), _readback_string(replay["profile_id"]), _readback_int(replay["profile_version"]), _sha(replay["profile_sha256"], "INPUT_WIRE_INVALID"), _readback_bool(replay["research_only"]), _readback_bool(replay["complete_live_historical_parity"]), _readback_string(replay["optimization_seam"]), _readback_string(replay["uv_lock_blob"]), _readback_string(replay["non_equivalence_disclaimer"])) != ("qsl.research.tqqq_dual_drive_core_replay_result.v1", _ANCHOR_COMMIT, _PROFILE_ID, 1, _REPLAY_PROFILE_SHA256, True, False, "NONE", "5b68a5fd450968f4e32f90e8e725e68039c59639", _REPLAY_DISCLAIMER):
         _fail("INPUT_WIRE_INVALID")
-    if (replay["schema"], replay["anchor_commit"], replay["profile_id"], replay["profile_version"], replay["profile_sha256"], replay["research_only"], replay["complete_live_historical_parity"], replay["optimization_seam"], replay["uv_lock_blob"]) != ("qsl.research.tqqq_dual_drive_core_replay_result.v1", _ANCHOR_COMMIT, _PROFILE_ID, 1, "a7d6330ddcca9a27616e120e16e2352b77287d24db2017d33affdcd3dabe24fc", True, False, "NONE", "5b68a5fd450968f4e32f90e8e725e68039c59639"):
+    if not re.fullmatch(r"[0-9a-f]{40}", _readback_string(replay["implementation_revision"])):
         _fail("INPUT_WIRE_INVALID")
-    scenario_order = ["ZERO", "C1_2", "C2_5", "C5_10_STRESS"]
-    if replay["scenario_order"] != scenario_order or type(replay["scenarios"]) is not list or len(replay["scenarios"]) != 4:
+    input_sha256 = _sha(replay["input_sha256"], "INPUT_WIRE_INVALID")
+    replay_sha256 = _sha(replay["replay_sha256"], "INPUT_WIRE_INVALID")
+    if type(replay["scenario_order"]) is not list or replay["scenario_order"] != [item[0] for item in _REPLAY_SCENARIOS] or type(replay["scenarios"]) is not list or len(replay["scenarios"]) != len(_REPLAY_SCENARIOS):
         _fail("INPUT_WIRE_INVALID")
+    all_sequences: list[tuple[tuple[int, str, str], ...]] = []
     scenario_sha256s: list[dict[str, str]] = []
     session_count: int | None = None
     first_execution = last_execution = None
-    for expected_id, scenario in zip(scenario_order, replay["scenarios"], strict=True):
+    for index, ((scenario_id, commission_bps, slippage_bps), scenario) in enumerate(zip(_REPLAY_SCENARIOS, replay["scenarios"], strict=True)):
         scenario = _mapping(scenario, frozenset({"commission_bps", "final_snapshot", "scenario_id", "scenario_sha256", "session_count", "session_result_sha256s", "session_results", "slippage_bps"}), "INPUT_WIRE_INVALID")
-        scenario_payload = {key: value for key, value in scenario.items() if key != "scenario_sha256"}
-        if scenario["scenario_id"] != expected_id or _sha(scenario["scenario_sha256"], "INPUT_WIRE_INVALID") != hashlib.sha256(_canonical_json(scenario_payload, terminal_lf=False)).hexdigest() or type(scenario["session_results"]) is not list or scenario["session_count"] != len(scenario["session_results"]):
+        if (_readback_string(scenario["scenario_id"]), _readback_int(scenario["commission_bps"]), _readback_int(scenario["slippage_bps"])) != (scenario_id, commission_bps, slippage_bps) or type(scenario["session_results"]) is not list:
+            _fail("INPUT_WIRE_INVALID")
+        count = _readback_int(scenario["session_count"], minimum=1)
+        if count != len(scenario["session_results"]) or type(scenario["session_result_sha256s"]) is not list or len(scenario["session_result_sha256s"]) != count:
+            _fail("INPUT_WIRE_INVALID")
+        _sha(scenario["scenario_sha256"], "INPUT_WIRE_INVALID")
+        sequence: list[tuple[int, str, str]] = []
+        records: list[Mapping[str, object]] = []
+        previous_execution: SessionClose | None = None
+        last_payload: Mapping[str, object] | None = None
+        for ordinal, record in enumerate(scenario["session_results"]):
+            record = _mapping(record, frozenset({"payload", "payload_sha256", "schema"}), "INPUT_WIRE_INVALID")
+            if _readback_string(record["schema"]) != "qsl.research.tqqq_dual_drive_core_session_result.v1":
+                _fail("INPUT_WIRE_INVALID")
+            _sha(record["payload_sha256"], "INPUT_WIRE_INVALID")
+            signal, execution, payload = _readback_payload(record["payload"], scenario_id=scenario_id, input_sha256=input_sha256, ordinal=ordinal)
+            if previous_execution is not None and (signal.to_wire() != previous_execution.to_wire() or execution.trading_date <= previous_execution.trading_date):
+                _fail("INPUT_WIRE_INVALID")
+            previous_execution = execution
+            sequence.append((ordinal, signal.trading_date.isoformat(), execution.trading_date.isoformat()))
+            records.append(record)
+            last_payload = payload
+        final_snapshot = _readback_snapshot(scenario["final_snapshot"])
+        if last_payload is None or final_snapshot != last_payload["closing_snapshot"]:
             _fail("INPUT_WIRE_INVALID")
         if session_count is None:
-            session_count = scenario["session_count"]
-        elif session_count != scenario["session_count"]:
+            session_count = count
+            first_execution = records[0]["payload"]["execution_session"]["trading_date"]
+            last_execution = records[-1]["payload"]["execution_session"]["trading_date"]
+        elif session_count != count:
             _fail("INPUT_WIRE_INVALID")
-        digests = []
+        all_sequences.append(tuple(sequence))
+        expected_digests = [record["payload_sha256"] for record in records]
+        if scenario["session_result_sha256s"] != expected_digests:
+            _fail("INPUT_WIRE_INVALID")
+        scenario_sha256s.append({"scenario_id": scenario_id, "scenario_sha256": scenario["scenario_sha256"]})
+    if any(sequence != all_sequences[0] for sequence in all_sequences[1:]):
+        _fail("INPUT_WIRE_INVALID")
+    for scenario in replay["scenarios"]:
         for record in scenario["session_results"]:
-            record = _mapping(record, frozenset({"payload", "payload_sha256", "schema"}), "INPUT_WIRE_INVALID")
-            if record["schema"] != "qsl.research.tqqq_dual_drive_core_session_result.v1" or _sha(record["payload_sha256"], "INPUT_WIRE_INVALID") != hashlib.sha256(_canonical_json(record["payload"], terminal_lf=False)).hexdigest():
+            if record["payload_sha256"] != hashlib.sha256(_canonical_json(record["payload"], terminal_lf=False)).hexdigest():
                 _fail("INPUT_WIRE_INVALID")
-            digests.append(record["payload_sha256"])
-        if scenario["session_result_sha256s"] != digests:
+        payload = {key: value for key, value in scenario.items() if key != "scenario_sha256"}
+        if scenario["scenario_sha256"] != hashlib.sha256(_canonical_json(payload, terminal_lf=False)).hexdigest():
             _fail("INPUT_WIRE_INVALID")
-        if first_execution is None and scenario["session_results"]:
-            first_execution = _session_date(scenario["session_results"][0]["payload"], "execution_session")
-        if scenario["session_results"]:
-            last_execution = _session_date(scenario["session_results"][-1]["payload"], "execution_session")
-        scenario_sha256s.append({"scenario_id": expected_id, "scenario_sha256": scenario["scenario_sha256"]})
-    readback_payload = {"schema": "qsl.research.tqqq_dual_drive_core_replay_readback.v1", "first_execution_session": first_execution, "last_execution_session": last_execution, "input_sha256": replay["input_sha256"], "non_equivalence_disclaimer": replay["non_equivalence_disclaimer"], "profile_sha256": replay["profile_sha256"], "replay_sha256": replay["replay_sha256"], "scenario_sha256s": scenario_sha256s, "session_count": session_count}
+    replay_payload = {key: value for key, value in replay.items() if key != "replay_sha256"}
+    if replay_sha256 != hashlib.sha256(_canonical_json(replay_payload, terminal_lf=False)).hexdigest():
+        _fail("INPUT_WIRE_INVALID")
+    readback_payload = {"schema": "qsl.research.tqqq_dual_drive_core_replay_readback.v1", "first_execution_session": first_execution, "last_execution_session": last_execution, "input_sha256": input_sha256, "non_equivalence_disclaimer": _REPLAY_DISCLAIMER, "profile_sha256": _REPLAY_PROFILE_SHA256, "replay_sha256": replay_sha256, "scenario_sha256s": scenario_sha256s, "session_count": session_count}
     readback = {**readback_payload, "readback_sha256": hashlib.sha256(_canonical_json(readback_payload, terminal_lf=False)).hexdigest()}
     return readback, _canonical_json(readback)
+
+
+def read_tqqq_core_replay(replay_bytes: bytes) -> tuple[dict[str, object], bytes]:
+    """Validate canonical replay bytes and produce the bounded canonical readback."""
+    try:
+        return _readback_replay(replay_bytes)
+    except TqqqCoreReplayError:
+        raise
+    except Exception:
+        _fail("INPUT_WIRE_INVALID")

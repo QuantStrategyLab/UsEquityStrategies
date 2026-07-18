@@ -48,6 +48,19 @@ def _canonical_replay_bytes(replay):
     return _canonical_json(replay)
 
 
+def _recompute_replay_bytes(replay):
+    for scenario in replay["scenarios"]:
+        for record in scenario["session_results"]:
+            record["payload_sha256"] = hashlib.sha256(_canonical_json(record["payload"])[:-1]).hexdigest()
+    return _canonical_replay_bytes(replay)
+
+
+def _valid_replay():
+    from us_equity_strategies.research.tqqq_core_replay import run_tqqq_core_replay
+
+    return run_tqqq_core_replay(*_valid_input_bytes(), implementation_revision="f" * 40)
+
+
 def test_input_envelope_accepts_only_canonical_aligned_qqq_tqqq_qqqm_rows():
     from us_equity_strategies.research.tqqq_core_replay import parse_tqqq_core_input
 
@@ -157,6 +170,89 @@ def test_readback_rejects_malformed_session_payload_before_field_access():
     record["payload_sha256"] = hashlib.sha256(_canonical_json(record["payload"])[:-1]).hexdigest()
     with pytest.raises(TqqqCoreReplayError):
         read_tqqq_core_replay(_canonical_replay_bytes(replay))
+
+
+def test_readback_accepts_valid_frozen_replay_without_byte_change():
+    from us_equity_strategies.research.tqqq_core_replay import read_tqqq_core_replay
+
+    _, replay_bytes = _valid_replay()
+    readback, readback_bytes = read_tqqq_core_replay(replay_bytes)
+    assert readback_bytes == _canonical_json(readback)
+
+
+@pytest.mark.parametrize(
+    "path,value",
+    [
+        (("profile_version",), True),
+        (("research_only",), 1),
+        (("complete_live_historical_parity",), 0),
+        (("scenarios", 0, "commission_bps"), True),
+        (("scenarios", 0, "slippage_bps"), False),
+        (("scenarios", 0, "session_count"), True),
+        (("scenarios", 0, "session_results", 0, "payload", "ordinal"), True),
+        (("scenarios", 0, "session_results", 0, "payload", "profile_version"), True),
+        (("scenarios", 0, "session_results", 0, "payload", "decision_diagnostics", "volatility_dynamic_sample_count"), True),
+    ],
+)
+def test_readback_rejects_bool_int_aliases_for_every_integer_or_boolean_field(path, value):
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, read_tqqq_core_replay
+
+    replay, _ = _valid_replay()
+    target = replay
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    with pytest.raises(TqqqCoreReplayError, match="^INPUT_WIRE_INVALID$"):
+        read_tqqq_core_replay(_recompute_replay_bytes(replay))
+
+
+@pytest.mark.parametrize("field,value", [("scenario_id", "OTHER"), ("commission_bps", 99), ("slippage_bps", 99)])
+def test_readback_rejects_each_non_frozen_ordered_scenario_tuple(field, value):
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, read_tqqq_core_replay
+
+    replay, _ = _valid_replay()
+    replay["scenarios"][1][field] = value
+    with pytest.raises(TqqqCoreReplayError, match="^INPUT_WIRE_INVALID$"):
+        read_tqqq_core_replay(_recompute_replay_bytes(replay))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda replay: replay["scenarios"][0]["session_results"][0]["payload"]["costs"].pop("commission_total"),
+        lambda replay: replay["scenarios"][0]["session_results"][0]["payload"]["target_weights"].update(unexpected="0x0.0p+0"),
+        lambda replay: replay["scenarios"][0]["session_results"][0]["payload"].__setitem__("target_weights", []),
+        lambda replay: replay["scenarios"][0]["session_results"][0]["payload"]["costs"].__setitem__("commission_total", 0.0),
+        lambda replay: replay["scenarios"][0]["session_results"][0]["payload"]["closing_snapshot"]["holdings"][0].__setitem__("symbol", "QQQM"),
+    ],
+)
+def test_readback_rejects_recursive_shape_and_scalar_type_mutations(mutate):
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, read_tqqq_core_replay
+
+    replay, _ = _valid_replay()
+    mutate(replay)
+    with pytest.raises(TqqqCoreReplayError, match="^INPUT_WIRE_INVALID$"):
+        read_tqqq_core_replay(_recompute_replay_bytes(replay))
+
+
+def test_readback_digest_evidence_never_substitutes_for_schema_validation():
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, read_tqqq_core_replay
+
+    replay, _ = _valid_replay()
+    replay["scenarios"][2]["commission_bps"] = 0
+    replay["scenarios"][2]["session_results"][0]["payload"]["costs"]["commission_total"] = "0x1.0000000000000p+0"
+    with pytest.raises(TqqqCoreReplayError, match="^INPUT_WIRE_INVALID$"):
+        read_tqqq_core_replay(_recompute_replay_bytes(replay))
+
+
+@pytest.mark.parametrize("replay_bytes", [None, b"\xff", b"{", b"{}\n"])
+def test_readback_invalid_inputs_have_one_stable_fail_closed_error(replay_bytes):
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, read_tqqq_core_replay
+
+    with pytest.raises(TqqqCoreReplayError) as error:
+        read_tqqq_core_replay(replay_bytes)
+    assert error.value.args == ("INPUT_WIRE_INVALID",)
+    assert error.value.__cause__ is None
 
 
 def test_fresh_double_run_is_byte_identical():
