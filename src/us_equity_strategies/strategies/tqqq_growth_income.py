@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
@@ -50,7 +52,190 @@ __all__ = [
     "build_rebalance_plan",
     "get_income_layer_ratio",
     "get_income_ratio",
+    "TQQQ_DUAL_DRIVE_CORE_RESEARCH_PROFILE_V1",
+    "TqqqDualDriveCoreProfileV1",
+    "TqqqDualDriveCoreInput",
+    "TqqqDualDriveCoreDecision",
+    "evaluate_tqqq_dual_drive_core",
 ]
+
+
+def _freeze_profile_value(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_profile_value(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_profile_value(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True)
+class TqqqDualDriveCoreProfileV1:
+    """The closed, research-only Layer 1 profile; overrides are intentionally unsupported."""
+
+    values: Mapping[str, object]
+    profile_sha256: str = "a7d6330ddcca9a27616e120e16e2352b77287d24db2017d33affdcd3dabe24fc"
+
+    def __getattr__(self, name: str):
+        try:
+            return self.values[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+_TQQQ_DUAL_DRIVE_CORE_PROFILE_VALUES = _freeze_profile_value({
+    "above_ma200_comparator": "STRICT_GREATER_THAN", "account_context_enabled": False,
+    "ai_extensions_enabled": False, "anchor_commit": "0c42ceb776672a97a37218b2cfe04e30b1c9aadd",
+    "anchor_tree": "a8af1d5c1a49dc2cfa338ca87aa8d13b0d85b2a4", "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
+    "benchmark_symbol": "QQQ", "boxx_cash_sweep_enabled": False, "broker_enabled": False,
+    "buy_order": ["TQQQ", "QQQM"], "candidate_search_enabled": False, "capital_sizing_enabled": False,
+    "cash_reserve_floor_usd": 0.0, "cash_reserve_ratio": 0.02, "cash_symbol": "cash", "cloud_enabled": False,
+    "common_start_required_signal_rows": 257, "common_start_signal_index_zero_based": 256,
+    "complete_live_historical_parity": False,
+    "corporate_action_policy": "EMBEDDED_IN_ADJUSTED_PRICES_NO_SEPARATE_DIVIDEND_OR_SPLIT_EVENT_QUANTITY_UNCHANGED",
+    "cost_scenarios": [{"commission_bps": 0, "scenario_id": "ZERO", "slippage_bps": 0}, {"commission_bps": 1, "scenario_id": "C1_2", "slippage_bps": 2}, {"commission_bps": 2, "scenario_id": "C2_5", "slippage_bps": 5}, {"commission_bps": 5, "scenario_id": "C5_10_STRESS", "slippage_bps": 10}],
+    "cross_strategy_state_enabled": False, "currency_rounding": "NONE_IEEE754_BINARY64", "dual_drive_allow_pullback": True,
+    "dual_drive_cash_reserve_ratio": 0.02, "dual_drive_crisis_defense_enabled": False,
+    "dual_drive_macro_risk_governor_enabled": False, "dual_drive_pullback_rebound_threshold": 0.0,
+    "dual_drive_pullback_rebound_threshold_mode": "volatility_scaled", "dual_drive_pullback_rebound_volatility_multiplier": 2.0,
+    "dual_drive_pullback_rebound_window": 20, "dual_drive_qqq_weight": 0.45, "dual_drive_require_ma20_slope": True,
+    "dual_drive_tqqq_weight": 0.45, "dual_drive_unlevered_symbol": "QQQM", "dual_drive_volatility_delever_dynamic_cap": 0.36,
+    "dual_drive_volatility_delever_dynamic_floor": 0.24, "dual_drive_volatility_delever_dynamic_lookback": 252,
+    "dual_drive_volatility_delever_dynamic_min_periods": 126, "dual_drive_volatility_delever_dynamic_percentile": 0.9,
+    "dual_drive_volatility_delever_enabled": True, "dual_drive_volatility_delever_exit_threshold": 0.28,
+    "dual_drive_volatility_delever_max_retention_ratio": 0.0, "dual_drive_volatility_delever_retention_context_required": False,
+    "dual_drive_volatility_delever_retention_mode": "none", "dual_drive_volatility_delever_retention_policy": None,
+    "dual_drive_volatility_delever_retention_ratio": 0.0, "dual_drive_volatility_delever_taco_veto_enabled": False,
+    "dual_drive_volatility_delever_threshold": 0.28, "dual_drive_volatility_delever_threshold_mode": "rolling_percentile",
+    "dual_drive_volatility_delever_window": 5, "execution_cash_reserve_ratio": 0.0, "fill_field": "next_declared_session.open",
+    "financing_enabled": False, "fractional_shares_enabled": True, "income_allocations_enabled": False,
+    "income_layer_enabled": False, "initial_cash": 100000.0, "initial_holdings": {"QQQM": 0.0, "TQQQ": 0.0},
+    "insufficient_cash_policy": "CAP_CURRENT_BUY_TO_AVAILABLE_CASH_NO_MARGIN_NO_SECOND_PASS", "leverage_enabled": False,
+    "live_eligibility_enabled": False, "live_enabled": False, "local_volatility_delever_destination": "QQQM",
+    "ma200_window": 200, "ma20_window": 20, "managed_symbols": ["TQQQ", "QQQM"],
+    "market_regime_control_enabled": False, "market_universe": ["QQQ", "TQQQ", "QQQM", "cash"],
+    "minimum_input_sessions_with_next_fill": 258,
+    "non_equivalence_disclaimer": "Research-only deterministic replay of the QQQ-derived TQQQ/QQQM core. It excludes income, options, market-regime, macro, TACO, crisis, QPK risk-gate, PerformanceMonitor, broker/account and live controls and is not equivalent to the complete live strategy.",
+    "optimization_enabled": False, "optimization_seam": "NONE", "option_budget_enabled": False,
+    "option_growth_overlay_enabled": False, "option_income_overlay_enabled": False, "option_overlay_enabled": False,
+    "order_enabled": False, "parameter_optimization_enabled": False, "performance_gate_enabled": False,
+    "performance_monitor_persistence_enabled": False, "persistence_enabled": False,
+    "positive_ma20_slope_comparator": "STRICT_GREATER_THAN_ZERO", "price_basis": "split_and_distribution_adjusted_ohlc_total_return_v1",
+    "profile_id": "tqqq_dual_drive_core_research_replay_v1", "profile_version": 1, "promotion_enabled": False,
+    "provider_abstraction_enabled": False, "pullback_rebound_comparator": "STRICT_GREATER_THAN", "qpk_risk_gate_enabled": False,
+    "quantity_rounding": "NONE_IEEE754_BINARY64", "rebalance_threshold_ratio": 0.01, "research_only": True,
+    "risk_off_target_weights": {"QQQM": 0.0, "TQQQ": 0.0, "cash": 1.0},
+    "risk_on_target_weights": {"QQQM": 0.45, "TQQQ": 0.45, "cash": 0.1}, "rolling_percentile_interpolation": "linear",
+    "schema": "qsl.research.tqqq_dual_drive_core_profile.v1", "selection_score_enabled": False,
+    "sell_order": ["TQQQ", "QQQM"], "signal_effective_after_trading_sessions": 1, "taco_enabled": False,
+    "target_notional_basis": "next_session_raw_open_nav", "valuation_field": "same_execution_session.close",
+    "volatility_annualization_sessions": 252,
+    "volatility_delever_target_weights": {"QQQM": 0.9, "TQQQ": 0.0, "cash": 0.1},
+    "volatility_trigger_comparator": "GREATER_THAN_OR_EQUAL", "zero_target_liquidation_bypasses_threshold": True,
+})
+TQQQ_DUAL_DRIVE_CORE_RESEARCH_PROFILE_V1 = TqqqDualDriveCoreProfileV1(_TQQQ_DUAL_DRIVE_CORE_PROFILE_VALUES)
+
+
+@dataclass(frozen=True)
+class TqqqDualDriveCoreInput:
+    qqq_closes: tuple[float, ...]
+    current_tqqq_quantity: float
+    current_qqqm_quantity: float
+
+    def __post_init__(self) -> None:
+        if len(self.qqq_closes) < 257 or any(not np.isfinite(value) or value <= 0.0 for value in self.qqq_closes):
+            raise ValueError("invalid TQQQ core input")
+        if any(not np.isfinite(value) or value < 0.0 for value in (self.current_tqqq_quantity, self.current_qqqm_quantity)):
+            raise ValueError("invalid TQQQ core input")
+
+
+@dataclass(frozen=True)
+class TqqqDualDriveCoreDecision:
+    core_signal: str
+    allocation_route: str
+    current_risk_active: bool
+    above_ma200: bool
+    positive_ma20_slope: bool
+    risk_active: bool
+    pullback_risk_on: bool
+    qqq_close: float
+    ma200: float
+    ma20: float
+    ma20_slope: float
+    pullback_low: float
+    pullback_rebound: float
+    pullback_threshold: float
+    pullback_volatility: float
+    realized_volatility: float
+    volatility_entry_threshold: float
+    volatility_exit_threshold: float
+    volatility_dynamic_threshold: float | None
+    volatility_dynamic_sample_count: int
+    volatility_delever_entry_triggered: bool
+    volatility_delever_hysteresis_triggered: bool
+    volatility_delever_triggered: bool
+    volatility_delever_trigger_reason: str | None
+    target_weights: dict[str, float]
+
+
+def evaluate_tqqq_dual_drive_core(
+    value: TqqqDualDriveCoreInput,
+    *,
+    profile: TqqqDualDriveCoreProfileV1 = TQQQ_DUAL_DRIVE_CORE_RESEARCH_PROFILE_V1,
+) -> TqqqDualDriveCoreDecision:
+    """Evaluate only the frozen QQQ-derived research core with no external state."""
+    if type(value) is not TqqqDualDriveCoreInput or profile is not TQQQ_DUAL_DRIVE_CORE_RESEARCH_PROFILE_V1:
+        raise ValueError("invalid TQQQ core profile")
+    closes = pd.Series(value.qqq_closes, dtype="float64")
+    profile_values = profile.values
+    qqq_close = float(closes.iloc[-1])
+    ma200 = float(closes.rolling(int(profile_values["ma200_window"])).mean().iloc[-1])
+    ma20s = closes.rolling(int(profile_values["ma20_window"])).mean()
+    ma20 = float(ma20s.iloc[-1])
+    ma20_slope = float(ma20s.diff().iloc[-1])
+    above_ma200 = qqq_close > ma200
+    positive_ma20_slope = ma20_slope > 0.0
+    current_risk_active = value.current_tqqq_quantity > 0.0 or value.current_qqqm_quantity > 0.0
+    risk_active = current_risk_active
+    if current_risk_active and not above_ma200:
+        risk_active = False
+    elif not current_risk_active and above_ma200 and positive_ma20_slope:
+        risk_active = True
+    pullback_threshold, pullback_volatility = _resolve_pullback_rebound_threshold(
+        closes, window=int(profile_values["dual_drive_pullback_rebound_window"]),
+        mode=str(profile_values["dual_drive_pullback_rebound_threshold_mode"]),
+        fixed_threshold=float(profile_values["dual_drive_pullback_rebound_threshold"]),
+        volatility_multiplier=float(profile_values["dual_drive_pullback_rebound_volatility_multiplier"]),
+    )
+    pullback_low = float(closes.rolling(int(profile_values["dual_drive_pullback_rebound_window"])).min().iloc[-1])
+    pullback_rebound = qqq_close / pullback_low - 1.0
+    pullback_risk_on = bool(profile_values["dual_drive_allow_pullback"]) and not above_ma200 and qqq_close > ma20 and positive_ma20_slope and pullback_rebound > pullback_threshold
+    thresholds = _resolve_volatility_delever_thresholds(
+        closes, volatility_window=int(profile_values["dual_drive_volatility_delever_window"]),
+        mode=str(profile_values["dual_drive_volatility_delever_threshold_mode"]),
+        fixed_entry_threshold=float(profile_values["dual_drive_volatility_delever_threshold"]),
+        fixed_exit_threshold=float(profile_values["dual_drive_volatility_delever_exit_threshold"]),
+        percentile_lookback=int(profile_values["dual_drive_volatility_delever_dynamic_lookback"]),
+        percentile=float(profile_values["dual_drive_volatility_delever_dynamic_percentile"]),
+        min_periods=int(profile_values["dual_drive_volatility_delever_dynamic_min_periods"]),
+        floor=float(profile_values["dual_drive_volatility_delever_dynamic_floor"]),
+        cap=float(profile_values["dual_drive_volatility_delever_dynamic_cap"]),
+    )
+    realized_volatility = float(thresholds["metric"])
+    entry_triggered = bool(profile_values["dual_drive_volatility_delever_enabled"]) and (risk_active or pullback_risk_on) and realized_volatility >= float(thresholds["entry_threshold"])
+    hysteresis_triggered = bool(profile_values["dual_drive_volatility_delever_enabled"]) and value.current_qqqm_quantity > 0.0 and value.current_tqqq_quantity <= 0.0 and realized_volatility >= float(thresholds["exit_threshold"])
+    triggered = entry_triggered or hysteresis_triggered
+    if not (risk_active or pullback_risk_on):
+        weights = dict(profile_values["risk_off_target_weights"])
+        route, signal = "CASH_100", "RISK_OFF_EXIT" if current_risk_active else "RISK_OFF_IDLE"
+    elif triggered:
+        weights = dict(profile_values["volatility_delever_target_weights"])
+        route = "QQQM_90"
+        signal = "PULLBACK_RISK_ON" if pullback_risk_on else "TREND_HOLD" if current_risk_active else "TREND_ENTRY"
+    else:
+        weights = dict(profile_values["risk_on_target_weights"])
+        route = "TQQQ_QQQM_45_45"
+        signal = "PULLBACK_RISK_ON" if pullback_risk_on else "TREND_HOLD" if current_risk_active else "TREND_ENTRY"
+    return TqqqDualDriveCoreDecision(signal, route, current_risk_active, above_ma200, positive_ma20_slope, risk_active, pullback_risk_on, qqq_close, ma200, ma20, ma20_slope, pullback_low, pullback_rebound, float(pullback_threshold), float(pullback_volatility), realized_volatility, float(thresholds["entry_threshold"]), float(thresholds["exit_threshold"]), thresholds["dynamic_threshold"], int(thresholds["dynamic_sample_count"]), entry_triggered, hysteresis_triggered, triggered, "entry_threshold" if entry_triggered else "hysteresis_hold" if hysteresis_triggered else None, weights)
 
 
 def get_income_ratio(total_equity_usd: float, *, income_threshold_usd: float) -> float:
