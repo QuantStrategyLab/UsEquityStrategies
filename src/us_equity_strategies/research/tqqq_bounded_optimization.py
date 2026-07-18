@@ -19,6 +19,15 @@ PROFILE_SHA256 = "cfc7bcffc4853d1b79ae0575287e76a8e50b679792ccd003858a317b1f42e6
 MAX_TRIALS = 5
 BASELINE_CANDIDATE_ID = "baseline_v1"
 RESEARCH_LIMITATION = "SEALED_UNSEEN_DATA_UNAVAILABLE"
+MODULE_DIGESTS = (
+    "95b7846be52a706cf55bdcf318bd22e47fcbd8bcbde481b1607bfe431db2efbb",
+    "b03768587adc8810faa399e78f21a276f443fd673a120b3f3a6829b0ad6fe2bf",
+)
+VALIDATION_SEQUENCE = (
+    "R3_WFA_VALIDATION_TEST",
+    "CANDIDATE_SELECTION",
+    "SEALED_UNSEEN_HOLDOUT",
+)
 
 
 class CandidateSpaceError(ValueError):
@@ -203,7 +212,7 @@ class OptimizationIdentity:
         _require_digest(self.input_digest)
         _require_digest(self.input_artifact_sha256)
         _require_digest(self.input_manifest_sha256)
-        if type(self.module_digests) is not tuple or len(self.module_digests) != 2:
+        if type(self.module_digests) is not tuple or self.module_digests != MODULE_DIGESTS:
             _fail_evidence("module identity invalid")
         for digest in self.module_digests:
             _require_digest(digest)
@@ -213,6 +222,22 @@ class OptimizationIdentity:
 class OptimizationResult:
     payload: dict[str, Any]
     ledger: tuple[str, ...]
+
+
+def _locked_search_space(candidate: Candidate) -> dict[str, Any]:
+    return {
+        "candidate_order": [candidate.candidate_id],
+        "candidates": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "candidate_sha256": candidate.candidate_sha256,
+                "canonical_parameters_sha256": _sha(candidate.canonical_parameter_bytes),
+                "parent_baseline_sha256": candidate.parent_baseline_sha256,
+            }
+        ],
+        "max_trials": MAX_TRIALS,
+        "schema": "qsl.tqqq.bounded_optimization.search_space.v1",
+    }
 
 
 def run_noop_characterization(
@@ -241,19 +266,7 @@ def run_noop_characterization(
     }
     ledger = (_canonical(ledger_row).decode("utf-8"),)
     ledger_raw = (ledger[0] + "\n").encode("utf-8")
-    search_space = {
-        "candidate_order": [candidate.candidate_id],
-        "candidates": [
-            {
-                "candidate_id": candidate.candidate_id,
-                "candidate_sha256": candidate.candidate_sha256,
-                "canonical_parameters_sha256": _sha(candidate.canonical_parameter_bytes),
-                "parent_baseline_sha256": candidate.parent_baseline_sha256,
-            }
-        ],
-        "max_trials": MAX_TRIALS,
-        "schema": "qsl.tqqq.bounded_optimization.search_space.v1",
-    }
+    search_space = _locked_search_space(candidate)
     after = _sha(baseline_evidence_bytes)
     payload: dict[str, Any] = {
         "schema": SCHEMA,
@@ -272,11 +285,7 @@ def run_noop_characterization(
         "trial_count": 1,
         "trial_ledger_sha256": _sha(ledger_raw),
         "metrics_digest": metrics_digest,
-        "validation_sequence": [
-            "R3_WFA_VALIDATION_TEST",
-            "CANDIDATE_SELECTION",
-            "SEALED_UNSEEN_HOLDOUT",
-        ],
+        "validation_sequence": list(VALIDATION_SEQUENCE),
         "sealed_holdout_opened": False,
         "unseen_confirmation_available": decision.unseen_confirmation_available,
         "research_limitation": decision.research_limitation,
@@ -391,6 +400,16 @@ def _validate_payload(payload: dict[str, Any], ledger_raw: bytes) -> None:
         "baseline_artifact_sha256_after",
     ):
         _require_digest(payload[key], 40 if key == "source_commit" else 64)
+    try:
+        ledger = tuple(ledger_raw.decode("utf-8").splitlines())
+        rows = tuple(json.loads(line) for line in ledger)
+    except (UnicodeError, json.JSONDecodeError):
+        _fail_evidence("trial ledger invalid")
+    if ledger_raw != _ledger_bytes(ledger):
+        _fail_evidence("trial ledger non-canonical")
+    candidate = canonicalize_candidate_space(({"params": {}},))[0]
+    search_space = _locked_search_space(candidate)
+    row = rows[0] if len(rows) == 1 else None
     if (
         payload["schema"] != SCHEMA
         or payload["version"] != VERSION
@@ -398,9 +417,13 @@ def _validate_payload(payload: dict[str, Any], ledger_raw: bytes) -> None:
         or payload["worker_prompt_sha256"] != WORKER_PROMPT_SHA256
         or payload["method_sha256"] != METHOD_SHA256
         or payload["profile_sha256"] != PROFILE_SHA256
+        or type(payload["module_digests"]) is not list
+        or tuple(payload["module_digests"]) != MODULE_DIGESTS
+        or payload["trial_count"] != len(rows)
         or payload["trial_count"] != 1
         or payload["trial_ledger_sha256"] != _sha(ledger_raw)
         or payload["selected_candidate_id"] != BASELINE_CANDIDATE_ID
+        or payload["search_space"] != search_space
         or payload["sealed_holdout_opened"] is not False
         or payload["unseen_confirmation_available"] is not False
         or payload["research_limitation"] != RESEARCH_LIMITATION
@@ -411,6 +434,12 @@ def _validate_payload(payload: dict[str, Any], ledger_raw: bytes) -> None:
         or payload["rollback_to_baseline"] is not True
         or payload["baseline_artifact_sha256_before"] != payload["baseline_artifact_sha256_after"]
         or payload["search_space_id"] != _digest(payload["search_space"])
+        or payload["validation_sequence"] != list(VALIDATION_SEQUENCE)
+        or row is None
+        or row["candidate_id"] != payload["selected_candidate_id"]
+        or row["candidate_sha256"] != search_space["candidates"][0]["candidate_sha256"]
+        or row["metrics_digest"] != payload["metrics_digest"]
+        or row["failure_code"] != payload["research_limitation"]
     ):
         _fail_evidence("evidence invariant invalid")
 
@@ -443,6 +472,18 @@ def _atomic_write(path: Path, data: bytes) -> None:
         _fail_evidence("atomic evidence write failed")
 
 
+def _preflight_package(files: tuple[tuple[Path, bytes], ...]) -> None:
+    for path, expected in files:
+        if not path.exists():
+            continue
+        try:
+            actual = path.read_bytes()
+        except OSError:
+            _fail_evidence("existing artifact unreadable")
+        if actual != expected:
+            _fail_evidence("existing artifact differs")
+
+
 def write_evidence(
     directory: Path, payload: dict[str, Any], ledger: tuple[str, ...]
 ) -> EvidencePaths:
@@ -458,9 +499,14 @@ def write_evidence(
     sidecar = directory / "evidence.sha256"
     ledger_path = directory / "trial_ledger.jsonl"
     evidence_raw = _canonical(payload) + b"\n"
-    _atomic_write(ledger_path, ledger_raw)
-    _atomic_write(evidence, evidence_raw)
-    _atomic_write(sidecar, (_sha(evidence_raw) + "\n").encode("ascii"))
+    package = (
+        (ledger_path, ledger_raw),
+        (evidence, evidence_raw),
+        (sidecar, (_sha(evidence_raw) + "\n").encode("ascii")),
+    )
+    _preflight_package(package)
+    for path, data in package:
+        _atomic_write(path, data)
     return EvidencePaths(evidence=evidence, sidecar=sidecar, ledger=ledger_path)
 
 

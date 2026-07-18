@@ -1,3 +1,7 @@
+from copy import deepcopy
+import hashlib
+import json
+
 import pytest
 
 from us_equity_strategies.research.tqqq_bounded_optimization import (
@@ -48,7 +52,10 @@ def _identity() -> OptimizationIdentity:
         input_digest="b" * 64,
         input_artifact_sha256="c" * 64,
         input_manifest_sha256="d" * 64,
-        module_digests=("e" * 64, "f" * 64),
+        module_digests=(
+            "95b7846be52a706cf55bdcf318bd22e47fcbd8bcbde481b1607bfe431db2efbb",
+            "b03768587adc8810faa399e78f21a276f443fd673a120b3f3a6829b0ad6fe2bf",
+        ),
     )
 
 
@@ -98,3 +105,109 @@ def test_evidence_readback_rejects_partial_or_rewritten_ledger(tmp_path) -> None
     paths.ledger.write_text("")
     with pytest.raises(TrialLedgerError):
         read_evidence(paths)
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    ).encode() + b"\n"
+
+
+def _rewrite_package(paths, payload: dict[str, object], ledger: tuple[str, ...]) -> None:
+    ledger_raw = ("\n".join(ledger) + "\n").encode()
+    payload["trial_ledger_sha256"] = hashlib.sha256(ledger_raw).hexdigest()
+    evidence_raw = _canonical_bytes(payload)
+    paths.ledger.write_bytes(ledger_raw)
+    paths.evidence.write_bytes(evidence_raw)
+    paths.sidecar.write_text(hashlib.sha256(evidence_raw).hexdigest() + "\n")
+
+
+def test_evidence_rejects_ledger_length_mismatched_with_trial_count(tmp_path) -> None:
+    result = run_noop_characterization(_identity(), b"immutable-baseline-evidence\n")
+    payload = deepcopy(result.payload)
+    extra = json.loads(result.ledger[0])
+    extra.update(
+        candidate_id="extra",
+        candidate_sha256="0" * 64,
+        deterministic_order=1,
+    )
+    ledger = result.ledger + (
+        json.dumps(extra, sort_keys=True, separators=(",", ":")),
+    )
+    payload["trial_ledger_sha256"] = hashlib.sha256(
+        ("\n".join(ledger) + "\n").encode()
+    ).hexdigest()
+
+    with pytest.raises(TrialLedgerError):
+        write_evidence(tmp_path, payload, ledger)
+
+
+def test_readback_rejects_rewritten_module_digests(tmp_path) -> None:
+    result = run_noop_characterization(_identity(), b"immutable-baseline-evidence\n")
+    paths = write_evidence(tmp_path, result.payload, result.ledger)
+    payload = deepcopy(result.payload)
+    payload["module_digests"] = ["0" * 64, "1" * 64]
+    _rewrite_package(paths, payload, result.ledger)
+
+    with pytest.raises(TrialLedgerError):
+        read_evidence(paths)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("metrics_digest", "0" * 64),
+        ("failure_code", "REWRITTEN"),
+        ("candidate_id", "rewritten"),
+        ("candidate_sha256", "1" * 64),
+    ),
+)
+def test_readback_binds_ledger_row_to_payload(tmp_path, field, value) -> None:
+    result = run_noop_characterization(_identity(), b"immutable-baseline-evidence\n")
+    paths = write_evidence(tmp_path, result.payload, result.ledger)
+    row = json.loads(result.ledger[0])
+    row[field] = value
+    ledger = (json.dumps(row, sort_keys=True, separators=(",", ":")),)
+    payload = deepcopy(result.payload)
+    _rewrite_package(paths, payload, ledger)
+
+    with pytest.raises(TrialLedgerError):
+        read_evidence(paths)
+
+
+def test_readback_enforces_locked_search_space(tmp_path) -> None:
+    result = run_noop_characterization(_identity(), b"immutable-baseline-evidence\n")
+    paths = write_evidence(tmp_path, result.payload, result.ledger)
+    payload = deepcopy(result.payload)
+    payload["search_space"]["max_trials"] = 6
+    payload["search_space_id"] = hashlib.sha256(
+        _canonical_bytes(payload["search_space"])[:-1]
+    ).hexdigest()
+    _rewrite_package(paths, payload, result.ledger)
+
+    with pytest.raises(TrialLedgerError):
+        read_evidence(paths)
+
+
+def test_readback_enforces_validation_sequence(tmp_path) -> None:
+    result = run_noop_characterization(_identity(), b"immutable-baseline-evidence\n")
+    paths = write_evidence(tmp_path, result.payload, result.ledger)
+    payload = deepcopy(result.payload)
+    payload["validation_sequence"] = ["SEALED_UNSEEN_HOLDOUT"]
+    _rewrite_package(paths, payload, result.ledger)
+
+    with pytest.raises(TrialLedgerError):
+        read_evidence(paths)
+
+
+def test_package_conflict_fails_before_writing_any_other_artifact(tmp_path) -> None:
+    result = run_noop_characterization(_identity(), b"immutable-baseline-evidence\n")
+    stale_sidecar = tmp_path / "evidence.sha256"
+    stale_sidecar.write_text("0" * 64 + "\n")
+
+    with pytest.raises(TrialLedgerError):
+        write_evidence(tmp_path, result.payload, result.ledger)
+
+    assert stale_sidecar.read_text() == "0" * 64 + "\n"
+    assert not (tmp_path / "evidence.json").exists()
+    assert not (tmp_path / "trial_ledger.jsonl").exists()
