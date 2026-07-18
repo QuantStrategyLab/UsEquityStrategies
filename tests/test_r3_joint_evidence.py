@@ -1052,25 +1052,71 @@ def test_cli_reuses_r3_verified_commit_after_repo_local_persistence(
             "ci_provenance": "LOCAL_FOREGROUND",
         },
     }
-    captured: list[str] = []
+    captured: list[dict[str, object]] = []
     monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: (bundle, paths))
 
-    def run_optimization(
-        actual_bundle: dict[str, object], *, _source_commit_reader: object
-    ) -> dict[str, object]:
+    def run_optimization(actual_bundle: dict[str, object]) -> dict[str, object]:
         assert actual_bundle is bundle
-        assert callable(_source_commit_reader)
-        captured.append(_source_commit_reader())
+        captured.append(actual_bundle)
         return report
 
     monkeypatch.setattr(cli, "run_private_tqqq_sma_bounded_optimization", run_optimization)
     monkeypatch.setattr(cli, "persist_tqqq_sma_bounded_optimization", lambda *_args: None)
 
     assert cli.main(["--output-root", str(tmp_path), "--tqqq-sma-bounded-optimization"]) == 2
-    assert captured == [TEST_SOURCE_COMMIT]
+    assert captured == [bundle]
     assert json.loads(capsys.readouterr().out)["tqqq_sma_bounded_optimization"][
         "evidence_digest"
     ] == "c" * 64
+
+
+def test_cli_uses_live_source_reader_and_fails_closed_on_revision_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import scripts.run_r3_joint_evidence as cli
+    from us_equity_strategies.research.r3_joint_evidence import PersistedPaths
+
+    bundle = _minimal_bundle()
+    paths = PersistedPaths(tmp_path / "bundle", tmp_path / "sidecar", tmp_path / "readback")
+    source = _typed_input([200.0] * 753)
+    candidates = {
+        160: {"sma_window": 160, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+        180: {"sma_window": 180, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+        200: {"sma_window": 200, "selection": {"status": "VALID", "primary_score": 1.0, "cumulative_return": 0.2, "abs_max_drawdown": 0.3}},
+    }
+    baseline = {
+        "wfa_c2_5_returns": (0.1, 0.1, 0.1),
+        "final_c2_5_return": 0.1,
+        "final_c2_5_abs_max_drawdown": 0.2,
+        "final_c5_10_stress_return": 0.1,
+        "mc_c2_5_loss_probability": 0.1,
+    }
+    revisions = iter((TEST_SOURCE_COMMIT, "2" * 40))
+    reads: list[str] = []
+    persisted: list[object] = []
+
+    def read_live_source_revision() -> str:
+        revision = next(revisions)
+        reads.append(revision)
+        return revision
+
+    monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: (bundle, paths))
+    monkeypatch.setattr(r3, "validate_bundle", lambda _bundle: None)
+    monkeypatch.setattr(r3, "_resolve_source_commit", read_live_source_revision)
+    monkeypatch.setattr(r3, "_tqqq_baseline_gate_metrics", lambda _bundle: baseline)
+    monkeypatch.setattr(r3, "_load_tqqq", lambda: source)
+    monkeypatch.setattr(
+        r3,
+        "evaluate_tqqq_sma_candidate",
+        lambda _source, *, sma_window: candidates[sma_window],
+    )
+    monkeypatch.setattr(r3, "_verified_call", lambda _identities, action: action())
+    monkeypatch.setattr(cli, "persist_tqqq_sma_bounded_optimization", lambda *_args: persisted.append(_args))
+
+    assert cli.main(["--tqqq-sma-bounded-optimization"]) == 2
+    assert reads == [TEST_SOURCE_COMMIT, "2" * 40]
+    assert persisted == []
+    assert capsys.readouterr().err == "TQQQ SMA optimization failed: SOURCE_REVISION_CHANGED\n"
 
 
 def test_bounded_optimization_report_persists_with_a_sidecar(tmp_path: Path) -> None:
