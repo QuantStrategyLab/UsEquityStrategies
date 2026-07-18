@@ -38,6 +38,16 @@ def _valid_input_bytes(rows=258):
     return _canonical_json(manifest), artifact
 
 
+def _canonical_replay_bytes(replay):
+    for scenario in replay["scenarios"]:
+        scenario["session_result_sha256s"] = [record["payload_sha256"] for record in scenario["session_results"]]
+        scenario_payload = {key: value for key, value in scenario.items() if key != "scenario_sha256"}
+        scenario["scenario_sha256"] = hashlib.sha256(_canonical_json(scenario_payload)[:-1]).hexdigest()
+    replay_payload = {key: value for key, value in replay.items() if key != "replay_sha256"}
+    replay["replay_sha256"] = hashlib.sha256(_canonical_json(replay_payload)[:-1]).hexdigest()
+    return _canonical_json(replay)
+
+
 def test_input_envelope_accepts_only_canonical_aligned_qqq_tqqq_qqqm_rows():
     from us_equity_strategies.research.tqqq_core_replay import parse_tqqq_core_input
 
@@ -63,6 +73,17 @@ def test_common_start_requires_257_signal_rows_and_one_next_fill_row():
 
     with pytest.raises(TqqqCoreReplayError):
         parse_tqqq_core_input(*_valid_input_bytes(rows=257))
+
+
+@pytest.mark.parametrize("field,value", [("profile_version", True), ("research_only", 1)])
+def test_input_envelope_rejects_bool_int_aliases_for_frozen_identity_fields(field, value):
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, parse_tqqq_core_input
+
+    manifest, artifact = _valid_input_bytes()
+    payload = json.loads(manifest)
+    payload[field] = value
+    with pytest.raises(TqqqCoreReplayError):
+        parse_tqqq_core_input(_canonical_json(payload), artifact)
 
 
 def test_extracted_core_matches_anchor_builder_with_all_exclusions_disabled():
@@ -125,6 +146,17 @@ def test_per_session_replay_and_readback_canonical_digests_round_trip():
     readback, readback_bytes = read_tqqq_core_replay(replay_bytes)
     assert readback["session_count"] == 1
     assert readback_bytes.endswith(b"\n")
+
+
+def test_readback_rejects_malformed_session_payload_before_field_access():
+    from us_equity_strategies.research.tqqq_core_replay import TqqqCoreReplayError, read_tqqq_core_replay, run_tqqq_core_replay
+
+    replay, _ = run_tqqq_core_replay(*_valid_input_bytes(), implementation_revision="f" * 40)
+    record = replay["scenarios"][0]["session_results"][0]
+    del record["payload"]["execution_session"]
+    record["payload_sha256"] = hashlib.sha256(_canonical_json(record["payload"])[:-1]).hexdigest()
+    with pytest.raises(TqqqCoreReplayError):
+        read_tqqq_core_replay(_canonical_replay_bytes(replay))
 
 
 def test_fresh_double_run_is_byte_identical():

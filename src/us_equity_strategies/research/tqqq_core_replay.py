@@ -26,6 +26,7 @@ _PROVENANCE_KEYS = frozenset({"calendar", "fields", "retrieved_at_utc"})
 _CALENDAR_KEYS = frozenset({"close_time_field_id", "dataset_id", "provider_id", "revision_sha256", "session_field_id"})
 _FIELD_KEYS = frozenset({"dataset_id", "field_id", "provider_id", "revision_sha256"})
 _MARKET_FIELDS = ("QQQ.close", "TQQQ.open", "TQQQ.close", "QQQM.open", "QQQM.close")
+_SESSION_PAYLOAD_KEYS = frozenset({"allocation_route", "closing_snapshot", "core_signal", "costs", "decision_diagnostics", "execution_session", "fills", "input_sha256", "opening_snapshot", "ordinal", "profile_id", "profile_sha256", "profile_version", "scenario_id", "signal_session", "target_weights", "threshold_value"})
 _POLICIES = {
     "calendar": "DECLARED_SESSION_SEQUENCE_IS_REPLAY_AUTHORITY_NO_INFERENCE",
     "corporate_actions": "EMBEDDED_IN_ADJUSTED_PRICES_NO_SEPARATE_DIVIDEND_OR_SPLIT_EVENT_QUANTITY_UNCHANGED",
@@ -136,6 +137,14 @@ def _parse_provenance(value: object) -> tuple[dict[str, str], str]:
     return revisions, str(calendar["revision_sha256"])
 
 
+def _session_date(payload: object, field: str) -> str:
+    payload = _mapping(payload, _SESSION_PAYLOAD_KEYS, "INPUT_WIRE_INVALID")
+    try:
+        return SessionClose.from_wire(payload[field]).trading_date.isoformat()
+    except (SessionContractError, TypeError):
+        _fail("INPUT_WIRE_INVALID")
+
+
 def parse_tqqq_core_input(manifest_bytes: bytes, artifact_bytes: bytes) -> TqqqCoreInputEnvelope:
     """Validate immutable bytes only; this boundary never reads paths or providers."""
     if type(manifest_bytes) is not bytes or type(artifact_bytes) is not bytes:
@@ -148,6 +157,8 @@ def parse_tqqq_core_input(manifest_bytes: bytes, artifact_bytes: bytes) -> TqqqC
     manifest = _mapping(manifest, expected_manifest, "MANIFEST_NOT_CANONICAL")
     if _canonical_json(manifest) != manifest_bytes:
         _fail("MANIFEST_NOT_CANONICAL")
+    if (type(manifest["schema"]) is not str or type(manifest["profile_id"]) is not str or type(manifest["profile_version"]) is not int or type(manifest["anchor_commit"]) is not str or type(manifest["research_only"]) is not bool):
+        _fail("PROFILE_IDENTITY_MISMATCH")
     if (manifest["schema"], manifest["profile_id"], manifest["profile_version"], manifest["anchor_commit"], manifest["research_only"]) != (_MANIFEST_SCHEMA, _PROFILE_ID, 1, _ANCHOR_COMMIT, True):
         _fail("PROFILE_IDENTITY_MISMATCH")
     artifact = _mapping(manifest["artifact"], frozenset({"bytes", "row_count", "session_sha256", "sha256"}), "ARTIFACT_IDENTITY_MISMATCH")
@@ -315,9 +326,9 @@ def read_tqqq_core_replay(replay_bytes: bytes) -> tuple[dict[str, object], bytes
         if scenario["session_result_sha256s"] != digests:
             _fail("INPUT_WIRE_INVALID")
         if first_execution is None and scenario["session_results"]:
-            first_execution = scenario["session_results"][0]["payload"]["execution_session"]["trading_date"]
+            first_execution = _session_date(scenario["session_results"][0]["payload"], "execution_session")
         if scenario["session_results"]:
-            last_execution = scenario["session_results"][-1]["payload"]["execution_session"]["trading_date"]
+            last_execution = _session_date(scenario["session_results"][-1]["payload"], "execution_session")
         scenario_sha256s.append({"scenario_id": expected_id, "scenario_sha256": scenario["scenario_sha256"]})
     readback_payload = {"schema": "qsl.research.tqqq_dual_drive_core_replay_readback.v1", "first_execution_session": first_execution, "last_execution_session": last_execution, "input_sha256": replay["input_sha256"], "non_equivalence_disclaimer": replay["non_equivalence_disclaimer"], "profile_sha256": replay["profile_sha256"], "replay_sha256": replay["replay_sha256"], "scenario_sha256s": scenario_sha256s, "session_count": session_count}
     readback = {**readback_payload, "readback_sha256": hashlib.sha256(_canonical_json(readback_payload, terminal_lf=False)).hexdigest()}
