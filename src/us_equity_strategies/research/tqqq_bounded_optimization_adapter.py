@@ -199,9 +199,57 @@ def _locked_identity_states() -> tuple[FileState, FileState]:
     return _read_identity(artifact), _read_identity(manifest)
 
 
-def _trusted_source_context() -> SourceContext:
+def _operational_relative_paths(paths: tuple[Path, ...]) -> set[str]:
+    allowed: set[str] = set()
+    for path in paths:
+        try:
+            relative = path.resolve().relative_to(r3.REPO_ROOT.resolve()).as_posix()
+        except ValueError:
+            continue
+        allowed.add(relative)
+    return allowed
+
+
+def _resolve_source_commit_with_operational_paths(paths: tuple[Path, ...]) -> str:
+    allowed = _operational_relative_paths(paths)
+    if not allowed:
+        return r3._resolve_source_commit()
     try:
-        source_commit = r3._resolve_source_commit()
+        actual_root = r3._git_output(r3.REPO_ROOT, ("rev-parse", "--show-toplevel")).decode(
+            "utf-8", errors="strict"
+        ).strip()
+        source_commit = r3._git_output(
+            r3.REPO_ROOT, ("rev-parse", "--verify", "HEAD^{commit}")
+        ).decode("ascii", errors="strict").strip()
+        dirty = r3._git_output(
+            r3.REPO_ROOT,
+            ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
+        )
+    except (OSError, UnicodeError):
+        _fail("SOURCE_REVISION_UNVERIFIABLE")
+    if Path(actual_root).resolve() != r3.REPO_ROOT.resolve() or not _lower_hex(source_commit, 40):
+        _fail("SOURCE_REVISION_UNVERIFIABLE")
+    for entry in dirty.split(b"\0"):
+        if not entry:
+            continue
+        try:
+            status = entry[:2].decode("ascii", errors="strict")
+            relative = entry[3:].decode("utf-8", errors="strict").rstrip("/")
+        except UnicodeError:
+            _fail("SOURCE_CHECKOUT_DIRTY")
+        if status != "??" or relative not in allowed:
+            _fail("SOURCE_CHECKOUT_DIRTY")
+    for path in COMMITTED_RUNTIME_PATHS:
+        try:
+            r3._git_output(r3.REPO_ROOT, ("cat-file", "-e", f"{source_commit}:{path}"))
+        except OSError:
+            _fail("SOURCE_RUNNER_NOT_COMMITTED")
+    return source_commit
+
+
+def _trusted_source_context(*operational_paths: Path) -> SourceContext:
+    try:
+        source_commit = _resolve_source_commit_with_operational_paths(operational_paths)
         modules = {
             path: hashlib.sha256(
                 r3._git_output(r3.REPO_ROOT, ("show", f"{source_commit}:{path}"))
@@ -343,6 +391,15 @@ def _write_staging(staging: Path, expected: ExpectedPackage) -> None:
         _fail("PACKAGE_STAGING_FAILED")
 
 
+def _demote_published_final(final: Path) -> None:
+    demoted = final.with_name(f".tqqq-bounded-optimization-adapter-{uuid4().hex}.demoted")
+    try:
+        os.rename(final, demoted)
+        _fsync_directory(final.parent)
+    except OSError:
+        _fail("PACKAGE_DEMOTION_FAILED")
+
+
 def run_verified_current_r3_adapter(output_root: str | Path) -> str:
     """Publish one verified, terminal, no-performance singleton package."""
     context = _trusted_source_context()
@@ -365,19 +422,38 @@ def run_verified_current_r3_adapter(output_root: str | Path) -> str:
     _write_staging(staging, expected)
     # Staging is validated with the same strict bytes, without treating its operational name as final.
     _read_staged_package(staging, expected)
-    if _trusted_source_context() != context or _locked_identity_states() != identities_before:
+    if _trusted_source_context(staging) != context or _locked_identity_states() != identities_before:
         _fail("SOURCE_OR_IDENTITY_CHANGED")
+    published_by_this_invocation = False
     try:
         os.rename(staging, final)
-        _fsync_directory(root)
     except OSError:
         if final.exists() and not final.is_symlink():
             _read_package(final, expected)
         else:
             _fail("PACKAGE_PUBLISH_FAILED")
+    else:
+        published_by_this_invocation = True
+    try:
+        _fsync_directory(root)
+    except OSError:
+        _fail("PACKAGE_PARENT_FSYNC_FAILED")
     _read_package(final, expected)
-    if _trusted_source_context() != context or _locked_identity_states() != identities_before:
-        _fail("SOURCE_OR_IDENTITY_CHANGED")
+    try:
+        if (
+            (
+                _trusted_source_context(final)
+                if published_by_this_invocation
+                else _trusted_source_context()
+            )
+            != context
+            or _locked_identity_states() != identities_before
+        ):
+            _fail("SOURCE_OR_IDENTITY_CHANGED")
+    except BoundedOptimizationAdapterError:
+        if published_by_this_invocation:
+            _demote_published_final(final)
+        raise
     return expected.manifest_sha256
 
 

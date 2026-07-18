@@ -41,7 +41,7 @@ def _context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         adapter,
         "_trusted_source_context",
-        lambda: adapter.SourceContext(
+        lambda *_operational_paths: adapter.SourceContext(
             SOURCE_COMMIT,
             {path: "c" * 64 for path in adapter.COMMITTED_RUNTIME_PATHS},
         ),
@@ -230,3 +230,91 @@ def test_no_provider_or_performance_or_baseline_evaluator_is_called(
     monkeypatch.setattr(adapter.r3, "_zero_invariant", forbidden)
     package_id = adapter.run_verified_current_r3_adapter(tmp_path / "out")
     assert len(package_id) == 64
+
+
+def test_in_repo_output_allows_only_its_staging_directory_during_reverification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _context(monkeypatch, tmp_path)
+    observed: list[tuple[Path, ...]] = []
+
+    def source_context(*operational_paths: Path) -> adapter.SourceContext:
+        observed.append(operational_paths)
+        return adapter.SourceContext(
+            SOURCE_COMMIT,
+            {path: "c" * 64 for path in adapter.COMMITTED_RUNTIME_PATHS},
+        )
+
+    monkeypatch.setattr(adapter, "_trusted_source_context", source_context)
+    adapter.run_verified_current_r3_adapter(tmp_path / "repo-output")
+    assert any(
+        len(paths) == 1 and paths[0].name.endswith(".staging") for paths in observed
+    )
+    assert all(len(paths) <= 1 for paths in observed)
+
+
+def test_parent_fsync_failure_after_rename_never_reports_publish_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _context(monkeypatch, tmp_path)
+    root = tmp_path / "out"
+    original_fsync = adapter._fsync_directory
+
+    def fail_final_parent(directory: Path) -> None:
+        if directory == root:
+            raise OSError("parent fsync failed")
+        original_fsync(directory)
+
+    monkeypatch.setattr(adapter, "_fsync_directory", fail_final_parent)
+    with pytest.raises(adapter.BoundedOptimizationAdapterError, match="PACKAGE_PARENT_FSYNC_FAILED"):
+        adapter.run_verified_current_r3_adapter(root)
+
+
+def test_late_source_failure_demotes_only_this_invocations_final_package(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _context(monkeypatch, tmp_path)
+    calls = 0
+
+    def source_context(*_operational_paths: Path) -> adapter.SourceContext:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise adapter.BoundedOptimizationAdapterError("SOURCE_OR_IDENTITY_CHANGED")
+        return adapter.SourceContext(
+            SOURCE_COMMIT,
+            {path: "c" * 64 for path in adapter.COMMITTED_RUNTIME_PATHS},
+        )
+
+    monkeypatch.setattr(adapter, "_trusted_source_context", source_context)
+    expected = adapter._expected_package(source_context())
+    calls = 0
+    root = tmp_path / "out"
+    with pytest.raises(adapter.BoundedOptimizationAdapterError, match="SOURCE_OR_IDENTITY_CHANGED"):
+        adapter.run_verified_current_r3_adapter(root)
+    assert not (root / f"package-{expected.manifest_sha256}").exists()
+    assert any(path.name.endswith(".demoted") for path in root.iterdir())
+
+
+def test_late_failure_never_demotes_an_exact_race_winner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _context(monkeypatch, tmp_path)
+    expected = adapter._expected_package(adapter._trusted_source_context())
+    root = tmp_path / "out"
+    final = root / f"package-{expected.manifest_sha256}"
+    original_rename = adapter.os.rename
+
+    def race_winner(source: Path, destination: Path) -> None:
+        if destination == final:
+            final.mkdir(parents=True)
+            (final / "evidence.json").write_bytes(expected.evidence)
+            (final / "trial_ledger.jsonl").write_bytes(expected.ledger)
+            (final / "package_manifest.json").write_bytes(expected.manifest)
+            raise OSError("race winner")
+        original_rename(source, destination)
+
+    monkeypatch.setattr(adapter.os, "rename", race_winner)
+    assert adapter.run_verified_current_r3_adapter(root) == expected.manifest_sha256
+    assert final.exists()
+    assert not any(path.name.endswith(".demoted") for path in root.iterdir())
