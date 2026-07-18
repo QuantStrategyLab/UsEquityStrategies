@@ -1007,7 +1007,7 @@ def test_cli_runs_the_bounded_optimization_only_when_requested(
     monkeypatch.setattr(
         cli,
         "run_private_tqqq_sma_bounded_optimization",
-        lambda actual_bundle: report if actual_bundle is bundle else None,
+        lambda actual_bundle, **_kwargs: report if actual_bundle is bundle else None,
     )
     monkeypatch.setattr(
         cli,
@@ -1027,6 +1027,50 @@ def test_cli_runs_the_bounded_optimization_only_when_requested(
         "ci_provenance": "LOCAL_FOREGROUND",
     }
     assert persisted == [(report, tmp_path)]
+
+
+def test_cli_reuses_r3_verified_commit_after_repo_local_persistence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import scripts.run_r3_joint_evidence as cli
+    from us_equity_strategies.research.r3_joint_evidence import PersistedPaths
+
+    bundle = _minimal_bundle()
+    paths = PersistedPaths(
+        tmp_path / "r3_joint_evidence_bundle.json",
+        tmp_path / "r3_joint_evidence_bundle.sha256",
+        tmp_path / "r3_joint_evidence_bundle.readback.json",
+    )
+    report = {
+        "outcome": "NO_IMPROVEMENT",
+        "winner_sma_window": 200,
+        "gate_reasons": ["WINNER_IS_BASELINE_200"],
+        "evidence_digest": "c" * 64,
+        "source_commit": TEST_SOURCE_COMMIT,
+        "runner_envelope": {
+            "checkout_verification": "GIT_CLEAN_COMMITTED",
+            "ci_provenance": "LOCAL_FOREGROUND",
+        },
+    }
+    captured: list[str] = []
+    monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: (bundle, paths))
+
+    def run_optimization(
+        actual_bundle: dict[str, object], *, _source_commit_reader: object
+    ) -> dict[str, object]:
+        assert actual_bundle is bundle
+        assert callable(_source_commit_reader)
+        captured.append(_source_commit_reader())
+        return report
+
+    monkeypatch.setattr(cli, "run_private_tqqq_sma_bounded_optimization", run_optimization)
+    monkeypatch.setattr(cli, "persist_tqqq_sma_bounded_optimization", lambda *_args: None)
+
+    assert cli.main(["--output-root", str(tmp_path), "--tqqq-sma-bounded-optimization"]) == 2
+    assert captured == [TEST_SOURCE_COMMIT]
+    assert json.loads(capsys.readouterr().out)["tqqq_sma_bounded_optimization"][
+        "evidence_digest"
+    ] == "c" * 64
 
 
 def test_bounded_optimization_report_persists_with_a_sidecar(tmp_path: Path) -> None:

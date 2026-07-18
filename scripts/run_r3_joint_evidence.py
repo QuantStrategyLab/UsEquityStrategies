@@ -49,7 +49,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     if args.tqqq_sma_bounded_optimization:
         try:
-            report = run_private_tqqq_sma_bounded_optimization(bundle)
+            report = run_private_tqqq_sma_bounded_optimization(
+                bundle,
+                _source_commit_reader=lambda: bundle["source_commit"],
+            )
             persist_tqqq_sma_bounded_optimization(report, paths.bundle.parent)
         except R3EvidenceError as exc:
             print(f"TQQQ SMA optimization failed: {exc.code}", file=sys.stderr)
