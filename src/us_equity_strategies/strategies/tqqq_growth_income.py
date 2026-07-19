@@ -19,6 +19,10 @@ from us_equity_strategies.income_layer import (
 from us_equity_strategies.market_regime_control_contract import (
     resolve_market_regime_position_control_authorization,
 )
+from us_equity_strategies.strategies.tqqq_dual_drive_core import (
+    DualDriveCoreInput,
+    decide_tqqq_dual_drive,
+)
 from us_equity_strategies.volatility_delever_retention import (
     POLICY_TQQQ_STEP_SOFTZERO_025_050,
     RETENTION_MODE_NONE,
@@ -635,10 +639,6 @@ def build_rebalance_plan(
     )
     pullback_low = df_qqq["close"].rolling(pullback_rebound_window).min().iloc[-1]
     pullback_rebound = qqq_p / pullback_low - 1.0 if pd.notna(pullback_low) and pullback_low > 0.0 else np.nan
-    pullback_rebound_ok = (
-        pullback_rebound_threshold <= 0.0
-        or (pd.notna(pullback_rebound) and pullback_rebound > pullback_rebound_threshold)
-    )
     volatility_delever_enabled = _as_bool(dual_drive_volatility_delever_enabled, default=True)
     volatility_delever_window = _as_positive_int(dual_drive_volatility_delever_window, default=5)
     volatility_delever_thresholds = _resolve_volatility_delever_thresholds(
@@ -696,136 +696,65 @@ def build_rebalance_plan(
         market_regime_context=market_regime_control_context,
     )
     crisis_defense_enabled = _as_bool(dual_drive_crisis_defense_enabled, default=True)
-    above_ma200 = qqq_p > ma200
-    positive_ma20_slope = pd.notna(ma20_slope) and ma20_slope > 0.0
-    slope_ok = positive_ma20_slope if bool(dual_drive_require_ma20_slope) else True
-    current_risk_active = quantities.get("TQQQ", 0) > 0 or quantities.get(unlevered_symbol, 0) > 0
-    risk_active = current_risk_active
-    if current_risk_active and not above_ma200:
-        risk_active = False
-    elif not current_risk_active and above_ma200 and slope_ok:
-        risk_active = True
-    pullback_risk_on = (
-        bool(dual_drive_allow_pullback)
-        and not above_ma200
-        and pd.notna(latest_ma20)
-        and qqq_p > latest_ma20
-        and positive_ma20_slope
-        and pullback_rebound_ok
-    )
-
-    target_unlevered_val = 0.0
-    if risk_active or pullback_risk_on:
-        dual_drive_reserve_ratio = 0.02 if dual_drive_cash_reserve_ratio is None else float(dual_drive_cash_reserve_ratio)
-        reserved = max(
-            strategy_equity * max(0.0, min(1.0, dual_drive_reserve_ratio)),
-            cash_reserve_floor,
+    core_decision = decide_tqqq_dual_drive(
+        DualDriveCoreInput(
+            qqq_price=qqq_p,
+            ma200=ma200,
+            latest_ma20=None if pd.isna(latest_ma20) else latest_ma20,
+            ma20_slope=None if pd.isna(ma20_slope) else ma20_slope,
+            pullback_rebound=None if pd.isna(pullback_rebound) else pullback_rebound,
+            pullback_rebound_threshold=pullback_rebound_threshold,
+            current_tqqq_quantity=quantities.get("TQQQ", 0),
+            current_unlevered_quantity=quantities.get(unlevered_symbol, 0),
+            require_ma20_slope=bool(dual_drive_require_ma20_slope),
+            allow_pullback=bool(dual_drive_allow_pullback),
+            strategy_equity=strategy_equity,
+            initial_reserved=reserved,
+            cash_reserve_floor=cash_reserve_floor,
+            risk_on_cash_reserve_ratio=dual_drive_cash_reserve_ratio,
+            tqqq_weight=dual_drive_tqqq_weight,
+            unlevered_weight=dual_drive_qqq_weight,
+            macro_active=macro_risk_governor_active,
+            macro_route=str(macro_risk_governor_context["route"]),
+            macro_leverage_scalar=float(macro_risk_governor_context["leverage_scalar"]),
+            macro_risk_asset_scalar=float(macro_risk_governor_context["risk_asset_scalar"]),
+            crisis_defense_enabled=crisis_defense_enabled,
+            true_crisis_active=true_crisis_active,
+            volatility_enabled=volatility_delever_enabled,
+            volatility_metric=volatility_delever_metric,
+            volatility_entry_threshold=volatility_delever_threshold,
+            volatility_exit_threshold=volatility_delever_exit_threshold,
+            taco_veto_enabled=taco_veto_enabled,
+            taco_rebound_context_active=taco_rebound_context_active,
+            retention_mode=retention_decision.get("mode"),
+            retention_ratio=float(retention_decision.get("retention_ratio") or 0.0),
         )
-        target_tqqq_ratio = max(0.0, min(1.0, float(dual_drive_tqqq_weight or 0.45)))
-        target_unlevered_ratio = max(0.0, min(1.0, float(dual_drive_qqq_weight or 0.45)))
-        total_risk_ratio = target_tqqq_ratio + target_unlevered_ratio
-        max_risk_ratio = max(0.0, 1.0 - reserved / strategy_equity) if strategy_equity > 0.0 else 0.0
-        if total_risk_ratio > max_risk_ratio and total_risk_ratio > 0.0:
-            scale = max_risk_ratio / total_risk_ratio
-            target_tqqq_ratio *= scale
-            target_unlevered_ratio *= scale
-        target_tqqq_val = strategy_equity * target_tqqq_ratio
-        target_unlevered_val = strategy_equity * target_unlevered_ratio
-        target_boxx_val = max(0.0, (strategy_equity - reserved) - target_tqqq_val - target_unlevered_val)
-        icon = "hold" if current_risk_active else "entry"
-    else:
-        target_tqqq_val = 0.0
-        target_boxx_val = max(0.0, strategy_equity - reserved)
-        icon = "exit" if current_risk_active else "idle"
-    macro_risk_governor_applied = False
-    macro_risk_governor_removed_value = 0.0
-    macro_risk_governor_redirected_to_unlevered = 0.0
-    if macro_risk_governor_active:
-        before_macro_risk_value = float(target_tqqq_val + target_unlevered_val)
-        leverage_scalar = float(macro_risk_governor_context["leverage_scalar"])
-        risk_asset_scalar = float(macro_risk_governor_context["risk_asset_scalar"])
-        leverage_removed_value = max(0.0, target_tqqq_val * (1.0 - leverage_scalar))
-        target_tqqq_val *= leverage_scalar
-        if str(macro_risk_governor_context["route"]) == "delever":
-            target_unlevered_val += leverage_removed_value
-            macro_risk_governor_redirected_to_unlevered = leverage_removed_value
-        if risk_asset_scalar < 1.0:
-            target_tqqq_val *= risk_asset_scalar
-            target_unlevered_val *= risk_asset_scalar
-        after_macro_risk_value = float(target_tqqq_val + target_unlevered_val)
-        macro_risk_governor_removed_value = max(0.0, before_macro_risk_value - after_macro_risk_value)
-        target_boxx_val += macro_risk_governor_removed_value
-        macro_risk_governor_applied = (
-            leverage_removed_value > 1e-9 or before_macro_risk_value > after_macro_risk_value + 1e-9
-        )
-        if macro_risk_governor_applied:
-            icon = "macro_risk_defense" if str(macro_risk_governor_context["route"]) == "crisis" else "macro_delever"
-    crisis_defense_applied = bool(crisis_defense_enabled and true_crisis_active)
-    crisis_defense_removed_value = 0.0
-    if crisis_defense_applied:
-        crisis_defense_removed_value = float(target_tqqq_val + target_unlevered_val)
-        target_tqqq_val = 0.0
-        target_unlevered_val = 0.0
-        target_boxx_val = max(0.0, strategy_equity - reserved)
-        icon = "crisis_defense"
-    currently_volatility_delevered = (
-        current_risk_active
-        and quantities.get("TQQQ", 0) <= 0
-        and quantities.get(unlevered_symbol, 0) > 0
     )
-    volatility_delever_entry_triggered = (
-        volatility_delever_enabled
-        and target_tqqq_val > 0.0
-        and volatility_delever_metric is not None
-        and volatility_delever_metric >= volatility_delever_threshold
-    )
-    volatility_delever_hysteresis_triggered = (
-        volatility_delever_enabled
-        and target_tqqq_val > 0.0
-        and currently_volatility_delevered
-        and volatility_delever_metric is not None
-        and volatility_delever_metric >= volatility_delever_exit_threshold
-    )
-    volatility_delever_triggered = bool(
-        volatility_delever_entry_triggered or volatility_delever_hysteresis_triggered
-    )
-    volatility_delever_trigger_reason = (
-        "entry_threshold"
-        if volatility_delever_entry_triggered
-        else "hysteresis_hold"
-        if volatility_delever_hysteresis_triggered
-        else None
-    )
-    volatility_delever_vetoed = bool(
-        volatility_delever_triggered
-        and taco_veto_enabled
-        and taco_rebound_context_active
-        and not true_crisis_active
-        and str(retention_decision.get("mode") or "").strip().lower() != "environment"
-    )
-    volatility_delever_applied = bool(volatility_delever_triggered and not volatility_delever_vetoed)
-    volatility_delever_source_value = 0.0
-    volatility_delever_retained_value = 0.0
-    volatility_delever_removed_value = 0.0
-    volatility_delever_retained_ratio = None
-    volatility_delever_redirected_ratio = None
-    volatility_delever_veto_reason = None
-    if volatility_delever_vetoed:
-        volatility_delever_veto_reason = "taco_rebound_context"
-    if volatility_delever_applied:
-        volatility_delever_source_value = float(target_tqqq_val)
-        retention_ratio = float(retention_decision.get("retention_ratio") or 0.0)
-        retained_value = float(target_tqqq_val) * retention_ratio
-        volatility_delever_retained_value = retained_value
-        volatility_delever_removed_value = max(0.0, float(target_tqqq_val) - retained_value)
-        if volatility_delever_source_value > 0.0:
-            volatility_delever_retained_ratio = max(
-                0.0,
-                min(1.0, volatility_delever_retained_value / volatility_delever_source_value),
-            )
-            volatility_delever_redirected_ratio = max(0.0, min(1.0, 1.0 - volatility_delever_retained_ratio))
-        target_unlevered_val += volatility_delever_removed_value
-        target_tqqq_val = retained_value
+    above_ma200 = core_decision.above_ma200
+    slope_ok = core_decision.slope_ok
+    pullback_risk_on = core_decision.pullback_risk_on
+    reserved = core_decision.reserved
+    target_tqqq_val = core_decision.target_tqqq_value
+    target_unlevered_val = core_decision.target_unlevered_value
+    target_boxx_val = core_decision.target_boxx_value
+    icon = core_decision.state
+    macro_risk_governor_applied = core_decision.macro_applied
+    macro_risk_governor_removed_value = core_decision.macro_removed_value
+    macro_risk_governor_redirected_to_unlevered = core_decision.macro_redirected_to_unlevered_value
+    crisis_defense_applied = core_decision.crisis_applied
+    crisis_defense_removed_value = core_decision.crisis_removed_value
+    volatility_delever_triggered = core_decision.volatility_triggered
+    volatility_delever_entry_triggered = core_decision.volatility_entry_triggered
+    volatility_delever_hysteresis_triggered = core_decision.volatility_hysteresis_triggered
+    volatility_delever_trigger_reason = core_decision.volatility_trigger_reason
+    volatility_delever_applied = core_decision.volatility_applied
+    volatility_delever_vetoed = core_decision.volatility_vetoed
+    volatility_delever_veto_reason = core_decision.volatility_veto_reason
+    volatility_delever_source_value = core_decision.volatility_source_value
+    volatility_delever_retained_value = core_decision.volatility_retained_value
+    volatility_delever_removed_value = core_decision.volatility_removed_value
+    volatility_delever_retained_ratio = core_decision.volatility_retained_ratio
+    volatility_delever_redirected_ratio = core_decision.volatility_redirected_ratio
     threshold = total_equity * rebalance_threshold_ratio
 
     ma20_slope_text = "n/a" if pd.isna(ma20_slope) else f"{ma20_slope:+.2f}"
