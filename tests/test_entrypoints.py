@@ -8,6 +8,7 @@ import pandas as pd
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
+from us_equity_strategies import entrypoints
 from us_equity_strategies.catalog import get_runtime_enabled_profiles
 from us_equity_strategies.option_overlay import (
     OPTION_OVERLAY_CONFIG_KEYS,
@@ -442,6 +443,64 @@ class StrategyEntrypointTests(unittest.TestCase):
             entrypoint.manifest.default_config["managed_symbols"],
             ("TQQQ", "QQQM", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
         )
+
+    def test_tqqq_growth_income_compute_is_monitor_free_and_wrapper_records_once(self) -> None:
+        qqq_history = [
+            {
+                "close": 300.0 + day * 0.4,
+                "high": 301.0 + day * 0.4,
+                "low": 299.0 + day * 0.4,
+            }
+            for day in range(260)
+        ]
+        snapshot = PortfolioSnapshot(
+            as_of=pd.Timestamp("2026-04-06").to_pydatetime(),
+            total_equity=120000.0,
+            buying_power=20000.0,
+            positions=(
+                Position(symbol="TQQQ", quantity=10, market_value=8000.0),
+                Position(symbol="BOXX", quantity=20, market_value=4000.0),
+                Position(symbol="SPYI", quantity=30, market_value=1500.0),
+                Position(symbol="QQQI", quantity=30, market_value=1700.0),
+            ),
+            metadata={"account_hash": "demo"},
+        )
+        ctx = StrategyContext(
+            as_of="2026-04-06",
+            market_data={
+                "benchmark_history": qqq_history,
+                "portfolio_snapshot": snapshot,
+            },
+            portfolio=snapshot,
+            runtime_config={
+                "signal_text_fn": str,
+                "translator": lambda key, **kwargs: key,
+                "signal_effective_after_trading_days": 1,
+            },
+        )
+
+        with patch.object(entrypoints, "record_strategy_decision") as recorder:
+            computed = entrypoints.compute_tqqq_growth_income_decision(ctx)
+
+        recorder.assert_not_called()
+        with (
+            patch.object(
+                entrypoints,
+                "compute_tqqq_growth_income_decision",
+                wraps=entrypoints.compute_tqqq_growth_income_decision,
+            ) as compute,
+            patch.object(entrypoints, "record_strategy_decision") as recorder,
+        ):
+            evaluated = entrypoints.evaluate_tqqq_growth_income(ctx)
+
+        compute.assert_called_once_with(ctx)
+        recorder.assert_called_once_with(
+            ctx,
+            evaluated,
+            profile_id="tqqq_growth_income",
+            domain="us_equity",
+        )
+        self.assertEqual(evaluated, computed)
 
     def test_tqqq_growth_income_defaults_to_dynamic_dual_drive_live_profile(self) -> None:
         config = get_strategy_entrypoint("tqqq_growth_income").manifest.default_config
