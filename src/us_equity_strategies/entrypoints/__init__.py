@@ -32,6 +32,11 @@ from us_equity_strategies.manifests import (
     tqqq_growth_income_manifest,
 )
 from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
+from us_equity_strategies.research.tqqq_decision_snapshot import (
+    DecisionSnapshotError,
+    capture_tqqq_decision_snapshot_if_enabled,
+    decision_facts,
+)
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
     ibit_smart_dca as ibit_smart_dca_strategy,
@@ -608,18 +613,32 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
     }
     _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
-    decision = StrategyDecision(
+    pre_risk_decision = StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
+    final_decision = apply_risk_gate(pre_risk_decision, ctx=ctx, max_single_weight=0.20)
+    snapshot_capture = (
+        ctx.artifacts.get("qsl.research.tqqq_decision_snapshot.v1")
+        if isinstance(ctx.artifacts, Mapping)
+        else None
+    )
+    if snapshot_capture is not None:
+        try:
+            capture_tqqq_decision_snapshot_if_enabled(
+                snapshot_capture,
+                pre_risk_decision=decision_facts(pre_risk_decision),
+                final_decision=decision_facts(final_decision),
+            )
+        except DecisionSnapshotError:
+            pass
     record_strategy_decision(
         ctx,
-        decision,
+        final_decision,
         profile_id=tqqq_growth_income_manifest.profile,
         domain=tqqq_growth_income_manifest.domain,
     )
-    return decision
+    return final_decision
 
 
 tqqq_growth_income_strategy.build_rebalance_plan.__doc__ = (
