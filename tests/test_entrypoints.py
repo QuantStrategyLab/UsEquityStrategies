@@ -4,10 +4,12 @@ import unittest
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.strategy_contracts import StrategyContext
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
+from us_equity_strategies import entrypoints
 from us_equity_strategies.catalog import get_runtime_enabled_profiles
 from us_equity_strategies.option_overlay import (
     OPTION_OVERLAY_CONFIG_KEYS,
@@ -19,8 +21,50 @@ from us_equity_strategies.strategies.global_etf_rotation import compute_signals_
 from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan as tqqq_growth_build_rebalance_plan
 from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan as soxl_soxx_trend_build_rebalance_plan
 from us_equity_strategies.strategies.mega_cap_leader_rotation import extract_managed_symbols as mega_cap_managed_symbols
+from us_equity_strategies.research.tqqq_decision_snapshot import DecisionSnapshotError
 
 from tests.test_mega_cap_leader_rotation import _mega_snapshot
+
+
+def test_tqqq_entrypoint_propagates_enabled_capture_error() -> None:
+    plan = {
+        "target_values": {},
+        "sig_display": "signal",
+        "dashboard": "dashboard\nbenchmark",
+        "threshold": 0.0,
+        "reserved": 0.0,
+        "qqq_p": 0.0,
+        "ma200": 0.0,
+        "exit_line": 0.0,
+        "real_buying_power": 0.0,
+        "total_equity": 0.0,
+        "investable_buying_power": 0.0,
+    }
+    ctx = StrategyContext(
+        as_of="2026-04-06",
+        artifacts={"qsl.research.tqqq_decision_snapshot.v1": {"path": "snapshot.json"}},
+    )
+
+    with (
+        patch.object(entrypoints, "merge_runtime_config", return_value={}),
+        patch.object(entrypoints, "pop_option_overlay_config", return_value={}),
+        patch.object(entrypoints, "_config_managed_symbols", return_value=()),
+        patch.object(entrypoints, "require_market_data", return_value=[]),
+        patch.object(entrypoints, "require_portfolio", return_value=None),
+        patch.object(entrypoints.tqqq_growth_income_strategy, "build_rebalance_plan", return_value=plan),
+        patch.object(entrypoints, "_account_size_diagnostics", return_value={}),
+        patch.object(entrypoints, "append_account_size_warning", side_effect=lambda value, *_args, **_kwargs: value),
+        patch.object(entrypoints, "_build_dashboard_text", return_value=""),
+        patch.object(entrypoints, "build_option_overlay_diagnostics", return_value={}),
+        patch.object(entrypoints, "build_ai_extension_diagnostics", return_value={}),
+        patch.object(entrypoints, "_attach_notification_context"),
+        patch.object(entrypoints, "_attach_execution_timing"),
+        patch.object(entrypoints, "target_values_to_positions", return_value=()),
+        patch.object(entrypoints, "apply_risk_gate", side_effect=lambda decision, **_kwargs: decision),
+        patch.object(entrypoints, "record_strategy_decision"),
+    ):
+        with pytest.raises(DecisionSnapshotError, match="^INVALID_DECISION_SNAPSHOT$"):
+            entrypoints.evaluate_tqqq_growth_income(ctx)
 
 
 def _global_etf_snapshot(as_of: str | pd.Timestamp = "2026-03-31") -> pd.DataFrame:

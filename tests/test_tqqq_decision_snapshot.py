@@ -130,6 +130,19 @@ def test_enabled_capture_rejects_lone_surrogate_as_a_sanitized_error(tmp_path: P
         )
 
 
+def test_enabled_capture_rejects_excessive_nested_provenance(tmp_path: Path) -> None:
+    capture = _capture(tmp_path / "tqqq-decision.json")
+    nested: object = "leaf"
+    for _ in range(1_100):
+        nested = [nested]
+    capture["source"]["raw_provenance"] = {"nested": nested}
+
+    with pytest.raises(DecisionSnapshotError, match="^INVALID_DECISION_SNAPSHOT$"):
+        capture_tqqq_decision_snapshot_if_enabled(
+            capture, pre_risk_decision=_decision(), final_decision=_decision()
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "invalid_value"),
     (

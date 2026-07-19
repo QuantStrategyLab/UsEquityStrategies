@@ -33,7 +33,6 @@ from us_equity_strategies.manifests import (
 )
 from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
 from us_equity_strategies.research.tqqq_decision_snapshot import (
-    DecisionSnapshotError,
     capture_tqqq_decision_snapshot_if_enabled,
     decision_facts,
 )
@@ -624,14 +623,11 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         else None
     )
     if snapshot_capture is not None:
-        try:
-            capture_tqqq_decision_snapshot_if_enabled(
-                snapshot_capture,
-                pre_risk_decision=decision_facts(pre_risk_decision),
-                final_decision=decision_facts(final_decision),
-            )
-        except DecisionSnapshotError:
-            pass
+        capture_tqqq_decision_snapshot_if_enabled(
+            snapshot_capture,
+            pre_risk_decision=decision_facts(pre_risk_decision),
+            final_decision=decision_facts(final_decision),
+        )
     record_strategy_decision(
         ctx,
         final_decision,

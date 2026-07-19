@@ -48,6 +48,7 @@ _FORBIDDEN_KEY_PARTS = (
 )
 _UTC_MICROS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_MAX_FACT_NESTING = 32
 
 
 class DecisionSnapshotError(ValueError):
@@ -102,17 +103,22 @@ def _exact_keys(value: object, keys: frozenset[str]) -> Mapping[str, object]:
     return value
 
 
-def _facts(value: object) -> Mapping[str, object]:
-    if type(value) is not dict:
+def _facts(value: object, depth: int = 0) -> Mapping[str, object]:
+    if depth > _MAX_FACT_NESTING or type(value) is not dict:
         _invalid()
-    for key, item in value.items():
-        if type(key) is not str or not key or any(part in key.lower() for part in _FORBIDDEN_KEY_PARTS):
-            _invalid()
-        _json_value(item)
+    try:
+        for key, item in value.items():
+            if type(key) is not str or not key or any(part in key.lower() for part in _FORBIDDEN_KEY_PARTS):
+                _invalid()
+            _json_value(item, depth + 1)
+    except RecursionError:
+        _invalid()
     return value
 
 
-def _json_value(value: object) -> None:
+def _json_value(value: object, depth: int = 0) -> None:
+    if depth > _MAX_FACT_NESTING:
+        _invalid()
     if value is None or type(value) is bool:
         return
     if type(value) is int:
@@ -124,10 +130,10 @@ def _json_value(value: object) -> None:
         return
     if type(value) is list:
         for item in value:
-            _json_value(item)
+            _json_value(item, depth + 1)
         return
     if type(value) is dict:
-        _facts(value)
+        _facts(value, depth)
         return
     _invalid()
 
@@ -267,7 +273,7 @@ def _load(path: Path) -> Mapping[str, object]:
         return snapshot
     except DecisionSnapshotError:
         raise
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+    except (OSError, RecursionError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         _invalid()
 
 
