@@ -348,7 +348,7 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
-def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
+def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
     managed_symbols = _config_managed_symbols(config)
@@ -612,7 +612,11 @@ def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
+    return apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
+
+
+def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
+    decision = compute_tqqq_growth_income_decision(ctx)
     record_strategy_decision(
         ctx,
         decision,
@@ -1668,6 +1672,7 @@ __all__ = [
     "us_equity_combo_core_entrypoint",
     "us_equity_combo_leveraged_entrypoint",
     "evaluate_global_etf_rotation",
+    "compute_tqqq_growth_income_decision",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_tecl_xlk_trend_income",
