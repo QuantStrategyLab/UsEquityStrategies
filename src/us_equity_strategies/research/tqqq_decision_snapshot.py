@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 import json
+import math
 import os
 from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
+from types import MappingProxyType
 from typing import Any, Mapping, NoReturn
 
 
@@ -77,7 +79,7 @@ def _text(value: object) -> str:
         type(value) is not str
         or not value
         or value != value.strip()
-        or any(ord(character) < 0x20 for character in value)
+        or any(ord(character) < 0x20 or 0xD800 <= ord(character) <= 0xDFFF for character in value)
     ):
         _invalid()
     return value
@@ -130,6 +132,26 @@ def _json_value(value: object) -> None:
     _invalid()
 
 
+def _finite_number_text(value: object) -> str:
+    value = _text(value)
+    try:
+        numeric = float(value)
+    except ValueError:
+        _invalid()
+    if not math.isfinite(numeric):
+        _invalid()
+    canonical = "0" if numeric == 0.0 else format(numeric, ".17g")
+    if value != canonical:
+        _invalid()
+    return value
+
+
+def _float_text(value: object) -> str:
+    if type(value) is not float or not math.isfinite(value):
+        _invalid()
+    return "0" if value == 0.0 else format(value, ".17g")
+
+
 def _decision(value: object) -> Mapping[str, object]:
     decision = _exact_keys(value, frozenset({"positions", "budgets", "risk_flags", "identity"}))
     positions = decision["positions"]
@@ -146,15 +168,15 @@ def _decision(value: object) -> Mapping[str, object]:
         target_weight = position["target_weight"]
         target_value = position["target_value"]
         if target_weight is not None:
-            _text(target_weight)
+            _finite_number_text(target_weight)
         if target_value is not None:
-            _text(target_value)
+            _finite_number_text(target_value)
         if (target_weight is None) == (target_value is None):
             _invalid()
     for budget in budgets:
         budget = _exact_keys(budget, frozenset({"name", "amount"}))
         _text(budget["name"])
-        _text(budget["amount"])
+        _finite_number_text(budget["amount"])
     for flag in risk_flags:
         _text(flag)
     facts = {"positions": positions, "budgets": budgets, "risk_flags": risk_flags}
@@ -169,6 +191,23 @@ def _identity_group(value: object) -> Mapping[str, object]:
     _facts(group["raw_provenance"])
     _facts(group["resolved"])
     return group
+
+
+def _capture(value: object) -> Mapping[str, object]:
+    capture = _exact_keys(value, _CAPTURE_KEYS)
+    _text(capture["path"])
+    session = _exact_keys(capture["session"], frozenset({"id", "sequence"}))
+    session_id = _text(session["id"])
+    if (
+        not session_id.startswith("tqqq_growth_income:")
+        or type(session["sequence"]) is not int
+        or not 0 <= session["sequence"] <= 2**53 - 1
+    ):
+        _invalid()
+    _utc_micros(capture["timestamp"])
+    for name in ("source", "input", "control", "plugin"):
+        _identity_group(capture[name])
+    return capture
 
 
 def _snapshot(value: object) -> Mapping[str, object]:
@@ -232,19 +271,26 @@ def _load(path: Path) -> Mapping[str, object]:
         _invalid()
 
 
+def _freeze(value: object) -> object:
+    if type(value) is dict:
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if type(value) is list:
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
 def read_tqqq_decision_snapshot_package(path: Path) -> VerifiedTqqqDecisionSnapshot:
     """Read one canonical snapshot and fail closed for invalid local bytes."""
     path = Path(path)
-    return VerifiedTqqqDecisionSnapshot(path=path, snapshot=_load(path))
+    return VerifiedTqqqDecisionSnapshot(path=path, snapshot=_freeze(_load(path)))
 
 
 def _build_snapshot(
     capture: Mapping[str, object], *, pre_risk_decision: Mapping[str, object], final_decision: Mapping[str, object]
 ) -> dict[str, object]:
-    capture = _exact_keys(capture, _CAPTURE_KEYS)
-    path = capture["path"]
-    if type(path) is not str or not path:
-        _invalid()
+    capture = _capture(capture)
+    _decision(pre_risk_decision)
+    _decision(final_decision)
     snapshot: dict[str, object] = {
         "schema": SCHEMA,
         "version": 1,
@@ -327,12 +373,12 @@ def decision_facts(decision: Any) -> dict[str, object]:
             {
                 "symbol": _text(position.symbol),
                 "target_weight": (
-                    format(float(position.target_weight), ".17g")
+                    _float_text(position.target_weight)
                     if position.target_weight is not None
                     else None
                 ),
                 "target_value": (
-                    format(float(position.target_value), ".17g")
+                    _float_text(position.target_value)
                     if position.target_value is not None
                     else None
                 ),
@@ -340,7 +386,7 @@ def decision_facts(decision: Any) -> dict[str, object]:
             for position in decision.positions
         ]
         budgets = [
-            {"name": _text(budget.name), "amount": format(float(budget.amount or 0.0), ".17g")}
+            {"name": _text(budget.name), "amount": _float_text(budget.amount)}
             for budget in decision.budgets
         ]
         risk_flags = [_text(flag) for flag in decision.risk_flags]

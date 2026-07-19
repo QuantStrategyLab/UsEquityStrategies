@@ -44,7 +44,7 @@ def _capture(path: Path) -> dict[str, object]:
 
 def _decision(symbol: str = "TQQQ") -> dict[str, object]:
     facts = {
-        "positions": [{"symbol": symbol, "target_weight": "0.2", "target_value": None}],
+        "positions": [{"symbol": symbol, "target_weight": "0.20000000000000001", "target_value": None}],
         "budgets": [],
         "risk_flags": [],
     }
@@ -53,6 +53,18 @@ def _decision(symbol: str = "TQQQ") -> dict[str, object]:
 
 def _canonical_bytes(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _resign(snapshot: dict[str, object]) -> None:
+    for decision in (
+        snapshot["risk_gate"]["pre_risk_decision"],
+        snapshot["risk_gate"]["final_decision"],
+        snapshot["final_decision"],
+    ):
+        facts = {name: decision[name] for name in ("positions", "budgets", "risk_flags")}
+        decision["identity"] = sha256(_canonical_bytes(facts)).hexdigest()
+    unsigned = {name: value for name, value in snapshot.items() if name != "digest"}
+    snapshot["digest"] = sha256(_canonical_bytes(unsigned)).hexdigest()
 
 
 def test_missing_opt_in_is_a_filesystem_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,6 +118,58 @@ def test_readback_fails_closed_for_digest_tampering(tmp_path: Path) -> None:
 
     with pytest.raises(DecisionSnapshotError, match="^INVALID_DECISION_SNAPSHOT$"):
         read_tqqq_decision_snapshot_package(path)
+
+
+def test_enabled_capture_rejects_lone_surrogate_as_a_sanitized_error(tmp_path: Path) -> None:
+    capture = _capture(tmp_path / "tqqq-decision.json")
+    capture["source"]["raw_provenance"]["as_of"] = "\ud800"
+
+    with pytest.raises(DecisionSnapshotError, match="^INVALID_DECISION_SNAPSHOT$"):
+        capture_tqqq_decision_snapshot_if_enabled(
+            capture, pre_risk_decision=_decision(), final_decision=_decision()
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    (
+        ("target_weight", "not-a-number"),
+        ("target_value", "nan"),
+        ("budget", "inf"),
+        ("target_weight", False),
+        ("budget", 1),
+    ),
+)
+def test_readback_rejects_nonnumeric_decision_amounts(
+    tmp_path: Path, field: str, invalid_value: object
+) -> None:
+    path = tmp_path / "tqqq-decision.json"
+    write_tqqq_decision_snapshot(path, _capture(path), pre_risk_decision=_decision(), final_decision=_decision())
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    for decision in (snapshot["risk_gate"]["pre_risk_decision"], snapshot["risk_gate"]["final_decision"]):
+        if field == "budget":
+            decision["budgets"] = [{"name": "reserve", "amount": invalid_value}]
+        else:
+            if field == "target_value":
+                decision["positions"][0]["target_weight"] = None
+            decision["positions"][0][field] = invalid_value
+    snapshot["final_decision"] = snapshot["risk_gate"]["final_decision"]
+    _resign(snapshot)
+    path.write_bytes(_canonical_bytes(snapshot))
+
+    with pytest.raises(DecisionSnapshotError, match="^INVALID_DECISION_SNAPSHOT$"):
+        read_tqqq_decision_snapshot_package(path)
+
+
+def test_readback_returns_recursively_immutable_snapshot_contents(tmp_path: Path) -> None:
+    path = tmp_path / "tqqq-decision.json"
+    write_tqqq_decision_snapshot(path, _capture(path), pre_risk_decision=_decision(), final_decision=_decision())
+    verified = read_tqqq_decision_snapshot_package(path)
+
+    with pytest.raises(TypeError):
+        verified.snapshot["source"]["resolved"]["symbol"] = "TQQQ"
+    with pytest.raises(TypeError):
+        verified.snapshot["final_decision"]["positions"][0]["symbol"] = "QQQ"
 
 
 def test_write_failure_removes_temporary_file_and_preserves_target(
