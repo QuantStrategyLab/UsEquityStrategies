@@ -19,6 +19,7 @@ CANDIDATE_WINDOWS = (150, 200, 250)
 BASELINE_WINDOW_DAYS = 200
 SMA_WINDOW_DAYS = BASELINE_WINDOW_DAYS
 INITIAL_EQUITY = 100_000.0
+INPUT_COLUMNS = ("symbol", "as_of", "open", "high", "low", "close", "volume")
 EXPECTED_INPUT_DIGEST = "8cc682b2d1acc23a8dd93c3bfd67b445d7305844d2c4d254f4f52e0ac817c6cb"
 EXPECTED_ARTIFACT_SHA256 = "a40254c7e31d6b49b4a2db5ec57b1b65215a3ab1ee33df879d9e5e2b4dae6551"
 EXPECTED_MANIFEST_SHA256 = "8ecbc864f356af94464249ee3003d44fb00cf739c6810dc2de14165e5dc3500d"
@@ -131,6 +132,24 @@ def _typed_rows(source: object, expected_input_digest: str) -> tuple[tuple[Input
         if not all(math.isfinite(value) and value > 0.0 for value in (row.open, row.high, row.low, row.close)):
             _fail("INPUT_VALUES_INVALID")
     return qqq, tqqq
+
+
+def _canonical_input_bytes(rows: tuple[InputRow, ...]) -> bytes:
+    lines = [",".join(INPUT_COLUMNS)]
+    for row in rows:
+        lines.append(
+            ",".join(
+                (row.symbol, row.as_of, *(format(value, ".17g") for value in (row.open, row.high, row.low, row.close, row.volume)))
+            )
+        )
+    return ("\n".join(lines) + "\n").encode()
+
+
+def _verify_immutable_input(source: OfflineInput) -> None:
+    if type(source.canonical_bytes) is not bytes or source.canonical_bytes != _canonical_input_bytes(source.rows):
+        _fail("INPUT_CANONICAL_BYTES_MISMATCH")
+    if hashlib.sha256(source.canonical_bytes).hexdigest() != EXPECTED_ARTIFACT_SHA256:
+        _fail("INPUT_ARTIFACT_SHA256_MISMATCH")
 
 
 def simulate_candidate(source: OfflineInput, window_days: int, scenario: CostScenario) -> tuple[DailyPoint, ...]:
@@ -317,6 +336,7 @@ def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGI
     try:
         _typed_rows(source, expected_input_digest)
         assert type(source) is OfflineInput
+        _verify_immutable_input(source)
         simulations = {
             window: {scenario.scenario_id: simulate_candidate(source, window, scenario) for scenario in SCENARIOS}
             for window in CANDIDATE_WINDOWS

@@ -22,6 +22,17 @@ from us_equity_strategies.research.tqqq_core_optimization import (
 )
 
 
+def _canonical_bytes(rows: list[InputRow]) -> bytes:
+    lines = ["symbol,as_of,open,high,low,close,volume"]
+    for row in rows:
+        lines.append(
+            ",".join(
+                (row.symbol, row.as_of, *(format(value, ".17g") for value in (row.open, row.high, row.low, row.close, row.volume)))
+            )
+        )
+    return ("\n".join(lines) + "\n").encode()
+
+
 def _source(count: int = 753) -> OfflineInput:
     rows: list[InputRow] = []
     for index in range(count):
@@ -33,7 +44,12 @@ def _source(count: int = 753) -> OfflineInput:
             InputRow("QQQ", day, qqq_close, qqq_close, qqq_close, qqq_close, 1.0),
             InputRow("TQQQ", day, tqqq_open, max(tqqq_open, tqqq_close), min(tqqq_open, tqqq_close), tqqq_close, 1.0),
         ))
-    return OfflineInput(tuple(rows), b"test", "8cc682b2d1acc23a8dd93c3bfd67b445d7305844d2c4d254f4f52e0ac817c6cb", "c" * 40)
+    return OfflineInput(
+        tuple(rows),
+        _canonical_bytes(rows),
+        "8cc682b2d1acc23a8dd93c3bfd67b445d7305844d2c4d254f4f52e0ac817c6cb",
+        "c" * 40,
+    )
 
 
 def test_frozen_candidates_plugin_and_windows() -> None:
@@ -97,6 +113,23 @@ def test_invalid_evidence_fails_closed_without_recommendation_or_sizing() -> Non
     assert invalid["research_recommendation"] is None
     assert invalid["size_zero_required"] is True
     assert invalid["failure_codes"]
+
+
+def test_forged_rows_cannot_claim_the_blessed_digest_without_pinned_artifact_bytes() -> None:
+    forged = _source()
+    result = run_tqqq_core_optimization(forged)
+
+    assert result["evidence_valid"] is False
+    assert result["failure_codes"] == ["INPUT_ARTIFACT_SHA256_MISMATCH"]
+    assert result["research_recommendation"] is None
+
+
+def test_rows_must_match_their_canonical_bytes_before_the_pinned_hash_is_accepted() -> None:
+    forged = replace(_source(), canonical_bytes=b"different canonical rows\n")
+    result = run_tqqq_core_optimization(forged)
+
+    assert result["evidence_valid"] is False
+    assert result["failure_codes"] == ["INPUT_CANONICAL_BYTES_MISMATCH"]
 
 
 def test_persistence_is_canonical_atomic_idempotent_and_strict(tmp_path) -> None:
