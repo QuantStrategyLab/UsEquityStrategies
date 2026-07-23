@@ -24,6 +24,7 @@ VOLATILITY_SCALING_SCHEMA = "qsl.research.soxl_volatility_scaling.v1"
 VOLATILITY_SCALING_READBACK_SCHEMA = "qsl.research.soxl_volatility_scaling_readback.v1"
 RSI2_MEAN_REVERSION_SCHEMA = "qsl.research.soxl_rsi2_mean_reversion.v1"
 RSI2_MEAN_REVERSION_READBACK_SCHEMA = "qsl.research.soxl_rsi2_mean_reversion_readback.v1"
+RSI2_ACCEPTANCE_CONTRACT = "SOXL_CONSTRAINED_COMPOUNDING_ACCEPTANCE_HARDENING_V1"
 CANDIDATE_WINDOWS = (140, 160, 180, 200)
 BASELINE_WINDOW_DAYS = 200
 INITIAL_EQUITY = 100_000.0
@@ -915,33 +916,61 @@ def simulate_rsi2_mean_reversion_candidate(source: OfflineInput, candidate_id: s
     return tuple(points)
 
 
-def _select_rsi2_mean_reversion_winner(validation: dict[str, Sequence[dict[str, float | int | None | str]]]) -> str:
+def _rsi2_acceptance_window_metrics(points: Sequence[DailyPoint], soxx: Sequence[InputRow], raw_start: int, raw_end: int) -> dict[str, float | int | None | str | bool]:
+    metrics = _volatility_metrics_with_soxx(points, soxx, raw_start, raw_end)
+    selected_points = points[raw_start - BASELINE_WINDOW_DAYS:raw_end - BASELINE_WINDOW_DAYS + 1]
+    selected_soxx = soxx[raw_start:raw_end + 1]
+    if len(selected_points) != raw_end - raw_start + 1 or len(selected_soxx) != len(selected_points):
+        _fail("WINDOW_BOUNDARY_INVALID")
+    observation_count = len(selected_soxx)
+    cumulative_return = selected_soxx[-1].close / selected_soxx[0].close - 1.0
+    cagr = (1.0 + cumulative_return) ** (252.0 / observation_count) - 1.0
+    if not math.isfinite(cumulative_return) or not math.isfinite(cagr):
+        _fail("RSI2_ACCEPTANCE_METRICS_INVALID")
+    metrics.update({
+        "exposure_session_count": sum(point.quantity > 0.0 for point in selected_points),
+        "activity_observed": any(point.quantity > 0.0 or point.gross_traded_notional_at_open > 0.0 for point in selected_points),
+        "soxx_close_path_cumulative_return": cumulative_return,
+        "soxx_close_path_cagr": cagr,
+    })
+    return metrics
+
+
+def _select_rsi2_mean_reversion_winner(validation: dict[str, Sequence[dict[str, float | int | None | str | bool]]]) -> str | None:
     if tuple(validation) != RSI2_MEAN_REVERSION_CANDIDATES:
         _fail("VALIDATION_METRICS_INVALID")
-    ranked: list[tuple[tuple[float, float, float, float, float, int], str]] = []
+    baseline = validation["UNSCALED_SMA200"]
+    if len(baseline) != 3 or not all(item.get("activity_observed") is True for item in baseline):
+        return None
+    ranked: list[tuple[tuple[float, float, float, float, int], str]] = []
     for index, candidate_id in enumerate(RSI2_MEAN_REVERSION_CANDIDATES):
         metrics = validation[candidate_id]
         if len(metrics) != 3:
             _fail("VALIDATION_METRICS_INVALID")
+        if not all(item.get("activity_observed") is True for item in metrics):
+            continue
+        if candidate_id != "UNSCALED_SMA200" and not _all_strictly_better(metrics, baseline):
+            continue
         ranked.append((
             (
+                -_median(_metric_values(metrics, "cagr")),
                 _median([abs(value) for value in _metric_values(metrics, "max_drawdown")]),
                 -_median(_metric_values(metrics, "expected_shortfall_95")),
-                _median(_metric_values(metrics, "annualized_volatility")),
-                -_median(_metric_values(metrics, "cagr")),
                 _median(_metric_values(metrics, "turnover")),
                 index,
             ),
             candidate_id,
         ))
-    return min(ranked)[1]
+    return min(ranked)[1] if ranked else None
 
 
 def _invalid_rsi2_mean_reversion(code: str) -> dict[str, Any]:
     return {
         "schema": RSI2_MEAN_REVERSION_SCHEMA, "evidence_valid": False, "failure_codes": [code], "outcome": "NO_IMPROVEMENT",
         "research_recommendation": None, "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
-        "plugin_control": dict(RSI2_MEAN_REVERSION_PLUGIN_CONTROL),
+        "plugin_control": dict(RSI2_MEAN_REVERSION_PLUGIN_CONTROL), "acceptance_contract": RSI2_ACCEPTANCE_CONTRACT,
+        "acceptance_classes": {"activity": {"selection_windows_all_active": False, "wfa_qualifying_test_window_count": 0, "wfa_at_least_two_of_three": False}, "benchmark_relative_compounding": {"final_holdout_drawdown_no_worse_than_soxx": False, "final_holdout_cumulative_return_strictly_greater_than_soxx": False, "final_holdout_cagr_strictly_greater_than_soxx": False, "eligible": False}},
+        "recommendation_eligible": False, "r4a_eligible": False,
     }
 
 
@@ -965,14 +994,26 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
         if [(point.date, point.end_equity.hex(), point.cash.hex(), point.quantity.hex()) for point in zero] != [(point.date, point.equity.hex(), point.cash.hex(), point.soxl_quantity.hex()) for point in baseline.equity_curve]:
             _fail("SMA200_ZERO_PARITY_FAILED")
         validation = {
-            candidate_id: [_volatility_metrics_with_soxx(simulations[candidate_id]["C2_5"], soxx, *WINDOWS[name]) for name in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")]
+            candidate_id: [_rsi2_acceptance_window_metrics(simulations[candidate_id]["C2_5"], soxx, *WINDOWS[name]) for name in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")]
             for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
         }
         winner = _select_rsi2_mean_reversion_winner(validation)
+        if winner is None:
+            return {
+                "schema": RSI2_MEAN_REVERSION_SCHEMA, "evidence_valid": True, "failure_codes": ["NO_QUALIFYING_VALIDATION_CANDIDATE"], "outcome": "NO_IMPROVEMENT",
+                "research_recommendation": None, "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
+                "plugin_control": dict(RSI2_MEAN_REVERSION_PLUGIN_CONTROL), "input_digest": source.input_digest,
+                "baseline": "UNSCALED_SMA200", "candidates": list(RSI2_MEAN_REVERSION_CANDIDATES),
+                "signal_rule": {"trend": "SOXX_CLOSE_STRICTLY_ABOVE_INCLUSIVE_SMA200", "rsi": "WILDER_RSI2", "execution": "NEXT_SOXL_OPEN", "exposure": "LONG_OR_CASH"},
+                "validation_metrics_c2_5": validation, "locked_winner": None, "post_lock_metrics": {}, "evidence_gates": {},
+                "acceptance_contract": RSI2_ACCEPTANCE_CONTRACT,
+                "acceptance_classes": {"activity": {"selection_windows_all_active": False, "wfa_qualifying_test_window_count": 0, "wfa_at_least_two_of_three": False}, "benchmark_relative_compounding": {"final_holdout_drawdown_no_worse_than_soxx": False, "final_holdout_cumulative_return_strictly_greater_than_soxx": False, "final_holdout_cagr_strictly_greater_than_soxx": False, "eligible": False}},
+                "recommendation_eligible": False, "r4a_eligible": False,
+            }
         exposed = tuple(dict.fromkeys((winner, "UNSCALED_SMA200")))
         post_lock = {
             candidate_id: {
-                name: {scenario.scenario_id: _volatility_metrics_with_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS[name]) for scenario in SCENARIOS}
+                name: {scenario.scenario_id: _rsi2_acceptance_window_metrics(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS[name]) for scenario in SCENARIOS}
                 for name in ("F1_TEST", "F2_TEST", "F3_TEST", "FINAL_HOLDOUT")
             }
             for candidate_id in exposed
@@ -986,11 +1027,28 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
         final_stress, baseline_final_stress = selected_post["FINAL_HOLDOUT"]["C5_10_STRESS"], baseline_post["FINAL_HOLDOUT"]["C5_10_STRESS"]
         final_returns = tuple(point.daily_return for point in simulations[winner]["C2_5"][WINDOWS["FINAL_HOLDOUT"][0] - BASELINE_WINDOW_DAYS:])
         loss_probability = _terminal_loss_probability(final_returns)
+        wfa_qualifying = sum(
+            candidate["activity_observed"] is True
+            and float(candidate["cumulative_return"]) > 0.0
+            and abs(float(candidate["max_drawdown"])) < abs(float(reference["max_drawdown"]))
+            and float(candidate["expected_shortfall_95"]) > float(reference["expected_shortfall_95"])
+            for candidate, reference in zip(selected_tests, baseline_tests, strict=True)
+        )
+        cagr_beats_soxx = float(final_c2["cagr"]) > float(final_c2["soxx_close_path_cagr"])
+        return_beats_soxx = float(final_c2["cumulative_return"]) > float(final_c2["soxx_close_path_cumulative_return"])
+        if cagr_beats_soxx != return_beats_soxx:
+            _fail("RSI2_ACCEPTANCE_COMPARISON_INVALID")
+        activity = {"selection_windows_all_active": all(item["activity_observed"] is True for item in selected_validation), "wfa_qualifying_test_window_count": wfa_qualifying, "wfa_at_least_two_of_three": wfa_qualifying >= 2}
+        benchmark_relative_compounding = {
+            "final_holdout_drawdown_no_worse_than_soxx": abs(float(final_c2["max_drawdown"])) <= abs(float(final_c2["soxx_close_path_max_drawdown"])),
+            "final_holdout_cumulative_return_strictly_greater_than_soxx": return_beats_soxx,
+            "final_holdout_cagr_strictly_greater_than_soxx": cagr_beats_soxx,
+        }
+        benchmark_relative_compounding["eligible"] = all(benchmark_relative_compounding.values())
         gates = {
-            "validation_medians_strictly_improve_drawdown_and_es95": _all_strictly_better(selected_validation, baseline_validation),
-            "wfa_tests_at_least_two_strictly_improve_drawdown_and_es95": sum(abs(float(candidate["max_drawdown"])) < abs(float(reference["max_drawdown"])) and float(candidate["expected_shortfall_95"]) > float(reference["expected_shortfall_95"]) for candidate, reference in zip(selected_tests, baseline_tests, strict=True)) >= 2,
+            "validation_medians_strictly_improve_drawdown_and_es95": winner != "UNSCALED_SMA200" and _all_strictly_better(selected_validation, baseline_validation),
+            "wfa_same_window_conjunction_at_least_two_of_three": activity["wfa_at_least_two_of_three"],
             "final_c2_5_strictly_improves_drawdown_and_es95": abs(float(final_c2["max_drawdown"])) < abs(float(baseline_final_c2["max_drawdown"])) and float(final_c2["expected_shortfall_95"]) > float(baseline_final_c2["expected_shortfall_95"]),
-            "wfa_c2_5_returns_at_least_two_positive": sum(float(item["cumulative_return"]) > 0.0 for item in selected_tests) >= 2,
             "final_c2_5_return_strictly_positive": float(final_c2["cumulative_return"]) > 0.0,
             "final_c5_10_stress_return_strictly_positive": float(final_stress["cumulative_return"]) > 0.0,
             "mc_c2_5_terminal_loss_probability_strictly_below_half": loss_probability < 0.5,
@@ -998,11 +1056,11 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
             "no_lookahead": True,
         }
         failures = [name.upper() for name, value in gates.items() if not value]
-        found = winner != "UNSCALED_SMA200" and all(gates.values())
+        found = winner != "UNSCALED_SMA200" and all(gates.values()) and activity["selection_windows_all_active"] and benchmark_relative_compounding["eligible"]
         holdout_soxx_drawdown = _soxx_drawdown(soxx, *WINDOWS["FINAL_HOLDOUT"])
         return {
             "schema": RSI2_MEAN_REVERSION_SCHEMA, "evidence_valid": True, "failure_codes": failures,
-            "outcome": "CHARACTERIZATION_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT",
+            "outcome": "COMPOUNDING_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT",
             "research_recommendation": {"candidate_id": winner} if found else None,
             "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
             "plugin_control": dict(RSI2_MEAN_REVERSION_PLUGIN_CONTROL), "input_digest": source.input_digest,
@@ -1011,6 +1069,9 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
             "validation_metrics_c2_5": validation, "locked_winner": winner, "post_lock_metrics": post_lock,
             "evidence_gates": gates,
             "soxx_drawdown_comparison": {"final_holdout_max_drawdown": holdout_soxx_drawdown, "matches_or_beats_soxx_drawdown": abs(float(final_c2["max_drawdown"])) <= abs(holdout_soxx_drawdown)},
+            "acceptance_contract": RSI2_ACCEPTANCE_CONTRACT,
+            "acceptance_classes": {"activity": activity, "benchmark_relative_compounding": benchmark_relative_compounding},
+            "recommendation_eligible": found, "r4a_eligible": found,
         }
     except OptimizationError as exc:
         return _invalid_rsi2_mean_reversion(str(exc))

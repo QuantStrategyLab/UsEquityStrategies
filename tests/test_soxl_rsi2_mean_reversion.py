@@ -8,10 +8,12 @@ import subprocess
 
 import pytest
 
+import us_equity_strategies.research.soxl_core_optimization as optimization
 from us_equity_strategies.research.soxl_soxx_offline_input_contract import InputRow, OfflineInput
 from us_equity_strategies.research.soxl_soxx_typed_baseline_result import run_typed_baseline
 from us_equity_strategies.research.soxl_core_optimization import (
     BASELINE_WINDOW_DAYS,
+    DailyPoint,
     RSI2_MEAN_REVERSION_CANDIDATES,
     RSI2_MEAN_REVERSION_PLUGIN_CONTROL,
     RSI2_MEAN_REVERSION_SCHEMA,
@@ -112,7 +114,7 @@ def test_rsi_state_machine_costs_and_exposure_bounds() -> None:
 
 
 def test_validation_selection_tie_and_runner_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
-    metric = {"max_drawdown": -0.1, "expected_shortfall_95": -0.02, "annualized_volatility": 0.2, "cagr": 0.1, "turnover": 1.0}
+    metric = {"max_drawdown": -0.1, "expected_shortfall_95": -0.02, "annualized_volatility": 0.2, "cagr": 0.1, "turnover": 1.0, "activity_observed": True}
     validation = {candidate: [metric] * 3 for candidate in RSI2_MEAN_REVERSION_CANDIDATES}
     assert _select_rsi2_mean_reversion_winner(validation) == "UNSCALED_SMA200"
     monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._terminal_loss_probability", lambda _: 0.0)
@@ -122,6 +124,61 @@ def test_validation_selection_tie_and_runner_isolation(monkeypatch: pytest.Monke
     assert set(result["post_lock_metrics"]) <= {result["locked_winner"], "UNSCALED_SMA200"}
     assert run_soxl_rsi2_mean_reversion(_source(), plugin_control={"state": "ABSENT_DISABLED"})["evidence_valid"] is False
     assert run_soxl_rsi2_mean_reversion(None)["evidence_valid"] is False
+
+
+def test_acceptance_hardening_metrics_and_validation_selection() -> None:
+    assert hasattr(optimization, "_rsi2_acceptance_window_metrics")
+    metric = {
+        "max_drawdown": -0.1,
+        "expected_shortfall_95": -0.02,
+        "annualized_volatility": 9.0,
+        "cagr": 0.1,
+        "turnover": 1.0,
+        "activity_observed": True,
+    }
+    cagr_first = dict(metric, cagr=0.2, max_drawdown=-0.09, expected_shortfall_95=-0.01, annualized_volatility=9.0)
+    lower_drawdown = dict(metric, cagr=0.11, max_drawdown=-0.05, expected_shortfall_95=-0.01, annualized_volatility=0.01)
+    inactive = dict(metric, cagr=0.9, max_drawdown=-0.01, expected_shortfall_95=-0.01, activity_observed=False)
+    validation = {
+        "UNSCALED_SMA200": [metric] * 3,
+        "RSI2_ENTRY_5_EXIT_70": [cagr_first] * 3,
+        "RSI2_ENTRY_10_EXIT_70": [lower_drawdown] * 3,
+        "RSI2_ENTRY_15_EXIT_70": [inactive] * 3,
+    }
+    assert _select_rsi2_mean_reversion_winner(validation) == "RSI2_ENTRY_5_EXIT_70"
+    validation["UNSCALED_SMA200"] = [dict(metric, activity_observed=False)] * 3
+    assert _select_rsi2_mean_reversion_winner(validation) is None
+
+
+def test_acceptance_window_metrics_preserve_carried_and_exit_activity() -> None:
+    points = (
+        DailyPoint("2024-01-01", 100.0, 101.0, 0.0, 1.0, 0.01, False, 0.0, 0.0, 0.0),
+        DailyPoint("2024-01-02", 101.0, 100.0, 100.0, 0.0, -0.01, True, 0.0, 0.0, 10.0),
+    )
+    source = _source()
+    metrics = optimization._rsi2_acceptance_window_metrics(points, tuple(row for row in source.rows if row.symbol == "SOXX"), 200, 201)
+    expected_return = 120.1 / 120.0 - 1.0
+    assert metrics["exposure_session_count"] == 1
+    assert metrics["activity_observed"] is True
+    assert metrics["soxx_close_path_cumulative_return"] == pytest.approx(expected_return)
+    assert metrics["soxx_close_path_cagr"] == pytest.approx((1.0 + expected_return) ** 126.0 - 1.0)
+    all_cash = tuple(DailyPoint(point.date, point.start_equity, point.end_equity, point.cash, 0.0, point.daily_return, False, 0.0, 0.0, 0.0) for point in points)
+    assert optimization._rsi2_acceptance_window_metrics(all_cash, tuple(row for row in source.rows if row.symbol == "SOXX"), 200, 201)["activity_observed"] is False
+
+
+def test_hardened_result_is_fail_closed_and_exposes_acceptance_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._terminal_loss_probability", lambda _: 0.0)
+    result = run_soxl_rsi2_mean_reversion(_source())
+    assert result["acceptance_contract"] == "SOXL_CONSTRAINED_COMPOUNDING_ACCEPTANCE_HARDENING_V1"
+    assert set(result["acceptance_classes"]) == {"activity", "benchmark_relative_compounding"}
+    assert {"exposure_session_count", "activity_observed", "soxx_close_path_cumulative_return", "soxx_close_path_cagr"} <= set(
+        result["validation_metrics_c2_5"]["UNSCALED_SMA200"][0]
+    )
+    assert result["recommendation_eligible"] is False
+    assert result["r4a_eligible"] is False
+    assert result["research_recommendation"] is None
+    assert result["live_adoption_authorized"] is False
+    assert result["size_zero_required"] is True
 
 
 def test_persistence_set_once_strict_readback_and_symlink_rejection(tmp_path: Path) -> None:
