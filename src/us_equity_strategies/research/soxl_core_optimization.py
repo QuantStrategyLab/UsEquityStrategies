@@ -29,6 +29,7 @@ EXPECTED_BLOBS = {
     "soxl_soxx_offline_input_contract.py": "b4a16842c33d39851724fa31993001cd27a4c986",
     "soxl_soxx_typed_baseline_result.py": "aa1b43a9e5ab59b34d41932b3b18653451ffe46b",
     "r3_joint_evidence.py": "118553cada8800dde80c30bbca5927da342b1e85",
+    "soxl_core_optimization.py": None,
 }
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_CONTROL = {"state": "ABSENT", "enabled": False, "optimization_eligible": False}
@@ -329,7 +330,9 @@ def _verify_source_identity(source_commit: str) -> None:
                 timeout=10,
                 text=True,
             )
-            if actual.returncode or actual.stdout.strip() != blob:
+            if actual.returncode or (
+                blob is not None and actual.stdout.strip() != blob
+            ):
                 _fail("SOURCE_BLOB_MISMATCH")
     except (OSError, subprocess.SubprocessError):
         _fail("SOURCE_COMMIT_UNVERIFIABLE")

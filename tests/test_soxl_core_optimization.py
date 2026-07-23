@@ -57,13 +57,20 @@ def _anchors() -> dict[str, object]:
         "caller": "trusted",
         "input": "trusted",
         "result": "trusted",
-        "source_commit": "0d65af0cdaae28d33f63f22e3a716349fdeaf004",
+        "source_commit": "de3a2abf87a76521bd6a525c0b4ad43d275482fa",
         "source_blobs": {
             "soxl_soxx_offline_input_contract.py": "b4a16842c33d39851724fa31993001cd27a4c986",
             "soxl_soxx_typed_baseline_result.py": "aa1b43a9e5ab59b34d41932b3b18653451ffe46b",
             "r3_joint_evidence.py": "118553cada8800dde80c30bbca5927da342b1e85",
+            "soxl_core_optimization.py": None,
         },
     }
+
+
+def _base_anchors() -> dict[str, object]:
+    anchors = _anchors()
+    anchors["source_commit"] = "0d65af0cdaae28d33f63f22e3a716349fdeaf004"
+    return anchors
 
 def test_frozen_candidates_baseline_r3_and_plugin_sentinel() -> None:
     assert CANDIDATE_WINDOWS == (140, 160, 180, 200)
@@ -120,6 +127,13 @@ def test_source_commit_blob_and_trusted_anchor_verification_fail_closed(tmp_path
     paths.readback.write_text(json.dumps(readback), encoding="utf-8")
     with pytest.raises(OptimizationError, match="SOURCE_COMMIT_ANCHOR_MISMATCH"):
         load_persisted_result(tmp_path, trusted_anchors=_anchors())
+
+
+def test_source_commit_without_optimizer_module_is_rejected(tmp_path) -> None:
+    anchors = _base_anchors()
+
+    with pytest.raises(OptimizationError, match="SOURCE_BLOB_MISMATCH"):
+        persist_result(_result(), tmp_path, source_commit=anchors["source_commit"], trusted_anchors=anchors)
 
 
 def test_persistence_is_atomic_and_strict_with_trusted_anchors(tmp_path) -> None:
