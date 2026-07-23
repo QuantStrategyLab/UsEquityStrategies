@@ -467,8 +467,10 @@ def _volatility_window_metrics(points: Sequence[DailyPoint], raw_start: int, raw
             max_drawdown = drawdown
             max_drawdown_peak_index = peak_index
             recovery_sessions = None
-        elif recovery_sessions is None and max_drawdown_peak_index >= 0 and point.end_equity >= selected[max_drawdown_peak_index].end_equity:
-            recovery_sessions = index - max_drawdown_peak_index
+        elif recovery_sessions is None:
+            recovery_peak = start_equity if max_drawdown_peak_index == -1 else selected[max_drawdown_peak_index].end_equity
+            if point.end_equity >= recovery_peak:
+                recovery_sessions = index - max_drawdown_peak_index
     unrecovered = 0 if recovery_sessions is not None else count - 1 - max_drawdown_peak_index
     metrics["cagr"] = (end_equity / start_equity) ** (252.0 / count) - 1.0
     metrics["max_drawdown_recovery_sessions"] = recovery_sessions

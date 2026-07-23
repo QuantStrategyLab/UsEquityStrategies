@@ -14,6 +14,7 @@ from us_equity_strategies.research.soxl_soxx_typed_baseline_result import run_ty
 from us_equity_strategies.research.soxl_core_optimization import (
     BASELINE_WINDOW_DAYS,
     CANDIDATE_WINDOWS,
+    DailyPoint,
     PLUGIN_CONTROL,
     SCENARIOS,
     OptimizationError,
@@ -21,6 +22,7 @@ from us_equity_strategies.research.soxl_core_optimization import (
     _relative_volatility_multiplier,
     _select_volatility_scaling_winner,
     _select_winner,
+    _volatility_window_metrics,
     load_persisted_result,
     persist_result,
     run_soxl_core_optimization,
@@ -132,6 +134,17 @@ def test_relative_volatility_formula_zero_cases_and_validation_ties() -> None:
     metrics = [{"max_drawdown": -0.1, "expected_shortfall_95": -0.02, "annualized_volatility": 0.3, "cagr": 0.1, "turnover": 1.0}] * 3
     validation = {candidate_id: metrics for candidate_id in VOLATILITY_SCALING_CANDIDATES}
     assert _select_volatility_scaling_winner(validation) == "UNSCALED_SMA200"
+
+
+def test_volatility_window_recovers_to_starting_peak_after_first_day_drawdown() -> None:
+    points = (
+        DailyPoint("2024-01-01", 100.0, 90.0, 90.0, 0.0, -0.1, False, 0.0, 0.0, 0.0),
+        DailyPoint("2024-01-02", 90.0, 95.0, 95.0, 0.0, 95.0 / 90.0 - 1.0, False, 0.0, 0.0, 0.0),
+        DailyPoint("2024-01-03", 95.0, 100.0, 100.0, 0.0, 100.0 / 95.0 - 1.0, False, 0.0, 0.0, 0.0),
+    )
+    metrics = _volatility_window_metrics(points, BASELINE_WINDOW_DAYS, BASELINE_WINDOW_DAYS + 2)
+    assert metrics["max_drawdown_recovery_sessions"] == 3
+    assert metrics["max_drawdown_unrecovered_sessions"] == 0
 
 
 def test_volatility_scaling_result_is_research_only_and_persists_with_strict_readback(tmp_path: Path, monkeypatch) -> None:
