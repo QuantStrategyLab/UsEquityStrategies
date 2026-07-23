@@ -157,13 +157,41 @@ def test_acceptance_window_metrics_preserve_carried_and_exit_activity() -> None:
     )
     source = _source()
     metrics = optimization._rsi2_acceptance_window_metrics(points, tuple(row for row in source.rows if row.symbol == "SOXX"), 200, 201)
-    expected_return = 120.1 / 120.0 - 1.0
+    expected_return = 120.1 / 119.9 - 1.0
     assert metrics["exposure_session_count"] == 1
     assert metrics["activity_observed"] is True
     assert metrics["soxx_close_path_cumulative_return"] == pytest.approx(expected_return)
     assert metrics["soxx_close_path_cagr"] == pytest.approx((1.0 + expected_return) ** 126.0 - 1.0)
     all_cash = tuple(DailyPoint(point.date, point.start_equity, point.end_equity, point.cash, 0.0, point.daily_return, False, 0.0, 0.0, 0.0) for point in points)
     assert optimization._rsi2_acceptance_window_metrics(all_cash, tuple(row for row in source.rows if row.symbol == "SOXX"), 200, 201)["activity_observed"] is False
+
+
+def test_acceptance_rejections_are_reported_in_evidence_gates_and_failure_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    selector = optimization._select_rsi2_mean_reversion_winner
+    monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._select_rsi2_mean_reversion_winner", lambda _: None)
+    activity_rejected = run_soxl_rsi2_mean_reversion(_source())
+    assert activity_rejected["evidence_gates"] == {"selection_windows_all_active": False}
+    assert activity_rejected["failure_codes"] == ["NO_QUALIFYING_VALIDATION_CANDIDATE", "SELECTION_WINDOWS_NOT_ALL_ACTIVE"]
+
+    original = optimization._rsi2_acceptance_window_metrics
+    monkeypatch.setattr(optimization, "_select_rsi2_mean_reversion_winner", selector)
+
+    def benchmark_rejected(*args: object) -> dict[str, float | int | None | str | bool]:
+        metrics = original(*args)  # type: ignore[arg-type]
+        if args[3] == 627:
+            metrics["soxx_close_path_cumulative_return"] = 100.0
+            metrics["soxx_close_path_cagr"] = 100.0
+        return metrics
+
+    monkeypatch.setattr(optimization, "_rsi2_acceptance_window_metrics", benchmark_rejected)
+    result = run_soxl_rsi2_mean_reversion(_source())
+    for key in (
+        "final_holdout_drawdown_no_worse_than_soxx",
+        "final_holdout_cumulative_return_strictly_greater_than_soxx",
+        "final_holdout_cagr_strictly_greater_than_soxx",
+    ):
+        assert key in result["evidence_gates"]
+        assert (key.upper() in result["failure_codes"]) is (result["evidence_gates"][key] is False)
 
 
 def test_hardened_result_is_fail_closed_and_exposes_acceptance_contract(monkeypatch: pytest.MonkeyPatch) -> None:
