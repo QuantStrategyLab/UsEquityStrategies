@@ -185,3 +185,17 @@ def test_precreated_symlink_never_overwrites_external_target(tmp_path: Path) -> 
         _persist({"schema": "fixture"}, output, repo, head, blobs)
     assert external.read_text() == "unchanged"
     assert not (output / "soxl_core_optimization_v1.sha256").exists()
+
+
+def test_symlinked_output_root_ancestor_cannot_redirect_publication(tmp_path: Path) -> None:
+    repo, head, blobs = _provenance_repo(tmp_path)
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (trusted / "link").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(OptimizationError, match="OUTPUT_ROOT_INVALID"):
+        _persist({"schema": "fixture"}, trusted / "link" / "run", repo, head, blobs)
+
+    assert not (external / "run").exists()

@@ -408,13 +408,27 @@ def _read_regular(path: Path) -> bytes | None:
         _fail("OUTPUT_PATH_INVALID")
 
 
-def _ensure_output_root(root: Path) -> None:
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        if root.is_symlink() or not root.is_dir():
-            _fail("OUTPUT_ROOT_INVALID")
-    except OSError:
+def _ensure_output_root(root: Path) -> Path:
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    if ".." in root.parts:
         _fail("OUTPUT_ROOT_INVALID")
+    current = Path(root.anchor)
+    for component in root.parts[1:]:
+        current /= component
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            try:
+                current.mkdir()
+                mode = current.lstat().st_mode
+            except OSError:
+                _fail("OUTPUT_ROOT_INVALID")
+        except OSError:
+            _fail("OUTPUT_ROOT_INVALID")
+        if not stat.S_ISDIR(mode):
+            _fail("OUTPUT_ROOT_INVALID")
+    return current
 
 
 def _write_set_once(root: Path, contents: dict[Path, bytes]) -> None:
@@ -466,7 +480,7 @@ def persist_result(result: dict[str, Any], output_root: str | Path, *, source_co
     root = Path(output_root)
     repo = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[3]
     blobs = _verify_provenance(repo, source_commit, source_blobs)
-    _ensure_output_root(root)
+    root = _ensure_output_root(root)
     paths = _paths(root)
     bundle = _canonical_bytes(_wire(result))
     bundle_sha = hashlib.sha256(bundle).hexdigest()
