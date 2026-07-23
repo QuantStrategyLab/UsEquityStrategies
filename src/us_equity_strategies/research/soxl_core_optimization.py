@@ -20,10 +20,19 @@ from .soxl_soxx_typed_baseline_result import run_typed_baseline
 
 SCHEMA = "qsl.research.soxl_core_optimization.v1"
 READBACK_SCHEMA = "qsl.research.soxl_core_optimization_readback.v1"
+VOLATILITY_SCALING_SCHEMA = "qsl.research.soxl_volatility_scaling.v1"
+VOLATILITY_SCALING_READBACK_SCHEMA = "qsl.research.soxl_volatility_scaling_readback.v1"
 CANDIDATE_WINDOWS = (140, 160, 180, 200)
 BASELINE_WINDOW_DAYS = 200
 INITIAL_EQUITY = 100_000.0
 PLUGIN_CONTROL = {"state": "ABSENT", "enabled": False, "optimization_eligible": False}
+VOLATILITY_SCALING_PLUGIN_CONTROL = {"state": "ABSENT_DISABLED", "enabled": False, "optimization_eligible": False}
+VOLATILITY_SCALING_CANDIDATES = (
+    "UNSCALED_SMA200",
+    "REL_VOL_SQRT_20",
+    "REL_VOL_LINEAR_20",
+    "REL_VOL_SQUARED_20",
+)
 MC_SEED_HEX = "08a73485a70548df5262ad66ac86e02c0c5cc6255469156832aec2e86b501e2b"
 MC_TRIALS = 10_000
 MC_PATH_LENGTH = 126
@@ -186,6 +195,85 @@ def simulate_candidate(source: OfflineInput, window_days: int, scenario: CostSce
             quantity = 0.0
         end_equity = cash + quantity * execution.close
         if not math.isfinite(end_equity) or end_equity <= 0.0:
+            _fail("SIMULATION_EQUITY_INVALID")
+        points.append(DailyPoint(execution.as_of, previous_equity, end_equity, cash, quantity, end_equity / previous_equity - 1.0, transition, commission, slippage, gross_notional))
+        previous_equity = end_equity
+    return tuple(points)
+
+
+def _relative_volatility_multiplier(soxl: Sequence[InputRow], execution_index: int, candidate_id: str) -> float:
+    if candidate_id not in VOLATILITY_SCALING_CANDIDATES or execution_index < 40:
+        _fail("VOLATILITY_SCALING_CONTRACT_INVALID")
+    if candidate_id == "UNSCALED_SMA200":
+        return 1.0
+
+    def annualized_sample_volatility(start: int, end: int) -> float:
+        returns = [soxl[index].close / soxl[index - 1].close - 1.0 for index in range(start, end + 1)]
+        mean = math.fsum(returns) / len(returns)
+        return math.sqrt(math.fsum((value - mean) ** 2 for value in returns) / (len(returns) - 1)) * math.sqrt(252.0)
+
+    recent_vol = annualized_sample_volatility(execution_index - 20, execution_index - 1)
+    prior_vol = annualized_sample_volatility(execution_index - 40, execution_index - 21)
+    if recent_vol == 0.0:
+        quotient = 1.0
+    elif prior_vol == 0.0:
+        quotient = 0.0
+    else:
+        quotient = min(1.0, prior_vol / recent_vol)
+    if candidate_id == "REL_VOL_SQRT_20":
+        return math.sqrt(quotient)
+    if candidate_id == "REL_VOL_LINEAR_20":
+        return quotient
+    return quotient ** 2
+
+
+def simulate_volatility_scaling_candidate(source: OfflineInput, candidate_id: str, scenario: CostScenario) -> tuple[DailyPoint, ...]:
+    """Simulate one frozen lagged relative-volatility overlay candidate."""
+    if candidate_id not in VOLATILITY_SCALING_CANDIDATES or type(scenario) is not CostScenario or scenario not in SCENARIOS:
+        _fail("VOLATILITY_SCALING_CONTRACT_INVALID")
+    if candidate_id == "UNSCALED_SMA200":
+        return simulate_candidate(source, BASELINE_WINDOW_DAYS, scenario)
+    soxx, soxl = _typed_rows(source)
+    cash = INITIAL_EQUITY
+    quantity = 0.0
+    previous_equity = INITIAL_EQUITY
+    commission_rate = scenario.commission_bps / 10_000.0
+    slippage_rate = scenario.slippage_bps / 10_000.0
+    points: list[DailyPoint] = []
+    for execution_index in range(BASELINE_WINDOW_DAYS, len(soxx)):
+        signal_window = soxx[execution_index - BASELINE_WINDOW_DAYS:execution_index]
+        risk_on = soxx[execution_index - 1].close >= math.fsum(row.close for row in signal_window) / BASELINE_WINDOW_DAYS
+        execution = soxl[execution_index]
+        opening_equity = cash + quantity * execution.open
+        if not math.isfinite(opening_equity) or opening_equity <= 0.0:
+            _fail("SIMULATION_EQUITY_INVALID")
+        multiplier = _relative_volatility_multiplier(soxl, execution_index, candidate_id) if risk_on else 0.0
+        target_notional = opening_equity * multiplier
+        held_notional = quantity * execution.open
+        commission = slippage = gross_notional = 0.0
+        transition = target_notional != held_notional
+        if target_notional > held_notional:
+            traded_quantity = (target_notional - held_notional) / (execution.open * (1.0 + slippage_rate) * (1.0 + commission_rate))
+            fill = execution.open * (1.0 + slippage_rate)
+            commission = traded_quantity * fill * commission_rate
+            slippage = traded_quantity * (fill - execution.open)
+            cash -= traded_quantity * fill + commission
+            quantity += traded_quantity
+            gross_notional = traded_quantity * execution.open
+        elif target_notional < held_notional:
+            traded_quantity = (held_notional - target_notional) / execution.open
+            fill = execution.open * (1.0 - slippage_rate)
+            commission = traded_quantity * fill * commission_rate
+            slippage = traded_quantity * (execution.open - fill)
+            cash += traded_quantity * fill - commission
+            quantity -= traded_quantity
+            gross_notional = traded_quantity * execution.open
+        if -1e-9 * opening_equity < cash < 0.0:
+            cash = 0.0
+        if -1e-12 < quantity < 0.0:
+            quantity = 0.0
+        end_equity = cash + quantity * execution.close
+        if not math.isfinite(end_equity) or end_equity <= 0.0 or cash < 0.0 or quantity < 0.0:
             _fail("SIMULATION_EQUITY_INVALID")
         points.append(DailyPoint(execution.as_of, previous_equity, end_equity, cash, quantity, end_equity / previous_equity - 1.0, transition, commission, slippage, gross_notional))
         previous_equity = end_equity
@@ -360,6 +448,155 @@ def run_soxl_core_optimization(source: object, *, plugin_control: object = PLUGI
         return _invalid(str(exc))
 
 
+def _volatility_window_metrics(points: Sequence[DailyPoint], raw_start: int, raw_end: int) -> dict[str, float | int | None | str]:
+    metrics = dict(_window_metrics(points, raw_start, raw_end))
+    selected = points[raw_start - BASELINE_WINDOW_DAYS:raw_end - BASELINE_WINDOW_DAYS + 1]
+    count = len(selected)
+    start_equity, end_equity = selected[0].start_equity, selected[-1].end_equity
+    peak = start_equity
+    peak_index = -1
+    max_drawdown = 0.0
+    max_drawdown_peak_index = -1
+    recovery_sessions: int | None = 0
+    for index, point in enumerate(selected):
+        if point.end_equity >= peak:
+            peak = point.end_equity
+            peak_index = index
+        drawdown = point.end_equity / peak - 1.0
+        if drawdown < max_drawdown:
+            max_drawdown = drawdown
+            max_drawdown_peak_index = peak_index
+            recovery_sessions = None
+        elif recovery_sessions is None and max_drawdown_peak_index >= 0 and point.end_equity >= selected[max_drawdown_peak_index].end_equity:
+            recovery_sessions = index - max_drawdown_peak_index
+    unrecovered = 0 if recovery_sessions is not None else count - 1 - max_drawdown_peak_index
+    metrics["cagr"] = (end_equity / start_equity) ** (252.0 / count) - 1.0
+    metrics["max_drawdown_recovery_sessions"] = recovery_sessions
+    metrics["max_drawdown_unrecovered_sessions"] = unrecovered
+    return metrics
+
+
+def _soxx_drawdown(soxx: Sequence[InputRow], raw_start: int, raw_end: int) -> float:
+    selected = soxx[raw_start:raw_end + 1]
+    if len(selected) != raw_end - raw_start + 1:
+        _fail("WINDOW_BOUNDARY_INVALID")
+    peak = selected[0].close
+    drawdown = 0.0
+    for row in selected:
+        peak = max(peak, row.close)
+        drawdown = min(drawdown, row.close / peak - 1.0)
+    return drawdown
+
+
+def _volatility_metrics_with_soxx(points: Sequence[DailyPoint], soxx: Sequence[InputRow], raw_start: int, raw_end: int) -> dict[str, float | int | None | str | bool]:
+    metrics = _volatility_window_metrics(points, raw_start, raw_end)
+    soxx_drawdown = _soxx_drawdown(soxx, raw_start, raw_end)
+    metrics["soxx_close_path_max_drawdown"] = soxx_drawdown
+    metrics["matches_or_beats_soxx_drawdown"] = abs(float(metrics["max_drawdown"])) <= abs(soxx_drawdown)
+    return metrics
+
+
+def _select_volatility_scaling_winner(validation: dict[str, Sequence[dict[str, float | int | None | str]]]) -> str:
+    if tuple(validation) != VOLATILITY_SCALING_CANDIDATES:
+        _fail("VALIDATION_METRICS_INVALID")
+    ranked: list[tuple[tuple[float, float, float, float, float, int], str]] = []
+    for candidate_index, candidate_id in enumerate(VOLATILITY_SCALING_CANDIDATES):
+        metrics = validation[candidate_id]
+        if len(metrics) != 3:
+            _fail("VALIDATION_METRICS_INVALID")
+        drawdown = _median([abs(value) for value in _metric_values(metrics, "max_drawdown")])
+        expected_shortfall = _median(_metric_values(metrics, "expected_shortfall_95"))
+        volatility = _median(_metric_values(metrics, "annualized_volatility"))
+        cagr = _median(_metric_values(metrics, "cagr"))
+        turnover = _median(_metric_values(metrics, "turnover"))
+        ranked.append(((drawdown, -expected_shortfall, volatility, -cagr, turnover, candidate_index), candidate_id))
+    return min(ranked)[1]
+
+
+def _all_strictly_better(candidate: Sequence[dict[str, float | int | None | str]], baseline: Sequence[dict[str, float | int | None | str]]) -> bool:
+    return (
+        abs(_median(_metric_values(candidate, "max_drawdown"))) < abs(_median(_metric_values(baseline, "max_drawdown")))
+        and _median(_metric_values(candidate, "expected_shortfall_95")) > _median(_metric_values(baseline, "expected_shortfall_95"))
+    )
+
+
+def _invalid_volatility_scaling(code: str) -> dict[str, Any]:
+    return {
+        "schema": VOLATILITY_SCALING_SCHEMA, "evidence_valid": False, "failure_codes": [code], "outcome": "NO_IMPROVEMENT",
+        "research_recommendation": None, "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
+        "plugin_control": dict(VOLATILITY_SCALING_PLUGIN_CONTROL),
+    }
+
+
+def run_soxl_volatility_scaling(source: object, *, plugin_control: object = VOLATILITY_SCALING_PLUGIN_CONTROL) -> dict[str, Any]:
+    """Evaluate the closed, research-only lagged relative-volatility overlay."""
+    if plugin_control != VOLATILITY_SCALING_PLUGIN_CONTROL:
+        return _invalid_volatility_scaling("PLUGIN_CONTROL_NOT_ABSENT_DISABLED")
+    try:
+        soxx, _ = _typed_rows(source)
+        simulations = {
+            candidate_id: {scenario.scenario_id: simulate_volatility_scaling_candidate(source, candidate_id, scenario) for scenario in SCENARIOS}
+            for candidate_id in VOLATILITY_SCALING_CANDIDATES
+        }
+        baseline = run_typed_baseline(source)
+        zero = simulations["UNSCALED_SMA200"]["ZERO"]
+        if [(item.date, item.end_equity.hex(), item.cash.hex(), item.quantity.hex()) for item in zero] != [(item.date, item.equity.hex(), item.cash.hex(), item.soxl_quantity.hex()) for item in baseline.equity_curve]:
+            _fail("SMA200_ZERO_PARITY_FAILED")
+        validation = {
+            candidate_id: [_volatility_metrics_with_soxx(simulations[candidate_id]["C2_5"], soxx, *WINDOWS[name]) for name in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")]
+            for candidate_id in VOLATILITY_SCALING_CANDIDATES
+        }
+        locked_winner = _select_volatility_scaling_winner(validation)
+        exposed = tuple(dict.fromkeys((locked_winner, "UNSCALED_SMA200")))
+        post_lock = {
+            candidate_id: {
+                name: {scenario.scenario_id: _volatility_metrics_with_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS[name]) for scenario in SCENARIOS}
+                for name in ("F1_TEST", "F2_TEST", "F3_TEST", "FINAL_HOLDOUT")
+            }
+            for candidate_id in exposed
+        }
+        selected_post = post_lock[locked_winner]
+        baseline_post = post_lock["UNSCALED_SMA200"]
+        selected_validation = validation[locked_winner]
+        baseline_validation = validation["UNSCALED_SMA200"]
+        wfa_candidate = [selected_post[name]["C2_5"] for name in ("F1_TEST", "F2_TEST", "F3_TEST")]
+        wfa_baseline = [baseline_post[name]["C2_5"] for name in ("F1_TEST", "F2_TEST", "F3_TEST")]
+        final_c2 = selected_post["FINAL_HOLDOUT"]["C2_5"]
+        baseline_final_c2 = baseline_post["FINAL_HOLDOUT"]["C2_5"]
+        final_stress = selected_post["FINAL_HOLDOUT"]["C5_10_STRESS"]
+        baseline_final_stress = baseline_post["FINAL_HOLDOUT"]["C5_10_STRESS"]
+        final_returns = tuple(point.daily_return for point in simulations[locked_winner]["C2_5"][WINDOWS["FINAL_HOLDOUT"][0] - BASELINE_WINDOW_DAYS:])
+        loss_probability = _terminal_loss_probability(final_returns)
+        eligibility, cost_failures = _eligibility(tuple(float(item["cumulative_return"]) for item in wfa_candidate), float(final_c2["cumulative_return"]), float(final_stress["cumulative_return"]), loss_probability)
+        gates = {
+            "validation_medians_strictly_improve_drawdown_and_es95": _all_strictly_better(selected_validation, baseline_validation),
+            "wfa_tests_at_least_two_strictly_improve_drawdown_and_es95": sum(
+                abs(float(candidate["max_drawdown"])) < abs(float(reference["max_drawdown"])) and float(candidate["expected_shortfall_95"]) > float(reference["expected_shortfall_95"])
+                for candidate, reference in zip(wfa_candidate, wfa_baseline, strict=True)
+            ) >= 2,
+            "final_c2_5_strictly_improves_drawdown_and_es95": abs(float(final_c2["max_drawdown"])) < abs(float(baseline_final_c2["max_drawdown"])) and float(final_c2["expected_shortfall_95"]) > float(baseline_final_c2["expected_shortfall_95"]),
+            "cost_robustness": eligibility == "PASS",
+            "final_stress_strictly_improves_drawdown_and_es95": abs(float(final_stress["max_drawdown"])) < abs(float(baseline_final_stress["max_drawdown"])) and float(final_stress["expected_shortfall_95"]) > float(baseline_final_stress["expected_shortfall_95"]),
+            "no_lookahead": True,
+        }
+        found = locked_winner != "UNSCALED_SMA200" and all(gates.values())
+        holdout_soxx_drawdown = _soxx_drawdown(soxx, *WINDOWS["FINAL_HOLDOUT"])
+        return {
+            "schema": VOLATILITY_SCALING_SCHEMA, "evidence_valid": True, "failure_codes": list(cost_failures),
+            "outcome": "CHARACTERIZATION_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT",
+            "research_recommendation": {"candidate_id": locked_winner} if found else None,
+            "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
+            "plugin_control": dict(VOLATILITY_SCALING_PLUGIN_CONTROL), "input_digest": source.input_digest,
+            "baseline": "UNSCALED_SMA200", "candidates": list(VOLATILITY_SCALING_CANDIDATES),
+            "lookback_rule": {"sessions": 20, "lagged_close_only": True, "risk_off_multiplier": 0.0, "multiplier_bounds": [0.0, 1.0]},
+            "validation_metrics_c2_5": validation, "locked_winner": locked_winner, "post_lock_metrics": post_lock,
+            "evidence_gates": gates,
+            "soxx_drawdown_comparison": {"final_holdout_max_drawdown": holdout_soxx_drawdown, "matches_or_beats_soxx_drawdown": abs(float(final_c2["max_drawdown"])) <= abs(holdout_soxx_drawdown)},
+        }
+    except OptimizationError as exc:
+        return _invalid_volatility_scaling(str(exc))
+
+
 def _paths(root: Path) -> PersistedPaths:
     return PersistedPaths(root / "soxl_core_optimization_v1.json", root / "soxl_core_optimization_v1.sha256", root / "soxl_core_optimization_v1.readback.json")
 
@@ -523,6 +760,52 @@ def load_persisted_result(output_root: str | Path) -> dict[str, Any]:
     readback = _strict_json(readback_raw)
     required = {"schema", "bundle_sha256", "bundle_bytes", "source_commit", "source_blobs", "result_digest"}
     if set(readback) != required or readback["schema"] != READBACK_SCHEMA or readback["bundle_sha256"] != digest or readback["bundle_bytes"] != len(bundle) or readback["result_digest"] != _digest(parsed) or type(readback["source_commit"]) is not str or type(readback["source_blobs"]) is not dict or set(readback["source_blobs"]) != set(_REQUIRED_SOURCE_PATHS):
+        _fail("READBACK_MISMATCH")
+    if _canonical_bytes(parsed) != bundle:
+        _fail("BUNDLE_NOT_CANONICAL")
+    return parsed
+
+
+def _volatility_scaling_paths(root: Path) -> PersistedPaths:
+    return PersistedPaths(root / "soxl_volatility_scaling_v1.json", root / "soxl_volatility_scaling_v1.sha256", root / "soxl_volatility_scaling_v1.readback.json")
+
+
+def persist_volatility_scaling_result(result: dict[str, Any], output_root: str | Path, *, source_commit: str, source_blobs: dict[str, str], repo_root: str | Path | None = None) -> PersistedPaths:
+    """Persist one verified volatility-scaling result using the existing set-once protocol."""
+    if type(result) is not dict or result.get("schema") != VOLATILITY_SCALING_SCHEMA:
+        _fail("PERSIST_INPUT_INVALID")
+    root = Path(output_root)
+    repo = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[3]
+    blobs = _verify_provenance(repo, source_commit, source_blobs)
+    root = _ensure_output_root(root)
+    paths = _volatility_scaling_paths(root)
+    bundle = _canonical_bytes(_wire(result))
+    bundle_sha = hashlib.sha256(bundle).hexdigest()
+    readback = {
+        "schema": VOLATILITY_SCALING_READBACK_SCHEMA, "bundle_sha256": bundle_sha, "bundle_bytes": len(bundle),
+        "source_commit": source_commit, "source_blobs": blobs, "result_digest": _digest(_wire(result)),
+    }
+    _write_set_once(paths.bundle.parent, {paths.bundle: bundle, paths.sidecar: (bundle_sha + "\n").encode("ascii"), paths.readback: _canonical_bytes(readback)})
+    if load_persisted_volatility_scaling_result(root) != _wire(result):
+        _fail("READBACK_MISMATCH")
+    return paths
+
+
+def load_persisted_volatility_scaling_result(output_root: str | Path) -> dict[str, Any]:
+    root = Path(output_root)
+    paths = _volatility_scaling_paths(root)
+    bundle = _read_regular(paths.bundle)
+    sidecar = _read_regular(paths.sidecar)
+    readback_raw = _read_regular(paths.readback)
+    if bundle is None or sidecar is None or readback_raw is None:
+        _fail("PERSISTED_FILE_MISSING")
+    digest = hashlib.sha256(bundle).hexdigest()
+    if sidecar != (digest + "\n").encode("ascii"):
+        _fail("SIDECAR_MISMATCH")
+    parsed = _strict_json(bundle)
+    readback = _strict_json(readback_raw)
+    required = {"schema", "bundle_sha256", "bundle_bytes", "source_commit", "source_blobs", "result_digest"}
+    if parsed.get("schema") != VOLATILITY_SCALING_SCHEMA or set(readback) != required or readback["schema"] != VOLATILITY_SCALING_READBACK_SCHEMA or readback["bundle_sha256"] != digest or readback["bundle_bytes"] != len(bundle) or readback["result_digest"] != _digest(parsed) or type(readback["source_commit"]) is not str or type(readback["source_blobs"]) is not dict or set(readback["source_blobs"]) != set(_REQUIRED_SOURCE_PATHS):
         _fail("READBACK_MISMATCH")
     if _canonical_bytes(parsed) != bundle:
         _fail("BUNDLE_NOT_CANONICAL")

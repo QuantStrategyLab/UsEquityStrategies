@@ -18,11 +18,19 @@ from us_equity_strategies.research.soxl_core_optimization import (
     SCENARIOS,
     OptimizationError,
     _eligibility,
+    _relative_volatility_multiplier,
+    _select_volatility_scaling_winner,
     _select_winner,
     load_persisted_result,
     persist_result,
     run_soxl_core_optimization,
     simulate_candidate,
+    VOLATILITY_SCALING_CANDIDATES,
+    VOLATILITY_SCALING_PLUGIN_CONTROL,
+    load_persisted_volatility_scaling_result,
+    persist_volatility_scaling_result,
+    run_soxl_volatility_scaling,
+    simulate_volatility_scaling_candidate,
 )
 
 
@@ -88,6 +96,64 @@ def test_frozen_candidates_timing_parity_and_plugin_contract() -> None:
         (point.date, point.equity.hex(), point.cash.hex(), point.soxl_quantity.hex()) for point in baseline.equity_curve
     ]
     assert points[0].date == baseline.equity_curve[0].date
+
+
+def test_volatility_scaling_candidates_are_lagged_bounded_and_unscaled_is_exact_parity() -> None:
+    source = _source()
+    assert VOLATILITY_SCALING_CANDIDATES == (
+        "UNSCALED_SMA200",
+        "REL_VOL_SQRT_20",
+        "REL_VOL_LINEAR_20",
+        "REL_VOL_SQUARED_20",
+    )
+    for scenario in SCENARIOS:
+        unscaled = simulate_volatility_scaling_candidate(source, "UNSCALED_SMA200", scenario)
+        baseline = simulate_candidate(source, 200, scenario)
+        assert [(point.date, point.end_equity.hex(), point.cash.hex(), point.quantity.hex()) for point in unscaled] == [
+            (point.date, point.end_equity.hex(), point.cash.hex(), point.quantity.hex()) for point in baseline
+        ]
+        for candidate_id in VOLATILITY_SCALING_CANDIDATES[1:]:
+            points = simulate_volatility_scaling_candidate(source, candidate_id, scenario)
+            assert len(points) == len(baseline)
+            assert all(point.quantity >= 0.0 and point.cash >= 0.0 for point in points)
+
+
+def test_relative_volatility_formula_zero_cases_and_validation_ties() -> None:
+    flat = tuple(InputRow("SOXL", f"2024-01-{index + 1:02d}", 100.0, 100.0, 100.0, 100.0, 1.0) for index in range(42))
+    assert _relative_volatility_multiplier(flat, 41, "REL_VOL_LINEAR_20") == 1.0
+    volatile = tuple(
+        InputRow("SOXL", f"2024-02-{index + 1:02d}", 100.0, 100.0, 100.0, 100.0 if index <= 20 else 100.0 + (index % 2), 1.0)
+        for index in range(42)
+    )
+    assert _relative_volatility_multiplier(volatile, 41, "REL_VOL_LINEAR_20") == 0.0
+    for candidate_id in VOLATILITY_SCALING_CANDIDATES[1:]:
+        assert 0.0 <= _relative_volatility_multiplier(volatile, 41, candidate_id) <= 1.0
+
+    metrics = [{"max_drawdown": -0.1, "expected_shortfall_95": -0.02, "annualized_volatility": 0.3, "cagr": 0.1, "turnover": 1.0}] * 3
+    validation = {candidate_id: metrics for candidate_id in VOLATILITY_SCALING_CANDIDATES}
+    assert _select_volatility_scaling_winner(validation) == "UNSCALED_SMA200"
+
+
+def test_volatility_scaling_result_is_research_only_and_persists_with_strict_readback(tmp_path: Path, monkeypatch) -> None:
+    source = _source()
+    monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._terminal_loss_probability", lambda _: 0.0)
+    result = run_soxl_volatility_scaling(source)
+    assert result["schema"] == "qsl.research.soxl_volatility_scaling.v1"
+    assert result["evidence_valid"] is True
+    assert result["research_only"] is True
+    assert result["live_adoption_authorized"] is False
+    assert result["size_zero_required"] is True
+    assert result["plugin_control"] == VOLATILITY_SCALING_PLUGIN_CONTROL
+    assert set(result) >= {
+        "baseline", "candidates", "lookback_rule", "validation_metrics_c2_5", "locked_winner",
+        "post_lock_metrics", "evidence_gates", "soxx_drawdown_comparison",
+    }
+    assert run_soxl_volatility_scaling(source, plugin_control={"state": "ABSENT_DISABLED"})["evidence_valid"] is False
+
+    repo, head, blobs = _provenance_repo(tmp_path)
+    output = tmp_path / "out"
+    persist_volatility_scaling_result(result, output, source_commit=head, source_blobs=blobs, repo_root=repo)
+    assert load_persisted_volatility_scaling_result(output) == json.loads((output / "soxl_volatility_scaling_v1.json").read_bytes())
 
 
 def test_validation_only_selection_and_strict_tie_breaks() -> None:
