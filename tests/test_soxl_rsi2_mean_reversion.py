@@ -12,12 +12,15 @@ from us_equity_strategies.research.soxl_soxx_offline_input_contract import Input
 from us_equity_strategies.research.soxl_soxx_typed_baseline_result import run_typed_baseline
 from us_equity_strategies.research.soxl_core_optimization import (
     BASELINE_WINDOW_DAYS,
+    DailyPoint,
     RSI2_MEAN_REVERSION_CANDIDATES,
     RSI2_MEAN_REVERSION_PLUGIN_CONTROL,
     RSI2_MEAN_REVERSION_SCHEMA,
     SCENARIOS,
     OptimizationError,
     _rsi2_values,
+    _rsi2_metrics_with_unified_soxx,
+    _rsi2_wfa_qualifying_count,
     _select_rsi2_mean_reversion_winner,
     load_persisted_rsi2_mean_reversion_result,
     persist_rsi2_mean_reversion_result,
@@ -112,7 +115,7 @@ def test_rsi_state_machine_costs_and_exposure_bounds() -> None:
 
 
 def test_validation_selection_tie_and_runner_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
-    metric = {"max_drawdown": -0.1, "expected_shortfall_95": -0.02, "annualized_volatility": 0.2, "cagr": 0.1, "turnover": 1.0}
+    metric = {"max_drawdown": -0.1, "expected_shortfall_95": -0.02, "annualized_volatility": 0.2, "cagr": 0.1, "turnover": 1.0, "activity_observed": True}
     validation = {candidate: [metric] * 3 for candidate in RSI2_MEAN_REVERSION_CANDIDATES}
     assert _select_rsi2_mean_reversion_winner(validation) == "UNSCALED_SMA200"
     monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._terminal_loss_probability", lambda _: 0.0)
@@ -120,6 +123,9 @@ def test_validation_selection_tie_and_runner_isolation(monkeypatch: pytest.Monke
     assert result["schema"] == RSI2_MEAN_REVERSION_SCHEMA
     assert result["research_only"] is True and result["live_adoption_authorized"] is False and result["size_zero_required"] is True
     assert set(result["post_lock_metrics"]) <= {result["locked_winner"], "UNSCALED_SMA200"}
+    assert result["outcome"] == "NO_IMPROVEMENT"
+    assert result["acceptance_classes"]["benchmark_relative_compounding"]["eligible"] is False
+    assert "FINAL_HOLDOUT_BENCHMARK_RELATIVE_COMPOUNDING" in result["failure_codes"]
     assert run_soxl_rsi2_mean_reversion(_source(), plugin_control={"state": "ABSENT_DISABLED"})["evidence_valid"] is False
     assert run_soxl_rsi2_mean_reversion(None)["evidence_valid"] is False
 
@@ -142,3 +148,75 @@ def test_persistence_set_once_strict_readback_and_symlink_rejection(tmp_path: Pa
     (linked / "soxl_rsi2_mean_reversion_v1.json").symlink_to(tmp_path / "outside")
     with pytest.raises(OptimizationError, match="OUTPUT_PATH_INVALID"):
         persist_rsi2_mean_reversion_result(result, linked, source_commit=head, source_blobs=blobs, repo_root=repo)
+
+
+def test_rsi2_acceptance_soxx_path_includes_prior_close_for_return_cagr_and_drawdown() -> None:
+    points = (
+        DailyPoint("2024-01-01", 100.0, 101.0, 0.0, 1.0, 0.01, False, 0.0, 0.0, 0.0),
+        DailyPoint("2024-01-02", 101.0, 102.0, 0.0, 1.0, 1.0 / 101.0, False, 0.0, 0.0, 0.0),
+    )
+    soxx = tuple(InputRow("SOXX", f"2024-01-{index + 1:02d}", close, close, close, close, 1.0) for index, close in enumerate([100.0] * 199 + [120.0, 110.0, 115.0]))
+
+    metrics = _rsi2_metrics_with_unified_soxx(points, soxx, 200, 201)
+
+    assert metrics["soxx_close_path_cumulative_return"] == pytest.approx(115.0 / 120.0 - 1.0)
+    assert metrics["soxx_close_path_cagr"] == pytest.approx((115.0 / 120.0) ** (252.0 / 2.0) - 1.0)
+    assert metrics["soxx_close_path_max_drawdown"] == pytest.approx(110.0 / 120.0 - 1.0)
+    assert metrics["observation_count"] == 2
+    rising_soxx = tuple(InputRow("SOXX", f"2024-03-{index + 1:02d}", close, close, close, close, 1.0) for index, close in enumerate([100.0] * 199 + [100.0, 110.0, 115.0]))
+    rising = _rsi2_metrics_with_unified_soxx(points, rising_soxx, 200, 201)
+    assert rising["soxx_close_path_cumulative_return"] == pytest.approx(0.15)
+    assert rising["soxx_close_path_cagr"] == pytest.approx(1.15 ** (252.0 / 2.0) - 1.0)
+
+
+def test_rsi2_acceptance_activity_filters_zero_activity_and_ranks_by_cagr_first() -> None:
+    carried = DailyPoint("2024-01-01", 100.0, 101.0, 0.0, 1.0, 0.01, False, 0.0, 0.0, 0.0)
+    exit_at_open = DailyPoint("2024-01-02", 101.0, 100.0, 100.0, 0.0, -0.01, True, 0.0, 0.0, 101.0)
+    cash = DailyPoint("2024-01-03", 100.0, 100.0, 100.0, 0.0, 0.0, False, 0.0, 0.0, 0.0)
+    soxx = tuple(InputRow("SOXX", f"2024-02-{index + 1:02d}", 100.0, 100.0, 100.0, 100.0, 1.0) for index in range(202))
+    active = _rsi2_metrics_with_unified_soxx((carried, exit_at_open), soxx, 200, 201)
+    inactive = _rsi2_metrics_with_unified_soxx((cash, cash), soxx, 200, 201)
+    assert active["exposure_session_count"] == 1 and active["activity_observed"] is True
+    assert inactive["exposure_session_count"] == 0 and inactive["activity_observed"] is False
+
+    baseline = {"max_drawdown": -0.2, "expected_shortfall_95": -0.1, "annualized_volatility": 0.1, "cagr": 0.1, "turnover": 1.0, "activity_observed": True}
+    better = {"max_drawdown": -0.1, "expected_shortfall_95": -0.05, "annualized_volatility": 9.0, "cagr": 0.2, "turnover": 1.0, "activity_observed": True}
+    inactive_candidate = {**better, "cagr": 99.0, "activity_observed": False}
+    validation = {
+        "UNSCALED_SMA200": [baseline] * 3,
+        "RSI2_ENTRY_5_EXIT_70": [better] * 3,
+        "RSI2_ENTRY_10_EXIT_70": [inactive_candidate] * 3,
+        "RSI2_ENTRY_15_EXIT_70": [better] * 3,
+    }
+    assert _select_rsi2_mean_reversion_winner(validation) == "RSI2_ENTRY_5_EXIT_70"
+    validation["UNSCALED_SMA200"] = [{**baseline, "activity_observed": False}] * 3
+    assert _select_rsi2_mean_reversion_winner(validation) is None
+
+
+def test_rsi2_wfa_requires_complete_same_window_predicates() -> None:
+    baseline = {"max_drawdown": -0.2, "expected_shortfall_95": -0.1}
+    qualifying = {"activity_observed": True, "cumulative_return": 0.01, "max_drawdown": -0.1, "expected_shortfall_95": -0.05}
+    split = [
+        {**qualifying, "cumulative_return": -0.01},
+        {**qualifying, "max_drawdown": -0.3},
+        {**qualifying, "expected_shortfall_95": -0.2},
+    ]
+    assert _rsi2_wfa_qualifying_count(split, [baseline] * 3) == 0
+    assert _rsi2_wfa_qualifying_count([qualifying, qualifying, split[0]], [baseline] * 3) == 2
+
+
+def test_rsi2_zero_activity_rejection_is_fail_closed_and_consistent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._terminal_loss_probability", lambda _: pytest.fail("zero activity must not reach Monte Carlo"))
+    result = run_soxl_rsi2_mean_reversion(_source([1000.0 - index for index in range(753)]))
+    assert result["outcome"] == "NO_IMPROVEMENT"
+    assert result["locked_winner"] is None
+    assert result["research_recommendation"] is None
+    assert result["recommendation_eligible"] is False and result["r4a_eligible"] is False
+    assert result["acceptance_classes"] == {
+        "activity": {"selection_windows_all_active": False, "wfa_qualifying_test_window_count": 0, "wfa_at_least_two_of_three": False},
+        "benchmark_relative_compounding": {"final_holdout_drawdown_no_worse_than_soxx": False, "final_holdout_cumulative_return_strictly_greater_than_soxx": False, "final_holdout_cagr_strictly_greater_than_soxx": False, "eligible": False},
+    }
+    assert "VALIDATION_MEDIANS_STRICTLY_IMPROVE_DRAWDOWN_AND_ES95" in result["failure_codes"]
+    assert "SELECTION_WINDOWS_ALL_ACTIVE" in result["failure_codes"]
+    assert "FINAL_HOLDOUT_BENCHMARK_RELATIVE_COMPOUNDING" in result["failure_codes"]
+    assert result["evidence_gates"]["wfa_tests_at_least_two_simultaneous_predicates"] is False
