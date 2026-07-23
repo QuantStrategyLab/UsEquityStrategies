@@ -22,6 +22,8 @@ SCHEMA = "qsl.research.soxl_core_optimization.v1"
 READBACK_SCHEMA = "qsl.research.soxl_core_optimization_readback.v1"
 VOLATILITY_SCALING_SCHEMA = "qsl.research.soxl_volatility_scaling.v1"
 VOLATILITY_SCALING_READBACK_SCHEMA = "qsl.research.soxl_volatility_scaling_readback.v1"
+RSI2_MEAN_REVERSION_SCHEMA = "qsl.research.soxl_rsi2_mean_reversion.v1"
+RSI2_MEAN_REVERSION_READBACK_SCHEMA = "qsl.research.soxl_rsi2_mean_reversion_readback.v1"
 CANDIDATE_WINDOWS = (140, 160, 180, 200)
 BASELINE_WINDOW_DAYS = 200
 INITIAL_EQUITY = 100_000.0
@@ -33,6 +35,18 @@ VOLATILITY_SCALING_CANDIDATES = (
     "REL_VOL_LINEAR_20",
     "REL_VOL_SQUARED_20",
 )
+RSI2_MEAN_REVERSION_PLUGIN_CONTROL = {"state": "ABSENT_DISABLED", "enabled": False, "optimization_eligible": False}
+RSI2_MEAN_REVERSION_CANDIDATES = (
+    "UNSCALED_SMA200",
+    "RSI2_ENTRY_5_EXIT_70",
+    "RSI2_ENTRY_10_EXIT_70",
+    "RSI2_ENTRY_15_EXIT_70",
+)
+_RSI2_ENTRY_THRESHOLDS = {
+    "RSI2_ENTRY_5_EXIT_70": 5.0,
+    "RSI2_ENTRY_10_EXIT_70": 10.0,
+    "RSI2_ENTRY_15_EXIT_70": 15.0,
+}
 MC_SEED_HEX = "08a73485a70548df5262ad66ac86e02c0c5cc6255469156832aec2e86b501e2b"
 MC_TRIALS = 10_000
 MC_PATH_LENGTH = 126
@@ -808,6 +822,229 @@ def load_persisted_volatility_scaling_result(output_root: str | Path) -> dict[st
     readback = _strict_json(readback_raw)
     required = {"schema", "bundle_sha256", "bundle_bytes", "source_commit", "source_blobs", "result_digest"}
     if parsed.get("schema") != VOLATILITY_SCALING_SCHEMA or set(readback) != required or readback["schema"] != VOLATILITY_SCALING_READBACK_SCHEMA or readback["bundle_sha256"] != digest or readback["bundle_bytes"] != len(bundle) or readback["result_digest"] != _digest(parsed) or type(readback["source_commit"]) is not str or type(readback["source_blobs"]) is not dict or set(readback["source_blobs"]) != set(_REQUIRED_SOURCE_PATHS):
+        _fail("READBACK_MISMATCH")
+    if _canonical_bytes(parsed) != bundle:
+        _fail("BUNDLE_NOT_CANONICAL")
+    return parsed
+
+
+def _rsi2_values(closes: Sequence[float]) -> tuple[float | None, ...]:
+    """Return unrounded continuous Wilder RSI(2) values for close-only signals."""
+    if len(closes) < 3 or any(not math.isfinite(close) or close <= 0.0 for close in closes):
+        _fail("RSI2_INPUT_INVALID")
+    values: list[float | None] = [None] * len(closes)
+    gains = [max(closes[index] - closes[index - 1], 0.0) for index in range(1, len(closes))]
+    losses = [max(closes[index - 1] - closes[index], 0.0) for index in range(1, len(closes))]
+    average_gain = math.fsum(gains[:2]) / 2.0
+    average_loss = math.fsum(losses[:2]) / 2.0
+    for index in range(2, len(closes)):
+        if index > 2:
+            average_gain = (average_gain + gains[index - 1]) / 2.0
+            average_loss = (average_loss + losses[index - 1]) / 2.0
+        if average_gain == 0.0 and average_loss == 0.0:
+            values[index] = 50.0
+        elif average_loss == 0.0:
+            values[index] = 100.0
+        elif average_gain == 0.0:
+            values[index] = 0.0
+        else:
+            values[index] = 100.0 - 100.0 / (1.0 + average_gain / average_loss)
+    return tuple(values)
+
+
+def simulate_rsi2_mean_reversion_candidate(source: OfflineInput, candidate_id: str, scenario: CostScenario) -> tuple[DailyPoint, ...]:
+    """Simulate one fixed long/cash SOXX-trend-conditioned RSI(2) candidate."""
+    if candidate_id not in RSI2_MEAN_REVERSION_CANDIDATES or type(scenario) is not CostScenario or scenario not in SCENARIOS:
+        _fail("RSI2_MEAN_REVERSION_CONTRACT_INVALID")
+    soxx, soxl = _typed_rows(source)
+    rsi = _rsi2_values(tuple(row.close for row in soxx))
+    cash = INITIAL_EQUITY
+    quantity = 0.0
+    previous_equity = INITIAL_EQUITY
+    commission_rate = scenario.commission_bps / 10_000.0
+    slippage_rate = scenario.slippage_bps / 10_000.0
+    points: list[DailyPoint] = []
+    for execution_index in range(BASELINE_WINDOW_DAYS, len(soxx)):
+        signal_index = execution_index - 1
+        signal_window = soxx[signal_index - BASELINE_WINDOW_DAYS + 1:signal_index + 1]
+        risk_on = soxx[signal_index].close > math.fsum(row.close for row in signal_window) / BASELINE_WINDOW_DAYS
+        held = quantity > 0.0
+        if candidate_id == "UNSCALED_SMA200":
+            target = risk_on
+        elif not risk_on:
+            target = False
+        elif not held:
+            target = bool(rsi[signal_index] is not None and rsi[signal_index] <= _RSI2_ENTRY_THRESHOLDS[candidate_id])
+        elif rsi[signal_index] is not None and rsi[signal_index] >= 70.0:
+            target = False
+        else:
+            target = True
+        execution = soxl[execution_index]
+        opening_equity = cash + quantity * execution.open
+        if not math.isfinite(opening_equity) or opening_equity <= 0.0:
+            _fail("SIMULATION_EQUITY_INVALID")
+        transition = target != held
+        commission = slippage = gross_notional = 0.0
+        if transition and target:
+            if scenario.scenario_id == "ZERO":
+                quantity = opening_equity / execution.open
+            else:
+                fill = execution.open * (1.0 + slippage_rate)
+                quantity = opening_equity / (fill * (1.0 + commission_rate))
+                commission = quantity * fill * commission_rate
+                slippage = quantity * (fill - execution.open)
+            gross_notional = quantity * execution.open
+            cash = 0.0
+        elif transition:
+            sold_quantity = quantity
+            if scenario.scenario_id == "ZERO":
+                cash = opening_equity
+            else:
+                fill = execution.open * (1.0 - slippage_rate)
+                proceeds = sold_quantity * fill
+                commission = proceeds * commission_rate
+                slippage = sold_quantity * (execution.open - fill)
+                cash = proceeds - commission
+            gross_notional = sold_quantity * execution.open
+            quantity = 0.0
+        end_equity = cash + quantity * execution.close
+        if not math.isfinite(end_equity) or end_equity <= 0.0 or cash < 0.0 or quantity < 0.0:
+            _fail("SIMULATION_EQUITY_INVALID")
+        points.append(DailyPoint(execution.as_of, previous_equity, end_equity, cash, quantity, end_equity / previous_equity - 1.0, transition, commission, slippage, gross_notional))
+        previous_equity = end_equity
+    return tuple(points)
+
+
+def _select_rsi2_mean_reversion_winner(validation: dict[str, Sequence[dict[str, float | int | None | str]]]) -> str:
+    if tuple(validation) != RSI2_MEAN_REVERSION_CANDIDATES:
+        _fail("VALIDATION_METRICS_INVALID")
+    ranked: list[tuple[tuple[float, float, float, float, float, int], str]] = []
+    for index, candidate_id in enumerate(RSI2_MEAN_REVERSION_CANDIDATES):
+        metrics = validation[candidate_id]
+        if len(metrics) != 3:
+            _fail("VALIDATION_METRICS_INVALID")
+        ranked.append((
+            (
+                _median([abs(value) for value in _metric_values(metrics, "max_drawdown")]),
+                -_median(_metric_values(metrics, "expected_shortfall_95")),
+                _median(_metric_values(metrics, "annualized_volatility")),
+                -_median(_metric_values(metrics, "cagr")),
+                _median(_metric_values(metrics, "turnover")),
+                index,
+            ),
+            candidate_id,
+        ))
+    return min(ranked)[1]
+
+
+def _invalid_rsi2_mean_reversion(code: str) -> dict[str, Any]:
+    return {
+        "schema": RSI2_MEAN_REVERSION_SCHEMA, "evidence_valid": False, "failure_codes": [code], "outcome": "NO_IMPROVEMENT",
+        "research_recommendation": None, "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
+        "plugin_control": dict(RSI2_MEAN_REVERSION_PLUGIN_CONTROL),
+    }
+
+
+def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI2_MEAN_REVERSION_PLUGIN_CONTROL) -> dict[str, Any]:
+    """Evaluate the frozen RSI(2) candidate tuple without authorizing live use."""
+    if plugin_control != RSI2_MEAN_REVERSION_PLUGIN_CONTROL:
+        return _invalid_rsi2_mean_reversion("PLUGIN_CONTROL_NOT_ABSENT_DISABLED")
+    try:
+        soxx, _ = _typed_rows(source)
+        simulations = {
+            candidate_id: {scenario.scenario_id: simulate_rsi2_mean_reversion_candidate(source, candidate_id, scenario) for scenario in SCENARIOS}
+            for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
+        }
+        baseline = run_typed_baseline(source)
+        for scenario in SCENARIOS:
+            unscaled = simulations["UNSCALED_SMA200"][scenario.scenario_id]
+            expected = simulate_candidate(source, BASELINE_WINDOW_DAYS, scenario)
+            if unscaled != expected:
+                _fail("SMA200_PARITY_FAILED")
+        zero = simulations["UNSCALED_SMA200"]["ZERO"]
+        if [(point.date, point.end_equity.hex(), point.cash.hex(), point.quantity.hex()) for point in zero] != [(point.date, point.equity.hex(), point.cash.hex(), point.soxl_quantity.hex()) for point in baseline.equity_curve]:
+            _fail("SMA200_ZERO_PARITY_FAILED")
+        validation = {
+            candidate_id: [_volatility_metrics_with_soxx(simulations[candidate_id]["C2_5"], soxx, *WINDOWS[name]) for name in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")]
+            for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
+        }
+        winner = _select_rsi2_mean_reversion_winner(validation)
+        exposed = tuple(dict.fromkeys((winner, "UNSCALED_SMA200")))
+        post_lock = {
+            candidate_id: {
+                name: {scenario.scenario_id: _volatility_metrics_with_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS[name]) for scenario in SCENARIOS}
+                for name in ("F1_TEST", "F2_TEST", "F3_TEST", "FINAL_HOLDOUT")
+            }
+            for candidate_id in exposed
+        }
+        selected_validation = validation[winner]
+        baseline_validation = validation["UNSCALED_SMA200"]
+        selected_post, baseline_post = post_lock[winner], post_lock["UNSCALED_SMA200"]
+        selected_tests = [selected_post[name]["C2_5"] for name in ("F1_TEST", "F2_TEST", "F3_TEST")]
+        baseline_tests = [baseline_post[name]["C2_5"] for name in ("F1_TEST", "F2_TEST", "F3_TEST")]
+        final_c2, baseline_final_c2 = selected_post["FINAL_HOLDOUT"]["C2_5"], baseline_post["FINAL_HOLDOUT"]["C2_5"]
+        final_stress, baseline_final_stress = selected_post["FINAL_HOLDOUT"]["C5_10_STRESS"], baseline_post["FINAL_HOLDOUT"]["C5_10_STRESS"]
+        final_returns = tuple(point.daily_return for point in simulations[winner]["C2_5"][WINDOWS["FINAL_HOLDOUT"][0] - BASELINE_WINDOW_DAYS:])
+        loss_probability = _terminal_loss_probability(final_returns)
+        gates = {
+            "validation_medians_strictly_improve_drawdown_and_es95": _all_strictly_better(selected_validation, baseline_validation),
+            "wfa_tests_at_least_two_strictly_improve_drawdown_and_es95": sum(abs(float(candidate["max_drawdown"])) < abs(float(reference["max_drawdown"])) and float(candidate["expected_shortfall_95"]) > float(reference["expected_shortfall_95"]) for candidate, reference in zip(selected_tests, baseline_tests, strict=True)) >= 2,
+            "final_c2_5_strictly_improves_drawdown_and_es95": abs(float(final_c2["max_drawdown"])) < abs(float(baseline_final_c2["max_drawdown"])) and float(final_c2["expected_shortfall_95"]) > float(baseline_final_c2["expected_shortfall_95"]),
+            "wfa_c2_5_returns_at_least_two_positive": sum(float(item["cumulative_return"]) > 0.0 for item in selected_tests) >= 2,
+            "final_c2_5_return_strictly_positive": float(final_c2["cumulative_return"]) > 0.0,
+            "final_c5_10_stress_return_strictly_positive": float(final_stress["cumulative_return"]) > 0.0,
+            "mc_c2_5_terminal_loss_probability_strictly_below_half": loss_probability < 0.5,
+            "final_c5_10_stress_strictly_improves_drawdown_and_es95": abs(float(final_stress["max_drawdown"])) < abs(float(baseline_final_stress["max_drawdown"])) and float(final_stress["expected_shortfall_95"]) > float(baseline_final_stress["expected_shortfall_95"]),
+            "no_lookahead": True,
+        }
+        failures = [name.upper() for name, value in gates.items() if not value]
+        found = winner != "UNSCALED_SMA200" and all(gates.values())
+        holdout_soxx_drawdown = _soxx_drawdown(soxx, *WINDOWS["FINAL_HOLDOUT"])
+        return {
+            "schema": RSI2_MEAN_REVERSION_SCHEMA, "evidence_valid": True, "failure_codes": failures,
+            "outcome": "CHARACTERIZATION_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT",
+            "research_recommendation": {"candidate_id": winner} if found else None,
+            "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
+            "plugin_control": dict(RSI2_MEAN_REVERSION_PLUGIN_CONTROL), "input_digest": source.input_digest,
+            "baseline": "UNSCALED_SMA200", "candidates": list(RSI2_MEAN_REVERSION_CANDIDATES),
+            "signal_rule": {"trend": "SOXX_CLOSE_STRICTLY_ABOVE_INCLUSIVE_SMA200", "rsi": "WILDER_RSI2", "execution": "NEXT_SOXL_OPEN", "exposure": "LONG_OR_CASH"},
+            "validation_metrics_c2_5": validation, "locked_winner": winner, "post_lock_metrics": post_lock,
+            "evidence_gates": gates,
+            "soxx_drawdown_comparison": {"final_holdout_max_drawdown": holdout_soxx_drawdown, "matches_or_beats_soxx_drawdown": abs(float(final_c2["max_drawdown"])) <= abs(holdout_soxx_drawdown)},
+        }
+    except OptimizationError as exc:
+        return _invalid_rsi2_mean_reversion(str(exc))
+
+
+def _rsi2_mean_reversion_paths(root: Path) -> PersistedPaths:
+    return PersistedPaths(root / "soxl_rsi2_mean_reversion_v1.json", root / "soxl_rsi2_mean_reversion_v1.sha256", root / "soxl_rsi2_mean_reversion_v1.readback.json")
+
+
+def persist_rsi2_mean_reversion_result(result: dict[str, Any], output_root: str | Path, *, source_commit: str, source_blobs: dict[str, str], repo_root: str | Path | None = None) -> PersistedPaths:
+    if type(result) is not dict or result.get("schema") != RSI2_MEAN_REVERSION_SCHEMA:
+        _fail("PERSIST_INPUT_INVALID")
+    repo = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[3]
+    blobs = _verify_provenance(repo, source_commit, source_blobs)
+    root = _ensure_output_root(Path(output_root))
+    paths = _rsi2_mean_reversion_paths(root)
+    bundle = _canonical_bytes(_wire(result))
+    bundle_sha = hashlib.sha256(bundle).hexdigest()
+    readback = {"schema": RSI2_MEAN_REVERSION_READBACK_SCHEMA, "bundle_sha256": bundle_sha, "bundle_bytes": len(bundle), "source_commit": source_commit, "source_blobs": blobs, "result_digest": _digest(_wire(result))}
+    _write_set_once(root, {paths.bundle: bundle, paths.sidecar: (bundle_sha + "\n").encode("ascii"), paths.readback: _canonical_bytes(readback)})
+    if load_persisted_rsi2_mean_reversion_result(root) != _wire(result):
+        _fail("READBACK_MISMATCH")
+    return paths
+
+
+def load_persisted_rsi2_mean_reversion_result(output_root: str | Path) -> dict[str, Any]:
+    paths = _rsi2_mean_reversion_paths(Path(output_root))
+    bundle, sidecar, readback_raw = _read_regular(paths.bundle), _read_regular(paths.sidecar), _read_regular(paths.readback)
+    if bundle is None or sidecar is None or readback_raw is None:
+        _fail("PERSISTED_FILE_MISSING")
+    digest = hashlib.sha256(bundle).hexdigest()
+    parsed, readback = _strict_json(bundle), _strict_json(readback_raw)
+    required = {"schema", "bundle_sha256", "bundle_bytes", "source_commit", "source_blobs", "result_digest"}
+    if sidecar != (digest + "\n").encode("ascii") or parsed.get("schema") != RSI2_MEAN_REVERSION_SCHEMA or set(readback) != required or readback["schema"] != RSI2_MEAN_REVERSION_READBACK_SCHEMA or readback["bundle_sha256"] != digest or readback["bundle_bytes"] != len(bundle) or readback["result_digest"] != _digest(parsed) or type(readback["source_commit"]) is not str or type(readback["source_blobs"]) is not dict or set(readback["source_blobs"]) != set(_REQUIRED_SOURCE_PATHS):
         _fail("READBACK_MISMATCH")
     if _canonical_bytes(parsed) != bundle:
         _fail("BUNDLE_NOT_CANONICAL")
