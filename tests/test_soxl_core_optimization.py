@@ -2,9 +2,11 @@ from dataclasses import replace
 from datetime import date, timedelta
 import hashlib
 import json
+import subprocess
 
 import pytest
 
+import us_equity_strategies.research.soxl_core_optimization as optimization
 from us_equity_strategies.research.soxl_soxx_offline_input_contract import InputRow, OfflineInput
 from us_equity_strategies.research.soxl_soxx_typed_baseline_result import run_typed_baseline
 from us_equity_strategies.research.soxl_core_optimization import (
@@ -76,6 +78,24 @@ def _validation_metrics(
         }
         for _ in range(3)
     )
+
+
+def _source_commit() -> str:
+    return subprocess.check_output(
+        ("git", "rev-parse", "HEAD"), text=True
+    ).strip()
+
+
+def _trusted_arguments(result: dict[str, object], source_commit: str) -> dict[str, object]:
+    return {
+        "expected_source_commit": source_commit,
+        "expected_source_blobs": EXPECTED_SOURCE_BLOBS,
+        "expected_csv_sha256": optimization.EXPECTED_ARTIFACT_SHA256,
+        "expected_manifest_sha256": optimization.EXPECTED_MANIFEST_SHA256,
+        "expected_readback_sha256": optimization.EXPECTED_READBACK_SHA256,
+        "expected_typed_digest": optimization.EXPECTED_INPUT_DIGEST,
+        "expected_result_digest": optimization._digest(optimization._wire(result)),
+    }
 
 
 def test_frozen_candidates_plugin_costs_and_r3_windows() -> None:
@@ -154,6 +174,39 @@ def test_later_predicates_are_strict_and_do_not_reselect() -> None:
     assert failures
 
 
+def test_each_wfa_test_uses_only_its_own_prior_validation_lock() -> None:
+    validation_by_fold = (
+        {
+            140: _validation_metrics(0.4, 0.1, -0.2)[0],
+            160: _validation_metrics(0.3, 0.1, -0.2)[0],
+            180: _validation_metrics(0.2, 0.1, -0.2)[0],
+            200: _validation_metrics(0.1, 0.1, -0.2)[0],
+        },
+        {
+            140: _validation_metrics(0.1, 0.1, -0.2)[0],
+            160: _validation_metrics(0.4, 0.1, -0.2)[0],
+            180: _validation_metrics(0.3, 0.1, -0.2)[0],
+            200: _validation_metrics(0.2, 0.1, -0.2)[0],
+        },
+        {
+            140: _validation_metrics(0.1, 0.1, -0.2)[0],
+            160: _validation_metrics(0.2, 0.1, -0.2)[0],
+            180: _validation_metrics(0.4, 0.1, -0.2)[0],
+            200: _validation_metrics(0.3, 0.1, -0.2)[0],
+        },
+    )
+
+    assert optimization._select_fold_winners(validation_by_fold) == (140, 160, 180)
+
+
+def test_invalid_baseline_source_contract_becomes_invalid_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(optimization, "_verify_immutable_input", lambda source: None)
+    invalid = run_soxl_core_optimization(replace(_source(), source_revision=""))
+
+    assert invalid["evidence_valid"] is False
+    assert invalid["failure_codes"] == ["BASELINE_INPUT_CONTRACT_INVALID"]
+
+
 def test_invalid_input_plugin_and_identity_fail_closed_without_provider_path() -> None:
     source = _source()
     for result in (
@@ -173,17 +226,44 @@ def test_invalid_input_plugin_and_identity_fail_closed_without_provider_path() -
 
 def test_canonical_persistence_is_atomic_idempotent_and_strict(tmp_path) -> None:
     result = run_soxl_core_optimization(None)
-    paths = persist_result(result, tmp_path, source_commit="c" * 40)
+    source_commit = _source_commit()
+    trusted = _trusted_arguments(result, source_commit)
+    paths = persist_result(result, tmp_path, source_commit=source_commit)
     bundle = paths.bundle.read_bytes()
     assert paths.bundle.name == "soxl_core_optimization_v1.json"
     assert bundle.endswith(b"\n")
     assert paths.sidecar.read_text() == hashlib.sha256(bundle).hexdigest() + "\n"
-    assert load_persisted_result(tmp_path) == json.loads(bundle)
+    assert load_persisted_result(tmp_path, **trusted) == json.loads(bundle)
     assert json.loads(paths.readback.read_text())["source_blobs"] == EXPECTED_SOURCE_BLOBS
-    assert persist_result(result, tmp_path, source_commit="c" * 40).bundle.read_bytes() == bundle
+    assert persist_result(result, tmp_path, source_commit=source_commit).bundle.read_bytes() == bundle
     paths.bundle.write_bytes(b"different")
     with pytest.raises(ValueError):
-        persist_result(result, tmp_path, source_commit="c" * 40)
+        persist_result(result, tmp_path, source_commit=source_commit)
     paths.readback.write_text("{}\n")
     with pytest.raises(ValueError):
-        load_persisted_result(tmp_path)
+        load_persisted_result(tmp_path, **trusted)
+
+
+def test_persistence_rejects_false_commit_provenance(tmp_path) -> None:
+    with pytest.raises(ValueError):
+        persist_result(run_soxl_core_optimization(None), tmp_path, source_commit="0" * 40)
+
+
+def test_loader_rejects_self_consistent_rewritten_bundle_without_trusted_result_digest(tmp_path) -> None:
+    result = run_soxl_core_optimization(None)
+    source_commit = _source_commit()
+    trusted = _trusted_arguments(result, source_commit)
+    paths = persist_result(result, tmp_path, source_commit=source_commit)
+    rewritten = json.loads(paths.bundle.read_text())
+    rewritten["forged"] = True
+    bundle = optimization._canonical_bytes(rewritten)
+    readback = json.loads(paths.readback.read_text())
+    readback["bundle_sha256"] = hashlib.sha256(bundle).hexdigest()
+    readback["bundle_bytes"] = len(bundle)
+    readback["result_digest"] = optimization._digest(rewritten)
+    paths.bundle.write_bytes(bundle)
+    paths.sidecar.write_text(readback["bundle_sha256"] + "\n")
+    paths.readback.write_bytes(optimization._canonical_bytes(readback))
+
+    with pytest.raises(ValueError):
+        load_persisted_result(tmp_path, **trusted)

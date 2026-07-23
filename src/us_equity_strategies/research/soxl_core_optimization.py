@@ -7,10 +7,12 @@ import hmac
 import json
 import math
 from pathlib import Path
+import re
+import subprocess
 from typing import Any, NoReturn, Sequence
 
 from .soxl_soxx_offline_input_contract import InputRow, OfflineInput
-from .soxl_soxx_typed_baseline_result import run_typed_baseline
+from .soxl_soxx_typed_baseline_result import BaselineResultContractError, run_typed_baseline
 
 
 SCHEMA = "qsl.research.soxl_core_optimization.v1"
@@ -24,10 +26,11 @@ EXPECTED_ARTIFACT_SHA256 = "6eb44951f7b16b7369df2d8d0fcce08b85d44ad3b758381139a0
 EXPECTED_MANIFEST_SHA256 = "8fe988353a6bc0f3642e69cc7f58c180df59ebb7ff62d6b986aba314fb9db81b"
 EXPECTED_READBACK_SHA256 = "94bef6a1d27a4487d13500242fa24a183ec388318bcab59dace21d32235b3dd2"
 EXPECTED_SOURCE_BLOBS = {
-    "soxl_soxx_offline_input_contract.py": "b4a16842c33d39851724fa31993001cd27a4c986",
-    "soxl_soxx_typed_baseline_result.py": "aa1b43a9e5ab59b34d41932b3b18653451ffe46b",
-    "r3_joint_evidence.py": "118553cada8800dde80c30bbca5927da342b1e85",
+    "src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py": "b4a16842c33d39851724fa31993001cd27a4c986",
+    "src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py": "aa1b43a9e5ab59b34d41932b3b18653451ffe46b",
+    "src/us_equity_strategies/research/r3_joint_evidence.py": "118553cada8800dde80c30bbca5927da342b1e85",
 }
+REPO_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_CONTROL = {"state": "ABSENT", "enabled": False, "optimization_eligible": False}
 MC_SEED_HEX = "08a73485a70548df5262ad66ac86e02c0c5cc6255469156832aec2e86b501e2b"
 MC_TRIALS = 10_000
@@ -117,7 +120,13 @@ def _wire(value: Any) -> Any:
 def _typed_rows(source: object, expected_input_digest: str) -> tuple[tuple[InputRow, ...], tuple[InputRow, ...]]:
     if (
         type(source) is not OfflineInput
-        or source.input_digest != expected_input_digest
+        or type(source.source_revision) is not str
+        or not source.source_revision
+        or any(ord(character) < 0x20 for character in source.source_revision)
+    ):
+        _fail("BASELINE_INPUT_CONTRACT_INVALID")
+    if (
+        source.input_digest != expected_input_digest
         or type(source.rows) is not tuple
         or len(source.rows) != 1506
         or any(type(row) is not InputRow for row in source.rows)
@@ -257,6 +266,34 @@ def _select_validation_winner(metrics_by_window: dict[int, Sequence[dict[str, fl
     return min(ranked)[1]
 
 
+def _select_fold_winner(metrics_by_window: dict[int, dict[str, float]]) -> int:
+    if set(metrics_by_window) != set(CANDIDATE_WINDOWS):
+        _fail("VALIDATION_CANDIDATES_INVALID")
+    ranked: list[tuple[tuple[float, float, float, int, int], int]] = []
+    for window in CANDIDATE_WINDOWS:
+        metrics = metrics_by_window[window]
+        if set(("sharpe", "cumulative_return", "max_drawdown")) - set(metrics):
+            _fail("VALIDATION_METRICS_INVALID")
+        try:
+            sharpe = float(metrics["sharpe"])
+            cumulative_return = float(metrics["cumulative_return"])
+            drawdown = abs(float(metrics["max_drawdown"]))
+        except (TypeError, ValueError):
+            _fail("VALIDATION_METRICS_INVALID")
+        if not all(math.isfinite(value) for value in (sharpe, cumulative_return, drawdown)):
+            _fail("VALIDATION_METRICS_INVALID")
+        ranked.append(((-sharpe, -cumulative_return, drawdown, abs(window - BASELINE_WINDOW_DAYS), 0 if window == BASELINE_WINDOW_DAYS else 1), window))
+    return min(ranked)[1]
+
+
+def _select_fold_winners(
+    validation_by_fold: Sequence[dict[int, dict[str, float]]],
+) -> tuple[int, int, int]:
+    if len(validation_by_fold) != 3:
+        _fail("VALIDATION_FOLDS_INVALID")
+    return tuple(_select_fold_winner(metrics) for metrics in validation_by_fold)  # type: ignore[return-value]
+
+
 def _sample_index(trial: int, block: int, population: int) -> int:
     seed = bytes.fromhex(MC_SEED_HEX)
     limit = 2**64 - (2**64 % population)
@@ -363,10 +400,12 @@ def run_soxl_core_optimization(
             _fail("SMA200_ZERO_PARITY_FAILED")
 
         segments = _segments()
-        validation = {
-            window: tuple(_window_metrics(simulations[window]["C2_5"], *segments[name]) for name in VALIDATION_SEGMENTS)
-            for window in CANDIDATE_WINDOWS
-        }
+        validation_by_fold = tuple(
+            {window: _window_metrics(simulations[window]["C2_5"], *segments[name]) for window in CANDIDATE_WINDOWS}
+            for name in VALIDATION_SEGMENTS
+        )
+        validation = {window: tuple(fold[window] for fold in validation_by_fold) for window in CANDIDATE_WINDOWS}
+        fold_winners = _select_fold_winners(validation_by_fold)
         winner = _select_validation_winner(validation)
         baseline_validation_sharpe = _median([float(item["sharpe"]) for item in validation[BASELINE_WINDOW_DAYS]])
         winner_validation_sharpe = _median([float(item["sharpe"]) for item in validation[winner]])
@@ -387,8 +426,8 @@ def run_soxl_core_optimization(
         }
 
         selected_tests = tuple(
-            float(_window_metrics(simulations[winner]["C2_5"], *segments[name])["cumulative_return"])
-            for name in TEST_SEGMENTS
+            float(_window_metrics(simulations[window]["C2_5"], *segments[name])["cumulative_return"])
+            for name, window in zip(TEST_SEGMENTS, fold_winners, strict=True)
         )
         final_winner_c2_5 = _window_metrics(simulations[winner]["C2_5"], *segments["FINAL_HOLDOUT"])
         final_baseline_c2_5 = _window_metrics(simulations[BASELINE_WINDOW_DAYS]["C2_5"], *segments["FINAL_HOLDOUT"])
@@ -416,6 +455,7 @@ def run_soxl_core_optimization(
             "plugin_control": dict(PLUGIN_CONTROL), "input_digest": source.input_digest,
             "candidates": list(CANDIDATE_WINDOWS), "baseline_window_days": BASELINE_WINDOW_DAYS,
             "validation_candidate_records": validation_records, "selected_window_days": winner,
+            "fold_selected_window_days": fold_winners,
             "post_lock": {
                 "selected_wfa_c2_5_returns": selected_tests,
                 "selected_final_c2_5": final_winner_c2_5,
@@ -426,6 +466,8 @@ def run_soxl_core_optimization(
         }
     except OptimizationError as exc:
         return _invalid(str(exc))
+    except BaselineResultContractError:
+        return _invalid("BASELINE_INPUT_CONTRACT_INVALID")
 
 
 def _paths(root: str | Path) -> PersistedPaths:
@@ -456,9 +498,56 @@ def _write_set_once(contents: dict[Path, bytes]) -> None:
         _fail("PERSIST_WRITE_FAILED")
 
 
+def _git_output(arguments: tuple[str, ...]) -> bytes:
+    try:
+        completed = subprocess.run(
+            ("git", "-C", str(REPO_ROOT), *arguments),
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _fail("SOURCE_PROVENANCE_UNVERIFIABLE")
+    if completed.returncode != 0:
+        _fail("SOURCE_PROVENANCE_UNVERIFIABLE")
+    return completed.stdout
+
+
+def _verify_source_provenance(source_commit: object) -> str:
+    if type(source_commit) is not str or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        _fail("SOURCE_PROVENANCE_UNVERIFIABLE")
+    try:
+        root = _git_output(("rev-parse", "--show-toplevel")).decode("utf-8", errors="strict").strip()
+        resolved = _git_output(("rev-parse", "--verify", f"{source_commit}^{{commit}}")).decode("ascii", errors="strict").strip()
+    except UnicodeError:
+        _fail("SOURCE_PROVENANCE_UNVERIFIABLE")
+    if Path(root).resolve() != REPO_ROOT.resolve() or resolved != source_commit:
+        _fail("SOURCE_PROVENANCE_UNVERIFIABLE")
+    for path, expected_blob in EXPECTED_SOURCE_BLOBS.items():
+        try:
+            actual_blob = _git_output(("rev-parse", f"{source_commit}:{path}")).decode("ascii", errors="strict").strip()
+        except UnicodeError:
+            _fail("SOURCE_PROVENANCE_UNVERIFIABLE")
+        if actual_blob != expected_blob:
+            _fail("SOURCE_BLOB_MISMATCH")
+    return source_commit
+
+
+def _trusted_anchor(
+    value: object,
+    expected: str,
+    *,
+    code: str,
+) -> str:
+    if type(value) is not str or value != expected:
+        _fail(code)
+    return value
+
+
 def persist_result(result: dict[str, Any], output_root: str | Path, *, source_commit: str) -> PersistedPaths:
-    if type(result) is not dict or len(source_commit) != 40 or any(char not in "0123456789abcdef" for char in source_commit):
+    if type(result) is not dict:
         _fail("PERSIST_INPUT_INVALID")
+    source_commit = _verify_source_provenance(source_commit)
     paths = _paths(output_root)
     bundle = _canonical_bytes(_wire(result))
     bundle_sha256 = hashlib.sha256(bundle).hexdigest()
@@ -470,11 +559,39 @@ def persist_result(result: dict[str, Any], output_root: str | Path, *, source_co
         "result_digest": _digest(_wire(result)),
     }
     _write_set_once({paths.bundle: bundle, paths.sidecar: (bundle_sha256 + "\n").encode(), paths.readback: _canonical_bytes(readback)})
-    load_persisted_result(output_root)
+    load_persisted_result(
+        output_root,
+        expected_source_commit=source_commit,
+        expected_source_blobs=EXPECTED_SOURCE_BLOBS,
+        expected_csv_sha256=EXPECTED_ARTIFACT_SHA256,
+        expected_manifest_sha256=EXPECTED_MANIFEST_SHA256,
+        expected_readback_sha256=EXPECTED_READBACK_SHA256,
+        expected_typed_digest=EXPECTED_INPUT_DIGEST,
+        expected_result_digest=readback["result_digest"],
+    )
     return paths
 
 
-def load_persisted_result(output_root: str | Path) -> dict[str, Any]:
+def load_persisted_result(
+    output_root: str | Path,
+    *,
+    expected_source_commit: str,
+    expected_source_blobs: dict[str, str],
+    expected_csv_sha256: str,
+    expected_manifest_sha256: str,
+    expected_readback_sha256: str,
+    expected_typed_digest: str,
+    expected_result_digest: str,
+) -> dict[str, Any]:
+    expected_source_commit = _verify_source_provenance(expected_source_commit)
+    if type(expected_source_blobs) is not dict or expected_source_blobs != EXPECTED_SOURCE_BLOBS:
+        _fail("TRUSTED_SOURCE_BLOBS_MISMATCH")
+    _trusted_anchor(expected_csv_sha256, EXPECTED_ARTIFACT_SHA256, code="TRUSTED_CSV_MISMATCH")
+    _trusted_anchor(expected_manifest_sha256, EXPECTED_MANIFEST_SHA256, code="TRUSTED_MANIFEST_MISMATCH")
+    _trusted_anchor(expected_readback_sha256, EXPECTED_READBACK_SHA256, code="TRUSTED_READBACK_MISMATCH")
+    _trusted_anchor(expected_typed_digest, EXPECTED_INPUT_DIGEST, code="TRUSTED_TYPED_DIGEST_MISMATCH")
+    if type(expected_result_digest) is not str or re.fullmatch(r"[0-9a-f]{64}", expected_result_digest) is None:
+        _fail("TRUSTED_RESULT_DIGEST_INVALID")
     paths = _paths(output_root)
     try:
         bundle = paths.bundle.read_bytes()
@@ -493,12 +610,14 @@ def load_persisted_result(output_root: str | Path) -> dict[str, Any]:
         or readback["schema"] != READBACK_SCHEMA
         or readback["bundle_sha256"] != hashlib.sha256(bundle).hexdigest()
         or readback["bundle_bytes"] != len(bundle)
+        or readback["source_commit"] != expected_source_commit
         or readback["source_blobs"] != EXPECTED_SOURCE_BLOBS
         or readback["csv_sha256"] != EXPECTED_ARTIFACT_SHA256
         or readback["manifest_sha256"] != EXPECTED_MANIFEST_SHA256
         or readback["readback_sha256"] != EXPECTED_READBACK_SHA256
         or readback["typed_digest"] != EXPECTED_INPUT_DIGEST
         or readback["result_digest"] != _digest(parsed)
+        or readback["result_digest"] != expected_result_digest
         or _canonical_bytes(parsed) != bundle
     ):
         _fail("READBACK_MISMATCH")
