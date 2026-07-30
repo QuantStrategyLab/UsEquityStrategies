@@ -6,5 +6,5 @@ bundle = "2026.07.4"
 requires = [
   "pandas>=2.0",
   "pytz>=2024.1",
-  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@ff09c889ed21e2eb6fcb37f6cdaa159190ec82da",
+  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@92458590a463e7219f0369a3505031ee74414135",
 ]
