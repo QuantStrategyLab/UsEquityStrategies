@@ -194,7 +194,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@4f8465b28a6787d39d21e50f9d95a77841d6ad56
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@01877daef888376238337d7dc56873fdbac4a92a
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
