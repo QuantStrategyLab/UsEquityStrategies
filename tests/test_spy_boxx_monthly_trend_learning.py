@@ -177,6 +177,50 @@ def test_runner_executes_gap_stop_without_same_session_reentry() -> None:
     assert result["stop_slippage_costs"] > 0.0
 
 
+def test_each_oos_fold_starts_without_formation_portfolio_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history = _history()
+    oos_start = history["date"].unique()[learning.FORMATION_SESSIONS]
+    decision_dates: list[pd.Timestamp] = []
+
+    def _no_position_decision(close, *, as_of, **kwargs):
+        decision_dates.append(pd.Timestamp(as_of))
+        return learning.StrategyDecision(positions=())
+
+    monkeypatch.setattr(learning, "_monthly_decision_from_close", _no_position_decision)
+    runner = learning.SpyBoxxMonthlyTrendLearningRunner(history)
+    runner.run(
+        learning.PROFILE_NAME,
+        {"learning_only": True, "no_order": True},
+        start_date=oos_start.date(),
+        end_date=history["date"].unique()[
+            learning.FORMATION_SESSIONS + learning.OOS_FOLD_SESSIONS - 1
+        ].date(),
+    )
+
+    assert decision_dates
+    assert min(decision_dates) >= oos_start
+
+
+def test_adding_to_a_position_refreshes_the_stop_basis() -> None:
+    assert learning._blended_entry_price(100.0, 0.10, 200.0, 0.10) == pytest.approx(
+        150.0
+    )
+
+
+def test_adjusted_ohlc_keeps_exchange_local_session_date() -> None:
+    history = _history()
+    original_first_date = history["date"].iloc[0].date()
+    history["date"] = history["date"].dt.tz_localize("America/New_York") + pd.Timedelta(
+        hours=20
+    )
+
+    bars = learning._frozen_ohlc_matrices(history)
+
+    assert bars["close"].index[0].date() == original_first_date
+
+
 @pytest.mark.parametrize(
     ("drawdown", "expected"),
     ((0.05, 1.0), (0.050001, 0.5), (0.10, 0.5), (0.100001, 0.0)),

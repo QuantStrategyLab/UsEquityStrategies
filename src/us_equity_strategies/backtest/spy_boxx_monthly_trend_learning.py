@@ -64,10 +64,6 @@ class SpyBoxxMonthlyTrendLearningRunner:
     market_history: pd.DataFrame
     _bars: dict[str, pd.DataFrame] = field(init=False, repr=False)
     _close: pd.DataFrame = field(init=False, repr=False)
-    _returns: pd.Series = field(init=False, repr=False)
-    _turnover: pd.Series = field(init=False, repr=False)
-    _costs: pd.Series = field(init=False, repr=False)
-    _risk_rejects: pd.Series = field(init=False, repr=False)
     _stop_events: int = field(default=0, init=False)
     _stop_gap_open_events: int = field(default=0, init=False)
     _stop_slippage_costs: float = field(default=0.0, init=False)
@@ -78,43 +74,55 @@ class SpyBoxxMonthlyTrendLearningRunner:
     def __post_init__(self) -> None:
         self._bars = _frozen_ohlc_matrices(self.market_history)
         self._close = self._bars["close"]
-        self._returns, self._turnover, self._costs, self._risk_rejects = (
-            self._simulate()
-        )
 
-    def _simulate(self) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
-        daily_returns = pd.Series(0.0, index=self._close.index, dtype=float)
-        daily_turnover = pd.Series(0.0, index=self._close.index, dtype=float)
-        daily_costs = pd.Series(0.0, index=self._close.index, dtype=float)
-        daily_rejects = pd.Series(0, index=self._close.index, dtype=int)
+    def _simulate(
+        self, *, start_index: int, end_index: int
+    ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+        index = self._close.index[start_index : end_index + 1]
+        daily_returns = pd.Series(0.0, index=index, dtype=float)
+        daily_turnover = pd.Series(0.0, index=index, dtype=float)
+        daily_costs = pd.Series(0.0, index=index, dtype=float)
+        daily_rejects = pd.Series(0, index=index, dtype=int)
         active_symbol: str | None = None
         active_weight = 0.0
         entry_price: float | None = None
         completed_equity = 1.0
         peak_completed_equity = 1.0
+        stop_events = 0
+        stop_gap_open_events = 0
+        stop_slippage_costs = 0.0
+        drawdown_breaker = False
+        max_effective_exposure = 0.0
 
-        for index, as_of in enumerate(self._close.index):
+        for index_position in range(start_index, end_index + 1):
+            as_of = self._close.index[index_position]
             turnover = 0.0
             gross_return = 0.0
             stopped_this_session = False
-            if active_symbol is not None and index:
-                previous_close = float(self._close[active_symbol].iloc[index - 1])
-                open_price = float(self._bars["open"][active_symbol].iloc[index])
-                low_price = float(self._bars["low"][active_symbol].iloc[index])
-                close_price = float(self._close[active_symbol].iloc[index])
+            if active_symbol is not None and index_position > start_index:
+                previous_close = float(
+                    self._close[active_symbol].iloc[index_position - 1]
+                )
+                open_price = float(
+                    self._bars["open"][active_symbol].iloc[index_position]
+                )
+                low_price = float(
+                    self._bars["low"][active_symbol].iloc[index_position]
+                )
+                close_price = float(self._close[active_symbol].iloc[index_position])
                 stop_price = float(entry_price) * (1.0 - STOP_LOSS_DISTANCE)
                 fill_price: float | None = None
                 if open_price <= stop_price:
                     fill_price = open_price * (1.0 - STOP_SLIPPAGE_BPS / 10_000.0)
-                    self._stop_gap_open_events += 1
+                    stop_gap_open_events += 1
                 elif low_price <= stop_price:
                     fill_price = stop_price * (1.0 - STOP_SLIPPAGE_BPS / 10_000.0)
                 if fill_price is None:
                     gross_return = active_weight * (close_price / previous_close - 1.0)
                 else:
                     gross_return = active_weight * (fill_price / previous_close - 1.0)
-                    self._stop_events += 1
-                    self._stop_slippage_costs += active_weight * (
+                    stop_events += 1
+                    stop_slippage_costs += active_weight * (
                         STOP_SLIPPAGE_BPS / 10_000.0
                     )
                     turnover += active_weight
@@ -126,13 +134,16 @@ class SpyBoxxMonthlyTrendLearningRunner:
             drawdown = 1.0 - completed_equity / peak_completed_equity
             scalar = _drawdown_scalar(drawdown)
             if scalar == 0.0:
-                self._drawdown_breaker = True
+                drawdown_breaker = True
 
             if (
                 not stopped_this_session
-                and not self._drawdown_breaker
-                and index >= SMA_SESSIONS
-                and _is_first_eligible_session(self._close.index, index)
+                and not drawdown_breaker
+                and index_position >= SMA_SESSIONS
+                and (
+                    index_position == start_index
+                    or _is_first_eligible_session(self._close.index, index_position)
+                )
             ):
                 decision = _monthly_decision_from_close(
                     self._close,
@@ -155,15 +166,22 @@ class SpyBoxxMonthlyTrendLearningRunner:
                     active_symbol = next_symbol
                     active_weight = next_weight
                     entry_price = (
-                        float(self._close[next_symbol].iloc[index])
+                        float(self._close[next_symbol].iloc[index_position])
                         if next_symbol is not None and next_weight > 0.0
                         else None
                     )
                 elif next_symbol is not None:
                     turnover += abs(next_weight - active_weight)
+                    if next_weight > active_weight:
+                        entry_price = _blended_entry_price(
+                            float(entry_price),
+                            active_weight,
+                            float(self._close[next_symbol].iloc[index_position]),
+                            next_weight - active_weight,
+                        )
                     active_weight = next_weight
-                self._max_effective_exposure = max(
-                    self._max_effective_exposure,
+                max_effective_exposure = max(
+                    max_effective_exposure,
                     active_weight
                     * PRODUCT_LEVERAGE_FACTORS.get(active_symbol or "", 0),
                 )
@@ -178,8 +196,8 @@ class SpyBoxxMonthlyTrendLearningRunner:
 
             latest_drawdown = 1.0 - completed_equity / peak_completed_equity
             if _drawdown_scalar(latest_drawdown) == 0.0:
-                self._drawdown_breaker = True
-            if self._drawdown_breaker and active_symbol is not None:
+                drawdown_breaker = True
+            if drawdown_breaker and active_symbol is not None:
                 turnover += active_weight
                 daily_turnover.loc[as_of] += active_weight
                 breaker_cost = active_weight * COST_PER_SIDE_BPS / 10_000.0
@@ -190,6 +208,13 @@ class SpyBoxxMonthlyTrendLearningRunner:
                 active_weight = 0.0
                 entry_price = None
 
+        self._stop_events += stop_events
+        self._stop_gap_open_events += stop_gap_open_events
+        self._stop_slippage_costs += stop_slippage_costs
+        self._drawdown_breaker = self._drawdown_breaker or drawdown_breaker
+        self._max_effective_exposure = max(
+            self._max_effective_exposure, max_effective_exposure
+        )
         return daily_returns, daily_turnover, daily_costs, daily_rejects
 
     def run(
@@ -208,7 +233,11 @@ class SpyBoxxMonthlyTrendLearningRunner:
 
         start = pd.Timestamp(start_date)
         end = pd.Timestamp(end_date)
-        returns = self._returns.loc[start:end]
+        start_index = int(self._close.index.get_loc(start))
+        end_index = int(self._close.index.get_loc(end))
+        returns, turnover, costs, risk_rejects = self._simulate(
+            start_index=start_index, end_index=end_index
+        )
         if len(returns) != OOS_FOLD_SESSIONS:
             raise ValueError("each frozen OOS fold must contain exactly 126 sessions")
 
@@ -216,9 +245,9 @@ class SpyBoxxMonthlyTrendLearningRunner:
         self.fold_summaries.append(
             _FoldSummary(
                 returns=returns.copy(),
-                turnover=float(self._turnover.loc[start:end].sum()),
-                costs=float(self._costs.loc[start:end].sum()),
-                risk_rejects=int(self._risk_rejects.loc[start:end].sum()),
+                turnover=float(turnover.sum()),
+                costs=float(costs.sum()),
+                risk_rejects=int(risk_rejects.sum()),
             )
         )
         return BacktestResult(
@@ -402,11 +431,9 @@ def _frozen_ohlc_matrices(market_history: pd.DataFrame) -> dict[str, pd.DataFram
     frame = market_history.loc[
         :, ["date", "symbol", "open", "high", "low", "close"]
     ].copy()
-    frame["date"] = (
-        pd.to_datetime(frame["date"], errors="coerce", utc=True)
-        .dt.tz_localize(None)
-        .dt.normalize()
-    )
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.tz_localize(
+        None
+    ).dt.normalize()
     frame["symbol"] = frame["symbol"].astype(str).str.strip().str.upper()
     for column in ("open", "high", "low", "close"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
@@ -450,6 +477,17 @@ def _frozen_ohlc_matrices(market_history: pd.DataFrame) -> dict[str, pd.DataFram
         column: matrix.iloc[-REQUIRED_SESSIONS:].loc[:, [RISK_SYMBOL, DEFENSIVE_SYMBOL]]
         for column, matrix in bars.items()
     }
+
+
+def _blended_entry_price(
+    current_price: float,
+    current_weight: float,
+    added_price: float,
+    added_weight: float,
+) -> float:
+    return (
+        current_price * current_weight + added_price * added_weight
+    ) / (current_weight + added_weight)
 
 
 def _drawdown_scalar(drawdown: float) -> float:
