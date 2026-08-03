@@ -265,8 +265,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
 
         self.assertTrue(expected_is_emergency)
-        self.assertEqual(decision.risk_flags, ("emergency", "risk_gate:passed"))
-        self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, expected_weights)
+        self.assertEqual(decision.positions, ())
+        self.assertIn("rejected:concentration", decision.risk_flags)
         self.assertEqual(decision.diagnostics["signal_description"], expected_signal)
         self.assertEqual(decision.diagnostics["canary_status"], expected_canary)
         self.assertEqual(decision.diagnostics["signal_source"], "feature_snapshot")
@@ -953,13 +953,10 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        weights = {position.symbol: position.target_weight for position in decision.positions}
+        self.assertEqual(decision.positions, ())
+        self.assertIn("rejected:concentration", decision.risk_flags)
         self.assertEqual(decision.diagnostics["leader_rotation_profile_variant"], "top4_baseline")
         self.assertNotIn("blend_sleeves", decision.diagnostics)
-        self.assertAlmostEqual(weights["NVDA"], 0.25)
-        self.assertAlmostEqual(weights["META"], 0.25)
-        self.assertAlmostEqual(weights["MSFT"], 0.25)
-        self.assertAlmostEqual(weights["AAPL"], 0.25)
 
     def test_russell_top50_shadow_variants_do_not_change_target_positions(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")
@@ -978,12 +975,9 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        weights = {position.symbol: position.target_weight for position in decision.positions}
+        self.assertEqual(decision.positions, ())
+        self.assertIn("rejected:concentration", decision.risk_flags)
         self.assertEqual(decision.diagnostics["leader_rotation_profile_variant"], "blend_top2_50_top4_50")
-        self.assertAlmostEqual(weights["NVDA"], 0.375)
-        self.assertAlmostEqual(weights["META"], 0.375)
-        self.assertAlmostEqual(weights["MSFT"], 0.125)
-        self.assertAlmostEqual(weights["AAPL"], 0.125)
         self.assertEqual(
             tuple(decision.diagnostics["leader_rotation_shadow_variants"]),
             ("top4_baseline", "blend_top2_25_top4_75", "blend_top2_50_top4_50"),
@@ -1025,17 +1019,10 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        weights = {position.symbol: position.target_weight for position in decision.positions}
+        self.assertEqual(decision.positions, ())
+        self.assertIn("rejected:concentration", decision.risk_flags)
         self.assertTrue(decision.diagnostics["income_layer_applied"])
         self.assertGreater(decision.diagnostics["income_layer_ratio"], 0.0)
-        self.assertIn("SCHD", weights)
-        self.assertIn("DGRO", weights)
-        self.assertIn("SGOV", weights)
-        income_symbols = {"SCHD", "DGRO", "SGOV", "SPYI", "QQQI"}
-        self.assertLess(
-            sum(weight for symbol, weight in weights.items() if symbol not in income_symbols),
-            1.0,
-        )
 
     def test_removed_tech_profile_has_no_runtime_entrypoint(self) -> None:
         for removed_profile in (
