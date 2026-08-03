@@ -58,6 +58,9 @@ def apply_risk_gate(
     decision: StrategyDecision,
     *,
     ctx: StrategyContext | None = None,
+    risk_mandate_id: str | None = None,
+    product_leverage_factors: Mapping[str, int] | None = None,
+    available_account_exposure: float | None = None,
     max_single_weight: float = 1.0,
     max_positions: int = 20,
     max_total_exposure: float = 1.0,
@@ -79,6 +82,9 @@ def apply_risk_gate(
         market_data = dict(ctx.market_data or {})
     return _qpk_apply_risk_gate(
         decision,
+        risk_mandate_id=risk_mandate_id,
+        product_leverage_factors=product_leverage_factors,
+        available_account_exposure=available_account_exposure,
         max_single_weight=max_single_weight,
         max_positions=max_positions,
         max_total_exposure=max_total_exposure,
