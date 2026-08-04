@@ -299,7 +299,9 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
         )
     )
     assert expensive_decision.positions == ()
-    assert expensive_decision.risk_flags == ("no_execute",)
+    assert expensive_decision.budgets == ()
+    assert expensive_decision.risk_flags == ("no_execute", "risk_gate:passed")
+    assert expensive_decision.diagnostics["risk_gate"] == "APPROVE"
 
 
 def test_smart_dca_entrypoint_accepts_unified_derived_indicators() -> None:

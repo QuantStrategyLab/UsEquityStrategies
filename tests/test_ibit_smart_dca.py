@@ -733,7 +733,9 @@ def test_ibit_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -
         )
     )
     assert target_full_decision.positions == ()
-    assert target_full_decision.risk_flags == ("no_execute",)
+    assert target_full_decision.budgets == ()
+    assert target_full_decision.risk_flags == ("no_execute", "risk_gate:passed")
+    assert target_full_decision.diagnostics["risk_gate"] == "APPROVE"
 
 
 def test_ibit_smart_dca_entrypoint_emits_boxx_sell_target_for_cash_substitute_dca() -> None:

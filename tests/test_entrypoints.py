@@ -228,11 +228,11 @@ class StrategyEntrypointTests(unittest.TestCase):
             entrypoint = get_strategy_entrypoint(profile)
             self.assertEqual(entrypoint.manifest.profile, profile)
 
-    def test_global_etf_rotation_entrypoint_matches_legacy_emergency_weights(self) -> None:
+    def test_global_etf_rotation_emergency_signal_fails_closed_without_snapshot(self) -> None:
         entrypoint = get_strategy_entrypoint("global_etf_rotation")
         feature_snapshot = _global_etf_snapshot(as_of="2026-04-06")
         (
-            expected_weights,
+            _expected_weights,
             expected_signal,
             expected_is_emergency,
             expected_canary,
@@ -265,8 +265,10 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
 
         self.assertTrue(expected_is_emergency)
-        self.assertEqual(decision.risk_flags, ("emergency", "risk_gate:passed"))
-        self.assertEqual({p.symbol: p.target_weight for p in decision.positions}, expected_weights)
+        self.assertEqual(decision.positions, ())
+        self.assertEqual(decision.budgets, ())
+        self.assertEqual(decision.risk_flags, ("rejected:concentration",))
+        self.assertEqual(decision.diagnostics["risk_gate"], "REJECT")
         self.assertEqual(decision.diagnostics["signal_description"], expected_signal)
         self.assertEqual(decision.diagnostics["canary_status"], expected_canary)
         self.assertEqual(decision.diagnostics["signal_source"], "feature_snapshot")
@@ -936,7 +938,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("blend_sleeves", mega_decision.diagnostics)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
 
-    def test_russell_top50_runtime_variant_overrides_manifest_blend(self) -> None:
+    def test_russell_top50_runtime_variant_preserves_diagnostics_but_fails_closed(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")
         decision = mega.evaluate(
             StrategyContext(
@@ -953,13 +955,11 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        weights = {position.symbol: position.target_weight for position in decision.positions}
         self.assertEqual(decision.diagnostics["leader_rotation_profile_variant"], "top4_baseline")
         self.assertNotIn("blend_sleeves", decision.diagnostics)
-        self.assertAlmostEqual(weights["NVDA"], 0.25)
-        self.assertAlmostEqual(weights["META"], 0.25)
-        self.assertAlmostEqual(weights["MSFT"], 0.25)
-        self.assertAlmostEqual(weights["AAPL"], 0.25)
+        self.assertEqual(decision.positions, ())
+        self.assertEqual(decision.budgets, ())
+        self.assertEqual(decision.risk_flags, ("rejected:too_many_positions",))
 
     def test_russell_top50_shadow_variants_do_not_change_target_positions(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")
@@ -978,12 +978,10 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        weights = {position.symbol: position.target_weight for position in decision.positions}
         self.assertEqual(decision.diagnostics["leader_rotation_profile_variant"], "blend_top2_50_top4_50")
-        self.assertAlmostEqual(weights["NVDA"], 0.375)
-        self.assertAlmostEqual(weights["META"], 0.375)
-        self.assertAlmostEqual(weights["MSFT"], 0.125)
-        self.assertAlmostEqual(weights["AAPL"], 0.125)
+        self.assertEqual(decision.positions, ())
+        self.assertEqual(decision.budgets, ())
+        self.assertEqual(decision.risk_flags, ("rejected:too_many_positions",))
         self.assertEqual(
             tuple(decision.diagnostics["leader_rotation_shadow_variants"]),
             ("top4_baseline", "blend_top2_25_top4_75", "blend_top2_50_top4_50"),
@@ -1009,7 +1007,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             "META",
         )
 
-    def test_weight_mode_income_layer_scales_core_weights_when_portfolio_is_large(self) -> None:
+    def test_weight_mode_income_layer_preserves_diagnostics_but_fails_closed(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")
         decision = mega.evaluate(
             StrategyContext(
@@ -1025,17 +1023,11 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        weights = {position.symbol: position.target_weight for position in decision.positions}
         self.assertTrue(decision.diagnostics["income_layer_applied"])
         self.assertGreater(decision.diagnostics["income_layer_ratio"], 0.0)
-        self.assertIn("SCHD", weights)
-        self.assertIn("DGRO", weights)
-        self.assertIn("SGOV", weights)
-        income_symbols = {"SCHD", "DGRO", "SGOV", "SPYI", "QQQI"}
-        self.assertLess(
-            sum(weight for symbol, weight in weights.items() if symbol not in income_symbols),
-            1.0,
-        )
+        self.assertEqual(decision.positions, ())
+        self.assertEqual(decision.budgets, ())
+        self.assertEqual(decision.risk_flags, ("rejected:too_many_positions",))
 
     def test_removed_tech_profile_has_no_runtime_entrypoint(self) -> None:
         for removed_profile in (
