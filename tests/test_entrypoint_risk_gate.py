@@ -50,3 +50,75 @@ def test_apply_risk_gate_passes_bootstrap_mandate_parameters_to_qpk(
     assert captured["risk_mandate_id"] == "bootstrap_small_account_v2"
     assert captured["product_leverage_factors"] == {"SPY": 1}
     assert captured["available_account_exposure"] == 0.50
+
+
+def test_unmandated_consumer_allows_only_explicit_1x_single_position_at_ten_percent() -> None:
+    result = apply_risk_gate(
+        StrategyDecision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+        ),
+        product_leverage_factors={"SPY": 1},
+        max_single_weight=1.0,
+        portfolio_snapshot={"total_equity": 100_000.0},
+    )
+
+    assert result.positions == (
+        PositionTarget(symbol="SPY", target_weight=0.10),
+    )
+    assert result.budgets == ()
+    assert result.risk_flags == ("risk_gate:passed",)
+    assert result.diagnostics["risk_gate"] == "APPROVE"
+
+
+def test_unmandated_consumer_fail_closed_matrix() -> None:
+    single = (PositionTarget(symbol="SPY", target_weight=0.10),)
+    cases = (
+        (single, {"SPY": 1}, None, ("rejected:risk_engine",)),
+        (single, {"SPY": 1}, {"total_equity": float("nan")}, ("rejected:risk_engine",)),
+        (
+            (PositionTarget(symbol="SPY", target_weight=0.11),),
+            {"SPY": 1},
+            {"total_equity": 100_000.0},
+            ("rejected:concentration",),
+        ),
+        (
+            (
+                PositionTarget(symbol="SPY", target_weight=0.05),
+                PositionTarget(symbol="BOXX", target_weight=0.05),
+            ),
+            {"SPY": 1, "BOXX": 1},
+            {"total_equity": 100_000.0},
+            ("rejected:too_many_positions",),
+        ),
+        (
+            single,
+            None,
+            {"total_equity": 100_000.0},
+            ("rejected:leverage_classification",),
+        ),
+        (
+            single,
+            {"QQQ": 1},
+            {"total_equity": 100_000.0},
+            ("rejected:leverage_classification",),
+        ),
+        (
+            single,
+            {"SPY": 2},
+            {"total_equity": 100_000.0},
+            ("rejected:leverage_classification",),
+        ),
+    )
+
+    for positions, leverage_factors, snapshot, expected_flags in cases:
+        result = apply_risk_gate(
+            StrategyDecision(positions=positions),
+            product_leverage_factors=leverage_factors,
+            max_single_weight=1.0,
+            portfolio_snapshot=snapshot,
+        )
+
+        assert result.positions == ()
+        assert result.budgets == ()
+        assert result.risk_flags == expected_flags
+        assert result.diagnostics["risk_gate"] == "REJECT"
