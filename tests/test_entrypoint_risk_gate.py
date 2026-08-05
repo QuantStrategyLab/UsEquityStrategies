@@ -14,7 +14,7 @@ import us_equity_strategies.entrypoints._common as common
 from us_equity_strategies.entrypoints._common import apply_risk_gate
 
 
-_SOXL_ASSETS = ("SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI")
+_SOXL_ASSETS = ("SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI", "QQQ")
 _SOXL_NOW = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
 
 
@@ -85,6 +85,17 @@ def _soxl_raw_decision() -> StrategyDecision:
     )
 
 
+def _soxl_preinception_decision() -> StrategyDecision:
+    return StrategyDecision(
+        positions=(
+            PositionTarget(symbol="SOXL", target_value=70_000.0),
+            PositionTarget(symbol="BOXX", target_value=20_000.0, role="safe_haven"),
+            PositionTarget(symbol="QQQI", target_value=10_000.0, role="income"),
+        ),
+        diagnostics={"source": "shared_builder"},
+    )
+
+
 def test_soxl_promotion_research_sizes_and_assesses_exactly_once(monkeypatch) -> None:
     candidate = _soxl_candidate()
     mandate = _soxl_mandate(candidate)
@@ -108,6 +119,8 @@ def test_soxl_promotion_research_sizes_and_assesses_exactly_once(monkeypatch) ->
             stop_loss_distances={"SOXL": 0.05, "BOXX": 0.05},
             drawdown_scalar=1.0,
             inputs_fresh=True,
+            point_in_time_eligible_assets=frozenset(_SOXL_ASSETS),
+            qqqi_preinception_fallback_symbol="QQQ",
         )
 
     assert result.assessment.outcome == "APPROVE"
@@ -153,6 +166,8 @@ def test_soxl_promotion_research_identity_failures_clear_decision_and_assess_onc
                 stop_loss_distances={"SOXL": 0.05, "BOXX": 0.05},
                 drawdown_scalar=1.0,
                 inputs_fresh=True,
+                point_in_time_eligible_assets=frozenset(_SOXL_ASSETS),
+                qqqi_preinception_fallback_symbol="QQQ",
             )
 
         assert result.assessment.outcome == "REJECT"
@@ -193,6 +208,8 @@ def test_soxl_promotion_research_builder_exception_fails_closed_and_assesses_onc
             stop_loss_distances={"SOXL": 0.05, "BOXX": 0.05},
             drawdown_scalar=1.0,
             inputs_fresh=True,
+            point_in_time_eligible_assets=frozenset(_SOXL_ASSETS),
+            qqqi_preinception_fallback_symbol="QQQ",
         )
 
     assert result.assessment.outcome == "REJECT"
@@ -203,6 +220,136 @@ def test_soxl_promotion_research_builder_exception_fails_closed_and_assesses_onc
     engine.assess.assert_called_once()
     legacy_gate.assert_not_called()
     monitor.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("fallback_symbol", "expected"),
+    (
+        ("QQQ", {"SOXL": 0.15, "QQQ": 0.021428571428571432}),
+        (None, {"SOXL": 0.15}),
+    ),
+)
+def test_soxl_promotion_research_keeps_unavailable_targets_as_cash(
+    monkeypatch,
+    fallback_symbol,
+    expected,
+) -> None:
+    candidate = _soxl_candidate()
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+    monkeypatch.setattr(
+        entrypoints,
+        "_build_soxl_soxx_trend_income_decision",
+        Mock(return_value=_soxl_preinception_decision()),
+    )
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_SOXL_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_soxl_soxx_trend_income_promotion_research(
+            _soxl_context(),
+            candidate_identity=candidate,
+            mandate_provenance=_soxl_mandate(candidate),
+            stop_loss_distances={
+                symbol: 0.05 for symbol in {"SOXL", "SOXX", "SCHD", "DGRO", "QQQ"}
+            },
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+            point_in_time_eligible_assets=frozenset({"SOXL", "SOXX", "SCHD", "DGRO", "QQQ"}),
+            qqqi_preinception_fallback_symbol=fallback_symbol,
+        )
+
+    assert result.assessment.outcome == "APPROVE"
+    assert {position.symbol: position.target_weight for position in result.decision.positions} == pytest.approx(
+        expected
+    )
+    assert not {"BOXX", "QQQI"} & {position.symbol for position in result.decision.positions}
+    assert result.decision.diagnostics["promotion_research_ineligible_assets_to_cash"] == (
+        ("BOXX",) if fallback_symbol == "QQQ" else ("BOXX", "QQQI")
+    )
+    engine.assess.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("eligible_assets", "fallback_symbol", "raw_decision"),
+    (
+        (None, "QQQ", _soxl_preinception_decision()),
+        (frozenset({"SOXL", "QQQ", "SPY"}), "QQQ", _soxl_preinception_decision()),
+        (frozenset({"SOXL", "QQQ"}), "SPY", _soxl_preinception_decision()),
+        (frozenset({"SOXL"}), "QQQ", _soxl_preinception_decision()),
+        (
+            frozenset(_SOXL_ASSETS),
+            "QQQ",
+            StrategyDecision(positions=(PositionTarget(symbol="QQQ", target_value=10_000.0),)),
+        ),
+    ),
+)
+def test_soxl_promotion_research_invalid_eligibility_fails_closed_and_assesses_once(
+    monkeypatch,
+    eligible_assets,
+    fallback_symbol,
+    raw_decision,
+) -> None:
+    candidate = _soxl_candidate()
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+    monkeypatch.setattr(
+        entrypoints,
+        "_build_soxl_soxx_trend_income_decision",
+        Mock(return_value=raw_decision),
+    )
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_SOXL_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_soxl_soxx_trend_income_promotion_research(
+            _soxl_context(),
+            candidate_identity=candidate,
+            mandate_provenance=_soxl_mandate(candidate),
+            stop_loss_distances={symbol: 0.05 for symbol in _SOXL_ASSETS},
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+            point_in_time_eligible_assets=eligible_assets,
+            qqqi_preinception_fallback_symbol=fallback_symbol,
+        )
+
+    assert result.assessment.outcome == "REJECT"
+    assert result.decision.positions == ()
+    assert result.decision.budgets == ()
+    engine.assess.assert_called_once()
+
+
+def test_soxl_promotion_research_missing_eligibility_fails_closed_and_assesses_once(
+    monkeypatch,
+) -> None:
+    candidate = _soxl_candidate()
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+    monkeypatch.setattr(
+        entrypoints,
+        "_build_soxl_soxx_trend_income_decision",
+        Mock(return_value=_soxl_preinception_decision()),
+    )
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_SOXL_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_soxl_soxx_trend_income_promotion_research(
+            _soxl_context(),
+            candidate_identity=candidate,
+            mandate_provenance=_soxl_mandate(candidate),
+            stop_loss_distances={symbol: 0.05 for symbol in _SOXL_ASSETS},
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+        )
+
+    assert result.assessment.outcome == "REJECT"
+    assert result.decision.positions == ()
+    assert result.decision.budgets == ()
+    engine.assess.assert_called_once()
 
 
 def test_apply_risk_gate_enriches_stop_loss_diagnostics_from_portfolio() -> None:

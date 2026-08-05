@@ -851,6 +851,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             entrypoint.manifest.default_config["managed_symbols"],
             ("SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
         )
+        self.assertNotIn("QQQ", entrypoint.manifest.default_config["managed_symbols"])
         self.assertIs(entrypoint.manifest.default_config["income_layer_enabled"], True)
         self.assertEqual(entrypoint.manifest.default_config["income_layer_ratio_mode"], "log_total_drawdown_budget")
         self.assertEqual(entrypoint.manifest.default_config["income_layer_start_usd"], 150000.0)

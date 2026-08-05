@@ -933,6 +933,8 @@ def evaluate_soxl_soxx_trend_income_promotion_research(
     stop_loss_distances: Mapping[str, float],
     drawdown_scalar: float,
     inputs_fresh: bool,
+    point_in_time_eligible_assets: frozenset[str] | None = None,
+    qqqi_preinception_fallback_symbol: str | None = None,
     normalization_origin_weights: Mapping[str, float] | None = None,
 ) -> RiskGateResult:
     """Build, size and assess one offline SOXL promotion-research decision."""
@@ -950,6 +952,33 @@ def evaluate_soxl_soxx_trend_income_promotion_research(
             if position.target_weight is not None
         }
         mandate = mandate_provenance if isinstance(mandate_provenance, Mapping) else {}
+        registered_assets = tuple(soxl_soxx_trend_income_manifest.default_config["managed_symbols"])
+        promotion_assets = (*registered_assets, "QQQ")
+        eligible_assets = point_in_time_eligible_assets
+        if (
+            not isinstance(eligible_assets, frozenset)
+            or not eligible_assets
+            or not eligible_assets.issubset(promotion_assets)
+            or qqqi_preinception_fallback_symbol not in {None, "QQQ"}
+            or set(raw_weights) - set(registered_assets)
+            or mandate.get("allowed_nonzero_assets") != list(promotion_assets)
+        ):
+            raise ValueError("invalid promotion eligibility contract")
+        if "QQQI" not in eligible_assets and qqqi_preinception_fallback_symbol == "QQQ":
+            if "QQQ" not in eligible_assets:
+                raise ValueError("QQQ fallback is not point-in-time eligible")
+            if "QQQI" in raw_weights:
+                raw_weights["QQQ"] = raw_weights.pop("QQQI")
+        unavailable_targets = tuple(
+            sorted(
+                symbol
+                for symbol, weight in raw_weights.items()
+                if weight > 0.0 and symbol not in eligible_assets
+            )
+        )
+        raw_weights = {
+            symbol: weight for symbol, weight in raw_weights.items() if symbol in eligible_assets
+        }
         mandate_factors = mandate.get("product_leverage_factors")
         if not isinstance(mandate_factors, Mapping):
             raise ValueError("promotion mandate is missing product leverage factors")
@@ -970,6 +999,8 @@ def evaluate_soxl_soxx_trend_income_promotion_research(
         positions_by_symbol = {
             position.symbol: position for position in weighted_decision.positions
         }
+        if "QQQ" in raw_weights:
+            positions_by_symbol["QQQ"] = positions_by_symbol["QQQI"]
         decision = StrategyDecision(
             positions=tuple(
                 PositionTarget(
@@ -985,6 +1016,9 @@ def evaluate_soxl_soxx_trend_income_promotion_research(
             diagnostics={
                 **weighted_decision.diagnostics,
                 "promotion_research_sized": True,
+                "promotion_research_eligible_assets": tuple(sorted(eligible_assets)),
+                "promotion_research_qqqi_fallback_symbol": qqqi_preinception_fallback_symbol,
+                "promotion_research_ineligible_assets_to_cash": unavailable_targets,
             },
         )
     except Exception:
