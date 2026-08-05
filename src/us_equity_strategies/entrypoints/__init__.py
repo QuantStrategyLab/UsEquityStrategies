@@ -969,6 +969,16 @@ def evaluate_soxl_soxx_trend_income_promotion_research(
                 raise ValueError("QQQ fallback is not point-in-time eligible")
             if "QQQI" in raw_weights:
                 raw_weights["QQQ"] = raw_weights.pop("QQQI")
+        unavailable_targets = tuple(
+            sorted(
+                symbol
+                for symbol, weight in raw_weights.items()
+                if weight > 0.0 and symbol not in eligible_assets
+            )
+        )
+        raw_weights = {
+            symbol: weight for symbol, weight in raw_weights.items() if symbol in eligible_assets
+        }
         mandate_factors = mandate.get("product_leverage_factors")
         if not isinstance(mandate_factors, Mapping):
             raise ValueError("promotion mandate is missing product leverage factors")
@@ -991,12 +1001,6 @@ def evaluate_soxl_soxx_trend_income_promotion_research(
         }
         if "QQQ" in raw_weights:
             positions_by_symbol["QQQ"] = positions_by_symbol["QQQI"]
-        unavailable_targets = tuple(
-            sorted(symbol for symbol, weight in sized_weights.items() if weight > 0.0 and symbol not in eligible_assets)
-        )
-        sized_weights = {
-            symbol: weight for symbol, weight in sized_weights.items() if symbol in eligible_assets
-        }
         decision = StrategyDecision(
             positions=tuple(
                 PositionTarget(

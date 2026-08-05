@@ -224,7 +224,10 @@ def test_soxl_promotion_research_builder_exception_fails_closed_and_assesses_onc
 
 @pytest.mark.parametrize(
     ("fallback_symbol", "expected"),
-    (("QQQ", {"SOXL": 0.14, "QQQ": 0.02}), (None, {"SOXL": 0.14})),
+    (
+        ("QQQ", {"SOXL": 0.15, "QQQ": 0.021428571428571432}),
+        (None, {"SOXL": 0.15}),
+    ),
 )
 def test_soxl_promotion_research_keeps_unavailable_targets_as_cash(
     monkeypatch,
@@ -248,7 +251,9 @@ def test_soxl_promotion_research_keeps_unavailable_targets_as_cash(
             _soxl_context(),
             candidate_identity=candidate,
             mandate_provenance=_soxl_mandate(candidate),
-            stop_loss_distances={symbol: 0.05 for symbol in _SOXL_ASSETS},
+            stop_loss_distances={
+                symbol: 0.05 for symbol in {"SOXL", "SOXX", "SCHD", "DGRO", "QQQ"}
+            },
             drawdown_scalar=1.0,
             inputs_fresh=True,
             point_in_time_eligible_assets=frozenset({"SOXL", "SOXX", "SCHD", "DGRO", "QQQ"}),
@@ -260,6 +265,9 @@ def test_soxl_promotion_research_keeps_unavailable_targets_as_cash(
         expected
     )
     assert not {"BOXX", "QQQI"} & {position.symbol for position in result.decision.positions}
+    assert result.decision.diagnostics["promotion_research_ineligible_assets_to_cash"] == (
+        ("BOXX",) if fallback_symbol == "QQQ" else ("BOXX", "QQQI")
+    )
     engine.assess.assert_called_once()
 
 
