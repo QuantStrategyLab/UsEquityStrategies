@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
-from quant_platform_kit.strategy_contracts import StrategyContext
+from quant_platform_kit.strategy_contracts import StrategyContext, StrategyDecision
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
 from us_equity_strategies import entrypoints
 from us_equity_strategies.catalog import get_runtime_enabled_profiles
@@ -868,6 +868,38 @@ class StrategyEntrypointTests(unittest.TestCase):
             entrypoint.manifest.default_config["income_layer_allocations"],
             {"SCHD": 0.15, "DGRO": 0.10, "SGOV": 0.70, "SPYI": 0.04, "QQQI": 0.01},
         )
+
+    def test_soxl_runtime_wrapper_uses_private_builder_and_gates_and_records_once(self) -> None:
+        ctx = StrategyContext(as_of="2026-04-06")
+        raw_decision = StrategyDecision(diagnostics={"source": "shared_builder"})
+        manifest = get_strategy_entrypoint("soxl_soxx_trend_income").manifest
+        config_before = repr(manifest.default_config)
+
+        with (
+            patch.object(
+                entrypoints,
+                "_build_soxl_soxx_trend_income_decision",
+                return_value=raw_decision,
+            ) as builder,
+            patch.object(
+                entrypoints,
+                "apply_risk_gate",
+                side_effect=lambda decision, **_: decision,
+            ) as gate,
+            patch.object(entrypoints, "record_strategy_decision") as record,
+        ):
+            decision = entrypoints.evaluate_soxl_soxx_trend_income(ctx)
+
+        self.assertIs(decision, raw_decision)
+        builder.assert_called_once_with(ctx)
+        gate.assert_called_once_with(raw_decision, ctx=ctx, max_single_weight=0.20)
+        record.assert_called_once_with(
+            ctx,
+            raw_decision,
+            profile_id=manifest.profile,
+            domain=manifest.domain,
+        )
+        self.assertEqual(repr(manifest.default_config), config_before)
 
     def test_soxl_soxx_trend_income_entrypoint_rejects_retired_fixed_dual_drive_runtime_config(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")

@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from quant_platform_kit.position_sizing import risk_budgeted_target_weights
+from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskGateResult
+from quant_platform_kit.risk.gate import assess_with_evidence
 from quant_platform_kit.strategy_contracts import (
     CallableStrategyEntrypoint,
+    PositionTarget,
     StrategyContext,
     StrategyDecision,
     build_execution_timing_metadata,
+    translate_value_decision_to_weight_targets,
 )
 
 from us_equity_strategies.account_sizing import (
@@ -661,7 +666,7 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
     }
 
 
-def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
+def _build_soxl_soxx_trend_income_decision(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
@@ -905,6 +910,11 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
     )
+    return decision
+
+
+def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
+    decision = _build_soxl_soxx_trend_income_decision(ctx)
     decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
     record_strategy_decision(
         ctx,
@@ -913,6 +923,88 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         domain=soxl_soxx_trend_income_manifest.domain,
     )
     return decision
+
+
+def evaluate_soxl_soxx_trend_income_promotion_research(
+    ctx: StrategyContext,
+    *,
+    candidate_identity: CandidateRiskIdentity | None,
+    mandate_provenance: Mapping[str, object] | None,
+    stop_loss_distances: Mapping[str, float],
+    drawdown_scalar: float,
+    inputs_fresh: bool,
+    normalization_origin_weights: Mapping[str, float] | None = None,
+) -> RiskGateResult:
+    """Build, size and assess one offline SOXL promotion-research decision."""
+    scope = "MEMBER"
+    try:
+        raw_decision = _build_soxl_soxx_trend_income_decision(ctx)
+        portfolio = require_portfolio(ctx)
+        weighted_decision = translate_value_decision_to_weight_targets(
+            raw_decision,
+            total_equity=float(portfolio.total_equity),
+        )
+        raw_weights = {
+            position.symbol: float(position.target_weight)
+            for position in weighted_decision.positions
+            if position.target_weight is not None
+        }
+        mandate = mandate_provenance if isinstance(mandate_provenance, Mapping) else {}
+        mandate_factors = mandate.get("product_leverage_factors")
+        if not isinstance(mandate_factors, Mapping):
+            raise ValueError("promotion mandate is missing product leverage factors")
+        factors = {symbol: mandate_factors[symbol] for symbol in raw_weights}
+        stops = {symbol: stop_loss_distances[symbol] for symbol in raw_weights}
+        sized_weights = risk_budgeted_target_weights(
+            raw_target_weights=raw_weights,
+            risk_mandate_id=mandate.get("mandate_id"),
+            risk_fraction=mandate.get("loss_budget"),
+            stop_loss_distances=stops,
+            drawdown_scalar=drawdown_scalar,
+            available_effective_exposure=mandate.get("effective_exposure_cap"),
+            product_leverage_factors=factors,
+            inputs_fresh=inputs_fresh,
+        )
+        if any(weight > 0.0 for weight in raw_weights.values()) and not sized_weights:
+            raise ValueError("promotion sizing failed closed")
+        positions_by_symbol = {
+            position.symbol: position for position in weighted_decision.positions
+        }
+        decision = StrategyDecision(
+            positions=tuple(
+                PositionTarget(
+                    symbol=symbol,
+                    target_weight=weight,
+                    role=positions_by_symbol[symbol].role,
+                    order_preference=positions_by_symbol[symbol].order_preference,
+                )
+                for symbol, weight in sorted(sized_weights.items())
+            ),
+            budgets=weighted_decision.budgets,
+            risk_flags=weighted_decision.risk_flags,
+            diagnostics={
+                **weighted_decision.diagnostics,
+                "promotion_research_sized": True,
+            },
+        )
+    except Exception:
+        scope = "INVALID"
+        decision = StrategyDecision(
+            positions=(),
+            budgets=(),
+            risk_flags=("promotion_research:fail_closed",),
+            diagnostics={"promotion_research_reason": "decision_or_sizing_invalid"},
+        )
+
+    return assess_with_evidence(
+        decision,
+        ctx.portfolio,
+        scope=scope,
+        mandate_provenance=mandate_provenance,
+        market_data=ctx.market_data,
+        candidate_identity=candidate_identity,
+        normalization_origin_weights=normalization_origin_weights,
+    )
 
 
 def evaluate_tecl_xlk_trend_income(ctx: StrategyContext) -> StrategyDecision:
@@ -1675,6 +1767,7 @@ __all__ = [
     "compute_tqqq_growth_income_decision",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
+    "evaluate_soxl_soxx_trend_income_promotion_research",
     "evaluate_tecl_xlk_trend_income",
     "evaluate_russell_top50_leader_rotation",
     "evaluate_nasdaq_sp500_smart_dca",
