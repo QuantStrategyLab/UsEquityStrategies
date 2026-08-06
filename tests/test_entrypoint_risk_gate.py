@@ -57,7 +57,7 @@ def _soxl_mandate(candidate: CandidateRiskIdentity | None = None) -> dict[str, o
         "nominal_caps": caps,
         "product_leverage_factors": factors,
         "allowed_nonzero_assets": list(_SOXL_ASSETS),
-        "source_revision": "2f75b59289ef24ab47a3ed8d522c9ef8d6aea6b2",
+        "source_revision": "9618b4bd8e179760ac174914713598762cab15d7",
     }
 
 
