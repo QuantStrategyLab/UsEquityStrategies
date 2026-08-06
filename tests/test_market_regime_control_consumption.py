@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from quant_platform_kit.strategy_contracts import StrategyContext
 
-from us_equity_strategies.entrypoints._common import apply_market_regime_control_to_weights
+from us_equity_strategies.entrypoints._common import (
+    apply_market_regime_control_to_weights,
+)
 
 
 def _market_regime_payload(route: str, scalar: float, *, authorized: bool = True) -> dict[str, object]:
@@ -46,6 +48,31 @@ def _market_regime_payload(route: str, scalar: float, *, authorized: bool = True
         "notification": {
             "localized_message_schema_version": "strategy_plugin_messages.v1",
             "localized_messages": {"zh-CN": "需要通知：市场状态风险降低。"},
+        },
+    }
+
+
+def _core_only_unavailable_regime() -> dict[str, object]:
+    unavailable = {"enabled": False, "available": False}
+    return {
+        "profile": "market_regime_control",
+        "schema_version": "soxl_core_only_market_regime_unavailable.v1",
+        "as_of": "2026-05-28",
+        "candidate_id": "SOXL_P3_CORE_ONLY_9_INPUT_V1",
+        "market_regime_control_enabled": False,
+        "component_signals": {
+            name: dict(unavailable)
+            for name in (
+                "crisis",
+                "macro",
+                "taco",
+                "panic_reversal",
+                "volatility_delever_price_rebound",
+            )
+        },
+        "execution_controls": {
+            "position_control_allowed": False,
+            "consumption_evidence_status": "static_research_only",
         },
     }
 
@@ -119,4 +146,23 @@ def test_market_regime_control_weight_consumer_does_not_apply_unapproved_positio
     assert diagnostics["market_regime_control_position_control_allowed"] is False
     assert diagnostics["market_regime_control_position_control_authorized"] is False
     assert diagnostics["market_regime_control_consumption_evidence_status"] == "notification_only"
+    assert diagnostics["market_regime_control_applied"] is False
+
+
+def test_core_only_unavailable_regime_cannot_change_weights_when_consumer_is_enabled() -> None:
+    weights, diagnostics = apply_market_regime_control_to_weights(
+        {"SOXL": 0.70, "SOXX": 0.20, "BOXX": 0.10},
+        market_regime_control_config={"market_regime_control_enabled": True},
+        ctx=StrategyContext(
+            as_of="2026-05-28",
+            artifacts={"market_regime_control": _core_only_unavailable_regime()},
+        ),
+        safe_haven="BOXX",
+    )
+
+    assert weights == {"SOXL": 0.70, "SOXX": 0.20, "BOXX": 0.10}
+    assert diagnostics["market_regime_control_found"] is True
+    assert diagnostics["market_regime_control_active"] is False
+    assert diagnostics["market_regime_control_position_control_allowed"] is False
+    assert diagnostics["market_regime_control_position_control_authorized"] is False
     assert diagnostics["market_regime_control_applied"] is False

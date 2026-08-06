@@ -1834,17 +1834,23 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "total_strategy_equity": 100000.0,
             "metadata": {
                 "market_regime_control": {
-                    "plugin": "market_regime_control",
-                    "schema_version": "market_regime_control.v1",
-                    "canonical_route": "risk_reduced",
-                    "suggested_action": "delever",
-                    **_market_regime_authorization(),
-                    "position_control": {
-                        "final_route": "risk_reduced",
-                        "suggested_action": "delever",
-                        "route_source": "macro",
-                        "leverage_scalar": 0.0,
-                        "risk_asset_scalar": 0.0,
+                    "profile": "market_regime_control",
+                    "schema_version": "soxl_core_only_market_regime_unavailable.v1",
+                    "candidate_id": "SOXL_P3_CORE_ONLY_9_INPUT_V1",
+                    "market_regime_control_enabled": False,
+                    "component_signals": {
+                        name: {"enabled": False, "available": False}
+                        for name in (
+                            "crisis",
+                            "macro",
+                            "taco",
+                            "panic_reversal",
+                            "volatility_delever_price_rebound",
+                        )
+                    },
+                    "execution_controls": {
+                        "position_control_allowed": False,
+                        "consumption_evidence_status": "static_research_only",
                     },
                 }
             },
