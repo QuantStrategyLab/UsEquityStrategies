@@ -1834,6 +1834,74 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             "total_strategy_equity": 100000.0,
             "metadata": {
                 "market_regime_control": {
+                    "plugin": "market_regime_control",
+                    "schema_version": "market_regime_control.v1",
+                    "canonical_route": "risk_reduced",
+                    "suggested_action": "delever",
+                    **_market_regime_authorization(),
+                    "position_control": {
+                        "final_route": "risk_reduced",
+                        "suggested_action": "delever",
+                        "route_source": "macro",
+                        "leverage_scalar": 0.0,
+                        "risk_asset_scalar": 0.0,
+                    },
+                }
+            },
+        }
+
+        plan = build_soxl_soxx_plan(
+            {
+                "soxl": {"price": 50.0, "ma_trend": 45.0},
+                "soxx": {"price": 109.0, "ma_trend": 100.0},
+            },
+            account_state,
+            trend_ma_window=140,
+            translator=_translator,
+            cash_reserve_ratio=0.03,
+            min_trade_ratio=0.01,
+            min_trade_floor=100.0,
+            rebalance_threshold_ratio=0.01,
+            income_layer_start_usd=150000.0,
+            income_layer_max_ratio=0.15,
+            income_layer_qqqi_weight=0.70,
+            income_layer_spyi_weight=0.30,
+            attack_allocation_mode=SOXX_GATE_TIERED_BLEND_MODE,
+            blend_gate_trend_source="SOXX",
+            trend_entry_buffer=0.08,
+            trend_mid_buffer=0.06,
+            trend_exit_buffer=0.02,
+            blend_gate_soxl_weight=0.70,
+            blend_gate_mid_soxl_weight=0.65,
+            blend_gate_active_soxx_weight=0.20,
+            blend_gate_defensive_soxx_weight=0.15,
+            market_regime_control_enabled=False,
+        )
+
+        self.assertFalse(plan["market_regime_control_enabled"])
+        self.assertFalse(plan["market_regime_control_found"])
+        self.assertFalse(plan["market_regime_control_applied"])
+        self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+        self.assertFalse(plan["notification_context"]["risk_controls"]["market_regime_control"]["enabled"])
+
+    def test_soxl_soxx_trend_income_unavailable_regime_cannot_change_targets(self):
+        _skip_if_missing_numeric_stack()
+        from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+            SOXX_GATE_TIERED_BLEND_MODE,
+            build_rebalance_plan as build_soxl_soxx_plan,
+        )
+
+        account_state = {
+            "available_cash": 5000.0,
+            "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 100000.0, "QQQI": 0.0, "SPYI": 0.0},
+            "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "sellable_quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 1000, "QQQI": 0, "SPYI": 0},
+            "total_strategy_equity": 100000.0,
+            "metadata": {
+                "market_regime_control": {
                     "profile": "market_regime_control",
                     "schema_version": "soxl_core_only_market_regime_unavailable.v1",
                     "candidate_id": "SOXL_P3_CORE_ONLY_9_INPUT_V1",
@@ -1881,17 +1949,19 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             blend_gate_mid_soxl_weight=0.65,
             blend_gate_active_soxx_weight=0.20,
             blend_gate_defensive_soxx_weight=0.15,
-            market_regime_control_enabled=False,
+            market_regime_control_enabled=True,
+            market_regime_control_apply_risk_reduced=True,
         )
 
-        self.assertFalse(plan["market_regime_control_enabled"])
-        self.assertFalse(plan["market_regime_control_found"])
+        self.assertTrue(plan["market_regime_control_found"])
+        self.assertFalse(plan["market_regime_control_active"])
         self.assertFalse(plan["market_regime_control_applied"])
+        self.assertFalse(plan["market_regime_control_position_control_allowed"])
+        self.assertFalse(plan["market_regime_control_position_control_authorized"])
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
         self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
         self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
         self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
-        self.assertFalse(plan["notification_context"]["risk_controls"]["market_regime_control"]["enabled"])
 
     def test_soxl_soxx_trend_income_legacy_crisis_adapter_maps_to_market_regime_risk_off(self):
         _skip_if_missing_numeric_stack()
