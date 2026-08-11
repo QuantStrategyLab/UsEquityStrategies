@@ -1,1 +1,3 @@
-* @Pigbibi
+# Strategy decisions and execution entrypoints require owner visibility.
+/src/us_equity_strategies/entrypoints/ @Pigbibi
+/src/us_equity_strategies/strategies/ @Pigbibi
