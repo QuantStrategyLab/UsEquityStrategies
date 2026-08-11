@@ -353,7 +353,7 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
-def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision:
+def _build_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
     managed_symbols = _config_managed_symbols(config)
@@ -617,7 +617,139 @@ def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecisio
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
     )
-    return apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
+    return decision
+
+
+def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision:
+    return apply_risk_gate(
+        _build_tqqq_growth_income_decision(ctx),
+        ctx=ctx,
+        max_single_weight=0.20,
+    )
+
+
+def evaluate_tqqq_growth_income_promotion_research(
+    ctx: StrategyContext,
+    *,
+    candidate_identity: CandidateRiskIdentity | None,
+    mandate_provenance: Mapping[str, object] | None,
+    stop_loss_distances: Mapping[str, float],
+    drawdown_scalar: float,
+    inputs_fresh: bool,
+    risk_control_state: Mapping[str, object] | None = None,
+    normalization_origin_weights: Mapping[str, float] | None = None,
+) -> RiskGateResult:
+    """Build, size and assess the offline TQQQ core-parity candidate once."""
+    scope = "MEMBER"
+    try:
+        config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
+        ai_extensions = config.get("ai_extensions")
+        candidate_assets = ("TQQQ", "QQQM", "BOXX")
+        if (
+            config.get("benchmark_symbol") != "QQQ"
+            or tuple(config.get("managed_symbols") or ()) != candidate_assets
+            or config.get("signal_effective_after_trading_days") != 1
+            or config.get("dual_drive_unlevered_symbol") != "QQQM"
+            or config.get("income_layer_enabled") is not False
+            or config.get("option_overlay_enabled") is not False
+            or config.get("option_growth_overlay_enabled") is not False
+            or config.get("option_income_overlay_enabled") is not False
+            or not isinstance(ai_extensions, Mapping)
+            or ai_extensions.get("enabled") is not False
+        ):
+            raise ValueError("invalid TQQQ core-parity config")
+
+        raw_decision = _build_tqqq_growth_income_decision(ctx)
+        portfolio = require_portfolio(ctx)
+        weighted_decision = translate_value_decision_to_weight_targets(
+            raw_decision,
+            total_equity=float(portfolio.total_equity),
+        )
+        positions_by_symbol = {
+            position.symbol: position for position in weighted_decision.positions
+        }
+        if not set(candidate_assets).issubset(positions_by_symbol):
+            raise ValueError("missing TQQQ core-parity target")
+        if any(
+            position.symbol not in candidate_assets
+            and float(position.target_weight or 0.0) > 0.0
+            for position in weighted_decision.positions
+        ):
+            raise ValueError("excluded TQQQ target is nonzero")
+
+        raw_weights = {
+            symbol: float(positions_by_symbol[symbol].target_weight or 0.0)
+            for symbol in candidate_assets
+            if float(positions_by_symbol[symbol].target_weight or 0.0) > 0.0
+        }
+        mandate = mandate_provenance if isinstance(mandate_provenance, Mapping) else {}
+        if (
+            mandate.get("mandate_id") != "tqqq_core_parity_v1"
+            or mandate.get("authority_scope") != "RESEARCH_ONLY"
+            or mandate.get("strategy_profile") != "tqqq_core_parity_v1"
+            or mandate.get("account_mode") != "single_strategy_account_v1"
+            or set(mandate.get("allowed_nonzero_assets") or ()) != set(candidate_assets)
+            or len(tuple(mandate.get("allowed_nonzero_assets") or ())) != len(candidate_assets)
+        ):
+            raise ValueError("invalid TQQQ core-parity mandate assets")
+        mandate_factors = mandate.get("product_leverage_factors")
+        if not isinstance(mandate_factors, Mapping):
+            raise ValueError("promotion mandate is missing product leverage factors")
+        factors = {symbol: mandate_factors[symbol] for symbol in raw_weights}
+        stops = {symbol: stop_loss_distances[symbol] for symbol in raw_weights}
+        sized_weights = (
+            risk_budgeted_target_weights(
+                raw_target_weights=raw_weights,
+                risk_mandate_id=mandate.get("mandate_id"),
+                risk_fraction=mandate.get("loss_budget"),
+                stop_loss_distances=stops,
+                drawdown_scalar=drawdown_scalar,
+                available_effective_exposure=mandate.get("effective_exposure_cap"),
+                product_leverage_factors=factors,
+                inputs_fresh=inputs_fresh,
+            )
+            if raw_weights
+            else {}
+        )
+        if raw_weights and not sized_weights:
+            raise ValueError("promotion sizing failed closed")
+        decision = StrategyDecision(
+            positions=tuple(
+                PositionTarget(
+                    symbol=symbol,
+                    target_weight=weight,
+                    role=positions_by_symbol[symbol].role,
+                    order_preference=positions_by_symbol[symbol].order_preference,
+                )
+                for symbol, weight in sorted(sized_weights.items())
+            ),
+            budgets=weighted_decision.budgets,
+            risk_flags=weighted_decision.risk_flags,
+            diagnostics={
+                **weighted_decision.diagnostics,
+                "tqqq_core_parity_research": True,
+                "tqqq_core_parity_assets": candidate_assets,
+            },
+        )
+    except Exception:
+        scope = "INVALID"
+        decision = StrategyDecision(
+            positions=(),
+            budgets=(),
+            risk_flags=("promotion_research:fail_closed",),
+            diagnostics={"promotion_research_reason": "decision_or_sizing_invalid"},
+        )
+
+    return assess_with_evidence(
+        decision,
+        ctx.portfolio,
+        scope=scope,
+        mandate_provenance=mandate_provenance,
+        market_data=ctx.market_data,
+        candidate_identity=candidate_identity,
+        risk_control_state=risk_control_state,
+        normalization_origin_weights=normalization_origin_weights,
+    )
 
 
 def evaluate_tqqq_growth_income(ctx: StrategyContext) -> StrategyDecision:
@@ -1799,6 +1931,7 @@ __all__ = [
     "us_equity_combo_leveraged_entrypoint",
     "evaluate_global_etf_rotation",
     "compute_tqqq_growth_income_decision",
+    "evaluate_tqqq_growth_income_promotion_research",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_soxl_soxx_trend_income_promotion_research",

@@ -16,6 +16,191 @@ from us_equity_strategies.entrypoints._common import apply_risk_gate
 
 _SOXL_ASSETS = ("SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI", "QQQ")
 _SOXL_NOW = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+_TQQQ_CORE_ASSETS = ("TQQQ", "QQQM", "BOXX")
+_TQQQ_NOW = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
+
+
+def _tqqq_candidate() -> CandidateRiskIdentity:
+    return CandidateRiskIdentity(
+        strategy_profile="tqqq_core_parity_v1",
+        account_mode="single_strategy_account_v1",
+        strategy_revision="1" * 40,
+        runner_revision="2" * 40,
+        config_sha256="3" * 64,
+        input_manifest_sha256="4" * 64,
+        authority_receipt_sha256="5" * 64,
+    )
+
+
+def _tqqq_mandate(candidate: CandidateRiskIdentity) -> dict[str, object]:
+    return {
+        "mandate_id": "tqqq_core_parity_v1",
+        "mandate_version": "2026-08-11.1",
+        "authority_receipt_sha256": candidate.authority_receipt_sha256,
+        "authority_scope": "RESEARCH_ONLY",
+        "strategy_profile": candidate.strategy_profile,
+        "account_mode": candidate.account_mode,
+        "strategy_revision": candidate.strategy_revision,
+        "runner_revision": candidate.runner_revision,
+        "config_sha256": candidate.config_sha256,
+        "input_manifest_sha256": candidate.input_manifest_sha256,
+        "candidate_identity_sha256": candidate.candidate_sha256,
+        "effective_at": "2026-08-11T11:59:00Z",
+        "expires_at": "2026-08-11T12:01:00Z",
+        "max_snapshot_age_seconds": 300,
+        "effective_exposure_cap": 0.50,
+        "loss_budget": 0.01,
+        "product_caps": {"TQQQ": 0.15, "QQQM": 0.50, "BOXX": 0.50},
+        "nominal_caps": {"TQQQ": 0.15, "QQQM": 0.50, "BOXX": 0.50},
+        "product_effective_caps": {"TQQQ": 0.45, "QQQM": 0.50, "BOXX": 0.50},
+        "product_leverage_factors": {"TQQQ": 3, "QQQM": 1, "BOXX": 1},
+        "allowed_nonzero_assets": list(_TQQQ_CORE_ASSETS),
+        "source_revision": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
+    }
+
+
+def _tqqq_context(*, runtime_config: dict[str, object] | None = None) -> StrategyContext:
+    snapshot = PortfolioSnapshot(
+        as_of=_TQQQ_NOW,
+        total_equity=100_000.0,
+        buying_power=100_000.0,
+        cash_balance=100_000.0,
+        positions=(),
+        metadata={"observed_effective_exposure": 0.0},
+    )
+    history = tuple(
+        {
+            "close": 100.0 + index,
+            "high": 101.0 + index,
+            "low": 99.0 + index,
+        }
+        for index in range(260)
+    )
+    return StrategyContext(
+        as_of=_TQQQ_NOW,
+        portfolio=snapshot,
+        market_data={"benchmark_history": history},
+        runtime_config=runtime_config
+        or {
+            "managed_symbols": _TQQQ_CORE_ASSETS,
+            "signal_effective_after_trading_days": 1,
+            "income_layer_enabled": False,
+            "option_overlay_enabled": False,
+            "option_growth_overlay_enabled": False,
+            "option_income_overlay_enabled": False,
+        },
+    )
+
+
+def test_tqqq_core_parity_uses_real_builder_and_assesses_exactly_once(monkeypatch) -> None:
+    candidate = _tqqq_candidate()
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+    legacy_gate = Mock()
+    monitor = Mock()
+    monkeypatch.setattr(entrypoints, "apply_risk_gate", legacy_gate)
+    monkeypatch.setattr(entrypoints, "record_strategy_decision", monitor)
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_TQQQ_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_tqqq_growth_income_promotion_research(
+            _tqqq_context(),
+            candidate_identity=candidate,
+            mandate_provenance=_tqqq_mandate(candidate),
+            stop_loss_distances={symbol: 0.05 for symbol in _TQQQ_CORE_ASSETS},
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+        )
+
+    assert result.assessment.outcome == "APPROVE"
+    assert result.assessment.execution_authorized is False
+    assert {position.symbol for position in result.decision.positions} == set(_TQQQ_CORE_ASSETS)
+    assert result.decision.diagnostics["tqqq_core_parity_research"] is True
+    assert result.decision.diagnostics["option_overlay_enabled"] is False
+    assert not {"SCHD", "DGRO", "SGOV", "SPYI", "QQQI"} & {
+        position.symbol for position in result.decision.positions
+    }
+    engine.assess.assert_called_once()
+    legacy_gate.assert_not_called()
+    monitor.assert_not_called()
+
+
+def test_tqqq_core_parity_rejects_non_research_mandate_after_one_assessment() -> None:
+    candidate = _tqqq_candidate()
+    mandate = _tqqq_mandate(candidate)
+    mandate["authority_scope"] = "LIVE"
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_TQQQ_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_tqqq_growth_income_promotion_research(
+            _tqqq_context(),
+            candidate_identity=candidate,
+            mandate_provenance=mandate,
+            stop_loss_distances={symbol: 0.05 for symbol in _TQQQ_CORE_ASSETS},
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+        )
+
+    assert result.assessment.outcome == "REJECT"
+    assert result.assessment.execution_authorized is False
+    assert result.decision.positions == ()
+    engine.assess.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "runtime_config",
+    (
+        {"managed_symbols": _TQQQ_CORE_ASSETS},
+        {
+            "managed_symbols": _TQQQ_CORE_ASSETS,
+            "signal_effective_after_trading_days": 1,
+            "income_layer_enabled": False,
+            "option_overlay_enabled": True,
+            "option_growth_overlay_enabled": False,
+            "option_income_overlay_enabled": False,
+        },
+        {
+            "managed_symbols": ("TQQQ", "BOXX"),
+            "signal_effective_after_trading_days": 1,
+            "income_layer_enabled": False,
+            "option_overlay_enabled": False,
+            "option_growth_overlay_enabled": False,
+            "option_income_overlay_enabled": False,
+        },
+    ),
+)
+def test_tqqq_core_parity_invalid_overrides_fail_closed_after_one_assessment(
+    monkeypatch,
+    runtime_config,
+) -> None:
+    candidate = _tqqq_candidate()
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_TQQQ_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_tqqq_growth_income_promotion_research(
+            _tqqq_context(runtime_config=runtime_config),
+            candidate_identity=candidate,
+            mandate_provenance=_tqqq_mandate(candidate),
+            stop_loss_distances={symbol: 0.05 for symbol in _TQQQ_CORE_ASSETS},
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+        )
+
+    assert result.assessment.outcome == "REJECT"
+    assert result.decision.positions == ()
+    assert result.decision.budgets == ()
+    assert "invalid_scope" in result.assessment.reason_codes
+    engine.assess.assert_called_once()
 
 
 def _soxl_candidate(**overrides: object) -> CandidateRiskIdentity:
