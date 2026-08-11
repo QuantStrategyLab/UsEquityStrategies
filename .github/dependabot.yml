@@ -18,3 +18,4 @@ updates:
   - dependency-name: "*"
     update-types:
     - "version-update:semver-major"
+  - dependency-name: "QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml"
