@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QPK_REVISION = "730ad9f3983bd90cd75adecb67fcf483ffb96736"
+QPK_REVISION = "3acab1923a97b805b077c85c6c19657be0143bac"
 QPK_URL = (
     "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
     f"QuantPlatformKit.git@{QPK_REVISION}"
@@ -16,7 +16,7 @@ def test_qsl_compat_metadata_exists_and_bundle() -> None:
     with qsl_path.open("rb") as f:
         data = tomllib.load(f)
 
-    assert data.get("compat", {}).get("bundle") == "2026.07.4", "compat.bundle mismatch"
+    assert data.get("compat", {}).get("bundle") == "2026.08.0", "compat.bundle mismatch"
 
 
 def test_qpk_pin_lock_and_ci_are_dependency_enabled() -> None:
