@@ -653,6 +653,25 @@ def _validate_tqqq_core_only_research_runtime_config(config: Mapping[str, object
         raise ValueError("invalid TQQQ core-only research config")
 
 
+def build_tqqq_core_only_p2_v2_research_decision(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Build the future-bindable, core-only TQQQ P2 v2 research decision.
+
+    The caller supplies an already-materialized ``StrategyContext``.  This
+    adapter validates the frozen core-only runtime exclusions before delegating
+    to the existing value-decision builder.  It does not assess a risk mandate,
+    size a position, record a decision, fetch market data, or create orders.
+
+    It is intentionally separate from the P2 v1 promotion-research seam so a
+    later P2 v2 binding can pin this named public entrypoint without changing
+    the frozen v1 candidate or claiming that an existing P3 replay uses it.
+    """
+    config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
+    _validate_tqqq_core_only_research_runtime_config(config)
+    return _build_tqqq_growth_income_decision(ctx)
+
+
 def evaluate_tqqq_growth_income_promotion_research(
     ctx: StrategyContext,
     *,
@@ -1943,6 +1962,7 @@ __all__ = [
     "us_equity_combo_leveraged_entrypoint",
     "evaluate_global_etf_rotation",
     "compute_tqqq_growth_income_decision",
+    "build_tqqq_core_only_p2_v2_research_decision",
     "evaluate_tqqq_growth_income_promotion_research",
     "evaluate_tqqq_growth_income",
     "evaluate_soxl_soxx_trend_income",
