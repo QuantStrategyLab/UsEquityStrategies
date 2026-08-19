@@ -20,6 +20,28 @@ _TQQQ_CORE_ASSETS = ("TQQQ", "QQQM", "BOXX")
 _TQQQ_NOW = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
 
 
+def _tqqq_core_runtime_config(**overrides: object) -> dict[str, object]:
+    config: dict[str, object] = {
+        "benchmark_symbol": "QQQ",
+        "managed_symbols": _TQQQ_CORE_ASSETS,
+        "signal_effective_after_trading_days": 1,
+        "dual_drive_unlevered_symbol": "QQQM",
+        "income_layer_enabled": False,
+        "option_overlay_enabled": False,
+        "option_growth_overlay_enabled": False,
+        "option_income_overlay_enabled": False,
+        "ai_extensions": {"enabled": False},
+        "dual_drive_volatility_delever_retention_mode": "none",
+        "dual_drive_volatility_delever_retention_ratio": 0.0,
+        "dual_drive_volatility_delever_taco_veto_enabled": False,
+        "dual_drive_macro_risk_governor_enabled": False,
+        "dual_drive_crisis_defense_enabled": False,
+        "market_regime_control_enabled": False,
+    }
+    config.update(overrides)
+    return config
+
+
 def _tqqq_candidate() -> CandidateRiskIdentity:
     return CandidateRiskIdentity(
         strategy_profile="tqqq_core_parity_v1",
@@ -80,15 +102,7 @@ def _tqqq_context(*, runtime_config: dict[str, object] | None = None) -> Strateg
         as_of=_TQQQ_NOW,
         portfolio=snapshot,
         market_data={"benchmark_history": history},
-        runtime_config=runtime_config
-        or {
-            "managed_symbols": _TQQQ_CORE_ASSETS,
-            "signal_effective_after_trading_days": 1,
-            "income_layer_enabled": False,
-            "option_overlay_enabled": False,
-            "option_growth_overlay_enabled": False,
-            "option_income_overlay_enabled": False,
-        },
+        runtime_config=runtime_config or _tqqq_core_runtime_config(),
     )
 
 
@@ -199,6 +213,45 @@ def test_tqqq_core_parity_invalid_overrides_fail_closed_after_one_assessment(
     assert result.assessment.outcome == "REJECT"
     assert result.decision.positions == ()
     assert result.decision.budgets == ()
+    assert "invalid_scope" in result.assessment.reason_codes
+    engine.assess.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    (
+        ("dual_drive_volatility_delever_retention_mode", "environment"),
+        ("dual_drive_volatility_delever_retention_ratio", 0.25),
+        ("dual_drive_volatility_delever_taco_veto_enabled", True),
+        ("dual_drive_macro_risk_governor_enabled", True),
+        ("dual_drive_crisis_defense_enabled", True),
+        ("market_regime_control_enabled", True),
+    ),
+)
+def test_tqqq_core_parity_rejects_reenabled_p2_components_after_one_assessment(
+    key: str,
+    value: object,
+) -> None:
+    candidate = _tqqq_candidate()
+    runtime_config = _tqqq_core_runtime_config(**{key: value})
+    engine = Mock()
+    engine.assess.return_value = RiskAction(action="approve", reason="passed")
+
+    with (
+        patch("quant_platform_kit.risk.gate._utc_now", return_value=_TQQQ_NOW),
+        patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+    ):
+        result = entrypoints.evaluate_tqqq_growth_income_promotion_research(
+            _tqqq_context(runtime_config=runtime_config),
+            candidate_identity=candidate,
+            mandate_provenance=_tqqq_mandate(candidate),
+            stop_loss_distances={symbol: 0.05 for symbol in _TQQQ_CORE_ASSETS},
+            drawdown_scalar=1.0,
+            inputs_fresh=True,
+        )
+
+    assert result.assessment.outcome == "REJECT"
+    assert result.decision.positions == ()
     assert "invalid_scope" in result.assessment.reason_codes
     engine.assess.assert_called_once()
 

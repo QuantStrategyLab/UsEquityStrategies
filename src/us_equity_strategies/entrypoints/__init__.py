@@ -628,6 +628,31 @@ def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecisio
     )
 
 
+def _validate_tqqq_core_only_research_runtime_config(config: Mapping[str, object]) -> None:
+    """Reject any runtime configuration that re-enables excluded P2 components."""
+    candidate_assets = ("TQQQ", "QQQM", "BOXX")
+    ai_extensions = config.get("ai_extensions")
+    if (
+        config.get("benchmark_symbol") != "QQQ"
+        or tuple(config.get("managed_symbols") or ()) != candidate_assets
+        or config.get("signal_effective_after_trading_days") != 1
+        or config.get("dual_drive_unlevered_symbol") != "QQQM"
+        or config.get("income_layer_enabled") is not False
+        or config.get("option_overlay_enabled") is not False
+        or config.get("option_growth_overlay_enabled") is not False
+        or config.get("option_income_overlay_enabled") is not False
+        or not isinstance(ai_extensions, Mapping)
+        or ai_extensions.get("enabled") is not False
+        or config.get("dual_drive_volatility_delever_retention_mode") != "none"
+        or config.get("dual_drive_volatility_delever_retention_ratio") != 0.0
+        or config.get("dual_drive_volatility_delever_taco_veto_enabled") is not False
+        or config.get("dual_drive_macro_risk_governor_enabled") is not False
+        or config.get("dual_drive_crisis_defense_enabled") is not False
+        or config.get("market_regime_control_enabled") is not False
+    ):
+        raise ValueError("invalid TQQQ core-only research config")
+
+
 def evaluate_tqqq_growth_income_promotion_research(
     ctx: StrategyContext,
     *,
@@ -643,21 +668,8 @@ def evaluate_tqqq_growth_income_promotion_research(
     scope = "MEMBER"
     try:
         config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
-        ai_extensions = config.get("ai_extensions")
         candidate_assets = ("TQQQ", "QQQM", "BOXX")
-        if (
-            config.get("benchmark_symbol") != "QQQ"
-            or tuple(config.get("managed_symbols") or ()) != candidate_assets
-            or config.get("signal_effective_after_trading_days") != 1
-            or config.get("dual_drive_unlevered_symbol") != "QQQM"
-            or config.get("income_layer_enabled") is not False
-            or config.get("option_overlay_enabled") is not False
-            or config.get("option_growth_overlay_enabled") is not False
-            or config.get("option_income_overlay_enabled") is not False
-            or not isinstance(ai_extensions, Mapping)
-            or ai_extensions.get("enabled") is not False
-        ):
-            raise ValueError("invalid TQQQ core-parity config")
+        _validate_tqqq_core_only_research_runtime_config(config)
 
         raw_decision = _build_tqqq_growth_income_decision(ctx)
         portfolio = require_portfolio(ctx)
