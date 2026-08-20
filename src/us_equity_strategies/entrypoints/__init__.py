@@ -1076,6 +1076,56 @@ def _build_soxl_soxx_trend_income_decision(ctx: StrategyContext) -> StrategyDeci
     return decision
 
 
+def _validate_soxl_soxx_core_only_research_runtime_config(config: Mapping[str, object]) -> None:
+    """Reject runtime configuration that re-enables excluded SOXL P2 components."""
+    ai_extensions = config.get("ai_extensions")
+    if (
+        tuple(config.get("managed_symbols") or ()) != ("SOXL", "SOXX", "BOXX")
+        or config.get("income_layer_enabled") is not False
+        or config.get("option_overlay_enabled") is not False
+        or config.get("option_growth_overlay_enabled") is not False
+        or config.get("option_income_overlay_enabled") is not False
+        or (
+            ai_extensions is not None
+            and (
+                not isinstance(ai_extensions, Mapping)
+                or ai_extensions.get("enabled") is not False
+            )
+        )
+        or config.get("blend_gate_volatility_delever_retention_mode") != "none"
+        or config.get("blend_gate_volatility_delever_retention_ratio") != 0.0
+        or config.get("blend_gate_volatility_delever_retention_context_required") is not False
+        or config.get("market_regime_control_enabled") is not False
+        or config.get("market_regime_control_apply_risk_reduced") is not False
+        or config.get("market_regime_control_apply_risk_off") is not False
+    ):
+        raise ValueError("invalid SOXL core-only research config")
+
+
+def build_soxl_soxx_core_only_p2_v2_research_decision(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Build the future-bindable, core-only SOXL P2 v2 research decision.
+
+    The caller supplies an already-materialized ``StrategyContext``.  This
+    adapter validates that the candidate stays within its core SOXL/SOXX/BOXX
+    strategy boundary before delegating to the existing value-decision
+    builder.  It does not assess a risk mandate, size a position, record a
+    decision, fetch market data, invoke a plugin, or create orders.
+
+    In particular, the legacy income and option sleeves, external
+    market-regime control, volatility-retention policy, and AI extensions are
+    excluded.  The strategy's deterministic SOXX trend and volatility
+    calculations remain part of the strategy itself, not an external plugin.
+    It is intentionally separate from the existing promotion-research seam:
+    a later P2 v2 binding may pin this named public entrypoint without
+    changing or endorsing the legacy promotion candidate.
+    """
+    config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
+    _validate_soxl_soxx_core_only_research_runtime_config(config)
+    return _build_soxl_soxx_trend_income_decision(ctx)
+
+
 def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     decision = _build_soxl_soxx_trend_income_decision(ctx)
     decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
@@ -1965,6 +2015,7 @@ __all__ = [
     "build_tqqq_core_only_p2_v2_research_decision",
     "evaluate_tqqq_growth_income_promotion_research",
     "evaluate_tqqq_growth_income",
+    "build_soxl_soxx_core_only_p2_v2_research_decision",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_soxl_soxx_trend_income_promotion_research",
     "evaluate_tecl_xlk_trend_income",
