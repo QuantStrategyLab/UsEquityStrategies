@@ -166,3 +166,34 @@ def test_inputs_are_not_mutated_and_the_result_is_deterministic() -> None:
 
     assert target == {"TQQQ": 0.40, "SOXL": 0.20, "BOXX": 0.40}
     assert first == second
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        assess_portfolio_risk_budget(
+            target_weights={"TQQQ": 0.30, "SOXL": 0.10, "BOXX": 0.60},
+            asset_risk_specs=SPECS,
+            policy=_policy(),
+        ),
+        assess_portfolio_risk_budget(
+            target_weights={"TQQQ": 0.40, "SOXL": 0.20, "BOXX": 0.40},
+            asset_risk_specs=SPECS,
+            policy=_policy(max_effective_risk_exposure=1.2),
+        ),
+        assess_portfolio_risk_budget(
+            target_weights={"UNKNOWN": 1.0},
+            asset_risk_specs=SPECS,
+            policy=_policy(),
+        ),
+    ],
+)
+def test_research_risk_assessment_is_a_no_order_status_only_contract(
+    result: dict[str, object],
+) -> None:
+    assert result["status"] in {"APPROVE", "REDUCE", "PARKED"}
+    assert result["execution_authorized"] is False
+    assert not any(
+        key in result
+        for key in ("broker", "account_id", "order", "orders", "paper_authorized", "shadow_authorized", "live_authorized")
+    )
