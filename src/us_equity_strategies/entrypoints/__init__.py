@@ -68,6 +68,7 @@ from ._common import (
     require_market_data,
     require_portfolio,
     record_strategy_decision,
+    resolve_market_regime_control_context,
     target_values_to_positions,
     weights_to_positions,
 )
@@ -670,6 +671,45 @@ def build_tqqq_core_only_p2_v2_research_decision(
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     _validate_tqqq_core_only_research_runtime_config(config)
     return _build_tqqq_growth_income_decision(ctx)
+
+
+def observe_tqqq_core_only_p2_v2_market_regime(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Attach a sanitized market-regime observation to the frozen P2 v2 decision.
+
+    This is deliberately an observation seam, not a position-control seam.  It
+    uses the core-only P2 v2 adapter unchanged, then records only a bounded
+    summary of an optional ``market_regime_control`` artifact.  It never
+    enables the plugin, changes targets, assesses a mandate, records a
+    decision, or creates an order.  A future candidate that wants the plugin
+    to alter weights must freeze a separate P2 configuration and repeat its
+    own P1--P3 evidence chain.
+    """
+    decision = build_tqqq_core_only_p2_v2_research_decision(ctx)
+    context = resolve_market_regime_control_context(ctx)
+    found = bool(context["found"])
+    schema_version = str(context["schema_version"])
+    supported = found and schema_version == "market_regime_control.v1"
+    route = str(context["route"])
+    route = route if route in {"risk_reduced", "risk_off"} else ""
+    diagnostics = dict(decision.diagnostics)
+    diagnostics["market_regime_observation"] = {
+        "schema_version": "tqqq_core_only_market_regime_observation.v1",
+        "artifact_status": (
+            "MISSING" if not found else "OBSERVED" if supported else "UNSUPPORTED_SCHEMA"
+        ),
+        "route": route,
+        "position_control_was_authorized": bool(context["position_control_authorized"]),
+        "weights_changed": False,
+        "p4_p5_p6_authorized": False,
+    }
+    return StrategyDecision(
+        positions=decision.positions,
+        budgets=decision.budgets,
+        risk_flags=decision.risk_flags,
+        diagnostics=diagnostics,
+    )
 
 
 def evaluate_tqqq_growth_income_promotion_research(
@@ -2013,6 +2053,7 @@ __all__ = [
     "evaluate_global_etf_rotation",
     "compute_tqqq_growth_income_decision",
     "build_tqqq_core_only_p2_v2_research_decision",
+    "observe_tqqq_core_only_p2_v2_market_regime",
     "evaluate_tqqq_growth_income_promotion_research",
     "evaluate_tqqq_growth_income",
     "build_soxl_soxx_core_only_p2_v2_research_decision",

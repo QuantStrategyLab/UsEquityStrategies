@@ -168,3 +168,55 @@ def test_p2_v2_rejects_reenabled_retention_before_builder_runs() -> None:
             entrypoints.build_tqqq_core_only_p2_v2_research_decision(ctx)
 
     builder.assert_not_called()
+
+
+def test_market_regime_observation_preserves_frozen_v2_targets() -> None:
+    ctx = _context(_rising_history())
+    baseline = entrypoints.build_tqqq_core_only_p2_v2_research_decision(ctx)
+
+    observed = entrypoints.observe_tqqq_core_only_p2_v2_market_regime(ctx)
+
+    assert observed.positions == baseline.positions
+    assert observed.budgets == baseline.budgets
+    assert observed.risk_flags == baseline.risk_flags
+    assert observed.diagnostics["market_regime_observation"] == {
+        "schema_version": "tqqq_core_only_market_regime_observation.v1",
+        "artifact_status": "MISSING",
+        "route": "",
+        "position_control_was_authorized": False,
+        "weights_changed": False,
+        "p4_p5_p6_authorized": False,
+    }
+
+
+def test_market_regime_observation_never_applies_an_authorized_artifact() -> None:
+    ctx = _context(_rising_history())
+    artifact = {
+        "plugin": "market_regime_control",
+        "schema_version": "market_regime_control.v1",
+        "canonical_route": "risk_off",
+        "execution_controls": {
+            "position_control_allowed": True,
+            "consumption_evidence_status": "automation_approved",
+        },
+    }
+    ctx = StrategyContext(
+        as_of=ctx.as_of,
+        portfolio=ctx.portfolio,
+        market_data=ctx.market_data,
+        runtime_config=ctx.runtime_config,
+        artifacts={"market_regime_control": artifact},
+    )
+    baseline = entrypoints.build_tqqq_core_only_p2_v2_research_decision(ctx)
+
+    observed = entrypoints.observe_tqqq_core_only_p2_v2_market_regime(ctx)
+
+    assert observed.positions == baseline.positions
+    assert observed.diagnostics["market_regime_observation"] == {
+        "schema_version": "tqqq_core_only_market_regime_observation.v1",
+        "artifact_status": "OBSERVED",
+        "route": "risk_off",
+        "position_control_was_authorized": True,
+        "weights_changed": False,
+        "p4_p5_p6_authorized": False,
+    }
