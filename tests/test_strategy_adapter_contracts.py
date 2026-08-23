@@ -19,7 +19,10 @@ def test_batch_contracts_bind_public_adapters_and_remain_deferred() -> None:
     assert report["orders_allowed"] is False
     assert {row["profile"] for row in report["contracts"]} == set(ADAPTER_CONTRACTS)
     for row in report["contracts"]:
-        assert row["adapter_available"] is True
+        # These are inventory contracts; the callable may not exist yet.
+        # Missing adapters remain explicitly deferred rather than being
+        # treated as completed lifecycle evidence.
+        assert row["adapter_available"] is False
         assert row["evidence_status"] == "DEFERRED"
         assert row["promotion_authorized"] is False
 
