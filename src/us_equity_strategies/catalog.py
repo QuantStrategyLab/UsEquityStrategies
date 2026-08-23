@@ -21,6 +21,7 @@ from quant_platform_kit.common.strategies import (
 from .ai_extensions import build_default_ai_extension_config
 from .income_layer_defaults import income_layer_default_config
 from .option_overlay import option_overlay_default_config
+from .runtime_allowlist import get_runtime_selectable_profiles
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 # Legacy alias retained for lookups and docs; runtime registry is canonical rotation.
@@ -807,11 +808,9 @@ def get_strategy_metadata_map() -> dict[str, StrategyMetadata]:
 
 
 def get_runtime_enabled_profiles() -> frozenset[str]:
-    return frozenset(
-        profile
-        for profile, metadata in STRATEGY_METADATA.items()
-        if str(metadata.status or "").strip().lower() == "runtime_enabled"
-    )
+    # Compatibility entry point. Runtime selection now reads the explicit
+    # allowlist; lifecycle metadata alone never grants runtime authority.
+    return get_runtime_selectable_profiles()
 
 
 def get_strategy_metadata(profile: str) -> StrategyMetadata:
