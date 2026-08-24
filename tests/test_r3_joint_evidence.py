@@ -455,6 +455,40 @@ def test_file_identity_is_checked_before_and_after_use(tmp_path: Path) -> None:
         _verified_call((identity,), mutate)
 
 
+def test_private_input_paths_are_portable_but_keep_locked_identities(tmp_path: Path) -> None:
+    paths = r3.private_evidence_paths(tmp_path / "mounted-private-research")
+    tqqq_identities, soxl_identities = r3._private_input_identities(paths)
+
+    assert paths.tqqq_artifact == tmp_path / "mounted-private-research/tqqq_baseline_v1/full_20230714_20260716.csv"
+    assert paths.soxl_artifact == tmp_path / "mounted-private-research/soxx_soxl_adjusted_daily_v1/full_20230714_20260716.csv"
+    assert tqqq_identities[0].sha256 == "a40254c7e31d6b49b4a2db5ec57b1b65215a3ab1ee33df879d9e5e2b4dae6551"
+    assert soxl_identities[0].sha256 == "6eb44951f7b16b7369df2d8d0fcce08b85d44ad3b758381139a027a53dd5f36c"
+    input_identity = _input_identity(False, False, TEST_SOURCE_COMMIT)
+    assert str(r3.PRIVATE_ROOT) not in json.dumps(input_identity, sort_keys=True)
+    assert input_identity["soxl"]["artifact_path"] == "soxx_soxl_adjusted_daily_v1/full_20230714_20260716.csv"
+
+
+def test_preflight_reports_missing_private_evidence_without_writing_output(tmp_path: Path) -> None:
+    readiness = r3.assess_private_r3_readiness(
+        contract_path=tmp_path / "missing-contract.md",
+        worker_prompt_path=tmp_path / "missing-prompt.md",
+        private_root=tmp_path / "missing-private-research",
+        _source_commit_reader=lambda: TEST_SOURCE_COMMIT,
+    )
+
+    assert not readiness.is_ready
+    assert readiness.source_commit == TEST_SOURCE_COMMIT
+    assert readiness.findings == (
+        "CONTRACT_IDENTITY_MISMATCH",
+        "WORKER_PROMPT_IDENTITY_MISMATCH",
+        "TQQQ_INPUT_IDENTITY_MISMATCH",
+        "SOXL_INPUT_IDENTITY_MISMATCH",
+    )
+    diagnostic = json.dumps(readiness.to_dict(), sort_keys=True)
+    assert str(tmp_path) not in diagnostic
+    assert not tuple(tmp_path.iterdir())
+
+
 def test_wire_encoding_rejects_nonfinite_and_encodes_binary64() -> None:
     assert _to_wire({"value": 0.5, "count": 1, "enabled": True}) == {
         "value": "0x1.0000000000000p-1",
@@ -784,8 +818,15 @@ def test_explicit_contract_and_prompt_paths_keep_exact_sha_verification(
     captured: dict[str, object] = {}
     persist_calls: list[Path] = []
 
-    def build(source_commit: str) -> dict[str, object]:
+    private_root = tmp_path / "private-research"
+
+    def build(
+        source_commit: str,
+        *,
+        private_paths: r3.PrivateEvidencePaths,
+    ) -> dict[str, object]:
         captured["source_commit"] = source_commit
+        captured["private_paths"] = private_paths
         return {"source_commit": source_commit}
 
     def persist(bundle: dict[str, object], output_root: str | Path) -> object:
@@ -801,12 +842,14 @@ def test_explicit_contract_and_prompt_paths_keep_exact_sha_verification(
         tmp_path / "evidence",
         contract_path=contract,
         worker_prompt_path=prompt,
+        private_root=private_root,
         _source_commit_reader=lambda: TEST_SOURCE_COMMIT,
     )
 
     assert bundle == {"source_commit": TEST_SOURCE_COMMIT}
     assert paths == "persisted"
     assert captured["source_commit"] == TEST_SOURCE_COMMIT
+    assert captured["private_paths"] == r3.private_evidence_paths(private_root)
     assert persist_calls == [tmp_path / "evidence"]
 
     prompt.write_bytes(b"tampered")
@@ -815,6 +858,7 @@ def test_explicit_contract_and_prompt_paths_keep_exact_sha_verification(
             tmp_path / "not-published",
             contract_path=contract,
             worker_prompt_path=prompt,
+            private_root=private_root,
             _source_commit_reader=lambda: TEST_SOURCE_COMMIT,
         )
     assert not (tmp_path / "not-published").exists()
@@ -827,6 +871,7 @@ def test_explicit_contract_and_prompt_paths_keep_exact_sha_verification(
             tmp_path / "revision-changed",
             contract_path=contract,
             worker_prompt_path=prompt,
+            private_root=private_root,
             _source_commit_reader=lambda: next(revisions),
         )
     assert not (tmp_path / "revision-changed").exists()
@@ -869,3 +914,32 @@ def test_cli_passes_only_explicit_identity_paths_and_fails_on_terminal_strategy_
         "TQQQ_TEST_INELIGIBLE",
         "SOXL_TEST_INELIGIBLE",
     ]
+
+
+def test_cli_preflight_is_read_only_and_forwards_an_explicit_private_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import scripts.run_r3_joint_evidence as cli
+
+    captured: dict[str, object] = {}
+
+    def preflight(**kwargs: object) -> r3.R3EvidenceReadiness:
+        captured.update(kwargs)
+        return r3.R3EvidenceReadiness(None, ("SOXL_INPUT_IDENTITY_MISMATCH",))
+
+    monkeypatch.setattr(cli, "assess_private_r3_readiness", preflight)
+    monkeypatch.setattr(cli, "run_private_r3", lambda **_kwargs: pytest.fail("must not run"))
+    private_root = tmp_path / "mounted-private-research"
+
+    assert cli.main(["--preflight", "--private-root", str(private_root)]) == 2
+    assert captured == {
+        "contract_path": r3.CONTRACT_PATH,
+        "worker_prompt_path": r3.WORKER_PROMPT_PATH,
+        "private_root": private_root,
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "schema_version": r3.R3_EVIDENCE_READINESS_SCHEMA,
+        "ready": False,
+        "source_commit": None,
+        "findings": ["SOXL_INPUT_IDENTITY_MISMATCH"],
+    }
