@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: 3acab1923a97b805b077c85c6c19657be0143bac
+          ref: 68fcad8c68ab48a1109d99715f8315af449de493
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -203,7 +203,7 @@ jobs:
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
-      quant_platform_kit_ref: 3acab1923a97b805b077c85c6c19657be0143bac
+      quant_platform_kit_ref: 68fcad8c68ab48a1109d99715f8315af449de493
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
