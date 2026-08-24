@@ -241,7 +241,7 @@ wheels = [
 [[package]]
 name = "quant-platform-kit"
 version = "0.10.0"
-source = { git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=68276cb9507773e2a29ac9579bed3adb7e077daf#68276cb9507773e2a29ac9579bed3adb7e077daf" }
+source = { git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=f77e6129f99ecb93c280c0f538efa9ddef826991#f77e6129f99ecb93c280c0f538efa9ddef826991" }
 
 [[package]]
 name = "six"
@@ -275,5 +275,5 @@ dependencies = [
 requires-dist = [
     { name = "pandas", specifier = ">=2.0" },
     { name = "pytz", specifier = ">=2024.1" },
-    { name = "quant-platform-kit", git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=68276cb9507773e2a29ac9579bed3adb7e077daf" },
+    { name = "quant-platform-kit", git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=f77e6129f99ecb93c280c0f538efa9ddef826991" },
 ]
