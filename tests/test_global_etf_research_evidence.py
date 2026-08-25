@@ -275,7 +275,7 @@ def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
         (
             "diff --git a/src/us_equity_strategies/catalog.py b/src/us_equity_strategies/catalog.py",
             "+++ b/src/us_equity_strategies/catalog.py",
-            "@@ -558,3 +558,3 @@",
+            "@@ -559,3 +559,3 @@",
             "         role=\"defensive_rotation\",",
             '-        status="research_backtest_only",',
             '+        status="runtime_enabled",',

@@ -12,6 +12,7 @@ from us_equity_strategies.research.r3_joint_evidence import (
     CONTRACT_PATH,
     R3EvidenceError,
     WORKER_PROMPT_PATH,
+    assess_private_r3_readiness,
     run_private_r3,
 )
 
@@ -20,12 +21,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract-path", type=Path, default=CONTRACT_PATH)
     parser.add_argument("--worker-prompt-path", type=Path, default=WORKER_PROMPT_PATH)
+    parser.add_argument(
+        "--private-root",
+        type=Path,
+        default=None,
+        help="Mounted root containing the locked private TQQQ and SOXL input folders.",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=None,
+        help="Explicit directory for immutable R3 output; omitted keeps the legacy default.",
+    )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Check source and evidence identities without running a backtest or writing output.",
+    )
     args = parser.parse_args(argv)
+    common_kwargs: dict[str, object] = {
+        "contract_path": args.contract_path,
+        "worker_prompt_path": args.worker_prompt_path,
+    }
+    if args.private_root is not None:
+        common_kwargs["private_root"] = args.private_root
+    if args.preflight:
+        readiness = assess_private_r3_readiness(**common_kwargs)
+        print(json.dumps(readiness.to_dict(), sort_keys=True, separators=(",", ":")))
+        return 0 if readiness.is_ready else 2
+    if args.output_root is not None:
+        common_kwargs["output_root"] = args.output_root
     try:
-        bundle, paths = run_private_r3(
-            contract_path=args.contract_path,
-            worker_prompt_path=args.worker_prompt_path,
-        )
+        bundle, paths = run_private_r3(**common_kwargs)
     except R3EvidenceError as exc:
         print(f"R3 evidence failed: {exc.code}", file=sys.stderr)
         return 2

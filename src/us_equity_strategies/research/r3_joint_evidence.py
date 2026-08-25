@@ -85,6 +85,9 @@ def _fail(code: str) -> NoReturn:
     raise R3EvidenceError(code) from None
 
 
+R3_EVIDENCE_READINESS_SCHEMA = "qsl.research.r3_evidence_readiness.v1"
+
+
 def _canonical_bytes(value: object) -> bytes:
     try:
         return (
@@ -289,6 +292,34 @@ class FileIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class PrivateEvidencePaths:
+    """Portable location of the locked private R3 input artifacts."""
+
+    tqqq_artifact: Path
+    soxl_artifact: Path
+
+
+@dataclass(frozen=True, slots=True)
+class R3EvidenceReadiness:
+    """Redacted, read-only result of checking whether R3 can be replayed."""
+
+    source_commit: str | None
+    findings: tuple[str, ...] = ()
+
+    @property
+    def is_ready(self) -> bool:
+        return not self.findings
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": R3_EVIDENCE_READINESS_SCHEMA,
+            "ready": self.is_ready,
+            "source_commit": self.source_commit,
+            "findings": list(self.findings),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class StrategySpec:
     strategy_id: str
     profile: str
@@ -316,29 +347,54 @@ SOXL_SPEC = StrategySpec(
 )
 
 PRIVATE_ROOT = Path("/Users/lisiyi/Documents/Codex/2026-07-14/ba-2/work/private_research")
-TQQQ_ARTIFACT = PRIVATE_ROOT / "tqqq_baseline_v1/full_20230714_20260716.csv"
-SOXL_ARTIFACT = PRIVATE_ROOT / "soxx_soxl_adjusted_daily_v1/full_20230714_20260716.csv"
-TQQQ_IDENTITIES = (
-    FileIdentity(TQQQ_ARTIFACT, "a40254c7e31d6b49b4a2db5ec57b1b65215a3ab1ee33df879d9e5e2b4dae6551", 150661),
-    FileIdentity(
-        Path(str(TQQQ_ARTIFACT) + ".manifest.json"),
-        "8ecbc864f356af94464249ee3003d44fb00cf739c6810dc2de14165e5dc3500d",
-        593,
-    ),
-)
-SOXL_IDENTITIES = (
-    FileIdentity(SOXL_ARTIFACT, "6eb44951f7b16b7369df2d8d0fcce08b85d44ad3b758381139a027a53dd5f36c", 149968),
-    FileIdentity(
-        Path(str(SOXL_ARTIFACT) + ".manifest.json"),
-        "8fe988353a6bc0f3642e69cc7f58c180df59ebb7ff62d6b986aba314fb9db81b",
-        648,
-    ),
-    FileIdentity(
-        Path(str(SOXL_ARTIFACT) + ".readback.json"),
-        "94bef6a1d27a4487d13500242fa24a183ec388318bcab59dace21d32235b3dd2",
-        502,
-    ),
-)
+TQQQ_ARTIFACT_RELATIVE_PATH = Path("tqqq_baseline_v1/full_20230714_20260716.csv")
+SOXL_ARTIFACT_RELATIVE_PATH = Path("soxx_soxl_adjusted_daily_v1/full_20230714_20260716.csv")
+
+
+def private_evidence_paths(private_root: str | Path = PRIVATE_ROOT) -> PrivateEvidencePaths:
+    """Resolve the fixed R3 artifact layout under an explicitly supplied root."""
+
+    root = Path(private_root)
+    return PrivateEvidencePaths(
+        tqqq_artifact=root / TQQQ_ARTIFACT_RELATIVE_PATH,
+        soxl_artifact=root / SOXL_ARTIFACT_RELATIVE_PATH,
+    )
+
+
+def _private_input_identities(
+    paths: PrivateEvidencePaths,
+) -> tuple[tuple[FileIdentity, ...], tuple[FileIdentity, ...]]:
+    tqqq_identities = (
+        FileIdentity(paths.tqqq_artifact, "a40254c7e31d6b49b4a2db5ec57b1b65215a3ab1ee33df879d9e5e2b4dae6551", 150661),
+        FileIdentity(
+            Path(str(paths.tqqq_artifact) + ".manifest.json"),
+            "8ecbc864f356af94464249ee3003d44fb00cf739c6810dc2de14165e5dc3500d",
+            593,
+        ),
+    )
+    soxl_identities = (
+        FileIdentity(paths.soxl_artifact, "6eb44951f7b16b7369df2d8d0fcce08b85d44ad3b758381139a027a53dd5f36c", 149968),
+        FileIdentity(
+            Path(str(paths.soxl_artifact) + ".manifest.json"),
+            "8fe988353a6bc0f3642e69cc7f58c180df59ebb7ff62d6b986aba314fb9db81b",
+            648,
+        ),
+        FileIdentity(
+            Path(str(paths.soxl_artifact) + ".readback.json"),
+            "94bef6a1d27a4487d13500242fa24a183ec388318bcab59dace21d32235b3dd2",
+            502,
+        ),
+    )
+    return tqqq_identities, soxl_identities
+
+
+# Compatibility aliases preserve the legacy default layout for existing callers.
+_DEFAULT_PRIVATE_EVIDENCE_PATHS = private_evidence_paths()
+TQQQ_ARTIFACT = _DEFAULT_PRIVATE_EVIDENCE_PATHS.tqqq_artifact
+SOXL_ARTIFACT = _DEFAULT_PRIVATE_EVIDENCE_PATHS.soxl_artifact
+TQQQ_IDENTITIES, SOXL_IDENTITIES = _private_input_identities(_DEFAULT_PRIVATE_EVIDENCE_PATHS)
+
+
 SOURCE_MODULE_SHA256 = {
     "tqqq_offline_input_contract.py": "95b7846be52a706cf55bdcf318bd22e47fcbd8bcbde481b1607bfe431db2efbb",
     "tqqq_typed_baseline_result.py": "b03768587adc8810faa399e78f21a276f443fd673a120b3f3a6829b0ad6fe2bf",
@@ -997,9 +1053,9 @@ def _run_independent(
     return records[0], records[1]
 
 
-def _load_tqqq() -> TqqqOfflineInput:
+def _load_tqqq(identities: Sequence[FileIdentity]) -> TqqqOfflineInput:
     try:
-        source = load_tqqq_offline_input(TQQQ_IDENTITIES[1].path, TQQQ_IDENTITIES[0].path)
+        source = load_tqqq_offline_input(identities[1].path, identities[0].path)
     except (OSError, ValueError, TypeError):
         _fail("TQQQ_INPUT_INVALID")
     if source.input_digest != TQQQ_SPEC.input_digest:
@@ -1007,12 +1063,12 @@ def _load_tqqq() -> TqqqOfflineInput:
     return source
 
 
-def _load_soxl() -> SoxlOfflineInput:
+def _load_soxl(identities: Sequence[FileIdentity]) -> SoxlOfflineInput:
     try:
         source = load_soxl_offline_input(
-            SOXL_IDENTITIES[1].path,
-            SOXL_IDENTITIES[0].path,
-            SOXL_IDENTITIES[2].path,
+            identities[1].path,
+            identities[0].path,
+            identities[2].path,
         )
     except (OSError, ValueError, TypeError):
         _fail("SOXL_INPUT_INVALID")
@@ -1021,11 +1077,20 @@ def _load_soxl() -> SoxlOfflineInput:
     return source
 
 
-def _attempt_private_strategy(spec: StrategySpec) -> StrategyEvaluation:
-    identities = TQQQ_IDENTITIES if spec.strategy_id == "TQQQ" else SOXL_IDENTITIES
+def _attempt_private_strategy(
+    spec: StrategySpec,
+    *,
+    tqqq_identities: Sequence[FileIdentity],
+    soxl_identities: Sequence[FileIdentity],
+) -> StrategyEvaluation:
+    identities = tqqq_identities if spec.strategy_id == "TQQQ" else soxl_identities
 
     def action() -> StrategyEvaluation:
-        source = _load_tqqq() if spec.strategy_id == "TQQQ" else _load_soxl()
+        source = (
+            _load_tqqq(tqqq_identities)
+            if spec.strategy_id == "TQQQ"
+            else _load_soxl(soxl_identities)
+        )
         return _evaluate_loaded(spec, source)
 
     try:
@@ -1324,11 +1389,11 @@ def _input_identity(
         "coverage": {"start": "2023-07-14", "end": "2026-07-15"},
         "tqqq": {
             "status": "VERIFIED" if tqqq_valid else "INVALID",
-            "artifact_path": str(TQQQ_IDENTITIES[0].path),
-            "artifact_sha256": TQQQ_IDENTITIES[0].sha256,
-            "artifact_bytes": TQQQ_IDENTITIES[0].byte_count,
-            "manifest_path": str(TQQQ_IDENTITIES[1].path),
-            "manifest_sha256": TQQQ_IDENTITIES[1].sha256,
+            "artifact_path": str(TQQQ_ARTIFACT_RELATIVE_PATH),
+            "artifact_sha256": "a40254c7e31d6b49b4a2db5ec57b1b65215a3ab1ee33df879d9e5e2b4dae6551",
+            "artifact_bytes": 150661,
+            "manifest_path": str(Path(str(TQQQ_ARTIFACT_RELATIVE_PATH) + ".manifest.json")),
+            "manifest_sha256": "8ecbc864f356af94464249ee3003d44fb00cf739c6810dc2de14165e5dc3500d",
             "readback_path": None,
             "input_digest": TQQQ_SPEC.input_digest,
             "symbols": ["QQQ", "TQQQ"],
@@ -1336,13 +1401,13 @@ def _input_identity(
         },
         "soxl": {
             "status": "VERIFIED" if soxl_valid else "INVALID",
-            "artifact_path": str(SOXL_IDENTITIES[0].path),
-            "artifact_sha256": SOXL_IDENTITIES[0].sha256,
-            "artifact_bytes": SOXL_IDENTITIES[0].byte_count,
-            "manifest_path": str(SOXL_IDENTITIES[1].path),
-            "manifest_sha256": SOXL_IDENTITIES[1].sha256,
-            "readback_path": str(SOXL_IDENTITIES[2].path),
-            "readback_sha256": SOXL_IDENTITIES[2].sha256,
+            "artifact_path": str(SOXL_ARTIFACT_RELATIVE_PATH),
+            "artifact_sha256": "6eb44951f7b16b7369df2d8d0fcce08b85d44ad3b758381139a027a53dd5f36c",
+            "artifact_bytes": 149968,
+            "manifest_path": str(Path(str(SOXL_ARTIFACT_RELATIVE_PATH) + ".manifest.json")),
+            "manifest_sha256": "8fe988353a6bc0f3642e69cc7f58c180df59ebb7ff62d6b986aba314fb9db81b",
+            "readback_path": str(Path(str(SOXL_ARTIFACT_RELATIVE_PATH) + ".readback.json")),
+            "readback_sha256": "94bef6a1d27a4487d13500242fa24a183ec388318bcab59dace21d32235b3dd2",
             "input_digest": SOXL_SPEC.input_digest,
             "symbols": ["SOXX", "SOXL"],
             "counts": {"SOXX": 753, "SOXL": 753},
@@ -2010,10 +2075,23 @@ def persist_bundle(
     return paths
 
 
-def _build_bundle(source_commit: str) -> dict[str, Any]:
+def _build_bundle(
+    source_commit: str,
+    *,
+    private_paths: PrivateEvidencePaths,
+) -> dict[str, Any]:
     source_commit = _require_source_commit(source_commit)
-    tqqq = _attempt_private_strategy(TQQQ_SPEC)
-    soxl = _attempt_private_strategy(SOXL_SPEC)
+    tqqq_identities, soxl_identities = _private_input_identities(private_paths)
+    tqqq = _attempt_private_strategy(
+        TQQQ_SPEC,
+        tqqq_identities=tqqq_identities,
+        soxl_identities=soxl_identities,
+    )
+    soxl = _attempt_private_strategy(
+        SOXL_SPEC,
+        tqqq_identities=tqqq_identities,
+        soxl_identities=soxl_identities,
+    )
     try:
         joint, raw_joint = _build_joint_dependency(tqqq, soxl)
     except R3EvidenceError as exc:
@@ -2056,11 +2134,80 @@ def _build_bundle(source_commit: str) -> dict[str, Any]:
     return bundle
 
 
+def _preflight_identity_group(identities: Sequence[FileIdentity]) -> bool:
+    try:
+        _verified_call(identities, lambda: None)
+    except R3EvidenceError:
+        return False
+    return True
+
+
+def assess_private_r3_readiness(
+    *,
+    contract_path: str | Path = CONTRACT_PATH,
+    worker_prompt_path: str | Path = WORKER_PROMPT_PATH,
+    private_root: str | Path = PRIVATE_ROOT,
+    _source_commit_reader: Callable[[], str] | None = None,
+) -> R3EvidenceReadiness:
+    """Check locked R3 inputs without writing a bundle or running a backtest.
+
+    The result intentionally contains no artifact paths or file content.  A
+    ready result is still not a promotion decision; ``run_private_r3`` repeats
+    all relevant checks before and after evaluation.
+    """
+
+    findings: list[str] = []
+    source_commit_reader = _source_commit_reader or _resolve_source_commit
+    source_commit: str | None = None
+    try:
+        source_commit = _require_source_commit(source_commit_reader())
+    except R3EvidenceError as exc:
+        findings.append(exc.code)
+
+    if (
+        hashlib.sha256(PROFILE_CANONICAL_JSON.encode()).hexdigest() != PROFILE_SHA256
+        or json.dumps(THRESHOLD_PROFILE, sort_keys=True, separators=(",", ":"))
+        != PROFILE_CANONICAL_JSON
+    ):
+        findings.append("PROFILE_IDENTITY_MISMATCH")
+
+    research_root = Path(__file__).resolve().parent
+    if not _preflight_identity_group((FileIdentity(Path(contract_path), CONTRACT_SHA256),)):
+        findings.append("CONTRACT_IDENTITY_MISMATCH")
+    if not _preflight_identity_group((FileIdentity(Path(worker_prompt_path), WORKER_PROMPT_SHA256),)):
+        findings.append("WORKER_PROMPT_IDENTITY_MISMATCH")
+    if not _preflight_identity_group(
+        tuple(
+            FileIdentity(research_root / name, digest)
+            for name, digest in SOURCE_MODULE_SHA256.items()
+        )
+    ):
+        findings.append("SOURCE_MODULE_IDENTITY_MISMATCH")
+
+    tqqq_identities, soxl_identities = _private_input_identities(
+        private_evidence_paths(private_root)
+    )
+    if not _preflight_identity_group(tqqq_identities):
+        findings.append("TQQQ_INPUT_IDENTITY_MISMATCH")
+    if not _preflight_identity_group(soxl_identities):
+        findings.append("SOXL_INPUT_IDENTITY_MISMATCH")
+
+    if source_commit is not None:
+        try:
+            if _require_source_commit(source_commit_reader()) != source_commit:
+                findings.append("SOURCE_REVISION_CHANGED")
+        except R3EvidenceError as exc:
+            findings.append(exc.code)
+
+    return R3EvidenceReadiness(source_commit=source_commit, findings=tuple(dict.fromkeys(findings)))
+
+
 def run_private_r3(
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
     *,
     contract_path: str | Path = CONTRACT_PATH,
     worker_prompt_path: str | Path = WORKER_PROMPT_PATH,
+    private_root: str | Path = PRIVATE_ROOT,
     _source_commit_reader: Callable[[], str] | None = None,
 ) -> tuple[dict[str, Any], PersistedPaths]:
     if (
@@ -2080,7 +2227,11 @@ def run_private_r3(
             for name, digest in SOURCE_MODULE_SHA256.items()
         ),
     )
-    bundle = _verified_call(shared_identities, lambda: _build_bundle(source_commit))
+    private_paths = private_evidence_paths(private_root)
+    bundle = _verified_call(
+        shared_identities,
+        lambda: _build_bundle(source_commit, private_paths=private_paths),
+    )
     if _require_source_commit(source_commit_reader()) != source_commit:
         _fail("SOURCE_REVISION_CHANGED")
     paths = persist_bundle(bundle, output_root)
