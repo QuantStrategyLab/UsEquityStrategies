@@ -790,7 +790,11 @@ class StrategyEntrypointTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.positions, ())
-        self.assertEqual(decision.risk_flags, ("rejected:too_many_positions",))
+        # Enforced value targets require the v2 capital-base evidence supplied
+        # by a platform.  A plain strategy snapshot is intentionally not
+        # treated as that evidence, even if a later concentration check would
+        # also reject the proposed targets.
+        self.assertEqual(decision.risk_flags, ("rejected:capital_base",))
         self.assertEqual(decision.diagnostics["value_target_exposure_policy"], "enforced")
         self.assertNotIn("limit_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
