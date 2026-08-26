@@ -41,6 +41,7 @@ def _context(
     history: list[dict[str, float]],
     *,
     runtime_config: dict[str, object] | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> StrategyContext:
     snapshot = PortfolioSnapshot(
         as_of=_AS_OF,
@@ -48,7 +49,7 @@ def _context(
         buying_power=100_000.0,
         cash_balance=100_000.0,
         positions=(),
-        metadata={"observed_effective_exposure": 0.0},
+        metadata={"observed_effective_exposure": 0.0, **(metadata or {})},
     )
     return StrategyContext(
         as_of=_AS_OF,
@@ -168,3 +169,46 @@ def test_p2_v2_rejects_reenabled_retention_before_builder_runs() -> None:
             entrypoints.build_tqqq_core_only_p2_v2_research_decision(ctx)
 
     builder.assert_not_called()
+
+
+def test_benchmark_guard_research_adapter_defends_when_the_authorized_guard_is_blocked() -> None:
+    context = _context(
+        _rising_history(),
+        runtime_config=_core_only_runtime_config(
+            market_regime_control_enabled=True,
+            dual_drive_macro_risk_governor_enabled=True,
+            dual_drive_crisis_defense_enabled=True,
+        ),
+        metadata={
+            "market_regime_control": {
+                "plugin": "market_regime_control",
+                "schema_version": "market_regime_control.v1",
+                "canonical_route": "blocked",
+                "suggested_action": "blocked",
+                "execution_controls": {
+                    "position_control_allowed": True,
+                    "consumption_evidence_status": "automation_approved",
+                },
+                "position_control": {
+                    "final_route": "blocked",
+                    "suggested_action": "blocked",
+                    "route_source": "benchmark_guard",
+                    "risk_budget_scalar": 0.0,
+                    "leverage_scalar": 0.0,
+                    "risk_asset_scalar": 0.0,
+                    "crisis_defense_required": True,
+                    "reason_codes": ["benchmark_guard:benchmark_history_unavailable"],
+                },
+            }
+        },
+    )
+
+    decision = entrypoints.build_tqqq_core_only_p2_benchmark_guard_research_decision(context)
+    targets = {position.symbol: float(position.target_value or 0.0) for position in decision.positions}
+
+    assert "build_tqqq_core_only_p2_benchmark_guard_research_decision" in entrypoints.__all__
+    assert targets["TQQQ"] == 0.0
+    assert targets["QQQM"] == 0.0
+    assert targets["BOXX"] == 98_000.0
+    assert decision.diagnostics["market_regime_control_route_source"] == "benchmark_guard"
+    assert decision.diagnostics["dual_drive_crisis_defense_applied"] is True
