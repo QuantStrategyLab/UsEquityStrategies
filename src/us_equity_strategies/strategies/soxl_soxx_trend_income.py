@@ -499,6 +499,12 @@ def build_rebalance_plan(
         income_layer_drawdown_budget_decay_per_double=income_layer_drawdown_budget_decay_per_double,
     )
     core_equity = max(0.0, total_strategy_equity - income_layer_plan.locked_value)
+    reserved_cash = max(
+        max(0.0, total_strategy_equity * cash_reserve_ratio),
+        max(0.0, float(cash_reserve_floor_usd or 0.0)),
+    )
+    # This is an actual portfolio sleeve: target values must leave it unallocated.
+    deployable_core_equity = max(0.0, core_equity - reserved_cash)
     deploy_ratio_text = "0.0%"
     income_ratio_text = f"{income_layer_plan.ratio * 100:.1f}%"
     income_locked_ratio_text = (
@@ -787,8 +793,8 @@ def build_rebalance_plan(
                 )
             )
     overlay_trigger_count = len(overlay_trigger_reasons)
-    soxl_target = core_equity * selected_soxl_ratio
-    soxx_target = core_equity * selected_soxx_ratio
+    soxl_target = deployable_core_equity * selected_soxl_ratio
+    soxx_target = deployable_core_equity * selected_soxx_ratio
     deploy_ratio_text = f"{(selected_soxl_ratio + selected_soxx_ratio) * 100:.1f}%"
     if selected_soxl_ratio > 0.0:
         allocation_text = f"SOXL {selected_soxl_ratio * 100:.1f}% + SOXX {selected_soxx_ratio * 100:.1f}%"
@@ -865,13 +871,9 @@ def build_rebalance_plan(
     targets = {
         "SOXL": soxl_target,
         "SOXX": soxx_target,
-        "BOXX": max(0.0, core_equity * boxx_ratio),
+        "BOXX": max(0.0, deployable_core_equity * boxx_ratio),
     }
     targets.update(income_layer_plan.target_values)
-    reserved_cash = max(
-        max(0.0, total_strategy_equity * cash_reserve_ratio),
-        max(0.0, float(cash_reserve_floor_usd or 0.0)),
-    )
     investable_cash = max(0.0, available_cash - reserved_cash)
     benchmark_context = {
         "symbol": trend_symbol,
@@ -918,6 +920,7 @@ def build_rebalance_plan(
         "available_cash": float(available_cash),
         "reserved_cash": float(reserved_cash),
         "investable_cash": float(investable_cash),
+        "deployable_core_equity": float(deployable_core_equity),
         "holdings_order": tuple(strategy_assets),
         "holdings": {
             symbol: {
@@ -987,6 +990,7 @@ def build_rebalance_plan(
         "active_risk_asset": active_risk_asset,
         "reserved_cash": reserved_cash,
         "investable_cash": investable_cash,
+        "deployable_core_equity": deployable_core_equity,
         "threshold_value": total_strategy_equity * rebalance_threshold_ratio,
         "allocation_mode": allocation_mode,
         "trend_entry_buffer": entry_buffer,

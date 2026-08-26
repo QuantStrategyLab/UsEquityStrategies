@@ -1135,9 +1135,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["blend_tier"], "full")
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
         self.assertEqual(plan["market_status"], "market_status_blend_gate_risk_on(asset=SOXX+SOXL)")
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 70000.0)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 20000.0)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 10000.0)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 67900.0)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 19400.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 9700.0)
         self.assertEqual(
             plan["notification_context"]["status"]["code"],
             "market_status_blend_gate_risk_on",
@@ -1148,6 +1148,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
         self.assertAlmostEqual(plan["reserved_cash"], 3000.0)
         self.assertAlmostEqual(plan["investable_cash"], 2000.0)
+        self.assertAlmostEqual(plan["deployable_core_equity"], 97000.0)
+        self.assertAlmostEqual(sum(plan["targets"].values()) + plan["reserved_cash"], 100000.0)
         self.assertEqual(plan["notification_context"]["portfolio"]["raw_buying_power"], 5000.0)
         self.assertAlmostEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 3000.0)
         self.assertAlmostEqual(plan["notification_context"]["portfolio"]["investable_cash"], 2000.0)
@@ -1196,6 +1198,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
 
         self.assertAlmostEqual(plan["reserved_cash"], 150.0)
         self.assertAlmostEqual(plan["investable_cash"], 611.72)
+        self.assertAlmostEqual(sum(plan["targets"].values()) + plan["reserved_cash"], 761.72)
         self.assertAlmostEqual(plan["notification_context"]["portfolio"]["reserved_cash"], 150.0)
         self.assertAlmostEqual(plan["notification_context"]["portfolio"]["investable_cash"], 611.72)
 
@@ -1245,9 +1248,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             **common_kwargs,
         )
         self.assertEqual(mid_plan["blend_tier"], "mid")
-        self.assertAlmostEqual(mid_plan["targets"]["SOXL"], 65000.0)
-        self.assertAlmostEqual(mid_plan["targets"]["SOXX"], 20000.0)
-        self.assertAlmostEqual(mid_plan["targets"]["BOXX"], 15000.0)
+        self.assertAlmostEqual(mid_plan["targets"]["SOXL"], 63050.0)
+        self.assertAlmostEqual(mid_plan["targets"]["SOXX"], 19400.0)
+        self.assertAlmostEqual(mid_plan["targets"]["BOXX"], 14550.0)
 
         defensive_plan = build_soxl_soxx_plan(
             {
@@ -1259,8 +1262,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         )
         self.assertEqual(defensive_plan["blend_tier"], "defensive")
         self.assertEqual(defensive_plan["targets"]["SOXL"], 0.0)
-        self.assertAlmostEqual(defensive_plan["targets"]["SOXX"], 15000.0)
-        self.assertAlmostEqual(defensive_plan["targets"]["BOXX"], 85000.0)
+        self.assertAlmostEqual(defensive_plan["targets"]["SOXX"], 14550.0)
+        self.assertAlmostEqual(defensive_plan["targets"]["BOXX"], 82450.0)
 
         held_account_state = {
             **account_state,
@@ -1277,7 +1280,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             **common_kwargs,
         )
         self.assertEqual(held_mid_plan["blend_tier"], "mid")
-        self.assertAlmostEqual(held_mid_plan["targets"]["SOXL"], 65000.0)
+        self.assertAlmostEqual(held_mid_plan["targets"]["SOXL"], 63050.0)
 
     def test_soxl_soxx_trend_income_supports_diversified_income_basket(self):
         _skip_if_missing_numeric_stack()
@@ -1337,9 +1340,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
 
         self.assertEqual(plan["income_layer_symbols"], income_symbols)
         self.assertEqual(plan["limit_order_symbols"], ("SOXL", "SOXX", *income_symbols))
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 183076.9230769231)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 52307.69230769232)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 26153.84615384616)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], 176776.92307692306)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 50507.692307692305)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 25253.846153846152)
         self.assertAlmostEqual(plan["targets"]["SCHD"], 15384.61538461538)
         self.assertAlmostEqual(plan["targets"]["DGRO"], 7692.30769230769)
         self.assertAlmostEqual(plan["targets"]["SGOV"], 7692.30769230769)
@@ -1398,8 +1401,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(mid_plan["blend_tier"], "mid")
         self.assertEqual(mid_plan["overlay_trigger_count"], 1)
         self.assertEqual(mid_plan["overlay_trigger_codes"], ("blend_gate_reason_rsi_cap",))
-        self.assertAlmostEqual(mid_plan["targets"]["SOXL"], 65000.0)
-        self.assertAlmostEqual(mid_plan["targets"]["SOXX"], 20000.0)
+        self.assertAlmostEqual(mid_plan["targets"]["SOXL"], 63050.0)
+        self.assertAlmostEqual(mid_plan["targets"]["SOXX"], 19400.0)
         self.assertEqual(
             mid_plan["notification_context"]["status"]["code"],
             "market_status_blend_gate_overlay_capped",
@@ -1456,8 +1459,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             ("blend_gate_reason_rsi_cap", "blend_gate_reason_bollinger_cap"),
         )
         self.assertAlmostEqual(defensive_plan["targets"]["SOXL"], 0.0)
-        self.assertAlmostEqual(defensive_plan["targets"]["SOXX"], 15000.0)
-        self.assertAlmostEqual(defensive_plan["targets"]["BOXX"], 85000.0)
+        self.assertAlmostEqual(defensive_plan["targets"]["SOXX"], 14550.0)
+        self.assertAlmostEqual(defensive_plan["targets"]["BOXX"], 82450.0)
 
     def test_soxl_soxx_trend_income_volatility_delever_redirects_soxl_to_soxx(self):
         _skip_if_missing_numeric_stack()
@@ -1518,8 +1521,8 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["active_risk_asset"], "SOXX")
         self.assertEqual(plan["overlay_trigger_codes"], ("blend_gate_reason_volatility_delever",))
         self.assertAlmostEqual(plan["targets"]["SOXL"], 0.0)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 90000.0)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 10000.0)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], 87300.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], 9700.0)
         self.assertAlmostEqual(plan["blend_gate_volatility_delever_removed_ratio"], 0.70)
         self.assertEqual(
             plan["notification_context"]["signal"]["code"],
@@ -1671,7 +1674,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["overlay_trigger_codes"], ("blend_gate_reason_market_regime_control_risk_reduced",))
         self.assertAlmostEqual(plan["targets"]["SOXL"], 0.0)
         self.assertAlmostEqual(plan["targets"]["SOXX"], 0.0)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], plan["deployable_core_equity"])
         self.assertAlmostEqual(plan["market_regime_control_removed_ratio"], 0.90)
         self.assertAlmostEqual(plan["market_regime_control_redirected_to_unlevered_ratio"], 0.70)
         self.assertEqual(
@@ -1746,9 +1749,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertFalse(plan["market_regime_control_position_control_authorized"])
         self.assertEqual(plan["market_regime_control_consumption_evidence_status"], "notification_only")
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], plan["deployable_core_equity"] * 0.70)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], plan["deployable_core_equity"] * 0.20)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], plan["deployable_core_equity"] * 0.10)
 
     def test_soxl_soxx_trend_income_default_does_not_consume_market_regime_control(self):
         _skip_if_missing_numeric_stack()
@@ -1814,9 +1817,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertFalse(plan["market_regime_control_route_allowed"])
         self.assertFalse(plan["market_regime_control_applied"])
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], plan["deployable_core_equity"] * 0.70)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], plan["deployable_core_equity"] * 0.20)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], plan["deployable_core_equity"] * 0.10)
         self.assertFalse(plan["notification_context"]["risk_controls"]["market_regime_control"]["enabled"])
 
     def test_soxl_soxx_trend_income_can_disable_market_regime_control_position_effect(self):
@@ -1882,9 +1885,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertFalse(plan["market_regime_control_found"])
         self.assertFalse(plan["market_regime_control_applied"])
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], plan["deployable_core_equity"] * 0.70)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], plan["deployable_core_equity"] * 0.20)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], plan["deployable_core_equity"] * 0.10)
         self.assertFalse(plan["notification_context"]["risk_controls"]["market_regime_control"]["enabled"])
 
     def test_soxl_soxx_trend_income_unavailable_regime_cannot_change_targets(self):
@@ -1959,9 +1962,9 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertFalse(plan["market_regime_control_position_control_allowed"])
         self.assertFalse(plan["market_regime_control_position_control_authorized"])
         self.assertEqual(plan["active_risk_asset"], "SOXX+SOXL")
-        self.assertAlmostEqual(plan["targets"]["SOXL"], 100000.0 * 0.70)
-        self.assertAlmostEqual(plan["targets"]["SOXX"], 100000.0 * 0.20)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0 * 0.10)
+        self.assertAlmostEqual(plan["targets"]["SOXL"], plan["deployable_core_equity"] * 0.70)
+        self.assertAlmostEqual(plan["targets"]["SOXX"], plan["deployable_core_equity"] * 0.20)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], plan["deployable_core_equity"] * 0.10)
 
     def test_soxl_soxx_trend_income_legacy_crisis_adapter_maps_to_market_regime_risk_off(self):
         _skip_if_missing_numeric_stack()
@@ -2020,7 +2023,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
         self.assertEqual(plan["active_risk_asset"], "BOXX")
         self.assertAlmostEqual(plan["targets"]["SOXL"], 0.0)
         self.assertAlmostEqual(plan["targets"]["SOXX"], 0.0)
-        self.assertAlmostEqual(plan["targets"]["BOXX"], 100000.0)
+        self.assertAlmostEqual(plan["targets"]["BOXX"], plan["deployable_core_equity"])
 
     def test_live_strategies_reject_retired_allocation_modes(self):
         _skip_if_missing_numeric_stack()
