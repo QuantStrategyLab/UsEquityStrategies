@@ -1186,7 +1186,12 @@ def build_soxl_soxx_core_only_p2_v2_research_decision(
 
 def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     decision = _build_soxl_soxx_trend_income_decision(ctx)
-    decision = apply_risk_gate(decision, ctx=ctx, max_single_weight=0.20)
+    decision = apply_risk_gate(
+        decision,
+        ctx=ctx,
+        max_single_weight=0.20,
+        enforce_value_target_exposure=True,
+    )
     record_strategy_decision(
         ctx,
         decision,
