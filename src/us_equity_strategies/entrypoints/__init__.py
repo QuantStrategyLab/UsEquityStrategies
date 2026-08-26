@@ -628,8 +628,14 @@ def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecisio
     )
 
 
-def _validate_tqqq_core_only_research_runtime_config(config: Mapping[str, object]) -> None:
-    """Reject any runtime configuration that re-enables excluded P2 components."""
+def _validate_tqqq_core_only_research_runtime_config(
+    config: Mapping[str, object],
+    *,
+    market_regime_control_enabled: bool = False,
+    macro_risk_governor_enabled: bool = False,
+    crisis_defense_enabled: bool = False,
+) -> None:
+    """Reject any runtime configuration outside one explicit P2 research boundary."""
     candidate_assets = ("TQQQ", "QQQM", "BOXX")
     ai_extensions = config.get("ai_extensions")
     if (
@@ -646,9 +652,9 @@ def _validate_tqqq_core_only_research_runtime_config(config: Mapping[str, object
         or config.get("dual_drive_volatility_delever_retention_mode") != "none"
         or config.get("dual_drive_volatility_delever_retention_ratio") != 0.0
         or config.get("dual_drive_volatility_delever_taco_veto_enabled") is not False
-        or config.get("dual_drive_macro_risk_governor_enabled") is not False
-        or config.get("dual_drive_crisis_defense_enabled") is not False
-        or config.get("market_regime_control_enabled") is not False
+        or config.get("dual_drive_macro_risk_governor_enabled") is not macro_risk_governor_enabled
+        or config.get("dual_drive_crisis_defense_enabled") is not crisis_defense_enabled
+        or config.get("market_regime_control_enabled") is not market_regime_control_enabled
     ):
         raise ValueError("invalid TQQQ core-only research config")
 
@@ -669,6 +675,26 @@ def build_tqqq_core_only_p2_v2_research_decision(
     """
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     _validate_tqqq_core_only_research_runtime_config(config)
+    return _build_tqqq_growth_income_decision(ctx)
+
+
+def build_tqqq_core_only_p2_benchmark_guard_research_decision(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Build the isolated TQQQ P2 candidate that consumes unified guard artifacts.
+
+    This entrypoint is deliberately research-only.  It permits the already
+    unified market-regime-control input so an offline candidate can prove the
+    same strategy-side response to a frozen benchmark guard.  It does not
+    grant broker authority or alter the default/live entrypoint.
+    """
+    config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
+    _validate_tqqq_core_only_research_runtime_config(
+        config,
+        market_regime_control_enabled=True,
+        macro_risk_governor_enabled=True,
+        crisis_defense_enabled=True,
+    )
     return _build_tqqq_growth_income_decision(ctx)
 
 
@@ -2012,6 +2038,7 @@ __all__ = [
     "us_equity_combo_leveraged_entrypoint",
     "evaluate_global_etf_rotation",
     "compute_tqqq_growth_income_decision",
+    "build_tqqq_core_only_p2_benchmark_guard_research_decision",
     "build_tqqq_core_only_p2_v2_research_decision",
     "evaluate_tqqq_growth_income_promotion_research",
     "evaluate_tqqq_growth_income",
