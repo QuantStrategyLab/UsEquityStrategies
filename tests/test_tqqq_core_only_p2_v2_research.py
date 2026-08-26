@@ -187,7 +187,7 @@ def test_benchmark_guard_research_adapter_defends_when_the_authorized_guard_is_b
                 "suggested_action": "blocked",
                 "execution_controls": {
                     "position_control_allowed": True,
-                    "consumption_evidence_status": "automation_approved",
+                    "consumption_evidence_status": "research_backtest_approved",
                 },
                 "position_control": {
                     "final_route": "blocked",
@@ -203,12 +203,20 @@ def test_benchmark_guard_research_adapter_defends_when_the_authorized_guard_is_b
         },
     )
 
-    decision = entrypoints.build_tqqq_core_only_p2_benchmark_guard_research_decision(context)
-    targets = {position.symbol: float(position.target_value or 0.0) for position in decision.positions}
+    default_decision = entrypoints._build_tqqq_growth_income_decision(context)
+    default_targets = {
+        position.symbol: float(position.target_value or 0.0) for position in default_decision.positions
+    }
+    research_decision = entrypoints.build_tqqq_core_only_p2_benchmark_guard_research_decision(context)
+    research_targets = {
+        position.symbol: float(position.target_value or 0.0) for position in research_decision.positions
+    }
 
     assert "build_tqqq_core_only_p2_benchmark_guard_research_decision" in entrypoints.__all__
-    assert targets["TQQQ"] == 0.0
-    assert targets["QQQM"] == 0.0
-    assert targets["BOXX"] == 98_000.0
-    assert decision.diagnostics["market_regime_control_route_source"] == "benchmark_guard"
-    assert decision.diagnostics["dual_drive_crisis_defense_applied"] is True
+    assert default_targets["TQQQ"] > 0.0
+    assert default_targets["QQQM"] > 0.0
+    assert research_targets["TQQQ"] == 0.0
+    assert research_targets["QQQM"] == 0.0
+    assert research_targets["BOXX"] == 98_000.0
+    assert research_decision.diagnostics["market_regime_control_route_source"] == "benchmark_guard"
+    assert research_decision.diagnostics["dual_drive_crisis_defense_applied"] is True
