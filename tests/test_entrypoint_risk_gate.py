@@ -633,6 +633,43 @@ def test_apply_risk_gate_passes_bootstrap_mandate_parameters_to_qpk(
     assert captured["available_account_exposure"] == 0.50
 
 
+def test_apply_risk_gate_forwards_only_explicit_capital_base_evidence(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _gate(decision, **kwargs):
+        captured.update(kwargs)
+        return decision
+
+    capital_base = {"reported_equity": 100_000.0}
+    capital_base_binding = {"strategy_scope": "soxl_soxx_trend_income"}
+    ctx = StrategyContext(
+        as_of=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        portfolio=None,
+        market_data={},
+        state={},
+        runtime_config={},
+        capabilities={
+            "capital_base": capital_base,
+            "capital_base_binding": capital_base_binding,
+        },
+    )
+    monkeypatch.setattr(common, "_qpk_apply_risk_gate", _gate)
+    decision = StrategyDecision(
+        positions=(PositionTarget(symbol="SOXL", target_value=10_000.0),)
+    )
+
+    assert apply_risk_gate(
+        decision,
+        ctx=ctx,
+        enforce_value_target_exposure=True,
+    ) is decision
+    assert captured["capital_base"] is capital_base
+    assert captured["capital_base_binding"] is capital_base_binding
+    assert captured["enforce_value_target_exposure"] is True
+
+
 def test_unmandated_consumer_allows_only_explicit_1x_single_position_at_ten_percent() -> None:
     result = apply_risk_gate(
         StrategyDecision(
