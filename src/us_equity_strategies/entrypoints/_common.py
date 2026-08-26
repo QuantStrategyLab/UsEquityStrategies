@@ -68,7 +68,17 @@ def apply_risk_gate(
     market_data: Mapping[str, Any] | None = None,
     enforce_value_target_exposure: bool = False,
 ) -> StrategyDecision:
-    """QPK unified risk gate: stop-loss, circuit breaker, concentration (task 8)."""
+    """Apply the shared risk gate without manufacturing capital evidence.
+
+    A platform can attach a ``capital_base`` and ``capital_base_binding`` to
+    the already-scoped strategy context.  This adapter forwards those opaque
+    v2 evidence objects only.  It never derives account scope, currency, FX,
+    allocation scope, or a coverage digest from a strategy portfolio.
+
+    Consequently an enforced value-target decision remains fail-closed until
+    its platform supplies both contracts.  This makes the adapter safe for
+    every strategy and broker integration, including SOXL and TQQQ.
+    """
     snapshot = portfolio_snapshot if portfolio_snapshot is not None else (
         ctx.portfolio if ctx is not None else None
     )
@@ -81,6 +91,7 @@ def apply_risk_gate(
         )
     if market_data is None and ctx is not None:
         market_data = dict(ctx.market_data or {})
+    capabilities = ctx.capabilities if ctx is not None else {}
     return _qpk_apply_risk_gate(
         decision,
         risk_mandate_id=risk_mandate_id,
@@ -92,6 +103,8 @@ def apply_risk_gate(
         portfolio_snapshot=snapshot,
         market_data=market_data,
         enforce_value_target_exposure=enforce_value_target_exposure,
+        capital_base=capabilities.get("capital_base"),
+        capital_base_binding=capabilities.get("capital_base_binding"),
     )
 
 
