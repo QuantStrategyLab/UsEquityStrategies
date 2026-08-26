@@ -723,7 +723,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     describe_platform_runtime_requirements(removed_profile, platform_id="schwab")
 
-    def test_soxl_soxx_trend_income_entrypoint_maps_target_values_without_execution_fields(self) -> None:
+    def test_soxl_soxx_trend_income_entrypoint_enforces_value_target_risk_gate(self) -> None:
         entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
         indicators = {
             "soxl": {"price": 80.0, "ma_trend": 75.0},
@@ -789,10 +789,9 @@ class StrategyEntrypointTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(
-            {position.symbol: position.target_value for position in decision.positions},
-            legacy_plan["targets"],
-        )
+        self.assertEqual(decision.positions, ())
+        self.assertEqual(decision.risk_flags, ("rejected:too_many_positions",))
+        self.assertEqual(decision.diagnostics["value_target_exposure_policy"], "enforced")
         self.assertNotIn("limit_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["active_risk_asset"], legacy_plan["active_risk_asset"])
@@ -893,7 +892,12 @@ class StrategyEntrypointTests(unittest.TestCase):
 
         self.assertIs(decision, raw_decision)
         builder.assert_called_once_with(ctx)
-        gate.assert_called_once_with(raw_decision, ctx=ctx, max_single_weight=0.20)
+        gate.assert_called_once_with(
+            raw_decision,
+            ctx=ctx,
+            max_single_weight=0.20,
+            enforce_value_target_exposure=True,
+        )
         record.assert_called_once_with(
             ctx,
             raw_decision,
