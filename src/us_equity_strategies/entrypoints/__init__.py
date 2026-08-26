@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from quant_platform_kit.position_sizing import risk_budgeted_target_weights
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskGateResult
@@ -695,7 +696,38 @@ def build_tqqq_core_only_p2_benchmark_guard_research_decision(
         macro_risk_governor_enabled=True,
         crisis_defense_enabled=True,
     )
-    return _build_tqqq_growth_income_decision(ctx)
+    return _build_tqqq_growth_income_decision(_research_only_market_regime_context(ctx))
+
+
+def _research_only_market_regime_context(ctx: StrategyContext) -> StrategyContext:
+    """Convert a candidate-bound P3 marker only inside the research entrypoint.
+
+    A ``research_backtest_approved`` marker is intentionally not consumable by
+    the default/live strategy entrypoint.  It lets an offline replay exercise
+    the exact allocation response without publishing a production approval.
+    """
+    portfolio = require_portfolio(ctx)
+    metadata = getattr(portfolio, "metadata", {}) or {}
+    payload = metadata.get("market_regime_control") if isinstance(metadata, Mapping) else None
+    if not isinstance(payload, Mapping):
+        raise ValueError("benchmark guard research requires a market regime artifact")
+    execution_controls = payload.get("execution_controls")
+    if (
+        str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+        != "market_regime_control"
+        or not isinstance(execution_controls, Mapping)
+        or execution_controls.get("position_control_allowed") is not True
+        or str(execution_controls.get("consumption_evidence_status") or "").strip().lower()
+        != "research_backtest_approved"
+    ):
+        raise ValueError("benchmark guard research requires an isolated P3 authorization")
+    authorized_controls = dict(execution_controls)
+    authorized_controls["consumption_evidence_status"] = "automation_approved"
+    authorized_payload = dict(payload)
+    authorized_payload["execution_controls"] = authorized_controls
+    authorized_metadata = dict(metadata)
+    authorized_metadata["market_regime_control"] = authorized_payload
+    return replace(ctx, portfolio=replace(portfolio, metadata=authorized_metadata))
 
 
 def evaluate_tqqq_growth_income_promotion_research(
