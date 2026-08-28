@@ -181,7 +181,7 @@ jobs:
           PY
 
       - name: Upload lifecycle preflight artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lifecycle-preflight-bundle
