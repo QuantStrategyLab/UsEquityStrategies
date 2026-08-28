@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "pandas>=2.0",
   "pytz>=2024.1",
-  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@aae333fe8b3fe5aeb32e1ff135ab14ea7db32420",
+  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@bb91e4cad1a32d58dc0e4023f1cbe0c7ec150d81",
 ]
 
 [tool.setuptools]
