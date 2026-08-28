@@ -21,7 +21,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert '"conclusion": "success"' in workflow
     assert '"QuantStrategyLab/UsEquitySnapshotPipelines"' in workflow
     assert "repository: QuantStrategyLab/QuantPlatformKit" in workflow
-    assert "ref: 8b8ce3543c04bf12920e38b0f45d2b32a8896580" in workflow
+    assert "ref: b65ddd6dbacf47d1b4e4eaecf404cd98eddd7a2c" in workflow
     assert "python -m pip install --no-deps -e external/QuantPlatformKit" in workflow
     assert "scripts/run_walk_forward_backtest.py" in workflow
     assert '"--list-lifecycle-profiles"' in workflow
@@ -30,7 +30,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "LIFECYCLE_PREFLIGHT_BUNDLE_ROOT" in workflow
     assert "Upload lifecycle preflight artifact" in workflow
     assert "actions/upload-artifact@v7" in workflow
-    assert "uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@8b8ce3543c04bf12920e38b0f45d2b32a8896580" in workflow
+    assert "uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@b65ddd6dbacf47d1b4e4eaecf404cd98eddd7a2c" in workflow
     assert "strategy_domain: us_equity" in workflow
     assert "caller_event_name: ${{ github.event_name }}" in workflow
     assert "caller_pr_head_repository: ${{ github.event.pull_request.head.repo.full_name || '' }}" in workflow
@@ -38,6 +38,10 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "snapshot_checkout_path: external/UsEquitySnapshotPipelines" in workflow
     assert "ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}" in workflow
     assert "lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
-    assert "quant_platform_kit_ref: 8b8ce3543c04bf12920e38b0f45d2b32a8896580" in workflow
+    assert "quant_platform_kit_ref: b65ddd6dbacf47d1b4e4eaecf404cd98eddd7a2c" in workflow
+    assert "strategy_profile:" in workflow
+    assert "REQUESTED_STRATEGY_PROFILE: ${{ inputs.strategy_profile || '' }}" in workflow
+    assert '"--list-profiles"' in workflow
+    assert "unsupported targeted lifecycle profile=" in workflow
     assert "codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}" in workflow
     assert "secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token" in workflow

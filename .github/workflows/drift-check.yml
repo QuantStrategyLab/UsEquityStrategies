@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+    inputs:
+      strategy_profile:
+        description: "Optional supported profile for an isolated research/drift run."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -26,7 +31,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: aae333fe8b3fe5aeb32e1ff135ab14ea7db32420
+          ref: b65ddd6dbacf47d1b4e4eaecf404cd98eddd7a2c
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -137,6 +142,7 @@ jobs:
         env:
           LIFECYCLE_PREFLIGHT_BUNDLE_ROOT: ${{ runner.temp }}/lifecycle-preflight-bundle
           MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
+          REQUESTED_STRATEGY_PROFILE: ${{ inputs.strategy_profile || '' }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -145,12 +151,27 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          profiles = json.loads(
-              subprocess.check_output(
-                  ["python", "scripts/run_walk_forward_backtest.py", "--list-lifecycle-profiles"],
-                  text=True,
-              )
-          )["profiles"]
+          requested_profile = os.environ.get("REQUESTED_STRATEGY_PROFILE", "").strip()
+          if requested_profile:
+              supported_profiles = json.loads(
+                  subprocess.check_output(
+                      ["python", "scripts/run_walk_forward_backtest.py", "--list-profiles"],
+                      text=True,
+                  )
+              )["profiles"]
+              if requested_profile not in supported_profiles:
+                  raise SystemExit(
+                      f"unsupported targeted lifecycle profile={requested_profile!r}; "
+                      f"supported={sorted(supported_profiles)}"
+                  )
+              profiles = [requested_profile]
+          else:
+              profiles = json.loads(
+                  subprocess.check_output(
+                      ["python", "scripts/run_walk_forward_backtest.py", "--list-lifecycle-profiles"],
+                      text=True,
+                  )
+              )["profiles"]
           bundle_root = Path(os.environ["LIFECYCLE_PREFLIGHT_BUNDLE_ROOT"])
           market_history = os.environ["MARKET_HISTORY_PATH"]
           store_root = bundle_root / "data" / "lifecycle_store"
@@ -194,7 +215,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@8b8ce3543c04bf12920e38b0f45d2b32a8896580
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@b65ddd6dbacf47d1b4e4eaecf404cd98eddd7a2c
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -203,8 +224,9 @@ jobs:
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
-      quant_platform_kit_ref: 8b8ce3543c04bf12920e38b0f45d2b32a8896580
+      quant_platform_kit_ref: b65ddd6dbacf47d1b4e4eaecf404cd98eddd7a2c
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+      strategy_profile: ${{ inputs.strategy_profile || '' }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
       snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
