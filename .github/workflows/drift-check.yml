@@ -181,7 +181,7 @@ jobs:
           PY
 
       - name: Upload lifecycle preflight artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lifecycle-preflight-bundle
@@ -194,7 +194,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@6b887d9954eb656141597eac077ca22053a525ef
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@b939522701b527096e5d028346e777714466bcc5
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -203,7 +203,7 @@ jobs:
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
-      quant_platform_kit_ref: 6b887d9954eb656141597eac077ca22053a525ef
+      quant_platform_kit_ref: b939522701b527096e5d028346e777714466bcc5
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
     secrets:
       codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
