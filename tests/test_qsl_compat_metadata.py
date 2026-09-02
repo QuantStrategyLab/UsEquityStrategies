@@ -16,7 +16,7 @@ def test_qsl_compat_metadata_exists_and_bundle() -> None:
     with qsl_path.open("rb") as f:
         data = tomllib.load(f)
 
-    assert data.get("compat", {}).get("bundle") == "2026.09.0", "compat.bundle mismatch"
+    assert data.get("compat", {}).get("bundle") == "2026.09.1", "compat.bundle mismatch"
 
 
 def test_qpk_pin_lock_and_ci_are_dependency_enabled() -> None:
