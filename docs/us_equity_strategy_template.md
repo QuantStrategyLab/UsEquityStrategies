@@ -159,7 +159,7 @@ The entrypoint must:
 ### Example entrypoint skeleton
 
 ```python
-from quant_platform_kit.strategy_contracts import CallableStrategyEntrypoint, StrategyContext, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import CallableStrategyEntrypoint, StrategyContext, StrategyDecision
 
 from us_equity_strategies.manifests import my_new_profile_manifest
 from us_equity_strategies.strategies import my_new_profile as strategy_logic

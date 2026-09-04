@@ -6,13 +6,13 @@ from dataclasses import replace
 from quant_platform_kit.position_sizing import risk_budgeted_target_weights
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskGateResult
 from quant_platform_kit.risk.gate import assess_with_evidence
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.execution_translation import translate_value_decision_to_weight_targets
+from quant_platform_kit.common.strategy_contracts import (
     CallableStrategyEntrypoint,
     PositionTarget,
     StrategyContext,
     StrategyDecision,
     build_execution_timing_metadata,
-    translate_value_decision_to_weight_targets,
 )
 
 from us_equity_strategies.account_sizing import (

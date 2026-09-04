@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timezone
 
-from quant_platform_kit.strategy_contracts import StrategyContext
+from quant_platform_kit.common.strategy_contracts import StrategyContext
 
 
 OPTION_OVERLAY_CONFIG_KEYS = {

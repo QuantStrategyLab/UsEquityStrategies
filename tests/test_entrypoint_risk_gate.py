@@ -7,7 +7,7 @@ import pytest
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskAction
-from quant_platform_kit.strategy_contracts import PositionTarget, StrategyContext, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import PositionTarget, StrategyContext, StrategyDecision
 
 import us_equity_strategies.entrypoints as entrypoints
 import us_equity_strategies.entrypoints._common as common

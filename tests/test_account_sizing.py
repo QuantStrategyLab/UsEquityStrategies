@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from quant_platform_kit.common.models import PortfolioSnapshot
-from quant_platform_kit.strategy_contracts import StrategyContext
+from quant_platform_kit.common.strategy_contracts import StrategyContext
 from us_equity_strategies import get_strategy_entrypoint
 from us_equity_strategies.account_sizing import (
     append_account_size_warning,

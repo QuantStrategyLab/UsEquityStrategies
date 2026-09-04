@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
-from quant_platform_kit.strategy_contracts import StrategyContext
+from quant_platform_kit.common.strategy_contracts import StrategyContext
 from us_equity_strategies import get_strategy_entrypoint
 from us_equity_strategies.entrypoints._portfolio_dashboard import build_portfolio_dashboard
 

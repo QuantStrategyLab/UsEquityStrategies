@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from quant_platform_kit.strategy_contracts import StrategyManifest
+from quant_platform_kit.common.strategy_contracts import StrategyManifest
 
 from us_equity_strategies.ai_extensions import build_default_ai_extension_config
 from us_equity_strategies.income_layer_defaults import income_layer_default_config

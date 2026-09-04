@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from quant_platform_kit.strategy_contracts import StrategyContext
+from quant_platform_kit.common.strategy_contracts import StrategyContext
 
 from us_equity_strategies.entrypoints._common import (
     apply_market_regime_control_to_weights,

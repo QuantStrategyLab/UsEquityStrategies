@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from quant_platform_kit.strategy_contracts import StrategyContext
+from quant_platform_kit.common.strategy_contracts import StrategyContext
 from us_equity_strategies.option_overlay import (
     OPTION_OVERLAY_CONFIG_KEYS,
     OPTION_OVERLAY_DEFAULT_CONFIGS,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     StrategyArtifactContract,
     StrategyRuntimeAdapter,
     StrategyRuntimePolicy,
