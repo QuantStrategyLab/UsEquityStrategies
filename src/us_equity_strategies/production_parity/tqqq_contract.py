@@ -15,7 +15,7 @@ from quant_platform_kit.risk.contracts import (
 from quant_platform_kit.risk.gate import (
     assess_with_evidence as _qpk_assess_with_evidence,
 )
-from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import PositionTarget, StrategyDecision
 
 
 _CONTRACT_VERSION = "qsl.tqqq_production_parity.v1"

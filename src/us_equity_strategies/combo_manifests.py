@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from quant_platform_kit.strategy_contracts import StrategyManifest
+from quant_platform_kit.common.strategy_contracts import StrategyManifest
 
 from us_equity_strategies.strategies import us_equity_combo
 from us_equity_strategies.strategies import us_equity_combo_core

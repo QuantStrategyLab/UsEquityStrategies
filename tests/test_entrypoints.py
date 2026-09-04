@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
-from quant_platform_kit.strategy_contracts import StrategyContext, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import StrategyContext, StrategyDecision
 from us_equity_strategies import get_platform_runtime_adapter, get_strategy_entrypoint
 from us_equity_strategies import entrypoints
 from us_equity_strategies.catalog import get_runtime_enabled_profiles

@@ -7,7 +7,7 @@ from typing import Any
 from quant_platform_kit.risk.gate import apply_risk_gate as _qpk_apply_risk_gate
 from quant_platform_kit.risk.gate import enrich_decision_risk_diagnostics
 from quant_platform_kit.risk.portfolio_diagnostics import extract_portfolio_risk_diagnostics
-from quant_platform_kit.strategy_contracts import PositionTarget, StrategyContext, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import PositionTarget, StrategyContext, StrategyDecision
 from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ import pytest
 from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskAction
 from quant_platform_kit.risk.gate import assess_with_evidence
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     BudgetIntent,
     PositionTarget,
     StrategyDecision,

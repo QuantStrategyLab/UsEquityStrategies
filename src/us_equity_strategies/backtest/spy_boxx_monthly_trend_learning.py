@@ -10,7 +10,7 @@ from typing import Any, Mapping
 import pandas as pd
 from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.position_sizing import risk_budgeted_target_weight
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     PositionTarget,
     StrategyContext,
     StrategyDecision,
