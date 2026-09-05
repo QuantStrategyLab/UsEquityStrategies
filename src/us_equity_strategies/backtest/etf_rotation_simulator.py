@@ -73,12 +73,47 @@ def _target_weights(
             weights: dict[str, float] = {}
         else:
             weights, _metadata = signal_fn(history, **dict(strategy_kwargs))
-        rows.append(
-            {"date": as_of, **{symbol: float(weights.get(symbol, 0.0)) for symbol in close.columns}}
-        )
-    targets = pd.DataFrame(rows).set_index("date")
-    targets = targets.reindex(close.index, method="ffill").fillna(0.0)
-    return targets[list(close.columns)].shift(1).fillna(0.0)
+        selected = {symbol: float(weights.get(symbol, 0.0)) for symbol in close.columns}
+        if any(not math.isfinite(weight) or weight < 0.0 for weight in selected.values()) or math.fsum(selected.values()) > 1.0:
+            raise ValueError("target weights must be finite, non-negative and sum to at most one")
+        rows.append({"date": as_of, **selected})
+    targets = pd.DataFrame(rows, columns=["date", *close.columns]).set_index("date")
+    # NaN means no event; a zero row is an explicit exit to cash. Keep lag one.
+    return targets.reindex(close.index).shift(1)
+
+
+def _rebalance_holdings(
+    shares: pd.Series,
+    cash: float,
+    prices: pd.Series,
+    targets: pd.Series,
+    *,
+    cost_rate: float,
+) -> tuple[pd.Series, float, float]:
+    """Fill pre-fee targets, selling first and budgeting buy fees from cash.
+
+    Fractional buys are scaled together if cash is insufficient; post-fee
+    weights need not exactly equal targets. Inputs come from the validated
+    long-only target events, not broker orders or a shared account allocator.
+    """
+    needed = (shares > 0.0) | (targets > 0.0)
+    if any(not math.isfinite(price) or price <= 0.0 for price in prices[needed]):
+        raise ValueError("held or targeted assets require positive finite fill prices")
+    safe_prices = prices.where(needed, 1.0)
+    values = shares * safe_prices
+    delta = targets * (cash + float(values.sum())) - values
+    sells = -delta.clip(upper=0.0)
+    buys = delta.clip(lower=0.0)
+    sale_notional = float(sells.sum())
+    available_cash = cash + sale_notional * (1.0 - cost_rate)
+    desired_buys = float(buys.sum())
+    if desired_buys > 0.0:
+        buys *= min(1.0, available_cash / (desired_buys * (1.0 + cost_rate)))
+    purchase_notional = float(buys.sum())
+    fees = (sale_notional + purchase_notional) * cost_rate
+    # Only floating-point roundoff can be negative after the fee-inclusive cap.
+    cash = max(0.0, available_cash - purchase_notional * (1.0 + cost_rate))
+    return (values - sells + buys) / safe_prices, cash, fees
 
 
 def compute_backtest_metrics(daily_returns: pd.Series) -> dict[str, float | int]:
@@ -95,9 +130,9 @@ def compute_backtest_metrics(daily_returns: pd.Series) -> dict[str, float | int]
     equity = (1.0 + returns).cumprod()
     years = len(returns) / 252.0
     annual_return = float(equity.iloc[-1] ** (1 / years) - 1) if years > 0 else 0.0
-    drawdown = equity / equity.cummax() - 1.0
+    drawdown = equity / equity.cummax().clip(lower=1.0) - 1.0
     annual_volatility = float(returns.std(ddof=0) * math.sqrt(252))
-    sharpe = annual_return / annual_volatility if annual_volatility > 0 else 0.0
+    sharpe = float(returns.mean()) * 252.0 / annual_volatility if annual_volatility > 0 else 0.0
     return {
         "days": int(len(returns)),
         "annual_return": annual_return,
@@ -124,7 +159,9 @@ def run_etf_rotation_backtest(
             f"market_history requires at least {int(settings.min_history_days)} overlapping trading days"
         )
 
-    returns = close.pct_change().fillna(0.0)
+    cost_rate = float(settings.cost_bps) / 10_000.0
+    if not math.isfinite(cost_rate) or not 0.0 <= cost_rate < 1.0:
+        raise ValueError("cost_bps must be finite and in [0, 10000)")
     targets = _target_weights(
         market_history,
         close,
@@ -132,8 +169,25 @@ def run_etf_rotation_backtest(
         config=settings,
         strategy_kwargs=kwargs,
     )
-    turnover = targets.diff().abs().sum(axis=1).fillna(0.0)
-    net = (targets * returns).sum(axis=1) - turnover * float(settings.cost_bps) / 10_000.0
+    shares = pd.Series(0.0, index=close.columns)
+    cash = equity = 1.0
+    net = pd.Series(0.0, index=close.index)
+    for position in range(1, len(close)):
+        target = targets.iloc[position]
+        if target.notna().any():
+            # Preserve the close-only lag-one convention: the signal at d close
+            # sets holdings for d -> d+1, with its fee charged in that interval.
+            # This is not proof that a close-derived signal can fill live at d.
+            shares, cash, _fees = _rebalance_holdings(
+                shares, cash, close.iloc[position - 1], target, cost_rate=cost_rate,
+            )
+        held = shares > 0.0
+        prices = close.iloc[position][held]
+        if any(not math.isfinite(price) or price <= 0.0 for price in prices):
+            raise ValueError("held assets require positive finite mark prices")
+        marked_equity = cash + float((shares[held] * prices).sum())
+        net.iloc[position] = marked_equity / equity - 1.0
+        equity = marked_equity
     metrics = compute_backtest_metrics(net)
     return UsRotationBacktestResult(daily_returns=net, metrics=metrics)
 
