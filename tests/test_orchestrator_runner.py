@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import math
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from us_equity_strategies.backtest.orchestrator_runner import (
     UsEquityComboBacktestRunner,
     UsEtfRotationBacktestRunner,
     build_backtest_runner,
+    _metrics_to_backtest_result,
 )
 from us_equity_strategies.strategies.global_etf_rotation import DEFAULT_MIN_HISTORY_DAYS, PROFILE_NAME
 from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME as US_EQUITY_COMBO_PROFILE
@@ -44,6 +46,20 @@ class UsEtfRotationBacktestRunnerTests(unittest.TestCase):
         self.assertGreaterEqual(runner.last_daily_returns.index.min().date(), date(2023, 6, 1))
         self.assertLessEqual(runner.last_daily_returns.index.max().date(), date(2024, 6, 1))
         self.assertEqual(result.observation_count, len(runner.last_daily_returns))
+        returns = runner.last_daily_returns
+        self.assertAlmostEqual(result.sharpe_ratio, returns.mean() / returns.std(ddof=0) * math.sqrt(252))
+        equity = (1.0 + returns).cumprod()
+        self.assertAlmostEqual(result.max_drawdown, (equity / equity.cummax().clip(lower=1.0) - 1.0).min())
+
+    def test_calmar_preserves_return_sign_and_zero_drawdown_sentinel(self) -> None:
+        for annual_return, drawdown, expected in ((-0.1, -0.2, -0.5), (0.1, -0.2, 0.5), (0.1, 0.0, None)):
+            with self.subTest(annual_return=annual_return, drawdown=drawdown):
+                result = _metrics_to_backtest_result(
+                    strategy_profile=PROFILE_NAME, params={},
+                    metrics={"annual_return": annual_return, "max_drawdown": drawdown},
+                    start_date=None, end_date=None, run_duration_seconds=0.0,
+                )
+                self.assertEqual(result.calmar_ratio, expected)
 
     def test_unsupported_profile_raises(self) -> None:
         runner = UsEtfRotationBacktestRunner(synthetic_days=100)
