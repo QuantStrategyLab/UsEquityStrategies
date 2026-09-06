@@ -899,7 +899,7 @@ def _write_signal_bundle_manifest_with_quality_report(
         "raw_row_count": 260,
         "normalized_row_count": 260,
         "first_date": "2025-01-01",
-        "last_date": "2025-09-17",
+        "last_date": "2026-06-19",
     }
     quality_report_path = tmp_path / "quality_report.json"
     quality_report_path.write_text(
@@ -944,7 +944,7 @@ def test_manifest_quality_report_reference_is_validated(tmp_path) -> None:
     assert summary["quality_failure_reasons"] == ()
     assert summary["quality_normalized_row_count"] == 260
     assert summary["quality_first_date"] == "2025-01-01"
-    assert summary["quality_last_date"] == "2025-09-17"
+    assert summary["quality_last_date"] == "2026-06-19"
 
     quality_report = json.loads(quality_report_path.read_text(encoding="utf-8"))
     quality_report["quality_status"] = "warn"
@@ -1912,3 +1912,75 @@ def test_manifest_freshness_mismatch_is_rejected(tmp_path) -> None:
 
     with pytest.raises(SignalBundleContractError, match="freshness_status mismatch"):
         load_signal_bundle_from_manifest(manifest_path)
+
+
+def test_stale_complete_signal_bundle_cannot_claim_fresh_against_wall_clock() -> None:
+    bundle = _load_bundle()
+    with pytest.raises(SignalBundleContractError, match="freshness"):
+        validate_signal_bundle(bundle, now="2026-09-06T12:00:00Z")
+
+
+def test_fresh_signal_bundle_within_max_age_is_accepted() -> None:
+    bundle = _load_bundle()
+    validate_signal_bundle(bundle, now="2026-06-19T12:00:00Z")
+    extract_canonical_input(bundle, now="2026-06-19T12:00:00Z")
+
+
+@pytest.mark.parametrize(
+    ("now", "should_pass"),
+    [
+        ("2026-06-20T12:00:00Z", True),
+        ("2026-06-20T12:00:01Z", False),
+    ],
+)
+def test_signal_bundle_freshness_max_age_hours_boundary(now: str, should_pass: bool) -> None:
+    bundle = _load_bundle()
+    if should_pass:
+        validate_signal_bundle(bundle, now=now)
+    else:
+        with pytest.raises(SignalBundleContractError, match="freshness"):
+            validate_signal_bundle(bundle, now=now)
+
+
+def test_future_provider_timestamp_is_rejected_by_consumer() -> None:
+    bundle = _load_bundle()
+    freshness = copy.deepcopy(bundle["freshness"])
+    freshness["provider_timestamp"] = "2026-06-21T00:00:00Z"
+    bundle["freshness"] = freshness
+    derived = copy.deepcopy(bundle["derived_indicators"])
+    derived["BTC-USD"]["provider_timestamp"] = "2026-06-21T00:00:00Z"
+    bundle["derived_indicators"] = derived
+
+    with pytest.raises(SignalBundleContractError, match="provider_timestamp"):
+        validate_signal_bundle(bundle, now="2026-06-19T12:00:00Z")
+
+
+def test_provider_timestamp_quality_last_date_conflict_is_rejected(tmp_path) -> None:
+    _, manifest_path, quality_report_path = _write_signal_bundle_manifest_with_quality_report(
+        tmp_path,
+    )
+    quality_report = json.loads(quality_report_path.read_text(encoding="utf-8"))
+    quality_report["last_date"] = "2026-06-18"
+    quality_report_path.write_text(
+        json.dumps(quality_report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["quality_report_sha256"] = hashlib.sha256(
+        quality_report_path.read_bytes()
+    ).hexdigest()
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SignalBundleContractError, match="last_date"):
+        load_signal_bundle_from_manifest(manifest_path, now="2026-06-19T12:00:00Z")
+
+
+def test_historical_reference_replay_uses_reference_time_not_wall_clock() -> None:
+    bundle = _load_bundle()
+    validate_signal_bundle(bundle, reference_time="2026-06-19T12:00:00Z")
+    extract_canonical_input(bundle, reference_time="2026-06-19T12:00:00Z")
+    with pytest.raises(SignalBundleContractError, match="freshness"):
+        extract_canonical_input(bundle, now="2026-09-06T12:00:00Z")
