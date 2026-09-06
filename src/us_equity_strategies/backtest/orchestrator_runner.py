@@ -113,7 +113,7 @@ def _metrics_to_backtest_result(
         raise ImportError("quant_platform_kit is required to build BacktestResult")
     annual_return = float(metrics.get("annual_return") or 0.0)
     max_drawdown = float(metrics.get("max_drawdown") or 0.0)
-    calmar = abs(annual_return / max_drawdown) if max_drawdown else None
+    calmar = annual_return / abs(max_drawdown) if max_drawdown else None
     return BacktestResult(
         strategy_profile=strategy_profile,
         domain="us_equity",
