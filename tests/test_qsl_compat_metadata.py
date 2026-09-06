@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QPK_REVISION = "cd6edbb32bb85ec6d280c2dafea4dd8ecd3ccdab"
+QPK_REVISION = "5c916917626707c4ee798c6b45a5d43609019816"
 QPK_URL = (
     "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
     f"QuantPlatformKit.git@{QPK_REVISION}"
@@ -51,3 +51,7 @@ def test_qpk_pin_lock_and_ci_are_dependency_enabled() -> None:
     assert "--no-deps" not in ci
     assert "python -m pip install -e ." in ci
     assert "python -m pip check" in ci
+
+    # The selected package pins are checked above, not against a moving upstream bundle.
+    assert "external/QuantPlatformKit" not in ci
+    assert "python -m pytest -q tests" in ci
