@@ -21,7 +21,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert '"conclusion": "success"' in workflow
     assert '"QuantStrategyLab/UsEquitySnapshotPipelines"' in workflow
     assert "repository: QuantStrategyLab/QuantPlatformKit" in workflow
-    assert "ref: cd6edbb32bb85ec6d280c2dafea4dd8ecd3ccdab" in workflow
+    assert "ref: 5c916917626707c4ee798c6b45a5d43609019816" in workflow
     assert "python -m pip install --no-deps -e external/QuantPlatformKit" in workflow
     assert "scripts/run_walk_forward_backtest.py" in workflow
     assert '"--list-lifecycle-profiles"' in workflow
@@ -38,7 +38,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "snapshot_checkout_path: external/UsEquitySnapshotPipelines" in workflow
     assert "ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}" in workflow
     assert "lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
-    assert "quant_platform_kit_ref: cd6edbb32bb85ec6d280c2dafea4dd8ecd3ccdab" in workflow
+    assert "quant_platform_kit_ref: 5c916917626707c4ee798c6b45a5d43609019816" in workflow
     assert "strategy_profile:" in workflow
     assert "REQUESTED_STRATEGY_PROFILE: ${{ inputs.strategy_profile || '' }}" in workflow
     assert '"--list-profiles"' in workflow
