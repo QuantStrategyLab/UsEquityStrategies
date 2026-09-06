@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable, Mapping, Sequence
 import hashlib
 import json
@@ -151,6 +152,8 @@ def validate_signal_bundle(
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> None:
     """Validate the consumer-side contract for a market signal bundle.
 
@@ -187,7 +190,12 @@ def validate_signal_bundle(
         )
 
     _validate_no_sensitive_fields(bundle)
-    _validate_freshness(bundle, accepted_freshness_statuses=accepted_freshness_statuses)
+    _validate_freshness(
+        bundle,
+        accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
+    )
     _validate_derived_indicators(bundle)
     _validate_provenance(bundle)
 
@@ -197,6 +205,8 @@ def extract_canonical_input(
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Return a StrategyContext.market_data-compatible canonical input dict."""
 
@@ -204,6 +214,8 @@ def extract_canonical_input(
         bundle,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
     return _canonical_market_data(bundle)
 
@@ -1552,7 +1564,12 @@ def load_signal_bundle_index(path: str | PathLike[str]) -> dict[str, Any]:
     return index_dict
 
 
-def load_signal_bundle_from_manifest(path: str | PathLike[str]) -> dict[str, Any]:
+def load_signal_bundle_from_manifest(
+    path: str | PathLike[str],
+    *,
+    now: str | None = None,
+    reference_time: str | None = None,
+) -> dict[str, Any]:
     """Load a local bundle through a manifest and verify file integrity."""
 
     manifest_path = Path(path)
@@ -1572,13 +1589,19 @@ def load_signal_bundle_from_manifest(path: str | PathLike[str]) -> dict[str, Any
             "signal bundle sha256 mismatch: "
             f"expected {expected_sha256}, got {actual_sha256}"
         )
-    _validate_optional_quality_report_reference(
-        manifest,
-        manifest_root=manifest_dir,
-    )
 
     bundle = load_signal_bundle(resolved_bundle_path)
     _validate_manifest_bundle_consistency(manifest, bundle)
+    validate_signal_bundle(
+        bundle,
+        now=now,
+        reference_time=reference_time,
+    )
+    _validate_optional_quality_report_reference(
+        manifest,
+        manifest_root=manifest_dir,
+        bundle=bundle,
+    )
     return bundle
 
 
@@ -1933,6 +1956,7 @@ def _validate_optional_quality_report_reference(
     manifest: Mapping[str, Any],
     *,
     manifest_root: Path,
+    bundle: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not _has_non_empty_value(manifest, "quality_report_path"):
         return {}
@@ -1951,6 +1975,8 @@ def _validate_optional_quality_report_reference(
         )
     quality_report = _load_quality_report(quality_path)
     _validate_quality_report(quality_report)
+    if bundle is not None:
+        _validate_quality_report_bundle_freshness_consistency(quality_report, bundle)
     return {
         "quality_report_path": str(quality_path.resolve()),
         "quality_report_sha256": expected_sha256,
@@ -3686,6 +3712,8 @@ def _validate_freshness(
     bundle: Mapping[str, Any],
     *,
     accepted_freshness_statuses: Iterable[str],
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> None:
     freshness = bundle.get("freshness")
     if not isinstance(freshness, Mapping):
@@ -3704,6 +3732,90 @@ def _validate_freshness(
         raise SignalBundleContractError(
             "freshness.provider_timestamp must be a non-empty string"
         )
+    max_age_hours = freshness.get("max_age_hours")
+    if not isinstance(max_age_hours, int) or isinstance(max_age_hours, bool) or max_age_hours < 0:
+        raise SignalBundleContractError(
+            "freshness.max_age_hours must be a non-negative integer"
+        )
+    provider_time = _parse_utc_timestamp(
+        provider_timestamp,
+        field="freshness.provider_timestamp",
+    )
+    evaluation_time = _resolve_evaluation_time(
+        bundle,
+        now=now,
+        reference_time=reference_time,
+    )
+    if provider_time > evaluation_time:
+        raise SignalBundleContractError(
+            "freshness.provider_timestamp is in the future relative to evaluation time: "
+            f"{provider_timestamp!r}"
+        )
+    if normalized_status == FRESHNESS_FRESH:
+        age = evaluation_time - provider_time
+        if age > timedelta(hours=max_age_hours):
+            raise SignalBundleContractError(
+                "freshness.status claims fresh but provider_timestamp exceeds "
+                f"max_age_hours={max_age_hours}: age_hours={age.total_seconds() / 3600.0}"
+            )
+
+
+def _validate_quality_report_bundle_freshness_consistency(
+    quality_report: Mapping[str, Any],
+    bundle: Mapping[str, Any],
+) -> None:
+    freshness = bundle.get("freshness")
+    if not isinstance(freshness, Mapping):
+        raise SignalBundleContractError("freshness must be a mapping")
+    provider_timestamp = str(freshness.get("provider_timestamp", "")).strip()
+    quality_last_date = str(quality_report.get("last_date", "")).strip()
+    provider_date = _provider_timestamp_date(provider_timestamp)
+    if quality_last_date and provider_date and quality_last_date != provider_date:
+        raise SignalBundleContractError(
+            "quality report last_date mismatch with freshness.provider_timestamp: "
+            f"{quality_last_date!r} != {provider_date!r}"
+        )
+
+
+def _provider_timestamp_date(provider_timestamp: str) -> str:
+    if not str(provider_timestamp or "").strip():
+        return ""
+    return _parse_utc_timestamp(
+        provider_timestamp,
+        field="freshness.provider_timestamp",
+    ).date().isoformat()
+
+
+def _resolve_evaluation_time(
+    bundle: Mapping[str, Any],
+    *,
+    now: str | None,
+    reference_time: str | None,
+) -> datetime:
+    if reference_time is not None:
+        return _parse_utc_timestamp(reference_time, field="reference_time")
+    if now is not None:
+        return _parse_utc_timestamp(now, field="now")
+    generated_at = bundle.get("generated_at")
+    if isinstance(generated_at, str) and generated_at.strip():
+        return _parse_utc_timestamp(generated_at, field="generated_at")
+    return datetime.now(timezone.utc)
+
+
+def _parse_utc_timestamp(value: str, *, field: str) -> datetime:
+    raw = str(value or "").strip()
+    if not raw:
+        raise SignalBundleContractError(f"{field} must be a non-empty timestamp")
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise SignalBundleContractError(
+            f"{field} must be an ISO-8601 timestamp: {value!r}"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _validate_derived_indicators(bundle: Mapping[str, Any]) -> None:
