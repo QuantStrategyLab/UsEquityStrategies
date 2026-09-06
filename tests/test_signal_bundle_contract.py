@@ -73,6 +73,7 @@ FIXTURE_INDEX_PATH = (
     / "signal_bundles"
     / "index.json"
 )
+CONSUMER_FIXTURE_NOW = "2026-06-19T12:00:00Z"
 
 
 def _load_bundle() -> dict[str, object]:
@@ -1021,19 +1022,23 @@ def test_extracts_market_data_after_consumer_contract_validation() -> None:
     market_data = extract_canonical_input_for_consumer(
         bundle,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        now=CONSUMER_FIXTURE_NOW,
     )
     file_market_data = extract_canonical_input_from_file_for_consumer(
         FIXTURE_PATH,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        now=CONSUMER_FIXTURE_NOW,
     )
     manifest_market_data = extract_canonical_input_from_manifest_for_consumer(
         FIXTURE_MANIFEST_PATH,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        now=CONSUMER_FIXTURE_NOW,
     )
     index_market_data = extract_canonical_input_from_index_for_consumer(
         FIXTURE_INDEX_PATH,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
         as_of="2026-06-20",
+        now=CONSUMER_FIXTURE_NOW,
     )
 
     assert market_data == expected_market_data
@@ -1088,11 +1093,13 @@ def test_consumer_index_resolution_filters_incompatible_newer_bundle(tmp_path) -
         index_path,
         consumer=consumer,
         as_of="2026-06-21",
+        now=CONSUMER_FIXTURE_NOW,
     )
     consumer_summary = signal_bundle_consumer_audit_summary_from_index(
         index_path,
         consumer=consumer,
         as_of="2026-06-21",
+        now=CONSUMER_FIXTURE_NOW,
     )
 
     assert latest_manifest_path == incompatible_manifest_path.resolve()
@@ -1158,10 +1165,12 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
     validate_signal_bundle_for_consumer(
         bundle,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        now=CONSUMER_FIXTURE_NOW,
     )
     validate_signal_bundle_for_consumer(
         bundle,
         consumer="research:ibit_btc_ahr999_precomputed",
+        now=CONSUMER_FIXTURE_NOW,
     )
     validate_signal_bundle_indicator_fields(
         bundle,
@@ -1170,15 +1179,18 @@ def test_signal_bundle_validates_consumer_required_indicator_fields() -> None:
     summary = signal_bundle_consumer_audit_summary(
         bundle,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        now=CONSUMER_FIXTURE_NOW,
     )
     manifest_summary = signal_bundle_consumer_audit_summary_from_manifest(
         FIXTURE_MANIFEST_PATH,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        now=CONSUMER_FIXTURE_NOW,
     )
     index_summary = signal_bundle_consumer_audit_summary_from_index(
         FIXTURE_INDEX_PATH,
         consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
         as_of="2026-06-20",
+        now=CONSUMER_FIXTURE_NOW,
     )
 
     assert required_indicator_fields_for_consumer(
@@ -1214,11 +1226,13 @@ def test_signal_bundle_rejects_incompatible_consumer_profile() -> None:
         validate_signal_bundle_for_consumer(
             bundle,
             consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+            now=CONSUMER_FIXTURE_NOW,
         )
     with pytest.raises(SignalBundleContractError, match="compatible_profiles"):
         extract_canonical_input_for_consumer(
             bundle,
             consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+            now=CONSUMER_FIXTURE_NOW,
         )
 
 
@@ -1232,11 +1246,13 @@ def test_signal_bundle_rejects_missing_consumer_required_indicator_fields() -> N
         validate_signal_bundle_for_consumer(
             bundle,
             consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+            now=CONSUMER_FIXTURE_NOW,
         )
     with pytest.raises(SignalBundleContractError, match="ahr999_sma"):
         extract_canonical_input_for_consumer(
             bundle,
             consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+            now=CONSUMER_FIXTURE_NOW,
         )
 
 
@@ -1419,10 +1435,12 @@ def test_platform_handoff_manifest_validates_linked_artifacts(tmp_path) -> None:
         require_all_known_families=True,
         require_all_known_consumers=True,
         require_runtime_consumer_coverage=True,
+        now=CONSUMER_FIXTURE_NOW,
     )
     market_data = extract_canonical_input_from_platform_handoff_for_consumer(
         handoff_path,
         consumer="us_equity:ibit_smart_dca",
+        now=CONSUMER_FIXTURE_NOW,
     )
 
     assert summary["schema_version"] == "market_signal_platform_handoff.v1"
@@ -1509,10 +1527,12 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
         require_all_known_families=True,
         require_all_known_consumers=True,
         require_runtime_consumer_coverage=True,
+        now=CONSUMER_FIXTURE_NOW,
     )
     market_data = extract_canonical_input_from_consumption_audit_for_consumer(
         audit_path,
         consumer="us_equity:ibit_smart_dca",
+        now=CONSUMER_FIXTURE_NOW,
     )
 
     assert summary["schema_version"] == "market_signal_consumption_audit.v1"
@@ -1557,6 +1577,7 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
             require_all_known_families=True,
             require_all_known_consumers=True,
             require_runtime_consumer_coverage=True,
+            now=CONSUMER_FIXTURE_NOW,
         )
 
     bad_registry_identity = dict(original_audit)
@@ -1572,6 +1593,7 @@ def test_runtime_consumption_audit_validates_linked_bundle_for_injection(
             require_all_known_families=True,
             require_all_known_consumers=True,
             require_runtime_consumer_coverage=True,
+            now=CONSUMER_FIXTURE_NOW,
         )
 
     bad_coverage = dict(original_audit)
@@ -1728,10 +1750,12 @@ def test_platform_handoff_index_resolves_matching_handoff_manifest(tmp_path) -> 
         index_path,
         consumer="us_equity:ibit_smart_dca",
         require_all_known_consumers=True,
+        now=CONSUMER_FIXTURE_NOW,
     )
     market_data = extract_canonical_input_from_platform_handoff_index_for_consumer(
         index_path,
         consumer="us_equity:ibit_smart_dca",
+        now=CONSUMER_FIXTURE_NOW,
     )
 
     assert index["schema_version"] == "market_signal_platform_handoff_index.v1"
@@ -1984,3 +2008,26 @@ def test_historical_reference_replay_uses_reference_time_not_wall_clock() -> Non
     extract_canonical_input(bundle, reference_time="2026-06-19T12:00:00Z")
     with pytest.raises(SignalBundleContractError, match="freshness"):
         extract_canonical_input(bundle, now="2026-09-06T12:00:00Z")
+
+
+def test_index_for_consumer_rejects_historical_bundle_against_later_now() -> None:
+    with pytest.raises(SignalBundleContractError, match="freshness"):
+        extract_canonical_input_from_index_for_consumer(
+            FIXTURE_INDEX_PATH,
+            consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+            as_of="2026-06-20",
+            now="2029-06-19T12:00:00Z",
+        )
+
+
+def test_index_for_consumer_accepts_bundle_with_reference_time_near_provider() -> None:
+    market_data = extract_canonical_input_from_index_for_consumer(
+        FIXTURE_INDEX_PATH,
+        consumer="research:ibit_btc_ahr999_mayer_precomputed_variants",
+        as_of="2026-06-20",
+        reference_time="2026-06-19T12:00:00Z",
+    )
+    assert market_data["derived_indicators"]["BTC-USD"]["ahr999"] == 0.72
+    assert market_data["derived_indicators"]["BTC-USD"]["provider_timestamp"] == (
+        "2026-06-19T00:00:00Z"
+    )

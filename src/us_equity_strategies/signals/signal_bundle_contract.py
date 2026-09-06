@@ -226,6 +226,8 @@ def extract_canonical_input_for_consumer(
     consumer: str,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Validate consumer field coverage and return StrategyContext.market_data input."""
 
@@ -234,6 +236,8 @@ def extract_canonical_input_for_consumer(
         consumer=consumer,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
     return _canonical_market_data(bundle)
 
@@ -631,6 +635,8 @@ def signal_platform_handoff_audit_summary_from_manifest(
     require_all_known_families: bool = False,
     require_all_known_consumers: bool = False,
     require_runtime_consumer_coverage: bool = False,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Validate a MarketSignalSources platform handoff manifest and its links."""
 
@@ -683,6 +689,8 @@ def signal_platform_handoff_audit_summary_from_manifest(
         bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
             signal_bundle_manifest_path,
             consumer=target_consumer,
+            now=now,
+            reference_time=reference_time,
         )
     else:
         bundle_summary = signal_bundle_audit_summary_from_manifest(
@@ -968,16 +976,22 @@ def extract_canonical_input_from_platform_handoff_for_consumer(
     path: str | PathLike[str],
     *,
     consumer: str,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Validate a platform handoff manifest and return consumer market_data."""
 
     summary = signal_platform_handoff_audit_summary_from_manifest(
         path,
         consumer=consumer,
+        now=now,
+        reference_time=reference_time,
     )
     return extract_canonical_input_from_manifest_for_consumer(
         summary["signal_bundle_manifest_path"],
         consumer=consumer,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1091,6 +1105,8 @@ def signal_platform_handoff_audit_summary_from_index(
     require_all_known_families: bool = False,
     require_all_known_consumers: bool = False,
     require_runtime_consumer_coverage: bool = False,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Resolve a handoff index entry and validate the linked handoff manifest."""
 
@@ -1112,6 +1128,8 @@ def signal_platform_handoff_audit_summary_from_index(
         require_all_known_families=require_all_known_families,
         require_all_known_consumers=require_all_known_consumers,
         require_runtime_consumer_coverage=require_runtime_consumer_coverage,
+        now=now,
+        reference_time=reference_time,
     )
     summary.update(
         {
@@ -1131,6 +1149,8 @@ def extract_canonical_input_from_platform_handoff_index_for_consumer(
     *,
     consumer: str,
     as_of: str | None = None,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Validate an index-selected handoff and return consumer market_data."""
 
@@ -1138,10 +1158,14 @@ def extract_canonical_input_from_platform_handoff_index_for_consumer(
         path,
         consumer=consumer,
         as_of=as_of,
+        now=now,
+        reference_time=reference_time,
     )
     return extract_canonical_input_from_manifest_for_consumer(
         summary["signal_bundle_manifest_path"],
         consumer=consumer,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1163,6 +1187,8 @@ def signal_consumption_audit_summary_from_file(
     require_all_known_families: bool = False,
     require_all_known_consumers: bool = False,
     require_runtime_consumer_coverage: bool = False,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Validate a saved runtime consumption audit and its linked bundle manifest."""
 
@@ -1210,6 +1236,8 @@ def signal_consumption_audit_summary_from_file(
     bundle_summary = signal_bundle_consumer_audit_summary_from_manifest(
         signal_bundle_manifest_path,
         consumer=target_consumer,
+        now=now,
+        reference_time=reference_time,
     )
     source_catalog_manifest_path = _optional_consumption_audit_artifact_path(
         audit,
@@ -1383,6 +1411,8 @@ def extract_canonical_input_from_consumption_audit_for_consumer(
     path: str | PathLike[str],
     *,
     consumer: str,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Validate a saved consumption audit and return consumer market_data."""
 
@@ -1390,10 +1420,14 @@ def extract_canonical_input_from_consumption_audit_for_consumer(
         path,
         consumer=consumer,
         require_runtime_consumer_coverage=True,
+        now=now,
+        reference_time=reference_time,
     )
     return extract_canonical_input_from_manifest_for_consumer(
         summary["signal_bundle_manifest_path"],
         consumer=consumer,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1403,6 +1437,8 @@ def validate_signal_bundle_indicator_fields(
     required_fields_by_symbol: Mapping[str, Iterable[str]],
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> None:
     """Validate that a bundle covers required derived indicator fields."""
 
@@ -1410,6 +1446,8 @@ def validate_signal_bundle_indicator_fields(
         bundle,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
     indicators = bundle[CANONICAL_INPUT_DERIVED_INDICATORS]
     if not isinstance(indicators, Mapping):
@@ -1449,14 +1487,22 @@ def validate_signal_bundle_for_consumer(
     consumer: str,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> None:
     """Validate a bundle against a known strategy or research consumer contract."""
 
+    now, reference_time = _resolve_consumer_evaluation_clock(
+        now=now,
+        reference_time=reference_time,
+    )
     validate_signal_bundle_indicator_fields(
         bundle,
         required_fields_by_symbol=required_indicator_fields_for_consumer(consumer),
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
     _validate_consumer_profile_compatibility(bundle, consumer=consumer)
 
@@ -1476,6 +1522,8 @@ def extract_canonical_input_from_file(
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load a local bundle and return StrategyContext.market_data input."""
 
@@ -1483,6 +1531,8 @@ def extract_canonical_input_from_file(
         load_signal_bundle(path),
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1492,6 +1542,8 @@ def extract_canonical_input_from_file_for_consumer(
     consumer: str,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load a local bundle, validate consumer fields, and return market_data input."""
 
@@ -1500,6 +1552,8 @@ def extract_canonical_input_from_file_for_consumer(
         consumer=consumer,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1673,6 +1727,8 @@ def load_signal_bundle_from_index(
     bundle_id: str | None = None,
     compatible_profile: str | None = None,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Load a bundle through an index-selected manifest."""
 
@@ -1684,7 +1740,11 @@ def load_signal_bundle_from_index(
         compatible_profile=compatible_profile,
         accepted_freshness_statuses=accepted_freshness_statuses,
     )
-    return load_signal_bundle_from_manifest(manifest_path)
+    return load_signal_bundle_from_manifest(
+        manifest_path,
+        now=now,
+        reference_time=reference_time,
+    )
 
 
 def extract_canonical_input_from_manifest(
@@ -1692,13 +1752,21 @@ def extract_canonical_input_from_manifest(
     *,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load a manifest-referenced bundle and return StrategyContext.market_data input."""
 
     return extract_canonical_input(
-        load_signal_bundle_from_manifest(path),
+        load_signal_bundle_from_manifest(
+            path,
+            now=now,
+            reference_time=reference_time,
+        ),
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1708,14 +1776,26 @@ def extract_canonical_input_from_manifest_for_consumer(
     consumer: str,
     expected_canonical_input: str = CANONICAL_INPUT_DERIVED_INDICATORS,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load a manifest bundle, validate consumer fields, and return market_data input."""
 
+    now, reference_time = _resolve_consumer_evaluation_clock(
+        now=now,
+        reference_time=reference_time,
+    )
     return extract_canonical_input_for_consumer(
-        load_signal_bundle_from_manifest(path),
+        load_signal_bundle_from_manifest(
+            path,
+            now=now,
+            reference_time=reference_time,
+        ),
         consumer=consumer,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1726,6 +1806,8 @@ def extract_canonical_input_from_index(
     as_of: str | None = None,
     bundle_id: str | None = None,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load an index-selected bundle and return StrategyContext.market_data input."""
 
@@ -1736,9 +1818,13 @@ def extract_canonical_input_from_index(
             as_of=as_of,
             bundle_id=bundle_id,
             accepted_freshness_statuses=accepted_freshness_statuses,
+            now=now,
+            reference_time=reference_time,
         ),
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1750,10 +1836,16 @@ def extract_canonical_input_from_index_for_consumer(
     as_of: str | None = None,
     bundle_id: str | None = None,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Load an index-selected bundle, validate consumer fields, and return market_data."""
 
     required_indicator_fields_for_consumer(consumer)
+    now, reference_time = _resolve_consumer_evaluation_clock(
+        now=now,
+        reference_time=reference_time,
+    )
     return extract_canonical_input_for_consumer(
         load_signal_bundle_from_index(
             path,
@@ -1762,10 +1854,14 @@ def extract_canonical_input_from_index_for_consumer(
             bundle_id=bundle_id,
             compatible_profile=consumer,
             accepted_freshness_statuses=accepted_freshness_statuses,
+            now=now,
+            reference_time=reference_time,
         ),
         consumer=consumer,
         expected_canonical_input=expected_canonical_input,
         accepted_freshness_statuses=accepted_freshness_statuses,
+        now=now,
+        reference_time=reference_time,
     )
 
 
@@ -1808,10 +1904,17 @@ def signal_bundle_consumer_audit_summary(
     bundle: Mapping[str, Any],
     *,
     consumer: str,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Return audit summary after validating consumer-specific field coverage."""
 
-    validate_signal_bundle_for_consumer(bundle, consumer=consumer)
+    validate_signal_bundle_for_consumer(
+        bundle,
+        consumer=consumer,
+        now=now,
+        reference_time=reference_time,
+    )
     summary = signal_bundle_audit_summary(bundle)
     summary.update(
         {
@@ -1851,11 +1954,26 @@ def signal_bundle_consumer_audit_summary_from_manifest(
     path: str | PathLike[str],
     *,
     consumer: str,
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Load a manifest-referenced bundle and validate consumer field coverage."""
 
-    bundle = load_signal_bundle_from_manifest(path)
-    summary = signal_bundle_consumer_audit_summary(bundle, consumer=consumer)
+    now, reference_time = _resolve_consumer_evaluation_clock(
+        now=now,
+        reference_time=reference_time,
+    )
+    bundle = load_signal_bundle_from_manifest(
+        path,
+        now=now,
+        reference_time=reference_time,
+    )
+    summary = signal_bundle_consumer_audit_summary(
+        bundle,
+        consumer=consumer,
+        now=now,
+        reference_time=reference_time,
+    )
     manifest = load_signal_bundle_manifest(path)
     summary.update(
         {
@@ -1909,6 +2027,8 @@ def signal_bundle_consumer_audit_summary_from_index(
     as_of: str | None = None,
     bundle_id: str | None = None,
     accepted_freshness_statuses: Iterable[str] = (FRESHNESS_FRESH,),
+    now: str | None = None,
+    reference_time: str | None = None,
 ) -> dict[str, Any]:
     """Resolve an index entry and validate consumer field coverage."""
 
@@ -1924,6 +2044,8 @@ def signal_bundle_consumer_audit_summary_from_index(
     summary = signal_bundle_consumer_audit_summary_from_manifest(
         manifest_path,
         consumer=consumer,
+        now=now,
+        reference_time=reference_time,
     )
     index = load_signal_bundle_index(path)
     summary.update(
@@ -3784,6 +3906,25 @@ def _provider_timestamp_date(provider_timestamp: str) -> str:
         provider_timestamp,
         field="freshness.provider_timestamp",
     ).date().isoformat()
+
+
+def _wall_clock_now_iso() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _resolve_consumer_evaluation_clock(
+    *,
+    now: str | None,
+    reference_time: str | None,
+) -> tuple[str | None, str | None]:
+    if now is None and reference_time is None:
+        return _wall_clock_now_iso(), None
+    return now, reference_time
 
 
 def _resolve_evaluation_time(
