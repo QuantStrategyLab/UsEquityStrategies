@@ -1483,6 +1483,25 @@ def _runtime_consumption_audit_consumer(required_consumers: tuple[str, ...]) -> 
     return runtime_consumers[0]
 
 
+def _research_consumer_evaluation_clock(
+    payload: Mapping[str, object],
+) -> dict[str, str]:
+    """Use artifact timestamps so historical research validation is not wall-clock."""
+
+    for key in ("generated_at", "provider_timestamp"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return {"now": value.strip()}
+    for key in ("as_of", "lookup_as_of"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            stamp = value.strip()
+            if "T" not in stamp:
+                stamp = f"{stamp}T12:00:00Z"
+            return {"now": stamp}
+    return {}
+
+
 def _signal_consumption_audit_record(
     path: Path,
     *,
@@ -1490,10 +1509,15 @@ def _signal_consumption_audit_record(
     require_runtime_consumer_coverage: bool = False,
 ) -> dict[str, object]:
     try:
+        audit_payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(audit_payload, dict):
+            raise ValueError("signal consumption audit must be a JSON object")
+        clock = _research_consumer_evaluation_clock(audit_payload)
         summary = signal_consumption_audit_summary_from_file(
             path,
             consumer=consumer,
             require_runtime_consumer_coverage=require_runtime_consumer_coverage,
+            **clock,
         )
     except SignalBundleContractError as exc:
         raise ValueError(str(exc)) from exc

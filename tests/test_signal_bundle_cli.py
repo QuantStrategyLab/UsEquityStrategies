@@ -23,6 +23,7 @@ FIXTURE_INDEX_PATH = (
     / "signal_bundles"
     / "index.json"
 )
+CONSUMER_FIXTURE_NOW = "2026-06-19T12:00:00Z"
 
 
 def _sha256_path(path: Path) -> str:
@@ -659,6 +660,8 @@ def test_signal_bundle_cli_validates_consumer_indicator_fields(capsys) -> None:
             "2026-06-20",
             "--consumer",
             "research:ibit_btc_ahr999_mayer_precomputed_variants",
+            "--now",
+            CONSUMER_FIXTURE_NOW,
             "--pretty",
         ]
     )
@@ -687,6 +690,8 @@ def test_signal_bundle_cli_validates_platform_handoff_manifest(
             str(handoff_path),
             "--consumer",
             "us_equity:ibit_smart_dca",
+            "--now",
+            CONSUMER_FIXTURE_NOW,
             "--require-all-known-families",
             "--require-all-known-consumers",
             "--require-runtime-consumer-coverage",
@@ -726,6 +731,8 @@ def test_signal_bundle_cli_validates_platform_handoff_index(
             "us_equity:ibit_smart_dca",
             "--as-of",
             "2026-06-20",
+            "--now",
+            CONSUMER_FIXTURE_NOW,
             "--require-all-known-families",
             "--require-all-known-consumers",
             "--require-runtime-consumer-coverage",
@@ -768,6 +775,8 @@ def test_signal_bundle_cli_validates_runtime_consumption_audit(
             str(audit_path),
             "--consumer",
             "us_equity:ibit_smart_dca",
+            "--now",
+            CONSUMER_FIXTURE_NOW,
             "--require-runtime-consumer-coverage",
             "--pretty",
         ]
@@ -791,6 +800,8 @@ def test_signal_bundle_cli_validates_runtime_consumption_audit(
             str(audit_path),
             "--consumer",
             "us_equity:ibit_smart_dca",
+            "--now",
+            CONSUMER_FIXTURE_NOW,
             "--require-runtime-consumer-coverage",
         ]
     )

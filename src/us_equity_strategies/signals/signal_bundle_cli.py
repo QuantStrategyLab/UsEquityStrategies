@@ -24,9 +24,19 @@ from .signal_bundle_contract import (
 )
 
 
+def _consumer_clock_kwargs(args: argparse.Namespace) -> dict[str, str]:
+    kwargs: dict[str, str] = {}
+    if args.now:
+        kwargs["now"] = args.now
+    if args.reference_time:
+        kwargs["reference_time"] = args.reference_time
+    return kwargs
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    clock = _consumer_clock_kwargs(args)
 
     try:
         if args.local_consumer_contract_registry:
@@ -45,6 +55,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or args.research_artifact_type
                 or args.research_transform
                 or args.consumer
+                or args.now
+                or args.reference_time
                 or args.canonical_input != CANONICAL_INPUT_DERIVED_INDICATORS
                 or args.require_all_known_families
                 or args.require_all_known_consumers
@@ -53,8 +65,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise SignalBundleContractError(
                     "provide --local-consumer-contract-registry without "
                     "handoff, research, registry, consumption, bundle, index, "
-                    "as-of, bundle-id, consumer, canonical-input, or require-all "
-                    "options"
+                    "as-of, bundle-id, consumer, now, reference-time, "
+                    "canonical-input, or require-all options"
                 )
             summary = signal_consumer_contract_registry_payload()
         elif args.consumption_audit_json is not None:
@@ -86,6 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 require_runtime_consumer_coverage=(
                     args.require_runtime_consumer_coverage
                 ),
+                **clock,
             )
         elif args.platform_handoff_manifest is not None:
             if (
@@ -111,6 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 require_runtime_consumer_coverage=(
                     args.require_runtime_consumer_coverage
                 ),
+                **clock,
             )
         elif args.platform_handoff_index is not None:
             if (
@@ -137,6 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 require_runtime_consumer_coverage=(
                     args.require_runtime_consumer_coverage
                 ),
+                **clock,
             )
         elif args.research_handoff_manifest is not None:
             if (
@@ -267,6 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     expected_canonical_input=args.canonical_input,
                     as_of=args.as_of,
                     bundle_id=args.bundle_id,
+                    **clock,
                 )
             else:
                 summary = signal_bundle_audit_summary_from_index(
@@ -280,6 +296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary = signal_bundle_consumer_audit_summary_from_manifest(
                     args.manifest,
                     consumer=args.consumer,
+                    **clock,
                 )
             else:
                 summary = signal_bundle_audit_summary_from_manifest(args.manifest)
@@ -373,6 +390,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--as-of", help="Select the latest index entry at or before this as_of date.")
     parser.add_argument("--bundle-id", help="Require a specific bundle_id from the index.")
+    parser.add_argument(
+        "--now",
+        help=(
+            "Consumer evaluation clock (ISO-8601 UTC). Defaults to wall-clock; "
+            "pass an explicit stamp for historical research validation."
+        ),
+    )
+    parser.add_argument(
+        "--reference-time",
+        help=(
+            "Optional historical reference time for consumer freshness checks "
+            "(ISO-8601 UTC). Overrides --now when both are set."
+        ),
+    )
     parser.add_argument("--canonical-input", default=CANONICAL_INPUT_DERIVED_INDICATORS)
     parser.add_argument(
         "--require-all-known-consumers",
