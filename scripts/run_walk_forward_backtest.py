@@ -23,6 +23,11 @@ from us_equity_strategies.backtest.orchestrator_runner import (
     build_backtest_runner,
 )
 from us_equity_strategies.backtest.orchestrator_runner import _synthetic_market_history as _runner_synthetic_market_history
+from us_equity_strategies.backtest.soxl_trend_simulator import (
+    DEFAULT_MIN_HISTORY_DAYS as SOXL_DEFAULT_MIN_HISTORY_DAYS,
+    PROFILE_NAME as SOXL_PROFILE,
+    required_market_symbols as soxl_required_market_symbols,
+)
 from us_equity_strategies.strategies.global_etf_rotation import (
     DEFAULT_MIN_HISTORY_DAYS,
     PROFILE_NAME,
@@ -36,6 +41,8 @@ DEFAULT_WINDOWS: tuple[tuple[date, date], ...] = (
 )
 DEFAULT_STORE_ROOT = Path("/tmp/us_equity_wf_store")
 DRIFT_BASELINE_HORIZON_DAYS = 126
+# BOXX listed 2022-12-28; allow incomplete early coverage for lifecycle history.
+_SOXL_FIRST_ELIGIBLE = {"BOXX": date(2022, 12, 28)}
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
     PROFILE_NAME: {"min_history_days": DEFAULT_MIN_HISTORY_DAYS},
@@ -43,8 +50,9 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "min_history_days": DEFAULT_MIN_HISTORY_DAYS,
         "combo_mode": "dynamic",
     },
+    SOXL_PROFILE: {"min_history_days": SOXL_DEFAULT_MIN_HISTORY_DAYS, "cost_bps": 5.0},
 }
-LIFECYCLE_PREFLIGHT_PROFILES = (PROFILE_NAME,)
+LIFECYCLE_PREFLIGHT_PROFILES = (PROFILE_NAME, SOXL_PROFILE)
 
 
 def _result_payload(item: Any) -> dict[str, Any]:
@@ -133,11 +141,14 @@ def _shared_market_history(
         required_symbols = set(extract_managed_symbols_universe())
         if profile == US_EQUITY_COMBO_PROFILE:
             required_symbols.update(_combo_proxy_symbols())
+        elif profile == SOXL_PROFILE:
+            required_symbols = set(soxl_required_market_symbols())
         missing_symbols = sorted(required_symbols - set(history["symbol"]))
         if missing_symbols:
             raise ValueError(f"market history is missing required symbols: {', '.join(missing_symbols)}")
         history = history.loc[history["symbol"].isin(required_symbols)].copy()
-        reference_dates = set(history.loc[history["symbol"] == "SPY", "date"])
+        reference_symbol = "SPY"
+        reference_dates = set(history.loc[history["symbol"] == reference_symbol, "date"])
         if not reference_dates:
             raise ValueError("market history is missing SPY reference dates")
         expected_business_dates = pd.DatetimeIndex(
@@ -157,11 +168,23 @@ def _shared_market_history(
         incomplete_symbols: list[str] = []
         for symbol in sorted(required_symbols):
             symbol_dates = set(history.loc[history["symbol"] == symbol, "date"])
-            coverage_ratio = len(symbol_dates & reference_dates) / len(reference_dates)
+            eligible = _SOXL_FIRST_ELIGIBLE.get(symbol) if profile == SOXL_PROFILE else None
+            if eligible is not None:
+                symbol_reference = {
+                    day for day in reference_dates if pd.Timestamp(day).date() >= eligible
+                }
+            else:
+                symbol_reference = reference_dates
+            if not symbol_reference:
+                incomplete_symbols.append(symbol)
+                continue
+            coverage_ratio = len(symbol_dates & symbol_reference) / len(symbol_reference)
+            first_ok = min(symbol_dates) <= min(symbol_reference) if symbol_dates else False
+            last_ok = max(symbol_dates) >= latest_required_day if symbol_dates else False
             if (
                 not symbol_dates
-                or min(symbol_dates) > first_required_day
-                or max(symbol_dates) < latest_required_day
+                or not first_ok
+                or not last_ok
                 or coverage_ratio < 0.98
             ):
                 incomplete_symbols.append(symbol)
@@ -173,6 +196,7 @@ def _shared_market_history(
         days=effective_synthetic_days,
         start=pd.Timestamp(lookback_start).date().isoformat(),
         include_combo_proxies=profile == US_EQUITY_COMBO_PROFILE,
+        include_soxl_core=profile == SOXL_PROFILE,
     )
     return history, effective_synthetic_days, f"synthetic:{effective_synthetic_days}"
 

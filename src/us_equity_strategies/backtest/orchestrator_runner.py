@@ -21,6 +21,12 @@ from us_equity_strategies.backtest.etf_rotation_simulator import (
     compute_backtest_metrics,
     run_etf_rotation_backtest,
 )
+from us_equity_strategies.backtest.soxl_trend_simulator import (
+    DEFAULT_MIN_HISTORY_DAYS as SOXL_DEFAULT_MIN_HISTORY_DAYS,
+    PROFILE_NAME as SOXL_PROFILE,
+    required_market_symbols as soxl_required_market_symbols,
+    run_soxl_core_only_backtest,
+)
 from us_equity_strategies.strategies.global_etf_rotation import (
     DEFAULT_MIN_HISTORY_DAYS,
     PROFILE_NAME,
@@ -35,7 +41,7 @@ except ImportError:  # pragma: no cover
     BacktestResult = None  # type: ignore[misc, assignment]
 
 
-SUPPORTED_PROFILES = frozenset({PROFILE_NAME, US_EQUITY_COMBO_PROFILE})
+SUPPORTED_PROFILES = frozenset({PROFILE_NAME, US_EQUITY_COMBO_PROFILE, SOXL_PROFILE})
 
 
 def _combo_proxy_symbols() -> tuple[str, ...]:
@@ -47,11 +53,15 @@ def _synthetic_market_history(
     days: int = 900,
     start: str = "2022-01-03",
     include_combo_proxies: bool = False,
+    include_soxl_core: bool = False,
 ) -> pd.DataFrame:
     dates = pd.bdate_range(start, periods=days)
-    symbols = list(extract_managed_symbols_universe())
-    if include_combo_proxies:
-        symbols = list(dict.fromkeys([*symbols, *_combo_proxy_symbols()]))
+    if include_soxl_core:
+        symbols = list(soxl_required_market_symbols())
+    else:
+        symbols = list(extract_managed_symbols_universe())
+        if include_combo_proxies:
+            symbols = list(dict.fromkeys([*symbols, *_combo_proxy_symbols()]))
     rates = {symbol: 1.00012 + (idx * 0.00003) for idx, symbol in enumerate(symbols)}
     rows: list[dict[str, object]] = []
     for symbol in symbols:
@@ -158,10 +168,10 @@ class UsEtfRotationBacktestRunner:
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> Any:
-        if strategy_profile not in SUPPORTED_PROFILES:
+        if strategy_profile != PROFILE_NAME:
             raise ValueError(
                 f"Unsupported strategy_profile={strategy_profile!r}; "
-                f"supported={sorted(SUPPORTED_PROFILES)}"
+                f"supported={PROFILE_NAME!r}"
             )
 
         min_history_days = int(params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
@@ -285,16 +295,98 @@ class UsEquityComboBacktestRunner:
         )
 
 
+class UsSoxlTrendIncomeBacktestRunner:
+    """Protocol-compatible BacktestRunner for SOXL core-only lifecycle baselines."""
+
+    def __init__(
+        self,
+        *,
+        market_history: pd.DataFrame | None = None,
+        synthetic_days: int = 900,
+    ) -> None:
+        self._market_history = market_history
+        self._synthetic_days = int(synthetic_days)
+        self._last_daily_returns = pd.Series(dtype=float)
+
+    @property
+    def last_daily_returns(self) -> pd.Series:
+        return self._last_daily_returns.copy()
+
+    def run(
+        self,
+        strategy_profile: str,
+        params: Mapping[str, Any],
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> Any:
+        if strategy_profile != SOXL_PROFILE:
+            raise ValueError(
+                f"Unsupported strategy_profile={strategy_profile!r}; "
+                f"supported={SOXL_PROFILE!r}"
+            )
+
+        min_history_days = int(params.get("min_history_days", SOXL_DEFAULT_MIN_HISTORY_DAYS))
+        cost_bps = float(params.get("cost_bps", 5.0))
+        history = self._market_history
+        if history is None:
+            history = _synthetic_market_history(
+                days=max(self._synthetic_days, min_history_days + 400),
+                include_soxl_core=True,
+            )
+        sliced = _slice_history(
+            history,
+            start_date=start_date,
+            end_date=end_date,
+            lookback_days=min_history_days + 5,
+        )
+        if sliced.empty:
+            raise ValueError("No market history rows for requested window")
+
+        started = datetime.now(timezone.utc)
+        result = run_soxl_core_only_backtest(
+            sliced,
+            min_history_days=min_history_days,
+            cost_bps=cost_bps,
+        )
+        self._last_daily_returns = _slice_daily_returns(
+            result.daily_returns,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+        eval_frame = sliced
+        if start_date is not None:
+            eval_frame = sliced[sliced["date"] >= pd.Timestamp(start_date)]
+        return _metrics_to_backtest_result(
+            strategy_profile=strategy_profile,
+            params=params,
+            metrics=compute_backtest_metrics(self._last_daily_returns),
+            start_date=start_date or (eval_frame["date"].min().date() if not eval_frame.empty else None),
+            end_date=end_date or (eval_frame["date"].max().date() if not eval_frame.empty else None),
+            run_duration_seconds=elapsed,
+        )
+
+
 def build_backtest_runner(
     strategy_profile: str,
     *,
     market_history: pd.DataFrame | None = None,
     synthetic_days: int = 900,
-) -> UsEtfRotationBacktestRunner | UsEquityComboBacktestRunner:
+) -> UsEtfRotationBacktestRunner | UsEquityComboBacktestRunner | UsSoxlTrendIncomeBacktestRunner:
     if strategy_profile == US_EQUITY_COMBO_PROFILE:
         return UsEquityComboBacktestRunner(
             market_history=market_history,
             synthetic_days=synthetic_days,
+        )
+    if strategy_profile == SOXL_PROFILE:
+        return UsSoxlTrendIncomeBacktestRunner(
+            market_history=market_history,
+            synthetic_days=synthetic_days,
+        )
+    if strategy_profile != PROFILE_NAME:
+        raise ValueError(
+            f"Unsupported strategy_profile={strategy_profile!r}; "
+            f"supported={sorted(SUPPORTED_PROFILES)}"
         )
     return UsEtfRotationBacktestRunner(
         market_history=market_history,
@@ -306,5 +398,6 @@ __all__ = [
     "SUPPORTED_PROFILES",
     "UsEquityComboBacktestRunner",
     "UsEtfRotationBacktestRunner",
+    "UsSoxlTrendIncomeBacktestRunner",
     "build_backtest_runner",
 ]
