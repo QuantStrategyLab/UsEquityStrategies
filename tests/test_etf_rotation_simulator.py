@@ -153,6 +153,52 @@ def test_invalid_held_mark_price_is_rejected_without_rebalance():
         _run(history, lambda frame: ({"A": 1.0}, {}))
 
 
+@pytest.mark.parametrize("omit_row", [False, True])
+def test_missing_held_mark_is_not_carried_forward(omit_row):
+    history = _history(
+        ["2024-01-31", "2024-02-01", "2024-02-02"],
+        A=[100.0, 100.0, math.nan], B=[100.0] * 3,
+    )
+    if omit_row:
+        history = history.dropna(subset=["close"])
+    with pytest.raises(ValueError, match="mark prices"):
+        _run(history, lambda frame: ({"A": 1.0}, {}))
+
+
+def test_missing_execution_price_is_not_carried_forward():
+    history = _history(
+        ["2024-01-30", "2024-01-31", "2024-02-01"],
+        A=[100.0, math.nan, 100.0], B=[100.0] * 3,
+    )
+    with pytest.raises(ValueError, match="fill prices"):
+        _run(history, lambda frame: ({"A": 1.0}, {}))
+
+
+def test_all_missing_observed_day_is_not_dropped():
+    history = _history(
+        ["2024-01-31", "2024-02-01", "2024-02-02"], A=[100.0, 100.0, math.nan],
+    )
+    with pytest.raises(ValueError, match="mark prices"):
+        _run(history, lambda frame: ({"A": 1.0}, {}))
+
+
+def test_entirely_missing_selected_asset_is_not_dropped():
+    history = _history(
+        ["2024-01-31", "2024-02-01"], A=[math.nan] * 2, B=[100.0] * 2,
+    )
+    with pytest.raises(ValueError, match="fill prices"):
+        _run(history, lambda frame: ({"A": 1.0}, {}))
+
+
+def test_unheld_internal_missing_price_remains_allowed():
+    history = _history(
+        ["2024-01-31", "2024-02-01", "2024-02-02"],
+        A=[100.0] * 3, B=[100.0, math.nan, 100.0],
+    )
+    result = _run(history, lambda frame: ({"A": 1.0}, {}))
+    assert result.daily_returns.tolist() == pytest.approx([0.0] * 3)
+
+
 @pytest.mark.parametrize("legacy_sum", [False, True])
 def test_nine_asset_equal_weights_do_not_fail_from_sum_roundoff(legacy_sum, monkeypatch):
     if legacy_sum:

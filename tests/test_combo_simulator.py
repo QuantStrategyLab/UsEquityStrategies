@@ -29,6 +29,44 @@ def _fixture_history(*, days: int = 320) -> pd.DataFrame:
 
 
 class ComboSimulatorTests(unittest.TestCase):
+    def test_active_proxy_rejects_missing_prices_instead_of_zero_returns(self) -> None:
+        dates = pd.to_datetime(["2024-01-31", "2024-02-01", "2024-02-02"])
+        for sleeve in ("dca", "russell"):
+            for mega_cap in (False, True):
+                with self.subTest(sleeve=sleeve, mega_cap=mega_cap):
+                    symbols = ["QQQ", "SPY"] + (["AAPL", "MSFT", "NVDA"] if mega_cap else [])
+                    missing_symbol = "AAPL" if sleeve == "russell" and mega_cap else "QQQ"
+                    history = pd.DataFrame(
+                        {"date": day, "symbol": symbol, "close": float("nan")
+                         if symbol == missing_symbol and day == dates[1] else 100.0}
+                        for day in dates for symbol in symbols
+                    )
+                    with self.assertRaisesRegex(ValueError, "proxy prices"):
+                        run_combo_backtest(
+                            history, lambda frame: ({}, {}),
+                            combo_config=UsComboBacktestConfig(
+                                global_weight=0.0, russell_weight=float(sleeve == "russell"),
+                                dca_weight=float(sleeve == "dca"), min_history_days=1, combo_mode="static",
+                            ),
+                        )
+
+    def test_inactive_proxy_missing_prices_do_not_block_cash(self) -> None:
+        history = pd.DataFrame(
+            {"date": day, "symbol": symbol, "close": float("nan") if symbol == "QQQ" else 100.0}
+            for day in pd.to_datetime(["2024-01-31", "2024-02-01", "2024-02-02"])
+            for symbol in ("QQQ", "SPY")
+        )
+        for mode in ("static", "dynamic"):
+            with self.subTest(mode=mode):
+                result = run_combo_backtest(
+                    history, lambda frame: ({}, {}),
+                    combo_config=UsComboBacktestConfig(
+                        global_weight=0.0, russell_weight=float(mode == "dynamic"), dca_weight=0.0,
+                        min_history_days=1, combo_mode=mode, spy_sma_period=1, dynamic_reduction_pct=1.0,
+                    ),
+                )
+                self.assertEqual(result.daily_returns.tolist(), [0.0] * 3)
+
     def test_default_weights_match_research_script(self) -> None:
         self.assertEqual(DEFAULT_GLOBAL_WEIGHT, 0.50)
         self.assertEqual(DEFAULT_RUSSELL_WEIGHT, 0.30)

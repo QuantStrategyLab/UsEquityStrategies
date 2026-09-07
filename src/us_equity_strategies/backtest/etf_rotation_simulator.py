@@ -33,11 +33,12 @@ def build_close_matrix(
     frame["date"] = pd.to_datetime(frame["date"], utc=False).dt.tz_localize(None).dt.normalize()
     frame["symbol"] = frame["symbol"].astype(str).str.strip().str.upper()
     frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    pivot = frame.pivot_table(index="date", columns="symbol", values="close", aggfunc="last").sort_index()
+    pivot = frame.pivot_table(index="date", columns="symbol", values="close", aggfunc="last", dropna=False).sort_index()
     if universe_symbols:
         columns = [str(symbol).upper() for symbol in universe_symbols if str(symbol).upper() in pivot.columns]
         pivot = pivot[columns]
-    return pivot.ffill()
+    # Preserve missing quotes for the held-asset and execution-price checks.
+    return pivot
 
 
 def _rebalance_dates(index: pd.DatetimeIndex, *, frequency: str) -> pd.DatetimeIndex:

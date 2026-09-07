@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
@@ -115,6 +116,8 @@ def _combo_strategy_returns(
     w_global = float(combo_config.global_weight)
     w_russell = float(combo_config.russell_weight)
     w_dca = float(combo_config.dca_weight)
+    mega_cap = [symbol for symbol in MEGA_CAP_PROXY_SYMBOLS if symbol in close.columns]
+    russell_symbols = mega_cap if len(mega_cap) >= 3 else [RUSSELL_PROXY_SYMBOL]
 
     combo_returns = pd.Series(0.0, index=common_idx)
     for date in common_idx[1:]:
@@ -129,6 +132,13 @@ def _combo_strategy_returns(
             )
         else:
             mult = 1.0
+
+        needed = set(russell_symbols) if w_russell * mult != 0.0 else set()
+        if w_dca != 0.0:
+            needed.add(DCA_SYMBOL)
+        prices = close.reindex(index=[as_of, date], columns=sorted(needed))
+        if any(not math.isfinite(price) or price <= 0.0 for price in prices.to_numpy().flat):
+            raise ValueError("active sleeves require positive finite proxy prices")
 
         combo_returns.at[date] = (
             w_global * mult * float(global_returns.loc[date])
