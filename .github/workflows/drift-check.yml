@@ -224,6 +224,7 @@ jobs:
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+      lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}
       quant_platform_kit_ref: c812ed70f83d61bdf1816fa5ca112b0f6976c6b6
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
       strategy_profile: ${{ inputs.strategy_profile || '' }}
