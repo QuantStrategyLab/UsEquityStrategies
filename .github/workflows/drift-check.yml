@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: bc91e88e16d3aa40157d1bf044e7b780f498e0ba
+          ref: 5d6c6bcd970b4a179ccbd21a195e273b17fb59ef
           path: external/QuantPlatformKit
 
       - name: Set up Python
@@ -215,7 +215,7 @@ jobs:
       contents: read
       issues: write
       id-token: write
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@bc91e88e16d3aa40157d1bf044e7b780f498e0ba
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@5d6c6bcd970b4a179ccbd21a195e273b17fb59ef
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -225,7 +225,7 @@ jobs:
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
       ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
       lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}
-      quant_platform_kit_ref: bc91e88e16d3aa40157d1bf044e7b780f498e0ba
+      quant_platform_kit_ref: 5d6c6bcd970b4a179ccbd21a195e273b17fb59ef
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
       strategy_profile: ${{ inputs.strategy_profile || '' }}
       gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
