@@ -41,7 +41,10 @@ class ComboSimulatorTests(unittest.TestCase):
                          if symbol == missing_symbol and day == dates[1] else 100.0}
                         for day in dates for symbol in symbols
                     )
-                    with self.assertRaisesRegex(ValueError, "proxy prices"):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        r"proxy prices|held assets require positive finite",
+                    ):
                         run_combo_backtest(
                             history, lambda frame: ({}, {}),
                             combo_config=UsComboBacktestConfig(
@@ -93,6 +96,99 @@ class ComboSimulatorTests(unittest.TestCase):
         )
         self.assertGreater(int(result.metrics["days"]), 0)
         self.assertIn("sharpe_ratio", result.metrics)
+
+    def test_no_rebalance_month_preserves_funded_round_trip(self) -> None:
+        # Within one calendar month the old free daily reweight produced 1.125.
+        dates = pd.to_datetime(["2024-01-08", "2024-01-09", "2024-01-10"])
+        history = pd.DataFrame(
+            {"date": day, "symbol": symbol, "close": price}
+            for day, qqq in zip(dates, [100.0, 200.0, 100.0])
+            for symbol, price in (("QQQ", qqq), ("SPY", 100.0))
+        )
+        terminals = []
+        for cost in (0.0, 100.0):
+            result = run_combo_backtest(
+                history,
+                lambda frame: ({}, {}),
+                combo_config=UsComboBacktestConfig(
+                    global_weight=0.5,
+                    russell_weight=0.0,
+                    dca_weight=0.5,
+                    combo_mode="static",
+                    min_history_days=1,
+                    cost_bps=cost,
+                    rebalance_frequency="monthly",
+                ),
+            )
+            terminals.append(float((1.0 + result.daily_returns).prod()))
+        self.assertAlmostEqual(terminals[0], 1.0)
+        self.assertAlmostEqual(terminals[1], 1.0)
+
+    def test_holdings_drift_without_rebalance_after_entry(self) -> None:
+        dates = pd.to_datetime(
+            ["2023-12-29", "2024-01-02", "2024-01-03", "2024-01-04"]
+        )
+        history = pd.DataFrame(
+            {"date": day, "symbol": symbol, "close": price}
+            for day, qqq in zip(dates, [100.0, 100.0, 200.0, 100.0])
+            for symbol, price in (("QQQ", qqq), ("SPY", 100.0))
+        )
+        result = run_combo_backtest(
+            history,
+            lambda frame: ({}, {}),
+            combo_config=UsComboBacktestConfig(
+                global_weight=0.5,
+                russell_weight=0.0,
+                dca_weight=0.5,
+                combo_mode="static",
+                min_history_days=1,
+                cost_bps=0.0,
+                rebalance_frequency="monthly",
+            ),
+        )
+        # Dec month-end signals; Jan 2 fills 50% QQQ; round-trip without another trade.
+        self.assertAlmostEqual(float((1.0 + result.daily_returns).prod()), 1.0)
+
+    def test_rebalance_cost_is_monotonic_and_consumed(self) -> None:
+        dates = pd.bdate_range("2023-12-01", periods=45)
+        history = pd.DataFrame(
+            {
+                "date": day,
+                "symbol": symbol,
+                "close": 100.0 + (i % 7),
+            }
+            for i, day in enumerate(dates)
+            for symbol in ("QQQ", "SPY", "AAPL", "MSFT", "NVDA")
+        )
+        zero = run_combo_backtest(
+            history,
+            lambda frame: ({}, {}),
+            combo_config=UsComboBacktestConfig(
+                global_weight=0.0,
+                russell_weight=0.5,
+                dca_weight=0.5,
+                combo_mode="static",
+                min_history_days=1,
+                cost_bps=0.0,
+                rebalance_frequency="monthly",
+            ),
+        )
+        costly = run_combo_backtest(
+            history,
+            lambda frame: ({}, {}),
+            combo_config=UsComboBacktestConfig(
+                global_weight=0.0,
+                russell_weight=0.5,
+                dca_weight=0.5,
+                combo_mode="static",
+                min_history_days=1,
+                cost_bps=100.0,
+                rebalance_frequency="monthly",
+            ),
+        )
+        zero_terminal = float((1.0 + zero.daily_returns).prod())
+        costly_terminal = float((1.0 + costly.daily_returns).prod())
+        self.assertGreater(zero_terminal, costly_terminal)
 
 
 if __name__ == "__main__":
