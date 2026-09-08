@@ -13,7 +13,6 @@ from us_equity_strategies.backtest.etf_rotation_simulator import (
     UsRotationBacktestConfig,
     UsRotationBacktestResult,
     build_close_matrix,
-    compute_backtest_metrics,
     run_etf_rotation_backtest,
 )
 from us_equity_strategies.strategies.global_etf_rotation import extract_managed_symbols_universe
@@ -71,58 +70,59 @@ def _dynamic_exposure_multiplier(
     return max(0.0, 1.0 - float(reduction_pct))
 
 
-def _russell_proxy_returns(close: pd.DataFrame) -> pd.Series:
+def _close_from_history(history: pd.DataFrame) -> pd.DataFrame:
+    return build_close_matrix(history)
+
+
+def _russell_sleeve_weights(close: pd.DataFrame) -> dict[str, float]:
     mega_cap = [symbol for symbol in MEGA_CAP_PROXY_SYMBOLS if symbol in close.columns]
     if len(mega_cap) >= 3:
-        return close[mega_cap].pct_change().fillna(0.0).mean(axis=1)
+        weight = 1.0 / float(len(mega_cap))
+        return {symbol: weight for symbol in mega_cap}
     if RUSSELL_PROXY_SYMBOL in close.columns:
-        return close[RUSSELL_PROXY_SYMBOL].pct_change().fillna(0.0)
-    return pd.Series(0.0, index=close.index)
+        return {RUSSELL_PROXY_SYMBOL: 1.0}
+    return {}
 
 
-def _dca_returns(close: pd.DataFrame) -> pd.Series:
+def _dca_sleeve_weights(close: pd.DataFrame) -> dict[str, float]:
     if DCA_SYMBOL in close.columns:
-        return close[DCA_SYMBOL].pct_change().fillna(0.0)
-    return pd.Series(0.0, index=close.index)
+        return {DCA_SYMBOL: 1.0}
+    return {}
 
 
-def _combo_strategy_returns(
-    market_history: pd.DataFrame,
+def _require_active_proxy_prices(
     close: pd.DataFrame,
+    as_of: pd.Timestamp,
     *,
+    symbols: Mapping[str, float],
+) -> None:
+    needed = [symbol for symbol, weight in symbols.items() if float(weight) != 0.0]
+    if not needed:
+        return
+    if as_of not in close.index:
+        raise ValueError("active sleeves require positive finite proxy prices")
+    prices = close.loc[as_of, needed]
+    if any(not math.isfinite(float(price)) or float(price) <= 0.0 for price in prices):
+        raise ValueError("active sleeves require positive finite proxy prices")
+
+
+def _merge_weight(target: dict[str, float], symbol: str, weight: float) -> None:
+    if weight == 0.0:
+        return
+    target[symbol] = float(target.get(symbol, 0.0)) + float(weight)
+
+
+def _combo_signal_fn(
     signal_fn: StrategySignalFn,
-    rotation_config: UsRotationBacktestConfig,
+    *,
     combo_config: UsComboBacktestConfig,
     strategy_kwargs: Mapping[str, Any],
-    universe_symbols: Any = None,
-) -> pd.Series:
-    global_result = run_etf_rotation_backtest(
-        market_history,
-        signal_fn,
-        config=rotation_config,
-        universe_symbols=universe_symbols,
-        strategy_kwargs=strategy_kwargs,
-    )
-    global_returns = global_result.daily_returns
-    russell_returns = _russell_proxy_returns(close)
-    dca_returns = _dca_returns(close)
-
-    common_idx = (
-        global_returns.index.intersection(russell_returns.index).intersection(dca_returns.index)
-    )
-    if len(common_idx) < 2:
-        return pd.Series(dtype=float)
-
-    w_global = float(combo_config.global_weight)
-    w_russell = float(combo_config.russell_weight)
-    w_dca = float(combo_config.dca_weight)
-    mega_cap = [symbol for symbol in MEGA_CAP_PROXY_SYMBOLS if symbol in close.columns]
-    russell_symbols = mega_cap if len(mega_cap) >= 3 else [RUSSELL_PROXY_SYMBOL]
-
-    combo_returns = pd.Series(0.0, index=common_idx)
-    for date in common_idx[1:]:
-        prior_dates = common_idx[common_idx < date]
-        as_of = pd.Timestamp(prior_dates[-1]) if len(prior_dates) > 0 else pd.Timestamp(date)
+) -> StrategySignalFn:
+    def _signal(history: pd.DataFrame, **kwargs: Any) -> tuple[dict[str, float], dict[str, object]]:
+        close = _close_from_history(history)
+        if close.empty:
+            return {}, {}
+        as_of = pd.Timestamp(close.index[-1])
         if combo_config.combo_mode == "dynamic":
             mult = _dynamic_exposure_multiplier(
                 close,
@@ -133,20 +133,31 @@ def _combo_strategy_returns(
         else:
             mult = 1.0
 
-        needed = set(russell_symbols) if w_russell * mult != 0.0 else set()
-        if w_dca != 0.0:
-            needed.add(DCA_SYMBOL)
-        prices = close.reindex(index=[as_of, date], columns=sorted(needed))
-        if any(not math.isfinite(price) or price <= 0.0 for price in prices.to_numpy().flat):
-            raise ValueError("active sleeves require positive finite proxy prices")
+        merged: dict[str, float] = {}
+        call_kwargs = dict(strategy_kwargs)
+        call_kwargs.update(kwargs)
+        global_weights, _metadata = signal_fn(history, **call_kwargs)
+        w_global = float(combo_config.global_weight) * mult
+        for symbol, weight in dict(global_weights or {}).items():
+            _merge_weight(merged, str(symbol).upper(), float(weight) * w_global)
 
-        combo_returns.at[date] = (
-            w_global * mult * float(global_returns.loc[date])
-            + w_russell * mult * float(russell_returns.loc[date])
-            + w_dca * float(dca_returns.loc[date])
-        )
+        russell = _russell_sleeve_weights(close)
+        w_russell = float(combo_config.russell_weight) * mult
+        scaled_russell = {symbol: weight * w_russell for symbol, weight in russell.items()}
+        _require_active_proxy_prices(close, as_of, symbols=scaled_russell)
+        for symbol, weight in scaled_russell.items():
+            _merge_weight(merged, symbol, weight)
 
-    return combo_returns
+        dca = _dca_sleeve_weights(close)
+        w_dca = float(combo_config.dca_weight)
+        scaled_dca = {symbol: weight * w_dca for symbol, weight in dca.items()}
+        _require_active_proxy_prices(close, as_of, symbols=scaled_dca)
+        for symbol, weight in scaled_dca.items():
+            _merge_weight(merged, symbol, weight)
+
+        return merged, {"combo_exposure_multiplier": mult}
+
+    return _signal
 
 
 def run_combo_backtest(
@@ -164,6 +175,12 @@ def run_combo_backtest(
         cost_bps=combo.cost_bps,
         rebalance_frequency=combo.rebalance_frequency,
     )
+    # Keep caller rotation settings but always consume combo cost/rebalance inputs.
+    rotation = UsRotationBacktestConfig(
+        rebalance_frequency=str(combo.rebalance_frequency),
+        min_history_days=int(rotation.min_history_days),
+        cost_bps=float(combo.cost_bps),
+    )
     symbols = tuple(
         dict.fromkeys(
             [
@@ -178,16 +195,17 @@ def run_combo_backtest(
         raise ValueError(
             f"market_history requires at least {int(combo.min_history_days)} overlapping trading days"
         )
-    net = _combo_strategy_returns(
+    return run_etf_rotation_backtest(
         market_history,
-        close,
-        signal_fn=strategy_signal_fn,
-        rotation_config=rotation,
-        combo_config=combo,
-        strategy_kwargs=dict(strategy_kwargs or {}),
+        _combo_signal_fn(
+            strategy_signal_fn,
+            combo_config=combo,
+            strategy_kwargs=dict(strategy_kwargs or {}),
+        ),
+        config=rotation,
         universe_symbols=symbols,
+        strategy_kwargs={},
     )
-    return UsRotationBacktestResult(daily_returns=net, metrics=compute_backtest_metrics(net))
 
 
 __all__ = [

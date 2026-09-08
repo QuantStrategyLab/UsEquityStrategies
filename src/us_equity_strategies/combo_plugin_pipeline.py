@@ -108,10 +108,10 @@ def apply_income_layer(
         for sym in list(weights):
             weights[sym] = max(0.0, float(weights[sym]) * scale)
 
-    # Add income allocation weights
+    # Add income allocation weights; merge when a symbol is already in core.
     for sym, target_value in plan.target_values.items():
         income_weight = target_value / total_equity if total_equity > 0.0 else 0.0
-        weights[sym] = max(0.0, income_weight)
+        weights[sym] = max(0.0, float(weights.get(sym, 0.0)) + income_weight)
 
     return {
         "income_layer_enabled": enabled,
