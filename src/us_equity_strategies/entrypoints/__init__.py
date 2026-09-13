@@ -6,6 +6,7 @@ from dataclasses import replace
 from quant_platform_kit.position_sizing import risk_budgeted_target_weights
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskGateResult
 from quant_platform_kit.risk.gate import assess_with_evidence
+from quant_platform_kit.common.strategy_release import build_strategy_release_identity
 from quant_platform_kit.common.execution_translation import translate_value_decision_to_weight_targets
 from quant_platform_kit.common.strategy_contracts import (
     CallableStrategyEntrypoint,
@@ -1200,16 +1201,8 @@ _V7_RUNTIME_CALLBACK_KEYS = frozenset(
 )
 
 
-def build_soxl_soxx_core_only_p2_v7_research_decision(
-    ctx: StrategyContext,
-) -> StrategyDecision:
-    """Evaluate the frozen V7 config through the existing SOXL core builder.
-
-    The named wrapper is discoverable for research and paper-preview seams but
-    is deliberately absent from the runtime selection allowlist.  Material
-    runtime parameters must exactly match the frozen candidate config; only
-    presentation/timing callbacks may be supplied by a caller.
-    """
+def _build_v7_frozen_core_decision(ctx: StrategyContext) -> StrategyDecision:
+    """Evaluate the frozen V7 config without selecting an execution policy."""
     raw_runtime_config = dict(ctx.runtime_config or {})
     requested_signal_delay = raw_runtime_config.get("signal_effective_after_trading_days")
     if requested_signal_delay is not None and requested_signal_delay != V7_SIGNAL_EFFECTIVE_AFTER_TRADING_DAYS:
@@ -1248,8 +1241,6 @@ def build_soxl_soxx_core_only_p2_v7_research_decision(
         "qpk_revision": V7_QPK_REVISION,
     }
     diagnostics["signal_effective_after_trading_days"] = V7_SIGNAL_EFFECTIVE_AFTER_TRADING_DAYS
-    diagnostics["execution_authorized"] = False
-    diagnostics["no_order"] = True
     # The legacy builder attaches zero-valued income symbols to its diagnostic
     # target map.  A core-only wrapper must not expose those symbols to a
     # consumer that could interpret a zero as a sell target.
@@ -1262,6 +1253,103 @@ def build_soxl_soxx_core_only_p2_v7_research_decision(
         ),
         diagnostics=diagnostics,
     )
+
+
+def build_soxl_soxx_core_only_p2_v7_research_decision(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Evaluate the frozen V7 config through the existing SOXL core builder.
+
+    The named wrapper is discoverable for research and paper-preview seams but
+    is deliberately absent from the runtime selection allowlist.  Material
+    runtime parameters must exactly match the frozen candidate config; only
+    presentation/timing callbacks may be supplied by a caller.
+    """
+    decision = _build_v7_frozen_core_decision(ctx)
+    diagnostics = {
+        **dict(decision.diagnostics),
+        "execution_authorized": False,
+        "no_order": True,
+    }
+    return replace(decision, diagnostics=diagnostics)
+
+
+def build_soxl_soxx_core_only_p2_v7_execution_decision(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Evaluate V7 with explicit, externally supplied risk evidence.
+
+    This entrypoint is separate from the research wrapper.  It consumes only
+    material supplied through the context and never converts research markers
+    into execution authority.  The platform runtime, release/session binding,
+    and command gate remain responsible for allowing broker writes.
+    """
+    materials = {**dict(ctx.state or {}), **dict(ctx.capabilities or {})}
+    candidate = materials.get("candidate_risk_identity")
+    mandate = materials.get("mandate_provenance")
+    strategy_release = materials.get("strategy_release")
+    capital_base = materials.get("capital_base")
+    capital_base_binding = materials.get("capital_base_binding")
+    risk_control_state = materials.get("risk_control_state")
+    try:
+        if isinstance(candidate, Mapping):
+            candidate = CandidateRiskIdentity(
+                strategy_profile=candidate["strategy_profile"],
+                account_mode=candidate["account_mode"],
+                strategy_revision=candidate["strategy_revision"],
+                runner_revision=candidate["runner_revision"],
+                config_sha256=candidate["config_sha256"],
+                input_manifest_sha256=candidate["input_manifest_sha256"],
+                authority_receipt_sha256=candidate["authority_receipt_sha256"],
+            )
+        if not isinstance(candidate, CandidateRiskIdentity):
+            raise ValueError("V7 execution candidate identity is required")
+        if not isinstance(mandate, Mapping):
+            raise ValueError("V7 execution mandate provenance is required")
+        if strategy_release is None:
+            raise ValueError("V7 execution strategy release is required")
+        release = build_strategy_release_identity(strategy_release)
+        if (
+            candidate.strategy_profile != SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE
+            or candidate.config_sha256 != V7_CONFIG_SHA256
+            or release.strategy_revision != candidate.strategy_revision
+            or release.config_sha256 != candidate.config_sha256
+            or mandate.get("authority_scope") != "PAPER"
+        ):
+            raise ValueError("V7 execution release does not match candidate")
+        decision = _build_v7_frozen_core_decision(ctx)
+        result = assess_with_evidence(
+            decision,
+            ctx.portfolio,
+            scope="ACCOUNT",
+            mandate_provenance=mandate,
+            market_data=dict(ctx.market_data or {}),
+            candidate_identity=candidate,
+            risk_control_state=risk_control_state,
+            capital_base=capital_base,
+            capital_base_binding=capital_base_binding,
+        )
+    except Exception:
+        return StrategyDecision(
+            positions=(),
+            risk_flags=("rejected:v7_execution_materials",),
+            diagnostics={
+                "risk_gate": "REJECT",
+                "no_order": True,
+                "execution_blocked_reason": "invalid_v7_execution_materials",
+            },
+        )
+
+    diagnostics = {
+        **dict(result.decision.diagnostics),
+        "risk_assessment_outcome": result.assessment.outcome,
+        "risk_assessment_reason_codes": result.assessment.reason_codes,
+        "risk_assessment_sha256": result.assessment.assessment_sha256,
+        "strategy_release": release.to_dict(),
+    }
+    if result.assessment.outcome != "APPROVE":
+        diagnostics.update({"no_order": True, "execution_authorized": False})
+    return replace(result.decision, diagnostics=diagnostics)
 
 
 def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
@@ -2069,6 +2157,10 @@ soxl_soxx_core_only_p2_v7_entrypoint = CallableStrategyEntrypoint(
     manifest=soxl_soxx_core_only_p2_v7_manifest,
     _evaluate=build_soxl_soxx_core_only_p2_v7_research_decision,
 )
+soxl_soxx_core_only_p2_v7_execution_entrypoint = CallableStrategyEntrypoint(
+    manifest=soxl_soxx_core_only_p2_v7_manifest,
+    _evaluate=build_soxl_soxx_core_only_p2_v7_execution_decision,
+)
 tecl_xlk_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=tecl_xlk_trend_income_manifest,
     _evaluate=evaluate_tecl_xlk_trend_income,
@@ -2166,6 +2258,7 @@ __all__ = [
     "evaluate_tqqq_growth_income",
     "build_soxl_soxx_core_only_p2_v2_research_decision",
     "build_soxl_soxx_core_only_p2_v7_research_decision",
+    "build_soxl_soxx_core_only_p2_v7_execution_decision",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_soxl_soxx_trend_income_promotion_research",
     "evaluate_tecl_xlk_trend_income",
