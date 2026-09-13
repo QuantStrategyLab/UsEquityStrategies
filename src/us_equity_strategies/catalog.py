@@ -22,6 +22,11 @@ from .ai_extensions import build_default_ai_extension_config
 from .income_layer_defaults import income_layer_default_config
 from .option_overlay import option_overlay_default_config
 from .runtime_allowlist import get_runtime_selectable_profiles
+from .v7_soxl_profile import (
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
+    V7_FROZEN_RUNTIME_CONFIG,
+    V7_REQUIRED_INPUTS,
+)
 
 GLOBAL_ETF_ROTATION_PROFILE = "global_etf_rotation"
 # Legacy alias retained for lookups and docs; runtime registry is canonical rotation.
@@ -50,6 +55,7 @@ STRATEGY_PLATFORM_COMPATIBILITY: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     TQQQ_GROWTH_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     SOXL_SOXX_TREND_INCOME_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     TECL_XLK_TREND_INCOME_PROFILE: frozenset(),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
     NASDAQ_SP500_SMART_DCA_PROFILE: FULL_SHARED_PLATFORM_MATRIX,
@@ -63,6 +69,7 @@ STRATEGY_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     GLOBAL_ETF_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
     TQQQ_GROWTH_INCOME_PROFILE: frozenset({"benchmark_history", "portfolio_snapshot"}),
     SOXL_SOXX_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: V7_REQUIRED_INPUTS,
     TECL_XLK_TREND_INCOME_PROFILE: frozenset({"derived_indicators", "portfolio_snapshot"}),
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: frozenset({"feature_snapshot"}),
     NASDAQ_SP500_SMART_DCA_PROFILE: frozenset({"market_history", "portfolio_snapshot"}),
@@ -213,6 +220,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": True,
     },
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: dict(V7_FROZEN_RUNTIME_CONFIG),
     TECL_XLK_TREND_INCOME_PROFILE: {
         "managed_symbols": ("TECL", "XLK", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"),
         "trend_ma_window": 140,
@@ -431,6 +439,7 @@ STRATEGY_ENTRYPOINT_ATTRIBUTES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "global_etf_rotation_entrypoint",
     TQQQ_GROWTH_INCOME_PROFILE: "tqqq_growth_income_entrypoint",
     SOXL_SOXX_TREND_INCOME_PROFILE: "soxl_soxx_trend_income_entrypoint",
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: "soxl_soxx_core_only_p2_v7_entrypoint",
     TECL_XLK_TREND_INCOME_PROFILE: "tecl_xlk_trend_income_entrypoint",
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: "russell_top50_leader_rotation_entrypoint",
     NASDAQ_SP500_SMART_DCA_PROFILE: "nasdaq_sp500_smart_dca_entrypoint",
@@ -444,6 +453,7 @@ STRATEGY_TARGET_MODES: dict[str, str] = {
     GLOBAL_ETF_ROTATION_PROFILE: "weight",
     TQQQ_GROWTH_INCOME_PROFILE: "value",
     SOXL_SOXX_TREND_INCOME_PROFILE: "value",
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: "value",
     TECL_XLK_TREND_INCOME_PROFILE: "value",
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: "weight",
     NASDAQ_SP500_SMART_DCA_PROFILE: "value",
@@ -505,6 +515,11 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     ),
     SOXL_SOXX_TREND_INCOME_PROFILE: _build_strategy_definition(
         SOXL_SOXX_TREND_INCOME_PROFILE,
+        component_name="allocation",
+        module_path="us_equity_strategies.strategies.soxl_soxx_trend_income",
+    ),
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: _build_strategy_definition(
+        SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
         component_name="allocation",
         module_path="us_equity_strategies.strategies.soxl_soxx_trend_income",
     ),
@@ -582,6 +597,21 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         benchmark="SOXX",
         role="sector_offensive_income",
         status="runtime_enabled",
+    ),
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: StrategyMetadata(
+        canonical_profile=SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
+        display_name="SOXL/SOXX Core-Only V7 Research",
+        localized_display_names={"zh": "SOXL/SOXX核心V7研究"},
+        description=(
+            "Frozen SOXL/SOXX/BOXX V7 candidate with a 3% cash reserve; "
+            "research-only and excluded from the runtime selection allowlist."
+        ),
+        aliases=(),
+        cadence="daily",
+        asset_scope="soxl_soxx_boxx_core_only_v7_research",
+        benchmark="SOXX",
+        role="research_only_long_term_compounding",
+        status="research_backtest_only",
     ),
     TECL_XLK_TREND_INCOME_PROFILE: StrategyMetadata(
         canonical_profile=TECL_XLK_TREND_INCOME_PROFILE,
