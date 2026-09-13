@@ -14,6 +14,7 @@ from us_equity_strategies.catalog import (
     IBIT_SMART_DCA_PROFILE,
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
     NASDAQ_SP500_SMART_DCA_PROFILE,
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
     US_EQUITY_COMBO_PROFILE,
     US_EQUITY_COMBO_LEVERAGED_PROFILE,
     get_strategy_definition,
@@ -113,6 +114,10 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
 # Shadow/internal combo profiles remain describable for runtime contract and
 # test coverage, but they are not treated as base live adapters.
 SHADOW_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: StrategyRuntimeAdapter(
+        status_icon="🧪",
+        runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=1),
+    ),
     US_EQUITY_COMBO_PROFILE: StrategyRuntimeAdapter(
         status_icon="\U0001f1fa\U0001f1f8",
         available_inputs=frozenset({"russell_snapshot", "current_holdings"}),

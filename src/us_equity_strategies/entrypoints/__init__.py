@@ -33,11 +33,22 @@ from us_equity_strategies.manifests import (
     ibit_smart_dca_manifest,
     russell_top50_leader_rotation_manifest,
     nasdaq_sp500_smart_dca_manifest,
+    soxl_soxx_core_only_p2_v7_manifest,
     soxl_soxx_trend_income_manifest,
     tecl_xlk_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
 from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
+from us_equity_strategies.v7_soxl_profile import (
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
+    V7_CONFIG_SHA256,
+    V7_FROZEN_RUNTIME_CONFIG,
+    V7_QPK_REVISION,
+    V7_SIGNAL_EFFECTIVE_AFTER_TRADING_DAYS,
+    V7_UES_REVISION,
+    canonicalize_v7_config,
+    copy_v7_runtime_config,
+)
 from us_equity_strategies.strategies import (
     global_etf_rotation as legacy_global_etf_rotation,
     ibit_smart_dca as ibit_smart_dca_strategy,
@@ -1184,6 +1195,75 @@ def build_soxl_soxx_core_only_p2_v2_research_decision(
     return _build_soxl_soxx_trend_income_decision(ctx)
 
 
+_V7_RUNTIME_CALLBACK_KEYS = frozenset(
+    {"signal_text_fn", "translator"}
+)
+
+
+def build_soxl_soxx_core_only_p2_v7_research_decision(
+    ctx: StrategyContext,
+) -> StrategyDecision:
+    """Evaluate the frozen V7 config through the existing SOXL core builder.
+
+    The named wrapper is discoverable for research and paper-preview seams but
+    is deliberately absent from the runtime selection allowlist.  Material
+    runtime parameters must exactly match the frozen candidate config; only
+    presentation/timing callbacks may be supplied by a caller.
+    """
+    raw_runtime_config = dict(ctx.runtime_config or {})
+    requested_signal_delay = raw_runtime_config.get("signal_effective_after_trading_days")
+    if requested_signal_delay is not None and requested_signal_delay != V7_SIGNAL_EFFECTIVE_AFTER_TRADING_DAYS:
+        raise ValueError("frozen V7 signal timing cannot be overridden")
+    callback_config = {
+        key: value
+        for key, value in raw_runtime_config.items()
+        if key in _V7_RUNTIME_CALLBACK_KEYS
+    }
+    non_material_config_keys = _V7_RUNTIME_CALLBACK_KEYS | {
+        "signal_effective_after_trading_days"
+    }
+    material_config = {
+        key: value
+        for key, value in raw_runtime_config.items()
+        if key not in non_material_config_keys
+    }
+    if material_config and canonicalize_v7_config(material_config) != canonicalize_v7_config(
+        V7_FROZEN_RUNTIME_CONFIG
+    ):
+        raise ValueError("frozen V7 runtime config cannot be overridden")
+    frozen_context = replace(
+        ctx,
+        runtime_config={
+            **copy_v7_runtime_config(),
+            "signal_effective_after_trading_days": V7_SIGNAL_EFFECTIVE_AFTER_TRADING_DAYS,
+            **callback_config,
+        },
+    )
+    decision = _build_soxl_soxx_trend_income_decision(frozen_context)
+    diagnostics = dict(decision.diagnostics)
+    diagnostics["candidate_id"] = SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE
+    diagnostics["frozen_research_source"] = {
+        "config_sha256": V7_CONFIG_SHA256,
+        "ues_revision": V7_UES_REVISION,
+        "qpk_revision": V7_QPK_REVISION,
+    }
+    diagnostics["signal_effective_after_trading_days"] = V7_SIGNAL_EFFECTIVE_AFTER_TRADING_DAYS
+    diagnostics["execution_authorized"] = False
+    diagnostics["no_order"] = True
+    # The legacy builder attaches zero-valued income symbols to its diagnostic
+    # target map.  A core-only wrapper must not expose those symbols to a
+    # consumer that could interpret a zero as a sell target.
+    return replace(
+        decision,
+        positions=tuple(
+            position
+            for position in decision.positions
+            if position.symbol in {"SOXL", "SOXX", "BOXX"}
+        ),
+        diagnostics=diagnostics,
+    )
+
+
 def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
     decision = _build_soxl_soxx_trend_income_decision(ctx)
     decision = apply_risk_gate(
@@ -1985,6 +2065,10 @@ soxl_soxx_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=soxl_soxx_trend_income_manifest,
     _evaluate=evaluate_soxl_soxx_trend_income,
 )
+soxl_soxx_core_only_p2_v7_entrypoint = CallableStrategyEntrypoint(
+    manifest=soxl_soxx_core_only_p2_v7_manifest,
+    _evaluate=build_soxl_soxx_core_only_p2_v7_research_decision,
+)
 tecl_xlk_trend_income_entrypoint = CallableStrategyEntrypoint(
     manifest=tecl_xlk_trend_income_manifest,
     _evaluate=evaluate_tecl_xlk_trend_income,
@@ -2066,6 +2150,7 @@ __all__ = [
     "global_etf_rotation_entrypoint",
     "tqqq_growth_income_entrypoint",
     "soxl_soxx_trend_income_entrypoint",
+    "soxl_soxx_core_only_p2_v7_entrypoint",
     "tecl_xlk_trend_income_entrypoint",
     "russell_top50_leader_rotation_entrypoint",
     "nasdaq_sp500_smart_dca_entrypoint",
@@ -2080,6 +2165,7 @@ __all__ = [
     "evaluate_tqqq_growth_income_promotion_research",
     "evaluate_tqqq_growth_income",
     "build_soxl_soxx_core_only_p2_v2_research_decision",
+    "build_soxl_soxx_core_only_p2_v7_research_decision",
     "evaluate_soxl_soxx_trend_income",
     "evaluate_soxl_soxx_trend_income_promotion_research",
     "evaluate_tecl_xlk_trend_income",

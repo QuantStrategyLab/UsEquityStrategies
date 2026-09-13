@@ -271,11 +271,19 @@ def test_strategy_bundle_does_not_replace_promotion_evidence_package(monkeypatch
 
 def test_promotion_gate_resolves_profile_and_requires_matching_bundle() -> None:
     gate = _load_gate_module()
+    catalog_lines = Path("src/us_equity_strategies/catalog.py").read_text(encoding="utf-8").splitlines()
+    status_line = next(
+        index
+        for index, line in enumerate(catalog_lines, 1)
+        if line.strip() == 'status="runtime_enabled",'
+        and index > 1
+        and 'role="defensive_rotation"' in catalog_lines[index - 2]
+    )
     diff = "\n".join(
         (
             "diff --git a/src/us_equity_strategies/catalog.py b/src/us_equity_strategies/catalog.py",
             "+++ b/src/us_equity_strategies/catalog.py",
-            "@@ -559,3 +559,3 @@",
+            f"@@ -{status_line - 1},3 +{status_line - 1},3 @@",
             "         role=\"defensive_rotation\",",
             '-        status="research_backtest_only",',
             '+        status="runtime_enabled",',

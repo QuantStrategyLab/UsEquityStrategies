@@ -5,6 +5,11 @@ from quant_platform_kit.common.strategy_contracts import StrategyManifest
 from us_equity_strategies.ai_extensions import build_default_ai_extension_config
 from us_equity_strategies.income_layer_defaults import income_layer_default_config
 from us_equity_strategies.option_overlay import option_overlay_default_config
+from us_equity_strategies.v7_soxl_profile import (
+    SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
+    V7_FROZEN_RUNTIME_CONFIG,
+    V7_REQUIRED_INPUTS,
+)
 
 GLOBAL_ETF_CONFIDENCE_VOL_GATE_PROFILE = "global_etf_confidence_vol_gate"
 RUSSELL_TOP50_LEADER_ROTATION_PROFILE = "russell_top50_leader_rotation"
@@ -185,6 +190,17 @@ soxl_soxx_trend_income_manifest = _manifest(
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": True,
     },
+)
+
+soxl_soxx_core_only_p2_v7_manifest = _manifest(
+    profile=SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
+    display_name="SOXL/SOXX Core-Only V7 Research",
+    description=(
+        "Frozen SOXL/SOXX/BOXX V7 research profile with a 3% cash reserve; "
+        "not runtime-enabled or execution-authorized."
+    ),
+    required_inputs=V7_REQUIRED_INPUTS,
+    default_config=dict(V7_FROZEN_RUNTIME_CONFIG),
 )
 
 tecl_xlk_trend_income_manifest = _manifest(
@@ -389,6 +405,7 @@ MANIFESTS = {
     global_etf_rotation_manifest.profile: global_etf_rotation_manifest,
     tqqq_growth_income_manifest.profile: tqqq_growth_income_manifest,
     soxl_soxx_trend_income_manifest.profile: soxl_soxx_trend_income_manifest,
+    soxl_soxx_core_only_p2_v7_manifest.profile: soxl_soxx_core_only_p2_v7_manifest,
     tecl_xlk_trend_income_manifest.profile: tecl_xlk_trend_income_manifest,
     russell_top50_leader_rotation_manifest.profile: russell_top50_leader_rotation_manifest,
     nasdaq_sp500_smart_dca_manifest.profile: nasdaq_sp500_smart_dca_manifest,
@@ -413,6 +430,7 @@ __all__ = [
     "global_etf_rotation_manifest",
     "tqqq_growth_income_manifest",
     "soxl_soxx_trend_income_manifest",
+    "soxl_soxx_core_only_p2_v7_manifest",
     "tecl_xlk_trend_income_manifest",
     "russell_top50_leader_rotation_manifest",
     "nasdaq_sp500_smart_dca_manifest",
