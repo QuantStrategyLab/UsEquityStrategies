@@ -17,6 +17,11 @@ from us_equity_strategies.research.soxl_soxx_offline_input_contract import (
     OfflineInput,
     load_offline_input,
 )
+from us_equity_strategies.research.soxl_rsi2_promotion_runner import (
+    SoxlRsi2PromotionBinding,
+    promotion_binding_digest,
+    validate_promotion_timing,
+)
 
 
 PROFILE = "soxl_rsi2_mean_reversion"
@@ -80,6 +85,70 @@ def _missing_promotion_evidence(_proposal: Any) -> None:
 
 def _shadow_must_not_run(_proposal: Any) -> Mapping[str, Any]:
     raise SoxlRsi2ResearchAdapterError("rsi2_shadow_requires_strict_backtest")
+
+
+def _make_formal_backtest_gate(
+    *,
+    optimization_source: OfflineInput,
+    binding: SoxlRsi2PromotionBinding,
+    store: Any,
+    shadow_recorder: Any,
+):
+    if not callable(shadow_recorder):
+        raise SoxlRsi2ResearchAdapterError("rsi2_shadow_recorder_invalid")
+    try:
+        from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import (
+            BacktestOrchestrator,
+        )
+    except Exception as exc:
+        raise SoxlRsi2ResearchAdapterError("qpk_backtest_api_unavailable") from exc
+    if store is None:
+        raise SoxlRsi2ResearchAdapterError("rsi2_promotion_store_required")
+    orchestrator = BacktestOrchestrator(store=store)
+
+    def enforce(proposal: Any):
+        if (
+            getattr(proposal, "strategy_profile", None) != PROFILE
+            or getattr(proposal, "domain", None) != DOMAIN
+            or dict(getattr(proposal, "proposed_params", {}) or {})
+            != {"candidate_id": binding.candidate_id}
+        ):
+            raise SoxlRsi2ResearchAdapterError("rsi2_promotion_candidate_mismatch")
+        return binding.run(orchestrator)
+
+    return enforce
+
+
+def prepare_soxl_rsi2_promotion(
+    *,
+    optimization_source: OfflineInput,
+    source_commit: str,
+    research_identity: Mapping[str, str],
+    promotion_binding: SoxlRsi2PromotionBinding | None = None,
+    promotion_store: Any | None = None,
+    promotion_shadow_recorder: Any | None = None,
+):
+    """Prepare the shared saved-cycle identity and trusted promotion callbacks."""
+    _validate_research_identity(optimization_source, source_commit, research_identity)
+    cycle_identity = dict(research_identity)
+    if promotion_binding is None:
+        return cycle_identity, _missing_promotion_evidence, _shadow_must_not_run
+    if type(promotion_binding) is not SoxlRsi2PromotionBinding:
+        raise SoxlRsi2ResearchAdapterError("rsi2_promotion_binding_invalid")
+    try:
+        validate_promotion_timing(optimization_source, promotion_binding)
+    except Exception as exc:
+        raise SoxlRsi2ResearchAdapterError("rsi2_promotion_timing_invalid") from exc
+    cycle_identity["input_revision"] = promotion_binding_digest(
+        optimization_source.input_digest, promotion_binding
+    )
+    enforce = _make_formal_backtest_gate(
+        optimization_source=optimization_source,
+        binding=promotion_binding,
+        store=promotion_store,
+        shadow_recorder=promotion_shadow_recorder,
+    )
+    return cycle_identity, enforce, promotion_shadow_recorder
 
 
 def make_soxl_rsi2_optimize(
@@ -148,12 +217,15 @@ def run_soxl_rsi2_research_promotion(
     research_identity: Mapping[str, str],
     ticket_dir: str | Path,
     sync_console: Any | None = None,
+    promotion_binding: SoxlRsi2PromotionBinding | None = None,
+    promotion_store: Any | None = None,
+    promotion_shadow_recorder: Any | None = None,
 ) -> dict[str, Any]:
     """Run RSI2 once through QPK's saved research lifecycle.
 
-    The QPK backtest gate is deliberately missing evidence, so this adapter
-    parks before shadow. It never turns RSI2's study result into promotion
-    evidence or an order proposal.
+    Without a typed promotion binding this adapter parks before shadow. With
+    one, the frozen candidate is evaluated by the strict QPK orchestrator;
+    this still never grants live authority or creates an order proposal.
     """
     if not isinstance(as_of, str) or not as_of or not isinstance(source_revision, str) or not source_revision:
         raise SoxlRsi2ResearchAdapterError("rsi2_research_identity_invalid")
@@ -161,6 +233,15 @@ def run_soxl_rsi2_research_promotion(
         raise SoxlRsi2ResearchAdapterError("rsi2_research_identity_invalid")
     typed_source = load_rsi2_offline_input(input_paths)
     _validate_research_identity(typed_source, source_commit, research_identity)
+
+    cycle_identity, enforce_backtest_gates, record_shadow = prepare_soxl_rsi2_promotion(
+        optimization_source=typed_source,
+        source_commit=source_commit,
+        research_identity=research_identity,
+        promotion_binding=promotion_binding,
+        promotion_store=promotion_store,
+        promotion_shadow_recorder=promotion_shadow_recorder,
+    )
 
     try:
         from quant_platform_kit.strategy_lifecycle.promotion_actionable_runner import (
@@ -186,10 +267,10 @@ def run_soxl_rsi2_research_promotion(
         drift_score=drift_score,
         source_revision=source_revision,
         optimize=optimize,
-        enforce_backtest_gates=_missing_promotion_evidence,
-        record_shadow=_shadow_must_not_run,
+        enforce_backtest_gates=enforce_backtest_gates,
+        record_shadow=record_shadow,
         sync_console=sync_console or (lambda _ticket: False),
-        research_identity=dict(research_identity),
+        research_identity=cycle_identity,
         ticket_dir=ticket_dir,
     )
 
@@ -247,6 +328,8 @@ __all__ = [
     "SoxlRsi2ResearchAdapterError",
     "load_rsi2_offline_input",
     "make_soxl_rsi2_optimize",
+    "prepare_soxl_rsi2_promotion",
+    "SoxlRsi2PromotionBinding",
     "main",
     "run_soxl_rsi2_research_promotion",
 ]

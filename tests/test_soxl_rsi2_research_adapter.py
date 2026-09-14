@@ -8,6 +8,20 @@ from types import SimpleNamespace
 import pytest
 
 from us_equity_strategies.research import soxl_rsi2_research_adapter as adapter
+from us_equity_strategies.research.soxl_rsi2_promotion_runner import (
+    SoxlRsi2PromotionBinding,
+    promotion_binding_digest,
+)
+from us_equity_strategies.research.soxl_soxx_offline_input_contract import (
+    InputRow,
+    OfflineInput,
+    _canonical,
+)
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    PromotionCostModel,
+    PurgedWalkForwardFold,
+)
+from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 
 def _paths() -> adapter.Rsi2OfflineInputPaths:
@@ -82,6 +96,48 @@ def _make_provenance_repo(tmp_path):
         for relative in paths
     }
     return str(repo), commit, blobs
+
+
+def _shift_source(source, days=800):
+    shifted = [
+        InputRow(
+            symbol=row.symbol,
+            as_of=(date.fromisoformat(row.as_of) + timedelta(days=days)).isoformat(),
+            open=row.open,
+            high=row.high,
+            low=row.low,
+            close=row.close,
+            volume=row.volume,
+        )
+        for row in source.rows
+    ]
+    rows = tuple(sorted(shifted, key=lambda row: (row.as_of, row.symbol)))
+    return OfflineInput(
+        rows=rows,
+        canonical_bytes=_canonical(rows),
+        input_digest=hashlib.sha256(_canonical(rows)).hexdigest(),
+        source_revision="promotion-source",
+    )
+
+
+def _promotion_binding(source):
+    dates = sorted({date.fromisoformat(row.as_of) for row in source.rows})
+    folds = (
+        PurgedWalkForwardFold(dates[0], dates[150], dates[200], dates[210]),
+        PurgedWalkForwardFold(dates[220], dates[235], dates[250], dates[260]),
+        PurgedWalkForwardFold(dates[270], dates[275], dates[285], dates[295]),
+    )
+    return SoxlRsi2PromotionBinding(
+        source=source,
+        candidate_id="UNSCALED_SMA200",
+        folds=folds,
+        locked_oos_start=dates[310],
+        locked_oos_end=dates[752],
+        purge_days=5,
+        embargo_days=5,
+        source_revision="a" * 40,
+        cost_model=PromotionCostModel("C2_5", 2.0, 5.0),
+    )
 
 
 def test_loader_reuses_typed_ues_contract(monkeypatch):
@@ -314,3 +370,117 @@ def test_real_ues_runner_persist_and_qpk_reentry(monkeypatch, tmp_path):
     second = adapter.run_soxl_rsi2_research_promotion(**kwargs)
     assert second["resumed"] is True
     assert second["reason"] in {"saved_research_ticket_terminal", "saved_research_ticket_reused"}
+
+
+def test_formal_binding_runs_real_orchestrator_and_shadow_once(monkeypatch, tmp_path):
+    source_repo, source_commit, blobs = _make_provenance_repo(tmp_path)
+    paths, optimization = _write_full_input(tmp_path, "synthetic-optimization")
+    promotion = _shift_source(optimization)
+    binding = _promotion_binding(promotion)
+    monkeypatch.setattr(
+        adapter,
+        "run_soxl_rsi2_mean_reversion",
+        lambda _source: {
+            "schema": "qsl.research.soxl_rsi2_mean_reversion.v1",
+            "outcome": "CHARACTERIZATION_CANDIDATE_FOUND",
+            "locked_winner": binding.candidate_id,
+            "candidates": [binding.candidate_id],
+        },
+    )
+    monkeypatch.setattr(adapter, "persist_rsi2_mean_reversion_result", lambda *args, **kwargs: None)
+    identity = {
+        "code_revision": source_commit,
+        "input_revision": optimization.input_digest,
+        "param_space_revision": adapter._PARAM_SPACE_REVISION,
+        "cost_model_revision": adapter._COST_MODEL_REVISION,
+        "validator_revision": adapter._VALIDATOR_REVISION,
+    }
+    shadows = []
+    result = adapter.run_soxl_rsi2_research_promotion(
+        as_of=datetime.now(timezone.utc).date().isoformat(),
+        drift_score=1.0,
+        source_revision="synthetic-optimization",
+        input_paths=paths,
+        output_root=tmp_path / "result",
+        source_commit=source_commit,
+        source_blobs=blobs,
+        ues_repo_root=source_repo,
+        research_identity=identity,
+        ticket_dir=tmp_path / "tickets",
+        promotion_binding=binding,
+        promotion_store=PerformanceStore(local_root=tmp_path / "store"),
+        promotion_shadow_recorder=lambda proposal: shadows.append(proposal) or {
+            "status": "pending", "passed": False, "no_order": True,
+            "live_authority_granted": False, "retry_at": None,
+        },
+    )
+    assert result["status"] == "deferred"
+    assert result["reason"] == "paired_shadow_observation_pending"
+    assert len(shadows) == 1
+    saved = json.loads(Path(result["ticket_path"]).read_text(encoding="utf-8"))
+    assert saved["research_progress"]["stages"]["backtest"]["status"] == "completed"
+    again = adapter.run_soxl_rsi2_research_promotion(
+        as_of=datetime.now(timezone.utc).date().isoformat(), drift_score=1.0,
+        source_revision="synthetic-optimization", input_paths=paths,
+        output_root=tmp_path / "result", source_commit=source_commit,
+        source_blobs=blobs, ues_repo_root=source_repo,
+        research_identity=identity, ticket_dir=tmp_path / "tickets",
+        promotion_binding=binding, promotion_store=PerformanceStore(local_root=tmp_path / "store"),
+        promotion_shadow_recorder=lambda proposal: shadows.append(proposal) or {},
+    )
+    assert again["resumed"] is True
+    assert len(shadows) == 1
+    changed = SoxlRsi2PromotionBinding(
+        source=binding.source, candidate_id=binding.candidate_id, folds=binding.folds,
+        locked_oos_start=binding.locked_oos_start, locked_oos_end=binding.locked_oos_end,
+        purge_days=binding.purge_days, embargo_days=binding.embargo_days,
+        source_revision="b" * 40,
+        cost_model=PromotionCostModel("ZERO", 0.0, 0.0),
+    )
+    changed_result = adapter.run_soxl_rsi2_research_promotion(
+        as_of=datetime.now(timezone.utc).date().isoformat(), drift_score=1.0,
+        source_revision="synthetic-optimization", input_paths=paths,
+        output_root=tmp_path / "result", source_commit=source_commit,
+        source_blobs=blobs, ues_repo_root=source_repo,
+        research_identity=identity, ticket_dir=tmp_path / "tickets",
+        promotion_binding=changed, promotion_store=PerformanceStore(local_root=tmp_path / "store"),
+        promotion_shadow_recorder=lambda proposal: shadows.append(proposal) or {
+            "status": "pending", "passed": False, "no_order": True,
+            "live_authority_granted": False, "retry_at": None,
+        },
+    )
+    assert changed_result["ticket_path"] != result["ticket_path"]
+
+
+def test_formal_binding_rejects_overlap_before_cycle_and_changed_binding_cannot_reuse(
+    monkeypatch, tmp_path
+):
+    paths, optimization = _write_full_input(tmp_path, "synthetic-optimization")
+    overlapping = _promotion_binding(optimization)
+    with pytest.raises(adapter.SoxlRsi2ResearchAdapterError, match="timing"):
+        adapter.run_soxl_rsi2_research_promotion(
+            as_of=datetime.now(timezone.utc).date().isoformat(), drift_score=1.0,
+            source_revision="synthetic-optimization", input_paths=paths,
+            output_root=tmp_path / "result", source_commit="a" * 40,
+            source_blobs={}, ues_repo_root=None,
+            research_identity={
+                "code_revision": "a" * 40, "input_revision": optimization.input_digest,
+                "param_space_revision": adapter._PARAM_SPACE_REVISION,
+                "cost_model_revision": adapter._COST_MODEL_REVISION,
+                "validator_revision": adapter._VALIDATOR_REVISION,
+            }, ticket_dir=tmp_path / "tickets", promotion_binding=overlapping,
+            promotion_store=PerformanceStore(local_root=tmp_path / "store"),
+            promotion_shadow_recorder=lambda _proposal: {},
+        )
+
+
+def test_promotion_binding_digest_changes_with_candidate(tmp_path):
+    _, source = _write_full_input(tmp_path, "synthetic-optimization")
+    base = _promotion_binding(_shift_source(source))
+    changed = SoxlRsi2PromotionBinding(
+        source=base.source, candidate_id="RSI2_ENTRY_5_EXIT_70", folds=base.folds,
+        locked_oos_start=base.locked_oos_start, locked_oos_end=base.locked_oos_end,
+        purge_days=base.purge_days, embargo_days=base.embargo_days,
+        source_revision=base.source_revision, cost_model=base.cost_model,
+    )
+    assert promotion_binding_digest("b" * 64, base) != promotion_binding_digest("b" * 64, changed)
