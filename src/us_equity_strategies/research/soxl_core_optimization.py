@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import re
+import statistics
 import subprocess
 import tempfile
 import stat
@@ -942,24 +943,29 @@ def _rsi2_metrics_with_unified_soxx(points: Sequence[DailyPoint], soxx: Sequence
 def _select_rsi2_mean_reversion_winner(validation: dict[str, Sequence[dict[str, Any]]]) -> str | None:
     if tuple(validation) != RSI2_MEAN_REVERSION_CANDIDATES:
         _fail("VALIDATION_METRICS_INVALID")
+    lengths = {len(metrics) for metrics in validation.values()}
+    if len(lengths) != 1 or not 1 <= next(iter(lengths)) <= 3:
+        _fail("VALIDATION_METRICS_INVALID")
     baseline = validation["UNSCALED_SMA200"]
-    if len(baseline) != 3 or not all(item.get("activity_observed") is True for item in baseline):
+    if not all(item.get("activity_observed") is True for item in baseline):
         return None
     ranked: list[tuple[tuple[float, float, float, float, int], str]] = []
     for index, candidate_id in enumerate(RSI2_MEAN_REVERSION_CANDIDATES):
         metrics = validation[candidate_id]
-        if len(metrics) != 3:
-            _fail("VALIDATION_METRICS_INVALID")
         if not all(item.get("activity_observed") is True for item in metrics):
             continue
-        if candidate_id != "UNSCALED_SMA200" and not _all_strictly_better(metrics, baseline):
+        candidate_drawdown = statistics.median(abs(float(value)) for value in _metric_values(metrics, "max_drawdown"))
+        baseline_drawdown = statistics.median(abs(float(value)) for value in _metric_values(baseline, "max_drawdown"))
+        candidate_expected_shortfall = statistics.median(_metric_values(metrics, "expected_shortfall_95"))
+        baseline_expected_shortfall = statistics.median(_metric_values(baseline, "expected_shortfall_95"))
+        if candidate_id != "UNSCALED_SMA200" and not (candidate_drawdown < baseline_drawdown and candidate_expected_shortfall > baseline_expected_shortfall):
             continue
         ranked.append((
             (
-                -_median(_metric_values(metrics, "cagr")),
-                _median([abs(value) for value in _metric_values(metrics, "max_drawdown")]),
-                -_median(_metric_values(metrics, "expected_shortfall_95")),
-                _median(_metric_values(metrics, "turnover")),
+                -statistics.median(_metric_values(metrics, "cagr")),
+                candidate_drawdown,
+                -candidate_expected_shortfall,
+                statistics.median(_metric_values(metrics, "turnover")),
                 index,
             ),
             candidate_id,
@@ -967,11 +973,11 @@ def _select_rsi2_mean_reversion_winner(validation: dict[str, Sequence[dict[str, 
     return min(ranked)[1]
 
 
-def _rsi2_wfa_qualifying_count(candidate: Sequence[dict[str, Any]], baseline: Sequence[dict[str, Any]]) -> int:
+def _rsi2_wfa_qualifying_count(candidate: Sequence[dict[str, Any] | None], baseline: Sequence[dict[str, Any]]) -> int:
     if len(candidate) != 3 or len(baseline) != 3:
         _fail("VALIDATION_METRICS_INVALID")
     return sum(
-        item["activity_observed"] is True and float(item["cumulative_return"]) > 0.0
+        item is not None and item["activity_observed"] is True and float(item["cumulative_return"]) > 0.0
         and abs(float(item["max_drawdown"])) < abs(float(reference["max_drawdown"]))
         and float(item["expected_shortfall_95"]) > float(reference["expected_shortfall_95"])
         for item, reference in zip(candidate, baseline, strict=True)
@@ -1012,11 +1018,19 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
             for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
         }
         winner = _select_rsi2_mean_reversion_winner(validation)
+        wfa_fold_names = ("F1_TEST", "F2_TEST", "F3_TEST")
+        wfa_validation_names = ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")
+        wfa_fold_winners = tuple(
+            _select_rsi2_mean_reversion_winner({
+                candidate_id: validation[candidate_id][:fold_index]
+                for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
+            })
+            for fold_index in (1, 2, 3)
+        )
         exposed = tuple(dict.fromkeys(((winner,) if winner is not None else ()) + ("UNSCALED_SMA200",)))
         post_lock = {
             candidate_id: {
-                name: {scenario.scenario_id: _rsi2_metrics_with_unified_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS[name]) for scenario in SCENARIOS}
-                for name in ("F1_TEST", "F2_TEST", "F3_TEST", "FINAL_HOLDOUT")
+                "FINAL_HOLDOUT": {scenario.scenario_id: _rsi2_metrics_with_unified_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS["FINAL_HOLDOUT"]) for scenario in SCENARIOS}
             }
             for candidate_id in exposed
         }
@@ -1024,14 +1038,22 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
         baseline_post = post_lock["UNSCALED_SMA200"]
         selected_validation = validation[winner] if winner is not None else ()
         selected_post = post_lock[winner] if winner is not None else None
-        selected_tests = [selected_post[name]["C2_5"] for name in ("F1_TEST", "F2_TEST", "F3_TEST")] if selected_post is not None else []
-        baseline_tests = [baseline_post[name]["C2_5"] for name in ("F1_TEST", "F2_TEST", "F3_TEST")]
+        wfa_fold_metrics = tuple(
+            {
+                "validation_windows": list(wfa_validation_names[:fold_index]),
+                "selected_candidate": fold_winner,
+                "test": _rsi2_metrics_with_unified_soxx(simulations[fold_winner]["C2_5"], soxx, *WINDOWS[wfa_fold_names[fold_index - 1]]) if fold_winner is not None else None,
+            }
+            for fold_index, fold_winner in enumerate(wfa_fold_winners, start=1)
+        )
+        selected_tests = [item["test"] for item in wfa_fold_metrics]
+        baseline_tests = [_rsi2_metrics_with_unified_soxx(simulations["UNSCALED_SMA200"]["C2_5"], soxx, *WINDOWS[name]) for name in wfa_fold_names]
         final_c2 = selected_post["FINAL_HOLDOUT"]["C2_5"] if selected_post is not None else None
         baseline_final_c2 = baseline_post["FINAL_HOLDOUT"]["C2_5"]
         final_stress = selected_post["FINAL_HOLDOUT"]["C5_10_STRESS"] if selected_post is not None else None
         baseline_final_stress = baseline_post["FINAL_HOLDOUT"]["C5_10_STRESS"]
         loss_probability = _terminal_loss_probability(tuple(point.daily_return for point in simulations[winner]["C2_5"][WINDOWS["FINAL_HOLDOUT"][0] - BASELINE_WINDOW_DAYS:])) if winner is not None else None
-        wfa_qualifying_count = _rsi2_wfa_qualifying_count(selected_tests, baseline_tests) if selected_post is not None else 0
+        wfa_qualifying_count = _rsi2_wfa_qualifying_count(selected_tests, baseline_tests)
         cagr_comparison_consistent = final_c2 is not None and (
             (float(final_c2["cagr"]) > float(final_c2["soxx_close_path_cagr"]))
             == (float(final_c2["cumulative_return"]) > float(final_c2["soxx_close_path_cumulative_return"]))
@@ -1067,6 +1089,7 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
             "baseline": "UNSCALED_SMA200", "candidates": list(RSI2_MEAN_REVERSION_CANDIDATES),
             "signal_rule": {"trend": "SOXX_CLOSE_STRICTLY_ABOVE_INCLUSIVE_SMA200", "rsi": "WILDER_RSI2", "execution": "NEXT_SOXL_OPEN", "exposure": "LONG_OR_CASH"},
             "validation_metrics_c2_5": validation, "locked_winner": winner, "post_lock_metrics": post_lock,
+            "wfa_fold_winners": list(wfa_fold_winners), "wfa_fold_metrics": list(wfa_fold_metrics),
             "evidence_gates": gates, "acceptance_contract": "SOXL_CONSTRAINED_COMPOUNDING_ACCEPTANCE_HARDENING_V1", "acceptance_classes": acceptance_classes,
             "recommendation_eligible": found, "r4a_eligible": found,
             "soxx_drawdown_comparison": {"final_holdout_max_drawdown": final_c2["soxx_close_path_max_drawdown"] if final_c2 is not None else None, "matches_or_beats_soxx_drawdown": benchmark_drawdown},
