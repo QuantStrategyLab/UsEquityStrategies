@@ -123,9 +123,74 @@ def test_validation_selection_tie_and_runner_isolation(monkeypatch: pytest.Monke
     assert result["schema"] == RSI2_MEAN_REVERSION_SCHEMA
     assert result["research_only"] is True and result["live_adoption_authorized"] is False and result["size_zero_required"] is True
     assert set(result["post_lock_metrics"]) <= {result["locked_winner"], "UNSCALED_SMA200"}
+    assert all(set(metrics) == {"FINAL_HOLDOUT"} for metrics in result["post_lock_metrics"].values())
+    assert [item["validation_windows"] for item in result["wfa_fold_metrics"]] == [
+        ["F1_VALIDATION"],
+        ["F1_VALIDATION", "F2_VALIDATION"],
+        ["F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION"],
+    ]
     assert result["outcome"] == "NO_IMPROVEMENT"
     assert result["acceptance_classes"]["benchmark_relative_compounding"]["eligible"] is False
     assert "FINAL_HOLDOUT_BENCHMARK_RELATIVE_COMPOUNDING" in result["failure_codes"]
+
+
+def test_rsi2_selection_accepts_only_available_validation_prefix() -> None:
+    baseline = {"max_drawdown": -0.2, "expected_shortfall_95": -0.1, "cagr": 0.1, "turnover": 1.0, "activity_observed": True}
+    better = {"max_drawdown": -0.1, "expected_shortfall_95": -0.05, "cagr": 0.2, "turnover": 1.0, "activity_observed": True}
+    validation = {
+        "UNSCALED_SMA200": [baseline],
+        "RSI2_ENTRY_5_EXIT_70": [better],
+        "RSI2_ENTRY_10_EXIT_70": [baseline],
+        "RSI2_ENTRY_15_EXIT_70": [baseline],
+    }
+    assert _select_rsi2_mean_reversion_winner(validation) == "RSI2_ENTRY_5_EXIT_70"
+
+    validation = {candidate: [baseline, baseline] for candidate in RSI2_MEAN_REVERSION_CANDIDATES}
+    validation["RSI2_ENTRY_10_EXIT_70"] = [better, better]
+    assert _select_rsi2_mean_reversion_winner(validation) == "RSI2_ENTRY_10_EXIT_70"
+
+    invalid = {candidate: [baseline] for candidate in RSI2_MEAN_REVERSION_CANDIDATES}
+    invalid["RSI2_ENTRY_10_EXIT_70"] = [baseline, baseline]
+    with pytest.raises(OptimizationError, match="VALIDATION_METRICS_INVALID"):
+        _select_rsi2_mean_reversion_winner(invalid)
+
+
+def test_future_validation_cannot_rewrite_earlier_fold_selection() -> None:
+    baseline = {"max_drawdown": -0.2, "expected_shortfall_95": -0.1, "cagr": 0.1, "turnover": 1.0, "activity_observed": True}
+    better_a = {"max_drawdown": -0.1, "expected_shortfall_95": -0.05, "cagr": 0.2, "turnover": 1.0, "activity_observed": True}
+    better_b = {"max_drawdown": -0.1, "expected_shortfall_95": -0.05, "cagr": 0.3, "turnover": 1.0, "activity_observed": True}
+    validation = {
+        "UNSCALED_SMA200": [baseline, baseline, baseline],
+        "RSI2_ENTRY_5_EXIT_70": [better_a, {**baseline, "cagr": 0.0}, {**baseline, "cagr": 0.0}],
+        "RSI2_ENTRY_10_EXIT_70": [baseline, better_b, better_b],
+        "RSI2_ENTRY_15_EXIT_70": [baseline, baseline, baseline],
+    }
+    assert _select_rsi2_mean_reversion_winner({candidate: metrics[:1] for candidate, metrics in validation.items()}) == "RSI2_ENTRY_5_EXIT_70"
+    assert _select_rsi2_mean_reversion_winner(validation) == "RSI2_ENTRY_10_EXIT_70"
+
+
+def test_runner_uses_each_fold_winner_for_wfa_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    import us_equity_strategies.research.soxl_core_optimization as optimization
+
+    calls: list[int] = []
+    winners = {1: "RSI2_ENTRY_5_EXIT_70", 2: "RSI2_ENTRY_15_EXIT_70", 3: "RSI2_ENTRY_10_EXIT_70"}
+
+    def select(validation: dict[str, list[dict[str, object]]]) -> str:
+        lengths = {len(metrics) for metrics in validation.values()}
+        assert len(lengths) == 1
+        length = next(iter(lengths))
+        calls.append(length)
+        return winners[length]
+
+    monkeypatch.setattr(optimization, "_select_rsi2_mean_reversion_winner", select)
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda _: 0.0)
+    result = run_soxl_rsi2_mean_reversion(_source())
+
+    assert calls == [3, 1, 2, 3]
+    assert result["locked_winner"] == "RSI2_ENTRY_10_EXIT_70"
+    assert result["wfa_fold_winners"] == ["RSI2_ENTRY_5_EXIT_70", "RSI2_ENTRY_15_EXIT_70", "RSI2_ENTRY_10_EXIT_70"]
+    assert result["wfa_fold_metrics"][0]["selected_candidate"] == "RSI2_ENTRY_5_EXIT_70"
+    assert set(result["post_lock_metrics"][result["locked_winner"]]) == {"FINAL_HOLDOUT"}
     assert run_soxl_rsi2_mean_reversion(_source(), plugin_control={"state": "ABSENT_DISABLED"})["evidence_valid"] is False
     assert run_soxl_rsi2_mean_reversion(None)["evidence_valid"] is False
 
@@ -203,6 +268,7 @@ def test_rsi2_wfa_requires_complete_same_window_predicates() -> None:
     ]
     assert _rsi2_wfa_qualifying_count(split, [baseline] * 3) == 0
     assert _rsi2_wfa_qualifying_count([qualifying, qualifying, split[0]], [baseline] * 3) == 2
+    assert _rsi2_wfa_qualifying_count([qualifying, None, qualifying], [baseline] * 3) == 2
 
 
 def test_rsi2_zero_activity_rejection_is_fail_closed_and_consistent(monkeypatch: pytest.MonkeyPatch) -> None:
