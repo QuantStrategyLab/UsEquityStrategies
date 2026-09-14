@@ -142,8 +142,23 @@ def _promotion_binding(source):
 
 def test_loader_reuses_typed_ues_contract(monkeypatch):
     expected = object()
+    monkeypatch.setattr(adapter, "_manifest_provider", lambda _path: "yahoo_chart")
     monkeypatch.setattr(adapter, "load_offline_input", lambda *args: expected)
     assert adapter.load_rsi2_offline_input(_paths()) is expected
+
+
+def test_loader_dispatches_alpaca_source_loader(monkeypatch):
+    expected = object()
+    monkeypatch.setattr(adapter, "_manifest_provider", lambda _path: "alpaca_sip")
+    monkeypatch.setattr(adapter, "load_soxl_alpaca_input", lambda *args: expected)
+    assert adapter.load_rsi2_offline_input(_paths()) is expected
+
+
+def test_loader_rejects_unknown_provider(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"schema": "qsl.research.price_snapshot.v1", "provider": "unknown"}), encoding="utf-8")
+    with pytest.raises(adapter.SoxlRsi2ResearchAdapterError, match="provider_unsupported"):
+        adapter.load_rsi2_offline_input(adapter.Rsi2OfflineInputPaths(manifest, tmp_path / "artifact", tmp_path / "readback"))
 
 
 def test_loader_accepts_verified_typed_input_fixture(tmp_path):
@@ -235,6 +250,7 @@ def test_budget_is_checked_before_strategy_calculation(monkeypatch, tmp_path):
 
 def test_identity_mismatch_is_rejected_before_cycle(monkeypatch, tmp_path):
     source = SimpleNamespace(input_digest="a" * 64, source_revision="ues")
+    monkeypatch.setattr(adapter, "_manifest_provider", lambda _path: "yahoo_chart")
     monkeypatch.setattr(adapter, "load_offline_input", lambda *args: source)
     with pytest.raises(adapter.SoxlRsi2ResearchAdapterError, match="identity_mismatch"):
         adapter.run_soxl_rsi2_research_promotion(
@@ -266,6 +282,7 @@ def test_no_improvement_does_not_claim_comparable_metrics():
 def test_saved_public_cycle_parks_and_reentry_reuses_result(monkeypatch, tmp_path):
     calls = {"research": 0, "persist": 0}
     monkeypatch.setattr(adapter, "_validate_research_identity", lambda *args: None)
+    monkeypatch.setattr(adapter, "_manifest_provider", lambda _path: "yahoo_chart")
     monkeypatch.setattr(adapter, "load_offline_input", lambda *args: object())
 
     def research(_source):
@@ -315,6 +332,7 @@ def test_saved_public_cycle_parks_and_reentry_reuses_result(monkeypatch, tmp_pat
 
 def test_candidate_found_stops_at_gate_without_shadow(monkeypatch, tmp_path):
     monkeypatch.setattr(adapter, "_validate_research_identity", lambda *args: None)
+    monkeypatch.setattr(adapter, "_manifest_provider", lambda _path: "yahoo_chart")
     monkeypatch.setattr(adapter, "load_offline_input", lambda *args: object())
     monkeypatch.setattr(
         adapter,

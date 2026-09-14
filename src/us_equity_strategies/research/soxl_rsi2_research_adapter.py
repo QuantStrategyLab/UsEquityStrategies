@@ -13,6 +13,9 @@ from us_equity_strategies.research.soxl_core_optimization import (
     persist_rsi2_mean_reversion_result,
     run_soxl_rsi2_mean_reversion,
 )
+from us_equity_strategies.research.soxl_alpaca_input_adapter import (
+    load_soxl_alpaca_input,
+)
 from us_equity_strategies.research.soxl_soxx_offline_input_contract import (
     OfflineInput,
     load_offline_input,
@@ -44,13 +47,30 @@ class Rsi2OfflineInputPaths:
     readback: Path
 
 
+def _manifest_provider(path: Path) -> str:
+    try:
+        value = json.loads(path.read_bytes().decode())
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SoxlRsi2ResearchAdapterError("rsi2_input_manifest_invalid") from exc
+    if not isinstance(value, dict) or value.get("schema") != "qsl.research.price_snapshot.v1":
+        raise SoxlRsi2ResearchAdapterError("rsi2_input_manifest_invalid")
+    provider = value.get("provider")
+    if provider not in {"yahoo_chart", "alpaca_sip"}:
+        raise SoxlRsi2ResearchAdapterError("rsi2_input_provider_unsupported")
+    return provider
+
+
 def load_rsi2_offline_input(paths: Rsi2OfflineInputPaths) -> OfflineInput:
-    """Load the already verified UES input contract without translating bars."""
+    """Load one verified Yahoo or Alpaca UES input without translating bars."""
     if not isinstance(paths, Rsi2OfflineInputPaths):
         raise SoxlRsi2ResearchAdapterError("rsi2_input_paths_invalid")
     try:
-        return load_offline_input(paths.manifest, paths.artifact, paths.readback)
+        provider = _manifest_provider(paths.manifest)
+        loader = load_offline_input if provider == "yahoo_chart" else load_soxl_alpaca_input
+        return loader(paths.manifest, paths.artifact, paths.readback)
     except Exception as exc:
+        if isinstance(exc, SoxlRsi2ResearchAdapterError):
+            raise
         raise SoxlRsi2ResearchAdapterError("rsi2_input_invalid") from exc
 
 
