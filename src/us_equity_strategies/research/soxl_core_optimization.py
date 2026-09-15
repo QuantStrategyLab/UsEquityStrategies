@@ -916,7 +916,78 @@ def simulate_rsi2_mean_reversion_candidate(source: OfflineInput, candidate_id: s
     return tuple(points)
 
 
-def _rsi2_metrics_with_unified_soxx(points: Sequence[DailyPoint], soxx: Sequence[InputRow], raw_start: int, raw_end: int) -> dict[str, Any]:
+def _rsi2_buy_and_hold_metrics(rows: Sequence[InputRow], raw_start: int, raw_end: int, scenario: CostScenario) -> dict[str, Any]:
+    """Measure a continuous next-open buy-and-hold path on one RSI2 window."""
+    if type(scenario) is not CostScenario or scenario not in SCENARIOS:
+        _fail("RSI2_BENCHMARK_CONTRACT_INVALID")
+    if type(raw_start) is not int or type(raw_end) is not int or raw_start < BASELINE_WINDOW_DAYS or raw_end < raw_start:
+        _fail("WINDOW_BOUNDARY_INVALID")
+    if raw_end >= len(rows):
+        _fail("WINDOW_BOUNDARY_INVALID")
+    if any(type(row) is not InputRow for row in rows):
+        _fail("RSI2_BENCHMARK_INPUT_INVALID")
+    if any(not all(math.isfinite(value) and value > 0.0 for value in (row.open, row.high, row.low, row.close)) for row in rows):
+        _fail("RSI2_BENCHMARK_INPUT_INVALID")
+    initial_equity = INITIAL_EQUITY
+    commission_rate = scenario.commission_bps / 10_000.0
+    slippage_rate = scenario.slippage_bps / 10_000.0
+    entry = rows[BASELINE_WINDOW_DAYS]
+    if scenario.scenario_id == "ZERO":
+        entry_fill = entry.open
+        quantity = initial_equity / entry.open
+    else:
+        entry_fill = entry.open * (1.0 + slippage_rate)
+        quantity = initial_equity / (entry_fill * (1.0 + commission_rate))
+    commission = quantity * entry_fill * commission_rate
+    slippage = quantity * (entry_fill - entry.open)
+    cash = 0.0
+    points: list[DailyPoint] = []
+    previous_equity = initial_equity
+    for index in range(BASELINE_WINDOW_DAYS, len(rows)):
+        execution = rows[index]
+        end_equity = cash + quantity * execution.close
+        points.append(DailyPoint(
+            execution.as_of,
+            previous_equity,
+            end_equity,
+            cash,
+            quantity,
+            end_equity / previous_equity - 1.0,
+            index == BASELINE_WINDOW_DAYS,
+            commission if index == BASELINE_WINDOW_DAYS else 0.0,
+            slippage if index == BASELINE_WINDOW_DAYS else 0.0,
+            quantity * execution.open if index == BASELINE_WINDOW_DAYS else 0.0,
+        ))
+        previous_equity = end_equity
+    metrics = dict(_volatility_window_metrics(points, raw_start, raw_end))
+    selected = points[raw_start - BASELINE_WINDOW_DAYS:raw_end - BASELINE_WINDOW_DAYS + 1]
+    if len(selected) != raw_end - raw_start + 1:
+        _fail("WINDOW_BOUNDARY_INVALID")
+    return {
+        **metrics,
+        "benchmark_symbol": entry.symbol,
+        "benchmark_policy": "next_open_buy_and_hold_with_costs",
+        "initial_equity": selected[0].start_equity,
+        "final_equity": selected[-1].end_equity,
+        "funding_initial_equity": initial_equity,
+        "entry_date": entry.as_of,
+        "entry_open": entry.open,
+        "entry_fill_price": entry_fill,
+        "entry_quantity": quantity,
+        "entry_cash_before_purchase": initial_equity,
+        "entry_cash_after_purchase": 0.0,
+        "terminal_liquidation": False,
+    }
+
+
+def _rsi2_metrics_with_unified_soxx(
+    points: Sequence[DailyPoint],
+    soxx: Sequence[InputRow],
+    raw_start: int,
+    raw_end: int,
+    soxl: Sequence[InputRow] | None = None,
+    scenario: CostScenario | None = None,
+) -> dict[str, Any]:
     metrics = dict(_volatility_window_metrics(points, raw_start, raw_end))
     selected_points = points[raw_start - BASELINE_WINDOW_DAYS:raw_end - BASELINE_WINDOW_DAYS + 1]
     selected_soxx = soxx[raw_start - 1:raw_end + 1]
@@ -935,8 +1006,19 @@ def _rsi2_metrics_with_unified_soxx(points: Sequence[DailyPoint], soxx: Sequence
         "soxx_close_path_cumulative_return": soxx_cumulative_return,
         "soxx_close_path_cagr": (1.0 + soxx_cumulative_return) ** (252.0 / return_observation_count) - 1.0,
         "soxx_close_path_max_drawdown": soxx_drawdown,
+        "soxx_close_path_basis": "gross_close_price_path_without_execution_costs",
         "matches_or_beats_soxx_drawdown": abs(float(metrics["max_drawdown"])) <= abs(soxx_drawdown),
     })
+    benchmark_scenario = SCENARIOS[2] if scenario is None else scenario
+    benchmark_rows: dict[str, Sequence[InputRow]] = {"SOXX": soxx}
+    if soxl is not None:
+        if tuple(row.as_of for row in soxl) != tuple(row.as_of for row in soxx):
+            _fail("RSI2_BENCHMARK_CALENDAR_MISMATCH")
+        benchmark_rows["SOXL"] = soxl
+    metrics["buy_and_hold_benchmarks"] = {
+        symbol: _rsi2_buy_and_hold_metrics(rows, raw_start, raw_end, benchmark_scenario)
+        for symbol, rows in benchmark_rows.items()
+    }
     return metrics
 
 
@@ -999,7 +1081,7 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
     if plugin_control != RSI2_MEAN_REVERSION_PLUGIN_CONTROL:
         return _invalid_rsi2_mean_reversion("PLUGIN_CONTROL_NOT_ABSENT_DISABLED")
     try:
-        soxx, _ = _typed_rows(source)
+        soxx, soxl = _typed_rows(source)
         simulations = {
             candidate_id: {scenario.scenario_id: simulate_rsi2_mean_reversion_candidate(source, candidate_id, scenario) for scenario in SCENARIOS}
             for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
@@ -1014,7 +1096,7 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
         if [(point.date, point.end_equity.hex(), point.cash.hex(), point.quantity.hex()) for point in zero] != [(point.date, point.equity.hex(), point.cash.hex(), point.soxl_quantity.hex()) for point in baseline.equity_curve]:
             _fail("SMA200_ZERO_PARITY_FAILED")
         validation = {
-            candidate_id: [_rsi2_metrics_with_unified_soxx(simulations[candidate_id]["C2_5"], soxx, *WINDOWS[name]) for name in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")]
+            candidate_id: [_rsi2_metrics_with_unified_soxx(simulations[candidate_id]["C2_5"], soxx, *WINDOWS[name], soxl, SCENARIOS[2]) for name in ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")]
             for candidate_id in RSI2_MEAN_REVERSION_CANDIDATES
         }
         winner = _select_rsi2_mean_reversion_winner(validation)
@@ -1030,7 +1112,7 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
         exposed = tuple(dict.fromkeys(((winner,) if winner is not None else ()) + ("UNSCALED_SMA200",)))
         post_lock = {
             candidate_id: {
-                "FINAL_HOLDOUT": {scenario.scenario_id: _rsi2_metrics_with_unified_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS["FINAL_HOLDOUT"]) for scenario in SCENARIOS}
+                "FINAL_HOLDOUT": {scenario.scenario_id: _rsi2_metrics_with_unified_soxx(simulations[candidate_id][scenario.scenario_id], soxx, *WINDOWS["FINAL_HOLDOUT"], soxl, scenario) for scenario in SCENARIOS}
             }
             for candidate_id in exposed
         }
@@ -1042,12 +1124,12 @@ def run_soxl_rsi2_mean_reversion(source: object, *, plugin_control: object = RSI
             {
                 "validation_windows": list(wfa_validation_names[:fold_index]),
                 "selected_candidate": fold_winner,
-                "test": _rsi2_metrics_with_unified_soxx(simulations[fold_winner]["C2_5"], soxx, *WINDOWS[wfa_fold_names[fold_index - 1]]) if fold_winner is not None else None,
+                "test": _rsi2_metrics_with_unified_soxx(simulations[fold_winner]["C2_5"], soxx, *WINDOWS[wfa_fold_names[fold_index - 1]], soxl, SCENARIOS[2]) if fold_winner is not None else None,
             }
             for fold_index, fold_winner in enumerate(wfa_fold_winners, start=1)
         )
         selected_tests = [item["test"] for item in wfa_fold_metrics]
-        baseline_tests = [_rsi2_metrics_with_unified_soxx(simulations["UNSCALED_SMA200"]["C2_5"], soxx, *WINDOWS[name]) for name in wfa_fold_names]
+        baseline_tests = [_rsi2_metrics_with_unified_soxx(simulations["UNSCALED_SMA200"]["C2_5"], soxx, *WINDOWS[name], soxl, SCENARIOS[2]) for name in wfa_fold_names]
         final_c2 = selected_post["FINAL_HOLDOUT"]["C2_5"] if selected_post is not None else None
         baseline_final_c2 = baseline_post["FINAL_HOLDOUT"]["C2_5"]
         final_stress = selected_post["FINAL_HOLDOUT"]["C5_10_STRESS"] if selected_post is not None else None

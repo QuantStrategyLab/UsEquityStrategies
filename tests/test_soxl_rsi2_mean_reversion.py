@@ -19,6 +19,7 @@ from us_equity_strategies.research.soxl_core_optimization import (
     SCENARIOS,
     OptimizationError,
     _rsi2_values,
+    _rsi2_buy_and_hold_metrics,
     _rsi2_metrics_with_unified_soxx,
     _rsi2_wfa_qualifying_count,
     _select_rsi2_mean_reversion_winner,
@@ -232,6 +233,75 @@ def test_rsi2_acceptance_soxx_path_includes_prior_close_for_return_cagr_and_draw
     rising = _rsi2_metrics_with_unified_soxx(points, rising_soxx, 200, 201)
     assert rising["soxx_close_path_cumulative_return"] == pytest.approx(0.15)
     assert rising["soxx_close_path_cagr"] == pytest.approx(1.15 ** (252.0 / 2.0) - 1.0)
+
+
+def test_rsi2_buy_and_hold_benchmark_starts_in_cash_and_pays_one_entry_cost() -> None:
+    prefix = tuple(InputRow("SOXL", f"2024-04-{index + 1:03d}", 1.0, 1.0, 1.0, 1.0, 1.0) for index in range(BASELINE_WINDOW_DAYS))
+    window = tuple(
+        InputRow("SOXL", f"2025-01-{index + 1:02d}", opening, opening, opening, close, 1.0)
+        for index, (opening, close) in enumerate(((10.0, 10.0), (20.0, 20.0), (30.0, 15.0)))
+    )
+    rows = prefix + window
+    metrics = _rsi2_buy_and_hold_metrics(rows, BASELINE_WINDOW_DAYS, BASELINE_WINDOW_DAYS + 2, SCENARIOS[2])
+    fill = 10.0 * 1.0005
+    quantity = 100_000.0 / (fill * 1.0002)
+    expected_commission = quantity * fill * 0.0002
+    expected_slippage = quantity * (fill - 10.0)
+    expected_final_equity = quantity * 15.0
+
+    assert metrics["benchmark_symbol"] == "SOXL"
+    assert metrics["benchmark_policy"] == "next_open_buy_and_hold_with_costs"
+    assert metrics["initial_equity"] == pytest.approx(100_000.0)
+    assert metrics["entry_quantity"] == pytest.approx(quantity)
+    assert metrics["commission_paid"] == pytest.approx(expected_commission)
+    assert metrics["slippage_impact_vs_open"] == pytest.approx(expected_slippage)
+    assert metrics["total_cost"] == pytest.approx(expected_commission + expected_slippage)
+    assert metrics["final_equity"] == pytest.approx(expected_final_equity)
+    assert metrics["cumulative_return"] == pytest.approx(expected_final_equity / 100_000.0 - 1.0)
+    assert metrics["max_drawdown"] == pytest.approx(expected_final_equity / (quantity * 20.0) - 1.0)
+    assert metrics["max_drawdown"] < 0.0
+
+
+def test_rsi2_buy_and_hold_benchmark_is_next_open_causal_and_same_calendar() -> None:
+    prefix = tuple(InputRow("SOXX", f"2024-05-{index + 1:03d}", 1.0, 1.0, 1.0, 1.0, 1.0) for index in range(BASELINE_WINDOW_DAYS))
+    window = tuple(
+        InputRow("SOXX", f"2025-02-{index + 1:02d}", opening, opening, opening, close, 1.0)
+        for index, (opening, close) in enumerate(((10.0, 10.0), (20.0, 20.0), (30.0, 60.0)))
+    )
+    rows = prefix + window
+    baseline = _rsi2_buy_and_hold_metrics(rows, BASELINE_WINDOW_DAYS, BASELINE_WINDOW_DAYS + 2, SCENARIOS[0])
+    changed_after_entry = tuple(
+        InputRow(row.symbol, row.as_of, row.open, row.high, row.low, 999.0 if index == 1 else row.close, row.volume)
+        for index, row in enumerate(rows)
+    )
+    changed_entry_open = tuple(
+        InputRow(row.symbol, row.as_of, 11.0 if index == BASELINE_WINDOW_DAYS else row.open, row.high, row.low, row.close, row.volume)
+        for index, row in enumerate(rows)
+    )
+    assert _rsi2_buy_and_hold_metrics(changed_after_entry, BASELINE_WINDOW_DAYS, BASELINE_WINDOW_DAYS + 2, SCENARIOS[0])["entry_quantity"] == pytest.approx(baseline["entry_quantity"])
+    assert _rsi2_buy_and_hold_metrics(changed_entry_open, BASELINE_WINDOW_DAYS, BASELINE_WINDOW_DAYS + 2, SCENARIOS[0])["entry_quantity"] != pytest.approx(baseline["entry_quantity"])
+    assert baseline["start_date"] == changed_after_entry[BASELINE_WINDOW_DAYS].as_of
+    assert baseline["end_date"] == changed_after_entry[BASELINE_WINDOW_DAYS + 2].as_of
+    assert baseline["observation_count"] == 3
+    costed = _rsi2_buy_and_hold_metrics(rows, BASELINE_WINDOW_DAYS, BASELINE_WINDOW_DAYS + 2, SCENARIOS[2])
+    continuation = _rsi2_buy_and_hold_metrics(rows, BASELINE_WINDOW_DAYS + 1, BASELINE_WINDOW_DAYS + 2, SCENARIOS[2])
+    assert continuation["entry_quantity"] == pytest.approx(costed["entry_quantity"])
+    assert continuation["initial_equity"] == pytest.approx(costed["entry_quantity"] * 10.0)
+    assert continuation["cumulative_return"] == pytest.approx(60.0 / 10.0 - 1.0)
+    assert continuation["total_cost"] == pytest.approx(0.0)
+
+
+def test_rsi2_output_exposes_net_soxl_and_soxx_benchmarks_without_relabeling_gross_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("us_equity_strategies.research.soxl_core_optimization._terminal_loss_probability", lambda _: 0.0)
+    result = run_soxl_rsi2_mean_reversion(_source())
+    metrics = result["post_lock_metrics"]["UNSCALED_SMA200"]["FINAL_HOLDOUT"]["C2_5"]
+    benchmarks = metrics["buy_and_hold_benchmarks"]
+    assert set(benchmarks) == {"SOXL", "SOXX"}
+    assert benchmarks["SOXL"]["benchmark_policy"] == "next_open_buy_and_hold_with_costs"
+    assert benchmarks["SOXX"]["benchmark_policy"] == "next_open_buy_and_hold_with_costs"
+    assert (benchmarks["SOXL"]["start_date"], benchmarks["SOXL"]["end_date"], benchmarks["SOXL"]["observation_count"]) == (benchmarks["SOXX"]["start_date"], benchmarks["SOXX"]["end_date"], benchmarks["SOXX"]["observation_count"])
+    assert metrics["soxx_close_path_basis"] == "gross_close_price_path_without_execution_costs"
+    assert "total_cost" in benchmarks["SOXX"]
 
 
 def test_rsi2_acceptance_activity_filters_zero_activity_and_ranks_by_cagr_first() -> None:
