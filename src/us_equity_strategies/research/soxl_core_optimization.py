@@ -853,6 +853,14 @@ def _rsi2_values(closes: Sequence[float]) -> tuple[float | None, ...]:
     return tuple(values)
 
 
+def _rsi2_research_target(*, held: bool, lagged_rsi: float | None, entry_threshold: float, prior_closes: tuple[float, ...]) -> bool:
+    if not held:
+        return lagged_rsi is not None and lagged_rsi <= entry_threshold
+    if lagged_rsi is not None and lagged_rsi >= 70.0:
+        return False
+    return True
+
+
 def simulate_rsi2_mean_reversion_candidate(source: OfflineInput, candidate_id: str, scenario: CostScenario) -> tuple[DailyPoint, ...]:
     """Simulate one fixed long/cash SOXX-trend-conditioned RSI(2) candidate."""
     if candidate_id not in RSI2_MEAN_REVERSION_CANDIDATES or type(scenario) is not CostScenario or scenario not in SCENARIOS:
@@ -874,12 +882,15 @@ def simulate_rsi2_mean_reversion_candidate(source: OfflineInput, candidate_id: s
             target = risk_on
         elif not risk_on:
             target = False
-        elif not held:
-            target = bool(rsi[signal_index] is not None and rsi[signal_index] <= _RSI2_ENTRY_THRESHOLDS[candidate_id])
-        elif rsi[signal_index] is not None and rsi[signal_index] >= 70.0:
-            target = False
         else:
-            target = True
+            target = _rsi2_research_target(
+                held=held,
+                lagged_rsi=rsi[signal_index],
+                entry_threshold=_RSI2_ENTRY_THRESHOLDS[candidate_id],
+                prior_closes=tuple(row.close for row in signal_window),
+            )
+            if type(target) is not bool:
+                _fail("RSI2_TARGET_INVALID")
         execution = soxl[execution_index]
         opening_equity = cash + quantity * execution.open
         if not math.isfinite(opening_equity) or opening_equity <= 0.0:

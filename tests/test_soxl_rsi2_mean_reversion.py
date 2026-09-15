@@ -19,6 +19,7 @@ from us_equity_strategies.research.soxl_core_optimization import (
     SCENARIOS,
     OptimizationError,
     _rsi2_values,
+    _rsi2_research_target,
     _rsi2_buy_and_hold_metrics,
     _rsi2_metrics_with_unified_soxx,
     _rsi2_wfa_qualifying_count,
@@ -85,6 +86,36 @@ def test_frozen_candidates_plugin_and_exact_rsi2_edges() -> None:
     assert _rsi2_values((102.0, 101.0, 100.0))[2] == 0.0
     values = _rsi2_values((100.0, 102.0, 101.0, 103.0))
     assert values[3] == pytest.approx(85.71428571428571)
+
+
+def test_rsi2_research_target_preserves_entry_exit_edges() -> None:
+    prior_closes = (100.0, 101.0, 99.0)
+    cases = (
+        (False, None, 5.0, False),
+        (False, 5.0, 5.0, True),
+        (False, 5.0001, 5.0, False),
+        (True, None, 5.0, True),
+        (True, 69.9999, 5.0, True),
+        (True, 70.0, 5.0, False),
+    )
+    for held, lagged_rsi, entry_threshold, expected in cases:
+        actual = _rsi2_research_target(
+            held=held,
+            lagged_rsi=lagged_rsi,
+            entry_threshold=entry_threshold,
+            prior_closes=prior_closes,
+        )
+        assert type(actual) is bool
+        assert actual is expected
+
+
+def test_rsi2_research_target_rejects_non_bool_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "us_equity_strategies.research.soxl_core_optimization._rsi2_research_target",
+        lambda **_: 1,
+    )
+    with pytest.raises(OptimizationError, match="RSI2_TARGET_INVALID"):
+        simulate_rsi2_mean_reversion_candidate(_source(), "RSI2_ENTRY_5_EXIT_70", SCENARIOS[0])
 
 
 def test_unscaled_parity_strict_trend_and_next_open_no_lookahead() -> None:
