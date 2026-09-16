@@ -114,6 +114,13 @@ def _slice_daily_returns(
 
 
 def _signal_fn(history: Any, **kwargs: Any):
+    enabled = kwargs.pop("research_absolute_volatility", False)
+    if type(enabled) is not bool:
+        raise ValueError("research_absolute_volatility must be a boolean")
+    if enabled:
+        from us_equity_strategies.research.global_etf_absolute_volatility import build_research_target_weights
+
+        return build_research_target_weights(history, **kwargs)
     return build_target_weights(history, **kwargs)
 
 
@@ -183,6 +190,8 @@ class UsEtfRotationBacktestRunner:
 
         strategy_params = _runtime_proxy_signal_defaults()
         strategy_params.update(params)
+        if type(strategy_params.get("research_absolute_volatility", False)) is not bool:
+            raise ValueError("research_absolute_volatility must be a boolean")
         min_history_days = int(strategy_params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
         history = self._market_history
         if history is None:
@@ -223,9 +232,14 @@ class UsEtfRotationBacktestRunner:
         eval_frame = sliced
         if start_date is not None:
             eval_frame = sliced[sliced["date"] >= pd.Timestamp(start_date)]
+        result_params = dict(strategy_params)
+        if strategy_params.get("research_absolute_volatility", False):
+            from us_equity_strategies.research.global_etf_absolute_volatility import TARGET_VOLATILITY, WINDOW
+
+            result_params.update(research_volatility_window=WINDOW, research_volatility_target=TARGET_VOLATILITY)
         return _metrics_to_backtest_result(
             strategy_profile=strategy_profile,
-            params=strategy_params,
+            params=result_params,
             metrics=compute_backtest_metrics(self._last_daily_returns),
             start_date=start_date or (eval_frame["date"].min().date() if not eval_frame.empty else None),
             end_date=end_date or (eval_frame["date"].max().date() if not eval_frame.empty else None),

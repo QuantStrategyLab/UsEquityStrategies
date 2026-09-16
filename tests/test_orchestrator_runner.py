@@ -23,6 +23,45 @@ from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME as US_E
 
 
 class UsEtfRotationBacktestRunnerTests(unittest.TestCase):
+    def test_absolute_volatility_requires_explicit_boolean(self):
+        for value in ("true", 1, None):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "must be a boolean"):
+                UsEtfRotationBacktestRunner().run(PROFILE_NAME, {"research_absolute_volatility": value})
+
+    def test_absolute_volatility_real_runner_and_default_parity(self):
+        import numpy as np
+        from us_equity_strategies.research.global_etf_absolute_volatility import build_research_target_weights
+
+        dates = pd.bdate_range("2022-01-03", periods=520)
+        rows = []
+        for symbol, noise in (("AAA", 0.04), ("BBB", 0.03), ("BIL", 0.0)):
+            returns = 0.002 + np.resize([-noise, noise], len(dates)) if noise else np.full(len(dates), 0.0001)
+            prices = 100 * np.cumprod(1 + returns)
+            rows.extend({"date": day, "symbol": symbol, "close": price} for day, price in zip(dates, prices))
+        frame = pd.DataFrame(rows)
+        params = {"ranking_pool": ["AAA", "BBB"], "canary_assets": ["AAA"], "sma_period": 250}
+        baseline = UsEtfRotationBacktestRunner(market_history=frame)
+        baseline.run(PROFILE_NAME, params)
+        disabled = UsEtfRotationBacktestRunner(market_history=frame)
+        disabled.run(PROFILE_NAME, {**params, "research_absolute_volatility": False})
+        pd.testing.assert_series_equal(baseline.last_daily_returns, disabled.last_daily_returns)
+        outputs = []
+
+        def record(history, **kwargs):
+            result = build_research_target_weights(history, **kwargs)
+            outputs.append(result)
+            return result
+
+        enabled = UsEtfRotationBacktestRunner(market_history=frame)
+        with patch("us_equity_strategies.research.global_etf_absolute_volatility.build_research_target_weights", side_effect=record):
+            result = enabled.run(PROFILE_NAME, {**params, "research_absolute_volatility": True})
+        self.assertTrue(result.params["research_absolute_volatility"])
+        self.assertEqual(result.params["research_volatility_window"], 126)
+        self.assertEqual(result.params["research_volatility_target"], 0.15)
+        self.assertTrue(any(meta.get("absolute_volatility_scale", 1) < 1 for _, meta in outputs))
+        self.assertFalse(enabled.last_daily_returns.equals(baseline.last_daily_returns))
+        self.assertTrue(np.isfinite(enabled.last_daily_returns).all())
+
     def test_supported_profile_includes_global_etf(self) -> None:
         self.assertIn(PROFILE_NAME, SUPPORTED_PROFILES)
 
