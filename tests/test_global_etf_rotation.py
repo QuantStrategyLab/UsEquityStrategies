@@ -19,6 +19,83 @@ def _history(symbol: str, *, volatility: float) -> pd.Series:
 
 
 class GlobalEtfRotationConfidenceTests(unittest.TestCase):
+    def test_build_target_weights_passes_manifest_signal_config_and_configured_pool(self) -> None:
+        dates = pd.bdate_range(end="2026-03-31", periods=260)
+        history = pd.DataFrame(
+            {
+                "date": date,
+                "symbol": symbol,
+                "close": 100.0,
+            }
+            for symbol in ("AAA", "SPY", "EFA", "EEM", "AGG", "BIL")
+            for date in dates
+        )
+        captured = {}
+
+        def fake_compute_signals(_ib, current_holdings, **kwargs):
+            captured.update(kwargs)
+            captured["current_holdings"] = current_holdings
+            return {"AAA": 1.0}, "quarterly", False, "canary"
+
+        with patch.object(global_etf_rotation, "compute_signals", side_effect=fake_compute_signals):
+            weights, metadata = global_etf_rotation.build_target_weights(
+                history,
+                ranking_pool=("AAA",),
+                canary_assets=("SPY", "EFA", "EEM", "AGG"),
+                safe_haven="BIL",
+                current_holdings={"AAA"},
+            )
+
+        self.assertEqual(weights, {"AAA": 1.0})
+        self.assertEqual(metadata["mode"], "rebalance")
+        self.assertEqual(captured["ranking_pool"], ("AAA",))
+        self.assertEqual(captured["sma_period"], 250)
+        self.assertEqual(captured["hold_bonus"], 0.02)
+        self.assertTrue(captured["confidence_weighting_enabled"])
+        self.assertEqual(captured["current_holdings"], {"AAA"})
+
+    def test_build_target_weights_applies_manifest_sma_and_hold_bonus(self) -> None:
+        dates = pd.bdate_range(end="2026-03-31", periods=260)
+        history = pd.DataFrame(
+            {
+                "date": date,
+                "symbol": symbol,
+                "close": 100.0 + index,
+            }
+            for symbol in ("AAA", "BBB", "SPY", "EFA", "EEM", "AGG", "BIL")
+            for index, date in enumerate(dates)
+        )
+        scores = {"AAA": 0.10, "BBB": 0.095, "SPY": 0.1, "EFA": 0.1, "EEM": 0.1, "AGG": 0.1}
+        periods = []
+
+        def score(series):
+            return scores[series.name]
+
+        def sma(_closes, period):
+            periods.append(period)
+            return True
+
+        with patch.object(global_etf_rotation, "compute_13612w_momentum", side_effect=score), \
+                patch.object(global_etf_rotation, "check_sma", side_effect=sma), \
+                patch.object(global_etf_rotation, "_is_rebalance_day", return_value=True), \
+                patch.object(global_etf_rotation, "_annualized_volatility", return_value=0.01):
+            held = global_etf_rotation.build_target_weights(
+                history, ranking_pool=("AAA", "BBB"), top_n=1, current_holdings={"BBB"},
+            )
+            unheld = global_etf_rotation.build_target_weights(
+                history, ranking_pool=("AAA", "BBB"), top_n=1, hold_bonus=0.0,
+                current_holdings={"BBB"},
+            )
+            scores.update({"AAA": 0.20, "BBB": 0.10})
+            confident = global_etf_rotation.build_target_weights(
+                history, ranking_pool=("AAA", "BBB"), top_n=2, current_holdings=set(),
+            )
+
+        self.assertEqual(held[0], {"BBB": 1.0})
+        self.assertEqual(unheld[0], {"AAA": 1.0})
+        self.assertEqual(confident[0], {"AAA": 0.75, "BBB": 0.25})
+        self.assertEqual(set(periods), {250})
+
     def _run_confidence_case(self, *, top1_volatility: float) -> dict[str, float]:
         histories = {
             "AAA": _history("AAA", volatility=top1_volatility),

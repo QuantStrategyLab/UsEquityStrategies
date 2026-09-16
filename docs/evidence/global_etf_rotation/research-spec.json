@@ -15,7 +15,7 @@
   },
   "reproducibility": {
     "code_revision": "to_be_pinned_when_real_data_run_starts",
-    "config_artifact_id": "global_etf_rotation.config_snapshot.2026-07-10",
+    "config_artifact_id": "global_etf_rotation.config_snapshot.2026-09-16",
     "random_seed": 20260711
   },
   "data": {
