@@ -92,19 +92,24 @@ def apply_risk_gate(
     if market_data is None and ctx is not None:
         market_data = dict(ctx.market_data or {})
     capabilities = ctx.capabilities if ctx is not None else {}
+    qpk_kwargs = {
+        "risk_mandate_id": risk_mandate_id,
+        "product_leverage_factors": product_leverage_factors,
+        "available_account_exposure": available_account_exposure,
+        "max_single_weight": max_single_weight,
+        "max_positions": max_positions,
+        "max_total_exposure": max_total_exposure,
+        "portfolio_snapshot": snapshot,
+        "market_data": market_data,
+        "enforce_value_target_exposure": enforce_value_target_exposure,
+        "capital_base": capabilities.get("capital_base"),
+        "capital_base_binding": capabilities.get("capital_base_binding"),
+    }
+    if "runtime_risk_limits" in capabilities:
+        qpk_kwargs["runtime_risk_limits"] = capabilities["runtime_risk_limits"]
     return _qpk_apply_risk_gate(
         decision,
-        risk_mandate_id=risk_mandate_id,
-        product_leverage_factors=product_leverage_factors,
-        available_account_exposure=available_account_exposure,
-        max_single_weight=max_single_weight,
-        max_positions=max_positions,
-        max_total_exposure=max_total_exposure,
-        portfolio_snapshot=snapshot,
-        market_data=market_data,
-        enforce_value_target_exposure=enforce_value_target_exposure,
-        capital_base=capabilities.get("capital_base"),
-        capital_base_binding=capabilities.get("capital_base_binding"),
+        **qpk_kwargs,
     )
 
 

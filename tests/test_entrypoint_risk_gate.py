@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
-from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskAction
+from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskAction, RuntimeRiskLimits
 from quant_platform_kit.common.strategy_contracts import PositionTarget, StrategyContext, StrategyDecision
 
 import us_equity_strategies.entrypoints as entrypoints
@@ -644,6 +644,7 @@ def test_apply_risk_gate_forwards_only_explicit_capital_base_evidence(
 
     capital_base = {"reported_equity": 100_000.0}
     capital_base_binding = {"strategy_scope": "soxl_soxx_trend_income"}
+    runtime_risk_limits = object()
     ctx = StrategyContext(
         as_of=datetime(2026, 7, 9, tzinfo=timezone.utc),
         portfolio=None,
@@ -653,6 +654,7 @@ def test_apply_risk_gate_forwards_only_explicit_capital_base_evidence(
         capabilities={
             "capital_base": capital_base,
             "capital_base_binding": capital_base_binding,
+            "runtime_risk_limits": runtime_risk_limits,
         },
     )
     monkeypatch.setattr(common, "_qpk_apply_risk_gate", _gate)
@@ -667,7 +669,123 @@ def test_apply_risk_gate_forwards_only_explicit_capital_base_evidence(
     ) is decision
     assert captured["capital_base"] is capital_base
     assert captured["capital_base_binding"] is capital_base_binding
+    assert captured["runtime_risk_limits"] is runtime_risk_limits
     assert captured["enforce_value_target_exposure"] is True
+
+
+def test_apply_risk_gate_omits_runtime_risk_limits_kwarg_when_capability_absent(
+    monkeypatch,
+) -> None:
+    """Absent capability key must not pass runtime_risk_limits=... at all."""
+    captured: dict[str, object] = {}
+
+    def _gate(decision, **kwargs):
+        captured.update(kwargs)
+        return decision
+
+    ctx = StrategyContext(
+        as_of=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        portfolio=None,
+        market_data={},
+        state={},
+        runtime_config={},
+        capabilities={
+            "capital_base": {"reported_equity": 100_000.0},
+            "capital_base_binding": {"strategy_scope": "soxl_soxx_trend_income"},
+        },
+    )
+    monkeypatch.setattr(common, "_qpk_apply_risk_gate", _gate)
+    decision = StrategyDecision(
+        positions=(PositionTarget(symbol="SOXL", target_value=10_000.0),)
+    )
+
+    assert apply_risk_gate(decision, ctx=ctx) is decision
+    assert "runtime_risk_limits" not in captured
+    assert "runtime_risk_limits" not in ctx.capabilities
+
+
+def test_apply_risk_gate_invalid_runtime_risk_limits_object_fail_closed() -> None:
+    """Explicit invalid object (key present) must fail closed, not omit the kwarg."""
+    snapshot = PortfolioSnapshot(as_of=_SOXL_NOW, total_equity=100_000.0)
+    ctx = StrategyContext(
+        as_of=_SOXL_NOW,
+        portfolio=snapshot,
+        capabilities={"runtime_risk_limits": object()},
+    )
+    result = apply_risk_gate(
+        StrategyDecision(
+            positions=(PositionTarget(symbol="SOXL", target_weight=0.10),),
+        ),
+        ctx=ctx,
+        max_single_weight=1.0,
+        max_total_exposure=1.0,
+    )
+
+    assert result.positions == ()
+    assert result.budgets == ()
+    assert result.risk_flags == ("rejected:runtime_risk_limits",)
+    assert result.diagnostics["risk_gate"] == "REJECT"
+    assert result.diagnostics["reason"] == "invalid_runtime_risk_limits"
+
+
+def _runtime_limits_for_synthetic() -> RuntimeRiskLimits:
+    symbols = ("SOXL", "SOXX", "BOXX")
+    return RuntimeRiskLimits(
+        allowed_symbols=symbols,
+        product_leverage_factors={"SOXL": 3, "SOXX": 1, "BOXX": 1},
+        nominal_caps={"SOXL": 0.679, "SOXX": 0.873, "BOXX": 0.97},
+        total_nominal_exposure_cap=0.97,
+        total_effective_exposure_cap=2.328,
+        max_positions=8,
+    )
+
+
+def test_runtime_limits_approve_three_etf_plan_through_ues_adapter() -> None:
+    snapshot = PortfolioSnapshot(as_of=_SOXL_NOW, total_equity=100_000.0)
+    ctx = StrategyContext(
+        as_of=_SOXL_NOW,
+        portfolio=snapshot,
+        capabilities={"runtime_risk_limits": _runtime_limits_for_synthetic()},
+    )
+    result = apply_risk_gate(
+        StrategyDecision(
+            positions=(
+                PositionTarget(symbol="SOXL", target_weight=0.20),
+                PositionTarget(symbol="SOXX", target_weight=0.30),
+                PositionTarget(symbol="BOXX", target_weight=0.40),
+            )
+        ),
+        ctx=ctx,
+        max_single_weight=1.0,
+        max_total_exposure=1.0,
+    )
+
+    assert len(result.positions) == 3
+    assert result.risk_flags == ("risk_gate:passed",)
+
+
+def test_runtime_limits_reject_three_etf_plan_to_zero_submissions() -> None:
+    snapshot = PortfolioSnapshot(as_of=_SOXL_NOW, total_equity=100_000.0)
+    ctx = StrategyContext(
+        as_of=_SOXL_NOW,
+        portfolio=snapshot,
+        capabilities={"runtime_risk_limits": _runtime_limits_for_synthetic()},
+    )
+    result = apply_risk_gate(
+        StrategyDecision(
+            positions=(
+                PositionTarget(symbol="SOXL", target_weight=0.70),
+                PositionTarget(symbol="SOXX", target_weight=0.30),
+            )
+        ),
+        ctx=ctx,
+        max_single_weight=1.0,
+        max_total_exposure=1.0,
+    )
+
+    assert result.positions == ()
+    assert result.budgets == ()
+    assert result.risk_flags == ("rejected:runtime_risk_limits",)
 
 
 def test_unmandated_consumer_allows_only_explicit_1x_single_position_at_ten_percent() -> None:
