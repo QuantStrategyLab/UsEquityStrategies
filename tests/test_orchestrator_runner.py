@@ -7,6 +7,9 @@ import unittest
 import math
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
+
+import pandas as pd
 
 from us_equity_strategies.backtest.orchestrator_runner import (
     SUPPORTED_PROFILES,
@@ -50,6 +53,27 @@ class UsEtfRotationBacktestRunnerTests(unittest.TestCase):
         self.assertAlmostEqual(result.sharpe_ratio, returns.mean() / returns.std(ddof=0) * math.sqrt(252))
         equity = (1.0 + returns).cumprod()
         self.assertAlmostEqual(result.max_drawdown, (equity / equity.cummax().clip(lower=1.0) - 1.0).min())
+
+    def test_run_forwards_strategy_params_to_global_signal(self) -> None:
+        runner = UsEtfRotationBacktestRunner(synthetic_days=500)
+        with patch(
+            "us_equity_strategies.backtest.orchestrator_runner.run_etf_rotation_backtest"
+        ) as backtest:
+            backtest.return_value.daily_returns = pd.Series(dtype=float)
+            result = runner.run(
+                PROFILE_NAME,
+                {"min_history_days": DEFAULT_MIN_HISTORY_DAYS, "sma_period": 250, "hold_bonus": 0.02},
+                start_date=date(2023, 6, 1),
+                end_date=date(2024, 6, 1),
+            )
+
+        self.assertEqual(result.strategy_profile, PROFILE_NAME)
+        self.assertEqual(result.params["sma_period"], 250)
+        self.assertTrue(result.params["confidence_weighting_enabled"])
+        kwargs = backtest.call_args.kwargs
+        self.assertEqual(kwargs["strategy_kwargs"]["sma_period"], 250)
+        self.assertEqual(kwargs["strategy_kwargs"]["hold_bonus"], 0.02)
+        self.assertEqual(kwargs["config"].include_current_holdings, True)
 
     def test_calmar_preserves_return_sign_and_zero_drawdown_sentinel(self) -> None:
         for annual_return, drawdown, expected in ((-0.1, -0.2, -0.5), (0.1, -0.2, 0.5), (0.1, 0.0, None)):

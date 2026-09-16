@@ -72,7 +72,7 @@ def test_cash_exit_reentry_and_unchanged_days():
 
 def test_target_events_remain_distinct_and_lagged_without_future_history():
     history = _history(
-        ["2024-01-31", "2024-02-01", "2024-02-29", "2024-03-01"], A=[100.0] * 4,
+        ["2024-01-31", "2024-02-01", "2024-02-29", "2024-03-01"], A=[100.0, 200.0, 200.0, 200.0],
     )
     observed = []
 
@@ -80,15 +80,52 @@ def test_target_events_remain_distinct_and_lagged_without_future_history():
         observed.append(frame["date"].max())
         return ({"A": 1.0} if frame["date"].max().month == 1 else {}, {})
 
-    targets = simulator._target_weights(
-        history, simulator.build_close_matrix(history), signal_fn=signal,
-        config=simulator.UsRotationBacktestConfig(min_history_days=1), strategy_kwargs={},
+    result = simulator.run_etf_rotation_backtest(
+        history, signal, config=simulator.UsRotationBacktestConfig(min_history_days=1, cost_bps=0.0),
     )
-    assert observed == list(pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-01"]))
-    assert targets.iloc[0].isna().all()
-    assert targets.iloc[1]["A"] == 1.0
-    assert targets.iloc[2].isna().all()
-    assert targets.iloc[3]["A"] == 0.0
+    assert observed == list(pd.to_datetime(["2024-01-31", "2024-02-29"]))
+    assert result.daily_returns.tolist() == pytest.approx([0.0, 1.0, 0.0, 0.0])
+
+
+def test_global_hold_mode_keeps_existing_shares_across_rebalance_event():
+    history = _history(
+        ["2024-01-31", "2024-02-01", "2024-02-29", "2024-03-01"],
+        A=[100.0, 100.0, 100.0, 200.0],
+    )
+    calls = 0
+
+    def signal(_frame):
+        nonlocal calls
+        calls += 1
+        return ({"A": 1.0}, {}) if calls == 1 else ({}, {"mode": "hold"})
+
+    result = simulator.run_etf_rotation_backtest(
+        history,
+        signal,
+        config=simulator.UsRotationBacktestConfig(min_history_days=1, cost_bps=0.0),
+    )
+
+    assert result.daily_returns.iloc[-1] == pytest.approx(1.0)
+
+
+def test_global_signal_receives_current_nonzero_holdings_serially():
+    history = _history(
+        ["2024-01-31", "2024-02-01", "2024-02-29", "2024-03-01"],
+        A=[100.0] * 4,
+    )
+    observed = []
+
+    def signal(_frame, *, current_holdings):
+        observed.append(set(current_holdings))
+        return {"A": 1.0}, {}
+
+    simulator.run_etf_rotation_backtest(
+        history,
+        signal,
+        config=simulator.UsRotationBacktestConfig(min_history_days=1, include_current_holdings=True),
+    )
+
+    assert observed[:2] == [set(), {"A"}]
 
 
 def test_weekly_signal_does_not_capture_signal_day_return():

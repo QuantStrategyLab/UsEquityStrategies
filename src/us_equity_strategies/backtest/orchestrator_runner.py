@@ -30,6 +30,7 @@ from us_equity_strategies.backtest.soxl_trend_simulator import (
 from us_equity_strategies.strategies.global_etf_rotation import (
     DEFAULT_MIN_HISTORY_DAYS,
     PROFILE_NAME,
+    _runtime_proxy_signal_defaults,
     build_target_weights,
     extract_managed_symbols_universe,
 )
@@ -54,12 +55,18 @@ def _synthetic_market_history(
     start: str = "2022-01-03",
     include_combo_proxies: bool = False,
     include_soxl_core: bool = False,
+    strategy_params: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     dates = pd.bdate_range(start, periods=days)
     if include_soxl_core:
         symbols = list(soxl_required_market_symbols())
     else:
-        symbols = list(extract_managed_symbols_universe())
+        config = dict(strategy_params or {})
+        symbols = list(extract_managed_symbols_universe(
+            ranking_pool=config.get("ranking_pool"),
+            canary_assets=config.get("canary_assets"),
+            safe_haven=config.get("safe_haven"),
+        ))
         if include_combo_proxies:
             symbols = list(dict.fromkeys([*symbols, *_combo_proxy_symbols()]))
     rates = {symbol: 1.00012 + (idx * 0.00003) for idx, symbol in enumerate(symbols)}
@@ -174,10 +181,15 @@ class UsEtfRotationBacktestRunner:
                 f"supported={PROFILE_NAME!r}"
             )
 
-        min_history_days = int(params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
+        strategy_params = _runtime_proxy_signal_defaults()
+        strategy_params.update(params)
+        min_history_days = int(strategy_params.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
         history = self._market_history
         if history is None:
-            history = _synthetic_market_history(days=max(self._synthetic_days, min_history_days + 400))
+            history = _synthetic_market_history(
+                days=max(self._synthetic_days, min_history_days + 400),
+                strategy_params=strategy_params,
+            )
         sliced = _slice_history(
             history,
             start_date=start_date,
@@ -191,9 +203,16 @@ class UsEtfRotationBacktestRunner:
         result = run_etf_rotation_backtest(
             sliced,
             _signal_fn,
-            config=UsRotationBacktestConfig(min_history_days=min_history_days),
-            universe_symbols=extract_managed_symbols_universe(),
-            strategy_kwargs={"min_history_days": min_history_days},
+            config=UsRotationBacktestConfig(
+                min_history_days=min_history_days,
+                include_current_holdings=True,
+            ),
+            universe_symbols=extract_managed_symbols_universe(
+                ranking_pool=strategy_params.get("ranking_pool"),
+                canary_assets=strategy_params.get("canary_assets"),
+                safe_haven=strategy_params.get("safe_haven"),
+            ),
+            strategy_kwargs=strategy_params,
         )
         self._last_daily_returns = _slice_daily_returns(
             result.daily_returns,
@@ -206,7 +225,7 @@ class UsEtfRotationBacktestRunner:
             eval_frame = sliced[sliced["date"] >= pd.Timestamp(start_date)]
         return _metrics_to_backtest_result(
             strategy_profile=strategy_profile,
-            params=params,
+            params=strategy_params,
             metrics=compute_backtest_metrics(self._last_daily_returns),
             start_date=start_date or (eval_frame["date"].min().date() if not eval_frame.empty else None),
             end_date=end_date or (eval_frame["date"].max().date() if not eval_frame.empty else None),

@@ -282,6 +282,30 @@ def compute_signals(
 
 PROFILE_NAME = "global_etf_rotation"
 DEFAULT_MIN_HISTORY_DAYS = 260
+_PROXY_SIGNAL_KEYS = (
+    "ranking_pool",
+    "canary_assets",
+    "safe_haven",
+    "top_n",
+    "hold_bonus",
+    "canary_bad_threshold",
+    "rebalance_months",
+    "sma_period",
+    "confidence_weighting_enabled",
+    "confidence_metric",
+    "confidence_threshold",
+    "confidence_top1_weight",
+    "confidence_volatility_gate_enabled",
+    "confidence_volatility_window",
+    "confidence_volatility_max_ratio",
+)
+
+
+def _runtime_proxy_signal_defaults() -> dict[str, Any]:
+    from us_equity_strategies.manifests import global_etf_rotation_manifest
+
+    defaults = global_etf_rotation_manifest.default_config
+    return {key: defaults[key] for key in _PROXY_SIGNAL_KEYS}
 
 
 def _closes_for_symbol(market_history: pd.DataFrame, symbol: str) -> pd.Series:
@@ -291,14 +315,20 @@ def _closes_for_symbol(market_history: pd.DataFrame, symbol: str) -> pd.Series:
     subset = frame.loc[frame["symbol"] == symbol.upper()].sort_values("date")
     if subset.empty:
         return pd.Series(dtype=float)
-    return pd.Series(subset["close"].astype(float).values, index=subset["date"])
+    return pd.Series(subset["close"].astype(float).values, index=subset["date"], name=symbol.upper())
 
 
 def extract_managed_symbols_universe(
-    *_args: Any,
-    **_kwargs: Any,
+    *,
+    ranking_pool: Any = None,
+    canary_assets: Any = None,
+    safe_haven: str | None = None,
 ) -> tuple[str, ...]:
-    symbols = list(dict.fromkeys([*RANKING_POOL, *CANARY_ASSETS, SAFE_HAVEN]))
+    defaults = _runtime_proxy_signal_defaults()
+    ranking_pool = defaults["ranking_pool"] if ranking_pool is None else ranking_pool
+    canary_assets = defaults["canary_assets"] if canary_assets is None else canary_assets
+    safe_haven = defaults["safe_haven"] if safe_haven is None else safe_haven
+    symbols = list(dict.fromkeys([*ranking_pool, *canary_assets, safe_haven]))
     return tuple(symbols)
 
 
@@ -306,57 +336,38 @@ def build_target_weights(
     market_history: Any,
     **kwargs: Any,
 ) -> tuple[dict[str, float], dict[str, object]]:
-    """History-based weights for orchestrator backtests (synthetic / proxy OHLCV)."""
+    """History-based weights using the frozen Global ETF signal configuration."""
     frame = market_history.copy() if isinstance(market_history, pd.DataFrame) else pd.DataFrame(list(market_history))
     if frame.empty:
         return {}, {"mode": "empty_history"}
 
     frame["date"] = pd.to_datetime(frame["date"], utc=False).dt.tz_localize(None).dt.normalize()
-    as_of = frame["date"].max()
     min_history_days = int(kwargs.get("min_history_days", DEFAULT_MIN_HISTORY_DAYS))
     if frame["date"].nunique() < min_history_days:
         return {}, {"mode": "insufficient_history"}
 
-    price_data: dict[str, pd.Series] = {}
-    for ticker in extract_managed_symbols_universe():
-        closes = _closes_for_symbol(frame, ticker)
-        if not closes.empty:
-            price_data[ticker] = closes
-
-    n_bad = 0
-    for ticker in CANARY_ASSETS:
-        closes = price_data.get(ticker)
-        if closes is None or closes.empty:
-            n_bad += 1
-            continue
-        mom = compute_13612w_momentum(closes, as_of_date=as_of)
-        if np.isnan(mom) or mom < 0:
-            n_bad += 1
-    if n_bad >= CANARY_BAD_THRESHOLD:
-        return {SAFE_HAVEN: 1.0}, {"mode": "emergency", "canary_bad": n_bad}
-
-    if not _snapshot_rebalance_day(as_of, rebalance_months=REBALANCE_MONTHS):
+    defaults = _runtime_proxy_signal_defaults()
+    signal_kwargs = {
+        key: kwargs[key] if key in kwargs else defaults[key]
+        for key in _PROXY_SIGNAL_KEYS
+    }
+    current_holdings = set(kwargs.get("current_holdings", ()))
+    as_of = frame["date"].max()
+    weights, _signal, is_emergency, _canary = compute_signals(
+        None,
+        current_holdings,
+        get_historical_close=lambda _ib, ticker: _closes_for_symbol(frame, ticker),
+        as_of_date=as_of,
+        translator=lambda key, **_params: key,
+        pacing_sec=0.0,
+        **signal_kwargs,
+    )
+    if weights is None:
         return {}, {"mode": "hold"}
-
-    scores: dict[str, float] = {}
-    for ticker in RANKING_POOL:
-        closes = price_data.get(ticker)
-        if closes is None or closes.empty:
-            continue
-        mom = compute_13612w_momentum(closes, as_of_date=as_of)
-        if np.isnan(mom) or not check_sma(closes, SMA_PERIOD):
-            continue
-        scores[ticker] = float(mom)
-
-    top = sorted(scores.items(), key=lambda item: -item[1])[:TOP_N]
-    if not top:
-        return {SAFE_HAVEN: 1.0}, {"mode": "safe_haven"}
-
-    per_weight = 1.0 / float(TOP_N)
-    weights = {ticker: per_weight for ticker, _score in top}
-    if len(top) < TOP_N:
-        weights[SAFE_HAVEN] = weights.get(SAFE_HAVEN, 0.0) + per_weight * (TOP_N - len(top))
-    return weights, {"mode": "rebalance", "selected": [ticker for ticker, _ in top]}
+    mode = "emergency" if is_emergency else "rebalance"
+    if set(weights) == {signal_kwargs["safe_haven"]}:
+        mode = "emergency" if is_emergency else "safe_haven"
+    return weights, {"mode": mode, "selected": list(weights)}
 
 
 SIGNAL_SOURCE = "feature_snapshot"

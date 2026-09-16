@@ -1,6 +1,6 @@
 {
   "schema_version": "global_etf_rotation.config_snapshot.v1",
-  "artifact_id": "global_etf_rotation.config_snapshot.2026-07-10",
+  "artifact_id": "global_etf_rotation.config_snapshot.2026-09-16",
   "strategy_profile": "global_etf_rotation",
   "source": {
     "path": "src/us_equity_strategies/strategies/global_etf_rotation.py",
@@ -67,9 +67,9 @@
     "top_n": 2,
     "canary_bad_threshold": 4,
     "rebalance_months": [3, 6, 9, 12],
-    "sma_period": 200,
-    "hold_bonus_applied": false,
-    "confidence_weighting_enabled": false
+    "sma_period": 250,
+    "hold_bonus_applied": true,
+    "confidence_weighting_enabled": true
   },
-  "replay_boundary": "The runtime feature-snapshot defaults and the executable market-history proxy backtest are recorded separately because the proxy backtest still uses SMA200 and does not apply hold-bonus or confidence weighting. Neither scope reproduces the full income, option and market-regime profile, and optimization cannot start until the research runner consumes the frozen runtime configuration."
+  "replay_boundary": "The executable market-history proxy now consumes the frozen runtime signal configuration: SMA250, hold bonus, confidence weighting and the configured ETF/canary pool. It preserves event-date close-derived signals with one trading-day effectiveness and treats mode=hold as no rebalance. The proxy still omits income, option and market-regime layers and does not run the runtime daily canary schedule; neither scope reproduces the full profile. Optimization remains blocked until immutable point-in-time data and research artifacts exist."
 }

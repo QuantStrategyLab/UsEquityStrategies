@@ -63,9 +63,9 @@ def test_config_snapshot_separates_executable_backtest_and_runtime_defaults() ->
         "top_n": global_etf_strategy.TOP_N,
         "canary_bad_threshold": global_etf_strategy.CANARY_BAD_THRESHOLD,
         "rebalance_months": sorted(global_etf_strategy.REBALANCE_MONTHS),
-        "sma_period": global_etf_strategy.SMA_PERIOD,
-        "hold_bonus_applied": False,
-        "confidence_weighting_enabled": False,
+        "sma_period": global_etf_rotation_manifest.default_config["sma_period"],
+        "hold_bonus_applied": True,
+        "confidence_weighting_enabled": True,
     }
 
 

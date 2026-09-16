@@ -12,23 +12,28 @@ The runtime catalog is intentionally unchanged by this bundle.  It must not be
 interpreted as an OOS pass, a live promotion, a Kelly approval, or permission
 to change capital allocation.
 
-The configuration snapshot records two different boundaries: the executable
-`build_target_weights` market-history proxy backtest (SMA200, without hold
-bonus or confidence weighting), and the runtime feature-snapshot defaults
-(SMA250 with confidence controls). The proxy runner does not yet consume the
-runtime defaults. Neither boundary includes the income, option and
-market-regime layers, so neither can be presented as a replay of the full live
+The executable `build_target_weights` market-history proxy now consumes the
+frozen runtime signal configuration: SMA250, hold bonus, confidence weighting,
+and the configured ETF/canary pool. It preserves close-derived event signals
+with one trading-day effectiveness and treats `mode=hold` as no rebalance.
+The proxy omits the income, option and market-regime layers and does not run
+the runtime daily canary schedule, so it is not a replay of the full live
 profile.
+The earlier SMA200/no-hold-bonus/no-confidence proxy snapshot remains a historical
+record; this update does not turn that old result into new evidence.
 
 ## Known blockers
 
 - The repository has no immutable point-in-time historical feature-snapshot
   manifest for the chosen research window.
+- Alpaca's public historical-data documentation starts in 2016, while the
+  frozen specification starts training in 2015; the 27-ETF source, licensing,
+  feed and corporate-action package still requires concrete verification. See
+  [Alpaca market data documentation](https://docs.alpaca.markets/us/docs/about-market-data-api).
 - The lifecycle walk-forward utility can synthesize proxy market history; such
   output is not admissible as research or drift baseline evidence.
-- The executable proxy backtest and runtime feature-snapshot configuration
-  diverge. The research runner must consume one frozen configuration contract
-  before any optimization or OOS claim is allowed.
+- Immutable point-in-time data and one frozen research configuration contract
+  are still required before any optimization or OOS claim is allowed.
 - No complete all-trial ledger, real returns/trades/positions artifact, or
   cost-stress result exists for this specification.
 - The older research note used a 5 bps turnover assumption, while the current
