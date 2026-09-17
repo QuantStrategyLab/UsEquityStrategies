@@ -47,5 +47,14 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "REQUESTED_STRATEGY_PROFILE: ${{ inputs.strategy_profile || '' }}" in workflow
     assert '"--list-profiles"' in workflow
     assert "unsupported targeted lifecycle profile=" in workflow
+    assert "id: build-lifecycle" in workflow
+    assert "lifecycle_profiles: ${{ steps.build-lifecycle.outputs.lifecycle_profiles }}" in workflow
+    assert "lifecycle_profiles=${json.dumps(profiles, separators=(',', ':'))}" in workflow or (
+        'handle.write(f"lifecycle_profiles={json.dumps(profiles, separators=(\',\', \':\'))}\\n")' in workflow
+    )
+    assert "matrix:" in workflow
+    assert "profile: ${{ fromJSON(needs.preflight_backtests.outputs.lifecycle_profiles) }}" in workflow
+    assert "strategy_profile: ${{ matrix.profile }}" in workflow
+    assert "tqqq_growth_income" not in workflow.split("LIFECYCLE_PREFLIGHT_BUNDLE_ROOT", 1)[1].split("Upload lifecycle", 1)[0]
     assert "codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}" in workflow
     assert "secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token" in workflow
