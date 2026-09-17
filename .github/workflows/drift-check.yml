@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       snapshot_repository_ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}
+      lifecycle_profiles: ${{ steps.build-lifecycle.outputs.lifecycle_profiles }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -139,6 +140,7 @@ jobs:
           PY
 
       - name: Build lifecycle preflight bundle
+        id: build-lifecycle
         env:
           LIFECYCLE_PREFLIGHT_BUNDLE_ROOT: ${{ runner.temp }}/lifecycle-preflight-bundle
           MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
@@ -172,6 +174,13 @@ jobs:
                       text=True,
                   )
               )["profiles"]
+          if not profiles:
+              raise SystemExit("lifecycle preflight profile list is empty")
+          # Doctor/monitor/drift must only cover profiles that this preflight
+          # actually materializes. TQQQ stays on its dedicated P1/P3 lane.
+          output_file = Path(os.environ["GITHUB_OUTPUT"])
+          with output_file.open("a", encoding="utf-8") as handle:
+              handle.write(f"lifecycle_profiles={json.dumps(profiles, separators=(',', ':'))}\n")
           bundle_root = Path(os.environ["LIFECYCLE_PREFLIGHT_BUNDLE_ROOT"])
           market_history = os.environ["MARKET_HISTORY_PATH"]
           store_root = bundle_root / "data" / "lifecycle_store"
@@ -215,6 +224,12 @@ jobs:
       contents: read
       issues: write
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Scope reusable doctor/monitor/drift to preflight-materialized profiles only.
+        # Keeps tqqq_growth_income on its dedicated research lane.
+        profile: ${{ fromJSON(needs.preflight_backtests.outputs.lifecycle_profiles) }}
     uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@5d6c6bcd970b4a179ccbd21a195e273b17fb59ef
     with:
       strategy_domain: us_equity
@@ -227,7 +242,7 @@ jobs:
       lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}
       quant_platform_kit_ref: 5d6c6bcd970b4a179ccbd21a195e273b17fb59ef
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
-      strategy_profile: ${{ inputs.strategy_profile || '' }}
+      strategy_profile: ${{ matrix.profile }}
       gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       gcp_service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
       gcp_project_id: ${{ vars.GCP_PROJECT_ID }}
