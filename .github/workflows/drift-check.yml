@@ -185,6 +185,10 @@ jobs:
           market_history = os.environ["MARKET_HISTORY_PATH"]
           store_root = bundle_root / "data" / "lifecycle_store"
           for profile in profiles:
+              # Preflight returns CSV is a walk-forward research proxy for doctor/
+              # monitor freshness — not paper/live account PerformanceStore PnL.
+              # Real account drift requires a verified live_stream_id on the
+              # reusable workflow (QPK) once LIFECYCLE_LIVE_STREAM_ID is set.
               returns_output = (
                   bundle_root
                   / "external"
