@@ -673,6 +673,39 @@ def test_apply_risk_gate_forwards_only_explicit_capital_base_evidence(
     assert captured["enforce_value_target_exposure"] is True
 
 
+def test_apply_risk_gate_forwards_small_account_hold_capabilities(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _gate(decision, **kwargs):
+        captured.update(kwargs)
+        return decision
+
+    hold_policy = object()
+    ctx = StrategyContext(
+        as_of=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        portfolio=None,
+        market_data={},
+        state={},
+        runtime_config={},
+        capabilities={
+            "small_account_hold_policy": hold_policy,
+            "cash_only_execution": True,
+            "current_portfolio_weights": {"SOXL": 0.9},
+        },
+    )
+    monkeypatch.setattr(common, "_qpk_apply_risk_gate", _gate)
+    decision = StrategyDecision(
+        positions=(PositionTarget(symbol="SOXL", target_weight=0.9),)
+    )
+
+    assert apply_risk_gate(decision, ctx=ctx) is decision
+    assert captured["small_account_hold_policy"] is hold_policy
+    assert captured["cash_only_execution"] is True
+    assert captured["current_portfolio_weights"] == {"SOXL": 0.9}
+
+
 def test_apply_risk_gate_omits_runtime_risk_limits_kwarg_when_capability_absent(
     monkeypatch,
 ) -> None:

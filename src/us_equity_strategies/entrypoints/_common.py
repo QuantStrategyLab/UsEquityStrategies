@@ -107,6 +107,12 @@ def apply_risk_gate(
     }
     if "runtime_risk_limits" in capabilities:
         qpk_kwargs["runtime_risk_limits"] = capabilities["runtime_risk_limits"]
+    if "small_account_hold_policy" in capabilities:
+        qpk_kwargs["small_account_hold_policy"] = capabilities["small_account_hold_policy"]
+    if "current_portfolio_weights" in capabilities:
+        qpk_kwargs["current_portfolio_weights"] = capabilities["current_portfolio_weights"]
+    if "cash_only_execution" in capabilities:
+        qpk_kwargs["cash_only_execution"] = capabilities["cash_only_execution"]
     return _qpk_apply_risk_gate(
         decision,
         **qpk_kwargs,
