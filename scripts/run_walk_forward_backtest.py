@@ -9,7 +9,7 @@ import hashlib
 import json
 import tempfile
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,12 +35,50 @@ from us_equity_strategies.strategies.global_etf_rotation import (
 )
 from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME as US_EQUITY_COMBO_PROFILE
 
+# Legacy fixed windows retained for fingerprint unit tests only. Production /
+# Drift Check resolves windows via ``resolve_walk_forward_windows`` so the
+# 126-day baseline tail tracks the latest trusted market history.
 DEFAULT_WINDOWS: tuple[tuple[date, date], ...] = (
     (date(2023, 6, 1), date(2024, 5, 31)),
     (date(2024, 6, 1), date(2025, 5, 31)),
 )
 DEFAULT_STORE_ROOT = Path("/tmp/us_equity_wf_store")
 DRIFT_BASELINE_HORIZON_DAYS = 126
+
+
+def _shift_calendar_years(day: date, years: int) -> date:
+    try:
+        return day.replace(year=day.year + years)
+    except ValueError:
+        # 29 Feb → 28 Feb when the target year is not a leap year.
+        return day.replace(year=day.year + years, day=28)
+
+
+def two_year_windows_ending(end: date) -> tuple[tuple[date, date], ...]:
+    """Two consecutive ~1y calendar windows ending on ``end`` (inclusive).
+
+    Matches the historical DEFAULT_WINDOWS shape for ``end=2025-05-31``.
+    """
+    w2_end = end
+    w2_start = _shift_calendar_years(end, -1) + timedelta(days=1)
+    w1_end = w2_start - timedelta(days=1)
+    w1_start = _shift_calendar_years(w1_end, -1) + timedelta(days=1)
+    return ((w1_start, w1_end), (w2_start, w2_end))
+
+
+def resolve_walk_forward_windows(
+    *,
+    market_history: pd.DataFrame | None = None,
+    as_of: date | None = None,
+) -> tuple[tuple[date, date], ...]:
+    """Resolve walk-forward windows from market history (preferred) or ``as_of``."""
+    if market_history is not None:
+        normalized = _normalize_market_history(market_history)
+        end = normalized["date"].max().date()
+        return two_year_windows_ending(end)
+    return two_year_windows_ending(as_of or datetime.now(timezone.utc).date())
+
+
 # BOXX listed 2022-12-28; allow incomplete early coverage for lifecycle history.
 _SOXL_FIRST_ELIGIBLE = {"BOXX": date(2022, 12, 28)}
 
@@ -240,7 +278,7 @@ def _baseline_from_return_tail(full_result: Any, returns: pd.Series) -> Any:
 def run_walk_forward(
     *,
     profile: str,
-    windows: tuple[tuple[date, date], ...] = DEFAULT_WINDOWS,
+    windows: tuple[tuple[date, date], ...] | None = None,
     synthetic_days: int = 900,
     store_root: Path | None = None,
     market_history: pd.DataFrame | None = None,
@@ -252,6 +290,11 @@ def run_walk_forward(
     if profile not in SUPPORTED_PROFILES:
         raise ValueError(f"unsupported profile={profile!r}; supported={sorted(SUPPORTED_PROFILES)}")
 
+    resolved_windows = (
+        windows
+        if windows is not None
+        else resolve_walk_forward_windows(market_history=market_history)
+    )
     params = dict(PROFILE_DEFAULTS.get(profile, {"min_history_days": DEFAULT_MIN_HISTORY_DAYS}))
     target_root = store_root or DEFAULT_STORE_ROOT
     target_root.mkdir(parents=True, exist_ok=True)
@@ -260,7 +303,7 @@ def run_walk_forward(
         profile,
         baseline_params,
         synthetic_days,
-        windows,
+        resolved_windows,
         market_history,
     )
     return_matrix_runner = _build_runner(
@@ -268,8 +311,8 @@ def run_walk_forward(
         synthetic_days=effective_synthetic_days,
         market_history=shared_market_history,
     )
-    full_window_start = min(start for start, _ in windows)
-    baseline_end = max(end for _, end in windows)
+    full_window_start = min(start for start, _ in resolved_windows)
+    baseline_end = max(end for _, end in resolved_windows)
     full_window_raw = return_matrix_runner.run(
         profile,
         copy.deepcopy(baseline_params),
@@ -304,7 +347,7 @@ def run_walk_forward(
             profile,
             domain="us_equity",
             params=wf_params,
-            windows=windows,
+            windows=resolved_windows,
             param_set_id=f"{profile}_wf",
         )
     store = PerformanceStore(local_root=target_root)
@@ -318,7 +361,7 @@ def run_walk_forward(
             profile,
             baseline_params,
             synthetic_days=effective_synthetic_days,
-            windows=windows,
+            windows=resolved_windows,
             data_fingerprint=data_fingerprint,
         ),
     )

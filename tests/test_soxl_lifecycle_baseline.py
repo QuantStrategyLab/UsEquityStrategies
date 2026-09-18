@@ -96,6 +96,7 @@ def test_soxl_runner_returns_backtest_result() -> None:
 def test_run_walk_forward_persists_soxl_lifecycle_baseline(tmp_path: Path) -> None:
     payload = run_walk_forward(
         profile=SOXL_PROFILE,
+        windows=walk_forward.DEFAULT_WINDOWS,
         synthetic_days=900,
         store_root=tmp_path,
     )

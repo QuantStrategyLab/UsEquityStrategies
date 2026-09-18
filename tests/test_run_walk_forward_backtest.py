@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -16,14 +17,43 @@ if str(SRC) not in sys.path:
 import pytest
 
 import scripts.run_walk_forward_backtest as walk_forward
-from scripts.run_walk_forward_backtest import DEFAULT_WINDOWS, _baseline_from_return_tail, _baseline_param_set_id, run_walk_forward
+from scripts.run_walk_forward_backtest import (
+    DEFAULT_WINDOWS,
+    _baseline_from_return_tail,
+    _baseline_param_set_id,
+    resolve_walk_forward_windows,
+    run_walk_forward,
+    two_year_windows_ending,
+)
 from scripts.run_walk_forward_backtest import _shared_market_history
 from us_equity_strategies.strategies.global_etf_rotation import extract_managed_symbols_universe
+
+
+def test_two_year_windows_ending_matches_legacy_default_shape() -> None:
+    assert two_year_windows_ending(date(2025, 5, 31)) == DEFAULT_WINDOWS
+
+
+def test_resolve_walk_forward_windows_tracks_market_history_end() -> None:
+    history = pd.DataFrame(
+        [
+            {"date": "2026-09-16", "symbol": "SPY", "close": 100.0},
+            {"date": "2026-09-15", "symbol": "SPY", "close": 99.0},
+        ]
+    )
+
+    windows = resolve_walk_forward_windows(market_history=history)
+
+    assert windows == (
+        (date(2024, 9, 17), date(2025, 9, 16)),
+        (date(2025, 9, 17), date(2026, 9, 16)),
+    )
+    assert resolve_walk_forward_windows(as_of=date(2025, 5, 31)) == DEFAULT_WINDOWS
 
 
 def test_run_walk_forward_persists_lifecycle_baseline(tmp_path: Path) -> None:
     payload = run_walk_forward(
         profile="global_etf_rotation",
+        windows=DEFAULT_WINDOWS,
         synthetic_days=900,
         store_root=tmp_path,
     )
@@ -80,6 +110,7 @@ def test_run_walk_forward_does_not_persist_partial_results_on_failure(tmp_path: 
     with pytest.raises(RuntimeError, match="boom"):
         run_walk_forward(
             profile="global_etf_rotation",
+            windows=DEFAULT_WINDOWS,
             synthetic_days=900,
             store_root=tmp_path,
         )
@@ -89,6 +120,7 @@ def test_run_walk_forward_does_not_persist_partial_results_on_failure(tmp_path: 
 def test_run_walk_forward_rejects_too_short_synthetic_history(tmp_path: Path) -> None:
     payload = run_walk_forward(
         profile="global_etf_rotation",
+        windows=DEFAULT_WINDOWS,
         synthetic_days=220,
         store_root=tmp_path,
     )
@@ -99,9 +131,42 @@ def test_run_walk_forward_rejects_too_short_synthetic_history(tmp_path: Path) ->
 def test_run_walk_forward_keeps_local_default_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(walk_forward, "DEFAULT_STORE_ROOT", tmp_path)
 
-    run_walk_forward(profile="global_etf_rotation", synthetic_days=900)
+    run_walk_forward(profile="global_etf_rotation", windows=DEFAULT_WINDOWS, synthetic_days=900)
 
     assert list(tmp_path.rglob("*.json"))
+
+
+def test_run_walk_forward_resolves_windows_from_market_history_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dates = pd.bdate_range("2022-01-03", "2026-09-16")
+    rows = []
+    for symbol_index, symbol in enumerate(extract_managed_symbols_universe()):
+        for day_index, day in enumerate(dates):
+            rows.append(
+                {
+                    "as_of": day,
+                    "symbol": symbol,
+                    "close": 20.0 + symbol_index + day_index * (0.01 + symbol_index / 10000),
+                }
+            )
+    history = pd.DataFrame(rows)
+    monkeypatch.setattr(
+        walk_forward,
+        "_runner_synthetic_market_history",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("synthetic history must not be used")),
+    )
+
+    payload = run_walk_forward(
+        profile="global_etf_rotation",
+        store_root=tmp_path / "store",
+        market_history=history,
+    )
+
+    assert payload["baseline"]["end_date"] == "2026-09-16"
+    assert payload["baseline"]["observation_count"] == 126
+    assert payload["walk_forward_folds"][-1]["end_date"] == "2026-09-16"
 
 
 def test_run_walk_forward_uses_external_history_and_writes_return_matrix(
