@@ -25,6 +25,7 @@ from us_equity_strategies.backtest.orchestrator_runner import (
 from us_equity_strategies.backtest.orchestrator_runner import _synthetic_market_history as _runner_synthetic_market_history
 from us_equity_strategies.backtest.soxl_trend_simulator import (
     DEFAULT_MIN_HISTORY_DAYS as SOXL_DEFAULT_MIN_HISTORY_DAYS,
+    LIFECYCLE_BASELINE_MODEL_METADATA as SOXL_LIFECYCLE_BASELINE_MODEL_METADATA,
     PROFILE_NAME as SOXL_PROFILE,
     required_market_symbols as soxl_required_market_symbols,
 )
@@ -299,6 +300,8 @@ def run_walk_forward(
     target_root = store_root or DEFAULT_STORE_ROOT
     target_root.mkdir(parents=True, exist_ok=True)
     baseline_params = copy.deepcopy(params)
+    if profile == SOXL_PROFILE:
+        baseline_params["lifecycle_baseline_model"] = dict(SOXL_LIFECYCLE_BASELINE_MODEL_METADATA)
     shared_market_history, effective_synthetic_days, data_fingerprint = _shared_market_history(
         profile,
         baseline_params,

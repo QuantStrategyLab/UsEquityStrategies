@@ -35,6 +35,16 @@ DEFAULT_BOLLINGER_WINDOW = 20
 DEFAULT_BOLLINGER_STD = 2.0
 CALENDAR_BENCHMARK_SYMBOL = "SPY"
 
+# Machine-readable identity for lifecycle baseline artifacts (not full sleeve / not T+1 fill).
+LIFECYCLE_BASELINE_MODEL_METADATA: dict[str, object] = {
+    "model_kind": "lifecycle_core_only_close_fill_proxy",
+    "signal_timing": "signal_at_close",
+    "target_lag": "target_lag_one",
+    "rebalance_fill": "rebalance_at_prior_close",
+    "includes_full_sleeve_income_layer": False,
+    "includes_market_regime_apply": False,
+}
+
 # Lifecycle proxy: core sleeve only; no income overlay / regime apply.
 _LIFECYCLE_CORE_ONLY_OVERRIDES: dict[str, object] = {
     "income_layer_enabled": False,
@@ -332,6 +342,7 @@ __all__ = [
     "CALENDAR_BENCHMARK_SYMBOL",
     "CORE_ASSETS",
     "DEFAULT_MIN_HISTORY_DAYS",
+    "LIFECYCLE_BASELINE_MODEL_METADATA",
     "PROFILE_NAME",
     "SoxlCoreOnlyBacktestConfig",
     "SoxlCoreOnlyBacktestResult",
