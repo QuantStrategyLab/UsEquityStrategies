@@ -1,7 +1,7 @@
-# C1/C2/C3 组合复利研究证据链（research/shadow-only）
+# C1–C4 组合复利研究证据链（research/shadow-only）
 
-来源：`AGENTS.md`、系统架构 §4/§5 组合与研究边界、审计报告 §9.9 / §9.12 / §9.14 / §9.15.17。
-本文件固定 **UsEquityStrategies 研究层** 对 C1–C3 的覆盖与剩余边界；不授予 paper/shadow/live，也不承诺最大 CAGR。
+来源：`AGENTS.md`、系统架构 §4/§5 组合与研究边界、审计报告 §9.9 / §9.12 / §9.14 / §9.15.17 / §9.15.18。
+本文件固定 **UsEquityStrategies 研究层** 对 C1–C4 的覆盖与剩余边界；不授予 paper/shadow/live，也不承诺最大 CAGR。
 
 ## 结论
 
@@ -10,7 +10,8 @@
 | C1 单策略/候选目标闭环 | **研究积木已达标** | raw 目标不因风险缩放被改写；`recommended_target_weights` + `reason_codes` 可追溯；`execution_authorized=false` |
 | C2 可比较成员 | **研究积木已达标（声明式口径）** | ≥2 成员可在同一政策/预算下合并；身份/资格冲突 PARK；**一旦声明** as_of/币种/资金/成本/风险/数据 digest，不一致或缺省即 PARK |
 | C3 固定成员预算基线比较 | **研究积木已达标（离线固定预算）** | ≥2 成员对齐收益 + ≥2 声明固定预算；输出净值/回撤/波动/尾部代理；可选换手声明与风险快照；不自动优化 |
-| C4–C5 | 不在本批 | 账户 shadow 零提交、人工启用分别后续 |
+| C4 Shadow/禁止提交周期 | **研究积木已达标（物化快照 consumer）** | 只读已物化账户/在途订单/RiskEngine；成功态可验证零提交；缺漏/过期/不一致/未知订单/非 APPROVE/`execution_authorized=true` → PARKED |
+| C5 | 不在本批 | 人工批准后的有限启用仍后续 |
 
 未覆盖但明确排除：全 Kelly、预测分数直接配权、新建 allocator/registry/DB、QPK 公共 API、broker/执行接口、生产 workflow/凭据/真实行情。
 
@@ -28,7 +29,7 @@
 
 **C1 剩余边界（不阻塞本批研究验收）：**
 
-- “可执行计划 + 成交/拒绝事实”的账户闭环属平台 RiskEngine / C4，不在本仓研究模块内造第二套 OMS。
+- 真实“可执行计划 + 成交/拒绝事实”的账户闭环仍属平台 RiskEngine/执行链；本仓 C4 仅消费已物化快照并产出零提交 shadow 证据，不造第二套 OMS。
 - 成本与时点口径由上游冻结输入 / runner 绑定；`portfolio_risk_budget` 本身不读行情、不写成本模型。
 - 调用方须自行保留 raw target 与 assessment 输出的并列证据；assessment 不回写账户。
 
@@ -47,7 +48,7 @@
 **C2 剩余边界：**
 
 - 未声明可比字段时，聚合仍可 `READY_RESEARCH_ONLY`（兼容旧单字段工件）。**比较级研究**应声明完整可比字段，否则不得拼比较分数。
-- 共享标的/因子/账户资源的“生产账户级”占用检查属 C4；本批只保证研究目标与 digests 不混比。
+- 共享标的/因子/账户资源的“生产账户级”占用检查：C4 只校验已物化身份/时点/digest 与零提交不变量，不新建账户级 allocator。
 - 旧派生收益回放（`legacy_combo_derived_returns_replay`）仅探索假设，不是 C2/C3 晋级证据。
 
 ## C3 证据映射
@@ -72,14 +73,33 @@
 - 成本与换手：本模块不重建成交账本；成员收益须已按声明成本模型冻结。部分声明换手 → PARK。
 - `legacy_combo_derived_returns_replay` 仍是探索性派生收益回放，**不能**替代本 C3 模块作为可比基线证据。
 
+## C4 证据映射
+
+| 验收点 | 现有实现 | 锁定测试 |
+|---|---|---|
+| 仅消费已物化快照 | `research/c4_shadow_zero_submit_cycle.consume_c4_shadow_zero_submit_cycle`；不访问 broker/网络/凭据/workflow | `tests/test_c4_shadow_zero_submit_cycle.py` |
+| 版本/时点/digest 绑定 | 账户 `account_digest`、订单 `orders_digest`、RiskEngine `assessment_digest` + 共享 `account_id`/`strategy_id`/`as_of`/`freshness=FRESH` | 正例与 mismatch/stale 用例 |
+| 未知订单 / 非 APPROVE / 执行授权语义 | 订单 `outcome` 必须在已知集合；RiskEngine 必须 `status=APPROVE` 且 `execution_authorized=false`，否则 PARKED | `test_unknown_order_outcome_parks`、`test_risk_engine_reject_or_execution_authorized_true_parks` |
+| 可验证零提交 | 成功与 PARK 均固定 `proposed_orders=[]`、`submission_attempted=false`、`execution_permitted=false`、`no_order=true` | 正例与 fail-closed 用例 |
+| 风险贡献复用 | 可选研究目标权重走既有 `assess_portfolio_risk_budget`；推荐权重不进入 `proposed_orders` | `test_research_weights_never_become_orders_even_when_reduced` |
+| 权限不变量 | `research_only` / `shadow_only` / `execution_authorized=false` / `promotion_authorized=false` + account/orders/risk/member/policy/input digests | 正例断言 |
+
+**C4 诚实边界（已标记，不偷偷放松）：**
+
+- 整数股 / 小账户、现金预留、杠杆扩大、实时流动性：与 C3 相同，标记未计算/未授权。
+- 真实成交账本：`fill_ledger_reconstruction=NOT_COMPUTED_REQUIRES_PLATFORM_FACTS`；本模块不重建 fills。
+- 输入必须由上游平台/控制面物化；本 consumer 不拉账户、不下单、不重试。
+- 研究 `APPROVE`、影子建议或目标权重均不授予执行权；C5 人工启用不在本批。
+
 ## Shadow / 权限不变量
 
-- 研究输出：`execution_authorized=false`；聚合与 C3 另含 `promotion_authorized=false`、`no_order=true`。
+- 研究输出：`execution_authorized=false`；聚合与 C3/C4 另含 `promotion_authorized=false`、`no_order=true`。
+- C4 另固定可验证零提交字段：`proposed_orders=[]`、`submission_attempted=false`、`execution_permitted=false`。
 - Shadow JSON：`promotion_state.live_enable_candidate=false`，不改变默认策略或 live 部署。
-- 本批不接生产配置、平台 workflow、账户、凭据、通知、部署或真实行情。
+- 本批不接生产配置、平台 workflow、真实账号、凭据、通知、部署或真实行情。
 
 ## 建议的下一最小缺口（非本批写集）
 
-1. C4：单一组合 consumer 读取实际账户/在途订单与 RiskEngine，产出零提交目标与组合风险贡献证据。
+1. C5：仅对冻结成员、账户、总风险预算和再平衡规则做人工批准后的有限启用；仍由单一执行者与既有风控执行。
 2. 若要强制比较级入口默认写入六项可比字段：在 daily/record producer 侧补齐，而不是在无字段旧工件上硬性 PARK。
 3. 若现有模块外需要“按约束再搜索预算”：仅在固定基线比较证明不足后另开研究，仍禁止全 Kelly / 分数直接配权 / 扩大杠杆。
