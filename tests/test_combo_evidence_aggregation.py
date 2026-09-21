@@ -98,3 +98,86 @@ def test_result_digest_changes_when_component_binding_changes() -> None:
     changed["evidence_digest"] = "c" * 64
     second = aggregate_combo_evidence(components=[changed], **kwargs)
     assert first["evidence_digest"] != second["evidence_digest"]
+
+
+def _comparable(candidate_id: str, **overrides: object) -> dict[str, object]:
+    payload = _component(candidate_id)
+    payload.update(
+        {
+            "as_of": "2026-09-21",
+            "quote_currency": "USD",
+            "capital_basis_digest": "1" * 64,
+            "cost_model_digest": "2" * 64,
+            "risk_policy_digest": "3" * 64,
+            "data_scope_digest": "4" * 64,
+        }
+    )
+    payload.update(overrides)
+    return payload
+
+
+def test_matching_comparability_fields_remain_research_only() -> None:
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[_comparable("TQQQ_P3"), _comparable("SOXL_P3")],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert result["status"] == "READY_RESEARCH_ONLY"
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
+
+
+def test_mismatched_as_of_parks_for_c2_comparability() -> None:
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[
+            _comparable("TQQQ_P3"),
+            _comparable("SOXL_P3", as_of="2026-09-20"),
+        ],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert result["status"] == "PARKED"
+    assert result["reason_codes"] == ("COMPONENT_COMPARABILITY_MISMATCH",)
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
+    assert result["component_refs"][0]["candidate_id"] == "TQQQ_P3"
+
+
+def test_partial_comparability_declaration_parks_incomplete() -> None:
+    partial = _component("SOXL_P3")
+    partial["as_of"] = "2026-09-21"
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[_comparable("TQQQ_P3"), partial],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert result["status"] == "PARKED"
+    assert result["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)
+    assert result["execution_authorized"] is False
+
+
+def test_invalid_declared_comparability_digest_parks_incomplete() -> None:
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[
+            _comparable("TQQQ_P3", cost_model_digest="not-a-digest"),
+            _comparable("SOXL_P3"),
+        ],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert result["status"] == "PARKED"
+    assert result["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
