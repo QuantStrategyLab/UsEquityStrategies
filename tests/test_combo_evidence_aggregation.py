@@ -33,11 +33,27 @@ def _component(candidate_id: str = "TQQQ_P3") -> dict[str, object]:
     }
 
 
+def _comparable(candidate_id: str = "TQQQ_P3", **overrides: object) -> dict[str, object]:
+    payload = _component(candidate_id)
+    payload.update(
+        {
+            "as_of": "2026-09-21",
+            "quote_currency": "USD",
+            "capital_basis_digest": "1" * 64,
+            "cost_model_digest": "2" * 64,
+            "risk_policy_digest": "3" * 64,
+            "data_scope_digest": "4" * 64,
+        }
+    )
+    payload.update(overrides)
+    return payload
+
+
 def test_aggregates_exact_component_refs_and_calls_risk_budget() -> None:
     result = aggregate_combo_evidence(
         combo_candidate_id="combo-2026-08-23",
         combo_revision="r1",
-        components=[_component(), _component("SOXL_P3")],
+        components=[_comparable("TQQQ_P3"), _comparable("SOXL_P3")],
         target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
         asset_risk_specs=SPECS,
         policy=POLICY,
@@ -51,11 +67,19 @@ def test_aggregates_exact_component_refs_and_calls_risk_budget() -> None:
         {"candidate_id": "TQQQ_P3", "evidence_digest": "a" * 64, "input_digest": "b" * 64, "eligible": True},
         {"candidate_id": "SOXL_P3", "evidence_digest": "a" * 64, "input_digest": "b" * 64, "eligible": True},
     ]
+    assert result["comparability"] == {
+        "as_of": "2026-09-21",
+        "quote_currency": "USD",
+        "capital_basis_digest": "1" * 64,
+        "cost_model_digest": "2" * 64,
+        "risk_policy_digest": "3" * 64,
+        "data_scope_digest": "4" * 64,
+    }
     assert len(result["evidence_digest"]) == 64
 
 
 def test_ineligible_component_parks_and_preserves_identity_refs() -> None:
-    component = _component()
+    component = _comparable()
     component["research_eligibility_status"] = "NOT_EVALUATED"
     result = aggregate_combo_evidence(
         combo_candidate_id="combo-2026-08-23",
@@ -71,7 +95,7 @@ def test_ineligible_component_parks_and_preserves_identity_refs() -> None:
 
 
 def test_invalid_digest_fails_closed() -> None:
-    component = _component()
+    component = _comparable()
     component["input_digest"] = "not-a-digest"
     result = aggregate_combo_evidence(
         combo_candidate_id="combo-2026-08-23",
@@ -93,27 +117,11 @@ def test_result_digest_changes_when_component_binding_changes() -> None:
         asset_risk_specs=SPECS,
         policy=POLICY,
     )
-    first = aggregate_combo_evidence(components=[_component()], **kwargs)
-    changed = _component()
+    first = aggregate_combo_evidence(components=[_comparable()], **kwargs)
+    changed = _comparable()
     changed["evidence_digest"] = "c" * 64
     second = aggregate_combo_evidence(components=[changed], **kwargs)
     assert first["evidence_digest"] != second["evidence_digest"]
-
-
-def _comparable(candidate_id: str, **overrides: object) -> dict[str, object]:
-    payload = _component(candidate_id)
-    payload.update(
-        {
-            "as_of": "2026-09-21",
-            "quote_currency": "USD",
-            "capital_basis_digest": "1" * 64,
-            "cost_model_digest": "2" * 64,
-            "risk_policy_digest": "3" * 64,
-            "data_scope_digest": "4" * 64,
-        }
-    )
-    payload.update(overrides)
-    return payload
 
 
 def test_matching_comparability_fields_remain_research_only() -> None:
@@ -128,6 +136,38 @@ def test_matching_comparability_fields_remain_research_only() -> None:
     assert result["status"] == "READY_RESEARCH_ONLY"
     assert result["execution_authorized"] is False
     assert result["promotion_authorized"] is False
+
+
+def test_jointly_missing_comparability_fields_park() -> None:
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[_component(), _component("SOXL_P3")],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert result["status"] == "PARKED"
+    assert result["reason_codes"] == ("COMPONENT_COMPARABILITY_MISSING",)
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
+
+
+def test_shared_partial_comparability_subset_parks_incomplete() -> None:
+    left = _component("TQQQ_P3")
+    right = _component("SOXL_P3")
+    left["as_of"] = "2026-09-21"
+    right["as_of"] = "2026-09-21"
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[left, right],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert result["status"] == "PARKED"
+    assert result["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)
 
 
 def test_mismatched_as_of_parks_for_c2_comparability() -> None:
@@ -181,3 +221,33 @@ def test_invalid_declared_comparability_digest_parks_incomplete() -> None:
     assert result["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)
     assert result["execution_authorized"] is False
     assert result["promotion_authorized"] is False
+
+
+def test_illegal_as_of_or_currency_parks_incomplete() -> None:
+    bad_as_of = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[
+            _comparable("TQQQ_P3", as_of="09/21/2026"),
+            _comparable("SOXL_P3", as_of="09/21/2026"),
+        ],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert bad_as_of["status"] == "PARKED"
+    assert bad_as_of["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)
+
+    bad_currency = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[
+            _comparable("TQQQ_P3", quote_currency="usd"),
+            _comparable("SOXL_P3", quote_currency="usd"),
+        ],
+        target_weights={"TQQQ": 0.3, "SOXL": 0.1, "BOXX": 0.6},
+        asset_risk_specs=SPECS,
+        policy=POLICY,
+    )
+    assert bad_currency["status"] == "PARKED"
+    assert bad_currency["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)

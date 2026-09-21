@@ -105,6 +105,15 @@ def test_compares_two_fixed_budgets_without_authorizing_execution() -> None:
     assert result["boundaries"]["leverage_expansion"] == "NOT_AUTHORIZED_NOT_COMPUTED"
     assert result["boundaries"]["integer_share_sizing"] == "DIAGNOSTIC_ONLY_NOT_COMPUTED"
     assert result["boundaries"]["concentration_underlying_diagnosis"] == "NOT_PROVIDED"
+    assert result["boundaries"]["metrics_basis"] == "RAW_FIXED_MEMBER_BUDGETS_UNSCALED"
+    assert result["boundaries"]["risk_scaling_applied_to_returns"] == "NOT_APPLIED"
+    assert result["boundaries"]["rebalance_fee_reconstruction"] == "NOT_COMPUTED"
+    assert balanced["metrics_accounting"] == {
+        "weight_source": "declared_member_budget_weights",
+        "risk_scaling_applied": False,
+        "rebalance_fees_applied": False,
+        "realized_vs_recommended": "METRICS_ARE_RAW_FIXED_BUDGET_NOT_RISK_SCALED_RECOMMENDATION",
+    }
 
 
 def test_mismatched_comparability_parks_fail_closed() -> None:
@@ -209,6 +218,18 @@ def test_concentration_snapshot_reuses_portfolio_risk_budget() -> None:
     assert first["status"] in {"APPROVE", "REDUCE"}
     assert "effective_risk_exposure" in first["metrics"]
     assert result["baselines"][0]["declared_one_way_turnover"] == 0.05
+    accounting = result["baselines"][0]["metrics_accounting"]
+    assert accounting["risk_scaling_applied"] is False
+    assert accounting["rebalance_fees_applied"] is False
+    assert accounting["weight_source"] == "declared_member_budget_weights"
+    assert accounting["realized_vs_recommended"] == (
+        "METRICS_ARE_RAW_FIXED_BUDGET_NOT_RISK_SCALED_RECOMMENDATION"
+    )
+    # Diagnostic recommendation must not rewrite raw fixed-budget metrics.
+    assert "recommended_target_weights" in first
+    assert result["baselines"][0]["metrics"]["session_count"] == 4
+    assert result["boundaries"]["risk_scaling_applied_to_returns"] == "NOT_APPLIED"
+    assert result["boundaries"]["rebalance_fee_reconstruction"] == "NOT_COMPUTED"
 
 
 def test_incomplete_comparability_fields_park() -> None:
