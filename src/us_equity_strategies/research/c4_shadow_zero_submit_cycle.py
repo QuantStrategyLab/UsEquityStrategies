@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 
 from us_equity_strategies.portfolio_risk_budget import (
     PortfolioAssetRiskSpec,
@@ -99,9 +100,26 @@ def _digest(value: object, label: str) -> str:
 
 
 def _as_of(value: object, label: str) -> str:
+    """Require a parseable, timezone-aware, non-future UTC instant."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label}_INVALID")
-    return value
+    text = value.strip()
+    if text.endswith("Z"):
+        normalized = text[:-1] + "+00:00"
+    else:
+        normalized = text
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(f"{label}_UNPARSEABLE") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{label}_TIMEZONE_REQUIRED")
+    utc_value = parsed.astimezone(timezone.utc)
+    if utc_value > datetime.now(timezone.utc):
+        raise ValueError(f"{label}_FUTURE")
+    if utc_value.microsecond:
+        return utc_value.isoformat().replace("+00:00", "Z")
+    return utc_value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _freshness(value: object, label: str) -> str:
@@ -258,9 +276,12 @@ def consume_c4_shadow_zero_submit_cycle(
 
     Successful outputs stay research/shadow-only and encode a verifiable zero
     submit: empty ``proposed_orders``, ``submission_attempted=false``, and
-    ``execution_permitted=false``.  Missing, stale, identity/as-of/digest
-    mismatches, unknown order outcomes, non-APPROVE RiskEngine results, or
-    RiskEngine ``execution_authorized=true`` all fail closed as ``PARKED``.
+    ``execution_permitted=false``.  ``FRESH`` alone is insufficient: each
+    ``as_of`` must parse as a timezone-aware, non-future instant and account,
+    orders, and RiskEngine refs must share the same normalized UTC instant.
+    Missing, stale, identity/as-of/digest mismatches, unknown order outcomes,
+    non-APPROVE RiskEngine results, or RiskEngine ``execution_authorized=true``
+    all fail closed as ``PARKED``.
     """
     account_ref: dict[str, object] = {}
     orders_ref: dict[str, object] = {}
@@ -327,6 +348,8 @@ def consume_c4_shadow_zero_submit_cycle(
             "account_ref": account_ref,
             "orders_ref": orders_ref,
             "risk_ref": risk_ref,
+            # Normalized UTC equality is the only accepted time relation.
+            "as_of_relation": "ACCOUNT_ORDERS_RISK_IDENTICAL_UTC",
             "member_refs": parsed_members,
             "policy_digest": risk_ref["risk_policy_digest"],
             "input_digest": input_digest,

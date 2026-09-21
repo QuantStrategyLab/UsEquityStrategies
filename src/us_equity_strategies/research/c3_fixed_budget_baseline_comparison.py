@@ -29,6 +29,7 @@ SCHEMA_VERSION = "qsl.c3-fixed-budget-baseline-comparison-research.v1"
 EVIDENCE_SCOPE = "FIXED_MEMBER_BUDGET_BASELINE_COMPARISON_ONLY"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _IDENTITY = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
+_CURRENCY = re.compile(r"^[A-Z]{3}$")
 _EPSILON = 1e-12
 _COMPARABILITY_FIELDS = (
     "as_of",
@@ -44,7 +45,18 @@ _BOUNDARY_MARKERS = {
     "leverage_expansion": "NOT_AUTHORIZED_NOT_COMPUTED",
     "live_liquidity_gates": "NOT_COMPUTED",
     "cost_accounting": "EMBEDDED_IN_MEMBER_RETURNS_VIA_COST_MODEL_DIGEST",
+    "metrics_basis": "RAW_FIXED_MEMBER_BUDGETS_UNSCALED",
+    "risk_scaling_applied_to_returns": "NOT_APPLIED",
+    "rebalance_fee_reconstruction": "NOT_COMPUTED",
     "optimization": "DISABLED_FIXED_BUDGETS_ONLY",
+}
+_METRICS_ACCOUNTING = {
+    "weight_source": "declared_member_budget_weights",
+    "risk_scaling_applied": False,
+    "rebalance_fees_applied": False,
+    "realized_vs_recommended": (
+        "METRICS_ARE_RAW_FIXED_BUDGET_NOT_RISK_SCALED_RECOMMENDATION"
+    ),
 }
 
 
@@ -146,7 +158,17 @@ def _comparability(member: Mapping[str, object]) -> dict[str, str]:
         value = member[field]
         if not isinstance(value, str) or not value.strip():
             raise ValueError("MEMBER_COMPARABILITY_INCOMPLETE")
-        if field.endswith("_digest") and _DIGEST.fullmatch(value) is None:
+        if field == "as_of":
+            try:
+                parsed = date.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError("MEMBER_COMPARABILITY_INCOMPLETE") from exc
+            if parsed.isoformat() != value:
+                raise ValueError("MEMBER_COMPARABILITY_INCOMPLETE")
+        elif field == "quote_currency":
+            if _CURRENCY.fullmatch(value) is None:
+                raise ValueError("MEMBER_COMPARABILITY_INCOMPLETE")
+        elif field.endswith("_digest") and _DIGEST.fullmatch(value) is None:
             raise ValueError("MEMBER_COMPARABILITY_INCOMPLETE")
         normalized[field] = value
     return normalized
@@ -353,8 +375,10 @@ def compare_fixed_member_budget_baselines(
     """Compare ≥2 declared fixed member budgets on aligned member returns.
 
     Successful outputs remain research/shadow-only: ``execution_authorized``,
-    ``promotion_authorized`` stay false and ``no_order`` stays true.  Member
-    returns are not re-costed; cost meaning is bound by the shared
+    ``promotion_authorized`` stay false and ``no_order`` stays true.  Reported
+    metrics represent the raw declared fixed-budget combination only: risk
+    scaling and rebalance-fee reconstruction are not applied to returns.
+    Member returns are not re-costed; cost meaning is bound by the shared
     ``cost_model_digest``.  Different windows or synthetic splices are rejected
     via date/comparability fail-closed checks.
     """
@@ -397,17 +421,22 @@ def compare_fixed_member_budget_baselines(
             combined = _combine_returns(
                 members=parsed_members, budgets=baseline["member_budget_weights"]
             )
+            concentration = _concentration(
+                baseline=baseline,
+                asset_risk_specs=asset_risk_specs,
+                risk_policy=risk_policy,
+            )
             result: dict[str, object] = {
                 "baseline_id": baseline["baseline_id"],
                 "budget_digest": baseline["budget_digest"],
                 "member_budget_weights": baseline["member_budget_weights"],
+                # Metrics stay on declared fixed budgets only. Concentration
+                # recommendations / risk_scalar are diagnostic and must not be
+                # read as already-realized scaled returns or fee-adjusted PnL.
                 "metrics": _metrics(dates, combined),
+                "metrics_accounting": dict(_METRICS_ACCOUNTING),
                 "declared_one_way_turnover": baseline["declared_one_way_turnover"],
-                "concentration": _concentration(
-                    baseline=baseline,
-                    asset_risk_specs=asset_risk_specs,
-                    risk_policy=risk_policy,
-                ),
+                "concentration": concentration,
             }
             baseline_results.append(result)
 
