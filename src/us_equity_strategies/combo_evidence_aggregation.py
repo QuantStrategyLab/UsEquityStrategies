@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
+from datetime import date
 
 from .portfolio_risk_budget import (
     PortfolioAssetRiskSpec,
@@ -19,10 +20,11 @@ from .portfolio_risk_budget import (
 )
 
 SCHEMA_VERSION = "qsl.combo-evidence-aggregation-research.v1"
-_DIGEST = re.compile(r"[0-9a-f]{64}")
-# Optional C2 comparability fields. When any component carries one of these,
-# every component must present the same non-empty values or aggregation PARKS.
-# Absent fields keep legacy single-artifact callers unchanged.
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_CURRENCY = re.compile(r"^[A-Z]{3}$")
+# Required C2 comparability fields. Every component must present the full set
+# with identical legal values or aggregation PARKS. Jointly missing fields are
+# treated as missing evidence, not as a legacy research-ready path.
 _COMPARABILITY_FIELDS = (
     "as_of",
     "quote_currency",
@@ -66,17 +68,29 @@ def _parked(
 
 def _comparability_slice(
     component: Mapping[str, object],
-) -> dict[str, str] | None | str:
-    """Return normalized fields, ``None`` if undeclared, or a PARK reason."""
+) -> dict[str, str] | str:
+    """Return normalized six-field slice, or a PARK reason."""
     present_fields = tuple(field for field in _COMPARABILITY_FIELDS if field in component)
     if not present_fields:
-        return None
+        return "COMPONENT_COMPARABILITY_MISSING"
+    if len(present_fields) != len(_COMPARABILITY_FIELDS):
+        return "COMPONENT_COMPARABILITY_INCOMPLETE"
     normalized: dict[str, str] = {}
-    for field in present_fields:
+    for field in _COMPARABILITY_FIELDS:
         value = component[field]
         if not isinstance(value, str) or not value.strip():
             return "COMPONENT_COMPARABILITY_INCOMPLETE"
-        if field.endswith("_digest") and _DIGEST.fullmatch(value) is None:
+        if field == "as_of":
+            try:
+                parsed = date.fromisoformat(value)
+            except ValueError:
+                return "COMPONENT_COMPARABILITY_INCOMPLETE"
+            if parsed.isoformat() != value:
+                return "COMPONENT_COMPARABILITY_INCOMPLETE"
+        elif field == "quote_currency":
+            if _CURRENCY.fullmatch(value) is None:
+                return "COMPONENT_COMPARABILITY_INCOMPLETE"
+        elif field.endswith("_digest") and _DIGEST.fullmatch(value) is None:
             return "COMPONENT_COMPARABILITY_INCOMPLETE"
         normalized[field] = value
     return normalized
@@ -84,26 +98,18 @@ def _comparability_slice(
 
 def _check_component_comparability(
     components: Sequence[Mapping[str, object]],
-) -> str | None:
-    """Return a PARK reason when declared comparability fields conflict."""
-    slices: list[dict[str, str] | None] = []
+) -> tuple[str | None, dict[str, str] | None]:
+    """Return (PARK reason, shared slice). Missing evidence always parks."""
+    slices: list[dict[str, str]] = []
     for component in components:
         parsed = _comparability_slice(component)
         if isinstance(parsed, str):
-            return parsed
+            return parsed, None
         slices.append(parsed)
-    declared = [item for item in slices if item is not None]
-    if not declared:
-        return None
-    if any(item is None for item in slices):
-        return "COMPONENT_COMPARABILITY_INCOMPLETE"
-    field_sets = {frozenset(item) for item in declared}
-    if len(field_sets) != 1:
-        return "COMPONENT_COMPARABILITY_INCOMPLETE"
-    baseline = declared[0]
-    if any(item != baseline for item in declared[1:]):
-        return "COMPONENT_COMPARABILITY_MISMATCH"
-    return None
+    baseline = slices[0]
+    if any(item != baseline for item in slices[1:]):
+        return "COMPONENT_COMPARABILITY_MISMATCH", None
+    return None, baseline
 
 
 def aggregate_combo_evidence(
@@ -120,11 +126,11 @@ def aggregate_combo_evidence(
 
     Component records must carry immutable ``candidate_id``, ``evidence_digest``
     and ``input_digest`` values.  A component is usable only when it explicitly
-    reports ``evidence_valid`` and an eligible research status.  When any
-    component declares C2 comparability fields (``as_of``, ``quote_currency``,
-    capital/cost/risk/data digests), every component must carry the same values
-    or the result is ``PARKED``.  A successful result remains research-only: no
-    promotion or broker gate is bypassed.
+    reports ``evidence_valid`` and an eligible research status.  Every component
+    must also carry the full C2 comparability set (``as_of``, ``quote_currency``,
+    capital/cost/risk/data digests) with identical legal values, or the result
+    is ``PARKED``.  A successful result remains research-only: no promotion or
+    broker gate is bypassed.
     """
     if not isinstance(combo_candidate_id, str) or not combo_candidate_id.strip():
         return _parked("COMBO_CANDIDATE_ID_INVALID")
@@ -171,7 +177,7 @@ def aggregate_combo_evidence(
             component_refs=refs,
         )
 
-    comparability_reason = _check_component_comparability(components)
+    comparability_reason, comparability = _check_component_comparability(components)
     if comparability_reason is not None:
         return _parked(
             comparability_reason,
@@ -192,6 +198,7 @@ def aggregate_combo_evidence(
         "combo_candidate_id": combo_candidate_id,
         "combo_revision": combo_revision,
         "component_refs": refs,
+        "comparability": dict(comparability or {}),
         "risk_assessment": risk,
         "execution_authorized": False,
         "promotion_authorized": False,

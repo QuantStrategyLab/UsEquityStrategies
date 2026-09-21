@@ -217,3 +217,59 @@ def test_research_weights_never_become_orders_even_when_reduced() -> None:
     assert result["submission_attempted"] is False
     assert result["execution_permitted"] is False
     assert result["execution_authorized"] is False
+
+
+def test_fresh_snapshot_rejects_illegal_naive_or_future_as_of() -> None:
+    naive = consume_c4_shadow_zero_submit_cycle(
+        account_snapshot=_account(as_of="2026-09-21T14:00:00"),
+        open_orders_snapshot=_orders(as_of="2026-09-21T14:00:00"),
+        risk_engine_result=_risk(as_of="2026-09-21T14:00:00"),
+    )
+    assert naive["status"] == "PARKED"
+    assert naive["reason_codes"] == ("ACCOUNT_AS_OF_TIMEZONE_REQUIRED",)
+    assert naive["proposed_orders"] == []
+    assert naive["submission_attempted"] is False
+    assert naive["execution_permitted"] is False
+    assert naive["execution_authorized"] is False
+    assert naive["promotion_authorized"] is False
+    assert naive["no_order"] is True
+
+    unparseable = consume_c4_shadow_zero_submit_cycle(
+        account_snapshot=_account(as_of="not-a-timestamp"),
+        open_orders_snapshot=_orders(as_of="not-a-timestamp"),
+        risk_engine_result=_risk(as_of="not-a-timestamp"),
+    )
+    assert unparseable["status"] == "PARKED"
+    assert unparseable["reason_codes"] == ("ACCOUNT_AS_OF_UNPARSEABLE",)
+
+    future = consume_c4_shadow_zero_submit_cycle(
+        account_snapshot=_account(as_of="2099-01-01T00:00:00Z"),
+        open_orders_snapshot=_orders(as_of="2099-01-01T00:00:00Z"),
+        risk_engine_result=_risk(as_of="2099-01-01T00:00:00Z"),
+    )
+    assert future["status"] == "PARKED"
+    assert future["reason_codes"] == ("ACCOUNT_AS_OF_FUTURE",)
+
+
+def test_account_and_orders_as_of_must_share_explainable_instant() -> None:
+    mismatched = consume_c4_shadow_zero_submit_cycle(
+        account_snapshot=_account(as_of="2026-09-21T14:00:00Z"),
+        open_orders_snapshot=_orders(as_of="2026-09-21T14:05:00Z"),
+        risk_engine_result=_risk(as_of="2026-09-21T14:00:00Z"),
+    )
+    assert mismatched["status"] == "PARKED"
+    assert mismatched["reason_codes"] == ("ACCOUNT_ORDERS_AS_OF_MISMATCH",)
+    assert mismatched["proposed_orders"] == []
+    assert mismatched["no_order"] is True
+
+    equivalent = consume_c4_shadow_zero_submit_cycle(
+        account_snapshot=_account(as_of="2026-09-21T14:00:00+00:00"),
+        open_orders_snapshot=_orders(as_of="2026-09-21T14:00:00Z"),
+        risk_engine_result=_risk(as_of="2026-09-21T14:00:00Z"),
+    )
+    assert equivalent["status"] == "READY_SHADOW_ZERO_SUBMIT"
+    assert equivalent["account_ref"]["as_of"] == "2026-09-21T14:00:00Z"
+    assert equivalent["orders_ref"]["as_of"] == "2026-09-21T14:00:00Z"
+    assert equivalent["as_of_relation"] == "ACCOUNT_ORDERS_RISK_IDENTICAL_UTC"
+    assert equivalent["execution_authorized"] is False
+    assert equivalent["proposed_orders"] == []
