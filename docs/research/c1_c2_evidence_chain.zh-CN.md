@@ -1,6 +1,6 @@
 # C1–C4 组合复利研究证据链（research/shadow-only）
 
-来源：`AGENTS.md`、系统架构 §4/§5 组合与研究边界、审计报告 §9.9 / §9.12 / §9.14 / §9.15.17 / §9.15.18。
+来源：`AGENTS.md`、系统架构 §4/§5 组合与研究边界、审计报告 §9.9 / §9.12 / §9.14 / §9.15.17–§9.15.21。
 本文件固定 **UsEquityStrategies 研究层** 对 C1–C4 的覆盖与剩余边界；不授予 paper/shadow/live，也不承诺最大 CAGR。
 
 ## 结论
@@ -10,6 +10,7 @@
 | C1 单策略/候选目标闭环 | **研究积木已达标** | raw 目标不因风险缩放被改写；`recommended_target_weights` + `reason_codes` 可追溯；`execution_authorized=false` |
 | C2 可比较成员 | **研究积木已达标（声明式口径）** | ≥2 成员可在同一政策/预算下合并；身份/资格冲突 PARK；**一旦声明** as_of/币种/资金/成本/风险/数据 digest，不一致或缺省即 PARK |
 | C3 固定成员预算基线比较 | **研究积木已达标（离线固定预算）** | ≥2 成员对齐收益 + ≥2 声明固定预算；输出净值/回撤/波动/尾部代理；可选换手声明与风险快照；不自动优化 |
+| Batch A（现有 SOXL/TQQQ+现金基线） | **PARKED / 证据不足** | C3 consumer 与 gate 已接线；本 worktree 缺冻结对齐日收益与现金序列，拒绝编造；见下文 Batch A 节 |
 | C4 Shadow/禁止提交周期 | **研究积木已达标（物化快照 consumer）** | 只读已物化账户/在途订单/RiskEngine；成功态可验证零提交；缺漏/过期/不一致/未知订单/非 APPROVE/`execution_authorized=true` → PARKED |
 | C5 | 不在本批 | 人工批准后的有限启用仍后续 |
 
@@ -98,8 +99,30 @@
 - Shadow JSON：`promotion_state.live_enable_candidate=false`，不改变默认策略或 live 部署。
 - 本批不接生产配置、平台 workflow、真实账号、凭据、通知、部署或真实行情。
 
+## Batch A（§9.15.21）：现有 SOXL/TQQQ + 含现金固定预算基线
+
+来源：审计 §9.9 / §9.15.18 / §9.15.20–§9.15.21。目标是用**已存在**证据验证 C3 比较能否形成第一版可复核研究结果；不新增策略/优化器。
+
+| 项 | 当前结论 |
+|---|---|
+| C3 离线积木 | 已达标（见上节） |
+| Batch A 端到端研究案例 | **PARKED / 证据不足**（本 worktree） |
+| Consumer | `research/c3_batch_a_existing_member_baseline.evaluate_batch_a_existing_member_baselines` |
+| CLI | `scripts/run_c3_batch_a_existing_member_baseline.py` |
+| 锁定测试 | `tests/test_c3_batch_a_existing_member_baseline.py` |
+
+**为何 PARKED（诚实边界，不编造收益）：**
+
+1. 仓内没有带六项 C2 可比字段的对齐 SOXL/TQQQ 日收益序列；R3 落盘 bundle 只保留窗口指标与序列 SHA，不含完整日收益。
+2. 锁定私有 R3 输入默认路径不在本 worktree / 本机挂载点；缺则 `assess_private_r3_readiness` 失败。
+3. 现金/BOXX 仅有风险与权重语义（`portfolio_risk_budget` / shadow 配置），没有对齐冻结的现金日收益成员；`ASSUMED_ZERO_CASH_SLEEVE` 只在显式冻结 pack 中声明后才可用，不得静默合成。
+4. `legacy_combo_derived_returns_replay` / `us_equity_combo_backtest_20260628.json` 明确拒绝作为 Batch A 证据。
+
+成功态仍固定 `research_only` / `shadow_only` / `execution_authorized=false` / `promotion_authorized=false` / `no_order=true`。合同测试可用显式 fixture pack 验证接线，**不**冒充私有 R3 研究结果。
+
 ## 建议的下一最小缺口（非本批写集）
 
-1. C5：仅对冻结成员、账户、总风险预算和再平衡规则做人工批准后的有限启用；仍由单一执行者与既有风控执行。
-2. 若要强制比较级入口默认写入六项可比字段：在 daily/record producer 侧补齐，而不是在无字段旧工件上硬性 PARK。
-3. 若现有模块外需要“按约束再搜索预算”：仅在固定基线比较证明不足后另开研究，仍禁止全 Kelly / 分数直接配权 / 扩大杠杆。
+1. **Batch A 解除 PARK 的最小前置**：在批准的私有研究环境挂载锁定 R3 输入，物化一份 `qsl.c3-batch-a-frozen-member-pack.v1`（对齐日收益 + 六项可比字段 + 明确现金口径），再跑本 consumer；不得用 public 行情或 synthetic 冒充。
+2. C5：仅对冻结成员、账户、总风险预算和再平衡规则做人工批准后的有限启用；仍由单一执行者与既有风控执行。
+3. 若要强制比较级入口默认写入六项可比字段：在 daily/record producer 侧补齐，而不是在无字段旧工件上硬性 PARK。
+4. 若现有模块外需要“按约束再搜索预算”：仅在固定基线比较证明不足后另开研究，仍禁止全 Kelly / 分数直接配权 / 扩大杠杆。
