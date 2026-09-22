@@ -118,6 +118,14 @@ def test_frozen_pack_contract_can_form_reviewable_batch_a_result() -> None:
     assert first["declared_one_way_turnover"] is not None
     assert first["concentration"] is not None
     assert first["concentration"]["execution_authorized"] is False
+    assert first["capital_path"] is None
+    assert first["metrics_accounting"]["risk_scaling_applied"] is False
+    assert first["metrics_accounting"]["rebalance_fees_applied"] is False
+    assert comparison["boundaries"]["risk_scaling_applied_to_returns"] == "NOT_APPLIED"
+    assert comparison["boundaries"]["rebalance_fee_reconstruction"] == "NOT_COMPUTED"
+    assert result["boundaries"]["rebalance_fee_reconstruction"] == (
+        "NOT_COMPUTED_MISSING_COMBO_FEE_BPS_AND_REBALANCE_SCHEDULE"
+    )
 
 
 def test_nonzero_assumed_zero_cash_parks() -> None:

@@ -64,7 +64,7 @@
 | 换手声明完整性 | `declared_one_way_turnover` 要么全基线声明，要么全不声明 | `test_partial_turnover_declaration_parks` |
 | 集中度/同底层（可选快照） | 复用 `assess_portfolio_risk_budget`；诊断 PARK 则整体 PARK | `test_concentration_snapshot_reuses_portfolio_risk_budget` |
 | 成本口径 | 不二次扣费；绑定共享 `cost_model_digest`（`EMBEDDED_IN_MEMBER_RETURNS_VIA_COST_MODEL_DIGEST`） | 边界字段断言 |
-| 风险缩放 / 再平衡费用 | `metrics_basis=RAW_FIXED_MEMBER_BUDGETS_UNSCALED`；`risk_scaling_applied_to_returns=NOT_APPLIED`；`rebalance_fee_reconstruction=NOT_COMPUTED`；每基线 `metrics_accounting` 标明 metrics 不是缩放后建议的已实现收益 | `test_compares_two_fixed_budgets_without_authorizing_execution`、`test_concentration_snapshot_reuses_portfolio_risk_budget` |
+| 风险缩放 / 再平衡费用 | **默认** raw metrics：`metrics_basis=RAW_FIXED_MEMBER_BUDGETS_UNSCALED`；`risk_scaling_applied_to_returns=NOT_APPLIED`；`rebalance_fee_reconstruction=NOT_COMPUTED`。可选 `capital_path_options`（显式 `apply_risk_scaling` / `cash_member_id` / `rebalance_fee_bps` / `rebalance_indices`）才在 `capital_path` 块内计算漂移、增量组合费用与缩放后现金/敞口；成员成本不二次扣除 | `tests/test_c3_fixed_budget_baseline_comparison.py`、`tests/test_c3_capital_path.py` |
 | 权限不变量 | `research_only` / `shadow_only` / `execution_authorized=false` / `promotion_authorized=false` / `no_order=true` + member/baseline/policy digests | 正例与 PARK 用例 |
 
 **C3 诚实边界（已标记，不偷偷放松）：**
@@ -72,8 +72,9 @@
 - 整数股 / 小账户：`integer_share_sizing=DIAGNOSTIC_ONLY_NOT_COMPUTED`（继续依赖 `account_sizing` 诊断，不在此重算可执行股数）。
 - 现金预留 / 杠杆扩大：`cash_reserve_enforcement` 与 `leverage_expansion` 明确未计算、未授权。
 - 实时流动性闸：`live_liquidity_gates=NOT_COMPUTED`。
-- 成本与换手：本模块不重建成交账本或再平衡费用；成员收益须已按声明成本模型冻结。`declared_one_way_turnover` 只是声明，不改写 metrics。部分声明换手 → PARK。
-- 集中度诊断给出的 `risk_scalar` / `recommended_target_weights` **不得**读成已实现的缩放后组合收益。
+- 成本与换手：默认路径不重建成交账本或再平衡费用；成员收益须已按声明成本模型冻结。`declared_one_way_turnover` 只是声明，不改写 raw metrics。部分声明换手 → PARK。
+- 可选资本路径：仅当调用方显式提供组合层 `rebalance_fee_bps` 与 `rebalance_indices` 时才重建**增量**组合再平衡费用；缺任一输入则 PARK 或保持 `NOT_COMPUTED`，不用 `declared_one_way_turnover` 冒充费率。成员净收益路径下禁止再扣成员成本。
+- 集中度诊断给出的 `risk_scalar` / `recommended_target_weights` **不得**读成默认 raw metrics 的已实现缩放收益；仅在 `capital_path_options.apply_risk_scaling=true` 且提供现金成员时写入 `capital_path`。
 - `legacy_combo_derived_returns_replay` 仍是探索性派生收益回放，**不能**替代本 C3 模块作为可比基线证据。
 
 ## C4 证据映射

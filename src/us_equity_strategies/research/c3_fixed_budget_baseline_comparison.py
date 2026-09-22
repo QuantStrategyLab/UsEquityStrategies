@@ -24,6 +24,11 @@ from us_equity_strategies.portfolio_risk_budget import (
     PortfolioRiskBudgetPolicy,
     assess_portfolio_risk_budget,
 )
+from us_equity_strategies.research.c3_capital_path import (
+    diagnose_capital_path_inputs,
+    scale_member_budgets_to_cash,
+    simulate_fixed_budget_capital_path,
+)
 
 SCHEMA_VERSION = "qsl.c3-fixed-budget-baseline-comparison-research.v1"
 EVIDENCE_SCOPE = "FIXED_MEMBER_BUDGET_BASELINE_COMPARISON_ONLY"
@@ -337,6 +342,168 @@ def _combine_returns(
     return tuple(combined)
 
 
+def _parse_capital_path_options(value: object) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError("CAPITAL_PATH_OPTIONS_INVALID")
+    apply_risk_scaling = value.get("apply_risk_scaling", False)
+    if not isinstance(apply_risk_scaling, bool):
+        raise ValueError("CAPITAL_PATH_OPTIONS_INVALID")
+    cash_member_id = value.get("cash_member_id")
+    if cash_member_id is not None:
+        cash_member_id = _identity(cash_member_id, "CASH_MEMBER_ID")
+    rebalance_fee_bps = value.get("rebalance_fee_bps")
+    if rebalance_fee_bps is not None:
+        if isinstance(rebalance_fee_bps, bool) or not isinstance(
+            rebalance_fee_bps, (int, float)
+        ):
+            raise ValueError("REBALANCE_FEE_BPS_INVALID")
+        rebalance_fee_bps = float(rebalance_fee_bps)
+        if not math.isfinite(rebalance_fee_bps) or rebalance_fee_bps < 0.0:
+            raise ValueError("REBALANCE_FEE_BPS_INVALID")
+    rebalance_indices = value.get("rebalance_indices")
+    if rebalance_indices is not None:
+        if not isinstance(rebalance_indices, Sequence) or isinstance(
+            rebalance_indices, (str, bytes)
+        ):
+            raise ValueError("REBALANCE_INDEX_INVALID")
+        parsed_indices: list[int] = []
+        for item in rebalance_indices:
+            if isinstance(item, bool) or not isinstance(item, int):
+                raise ValueError("REBALANCE_INDEX_INVALID")
+            parsed_indices.append(item)
+        rebalance_indices = tuple(parsed_indices)
+    member_costs_already_embedded = value.get("member_costs_already_embedded", True)
+    if member_costs_already_embedded is not True:
+        raise ValueError("MEMBER_GROSS_RETURNS_REQUIRED_TO_RECHARGE_MEMBER_COSTS")
+    return {
+        "apply_risk_scaling": apply_risk_scaling,
+        "cash_member_id": cash_member_id,
+        "rebalance_fee_bps": rebalance_fee_bps,
+        "rebalance_indices": rebalance_indices,
+        "member_costs_already_embedded": True,
+    }
+
+
+def _capital_path_for_baseline(
+    *,
+    members: Sequence[Mapping[str, object]],
+    budgets: Mapping[str, float],
+    dates: Sequence[str],
+    options: Mapping[str, object],
+    concentration: Mapping[str, object] | None,
+) -> dict[str, object]:
+    apply_risk_scaling = bool(options["apply_risk_scaling"])
+    cash_member_id = options["cash_member_id"]
+    rebalance_fee_bps = options["rebalance_fee_bps"]
+    rebalance_indices = options["rebalance_indices"]
+    gaps = diagnose_capital_path_inputs(
+        apply_risk_scaling=apply_risk_scaling,
+        rebalance_fee_bps=(
+            rebalance_fee_bps if isinstance(rebalance_fee_bps, float) else None
+        ),
+        rebalance_indices=(
+            rebalance_indices if isinstance(rebalance_indices, tuple) else None
+        ),
+        cash_member_id=cash_member_id if isinstance(cash_member_id, str) else None,
+        has_risk_diagnosis=concentration is not None,
+    )
+    # Drift-only (no fee schedule) is allowed when scaling or path is requested
+    # without positive fee inputs; drop the "not requested" diagnostic noise.
+    gaps = tuple(
+        gap
+        for gap in gaps
+        if gap != "CAPITAL_PATH_OPTIONAL_INPUTS_NOT_REQUESTED"
+    )
+    if apply_risk_scaling and (
+        "NEED_RISK_POLICY_AND_TARGET_WEIGHTS_FOR_SCALING" in gaps
+        or "NEED_CASH_MEMBER_ID_FOR_RISK_SCALING_RESIDUAL" in gaps
+    ):
+        raise ValueError("CAPITAL_PATH_RISK_SCALING_INPUTS_INCOMPLETE")
+    if (
+        isinstance(rebalance_fee_bps, float)
+        and rebalance_fee_bps > 0.0
+        and rebalance_indices is None
+    ):
+        raise ValueError("REBALANCE_SCHEDULE_REQUIRED_FOR_POSITIVE_FEE")
+    if rebalance_indices is not None and rebalance_fee_bps is None:
+        raise ValueError("REBALANCE_FEE_BPS_REQUIRED_FOR_REBALANCE")
+
+    path_budgets = dict(budgets)
+    risk_scalar = 1.0
+    scaled_from: dict[str, float] | None = None
+    if apply_risk_scaling:
+        assert concentration is not None
+        assert isinstance(cash_member_id, str)
+        risk_scalar = float(concentration["risk_scalar"])
+        scaled_from = dict(budgets)
+        path_budgets = scale_member_budgets_to_cash(
+            budgets=budgets,
+            risk_scalar=risk_scalar,
+            cash_member_id=cash_member_id,
+        )
+
+    member_ids = tuple(str(member["member_id"]) for member in members)
+    member_returns = {
+        str(member["member_id"]): tuple(float(item) for item in member["returns"])  # type: ignore[arg-type]
+        for member in members
+    }
+    path = simulate_fixed_budget_capital_path(
+        member_ids=member_ids,
+        member_returns=member_returns,
+        target_weights=path_budgets,
+        rebalance_fee_bps=(
+            rebalance_fee_bps if isinstance(rebalance_fee_bps, float) else None
+        ),
+        rebalance_indices=(
+            rebalance_indices if isinstance(rebalance_indices, tuple) else None
+        ),
+        member_costs_already_embedded=True,
+    )
+    path_returns = tuple(float(item) for item in path["daily_returns"])  # type: ignore[arg-type]
+    cash_weight = (
+        float(path_budgets[cash_member_id]) if isinstance(cash_member_id, str) else None
+    )
+    non_cash_exposure = math.fsum(
+        weight
+        for member_id, weight in path_budgets.items()
+        if member_id != cash_member_id
+    )
+    return {
+        "metrics": _metrics(dates, path_returns),
+        "daily_returns": path_returns,
+        "target_weights_used": path_budgets,
+        "risk_scalar": risk_scalar,
+        "scaled_from_member_budget_weights": scaled_from,
+        "cash_weight_after_scaling": cash_weight,
+        "non_cash_nominal_exposure_after_scaling": non_cash_exposure,
+        "final_weights": path["final_weights"],
+        "weight_path": path["weight_path"],
+        "fee_fractions": path["fee_fractions"],
+        "one_way_turnovers": path["one_way_turnovers"],
+        "total_fee_fraction_sum": path["total_fee_fraction_sum"],
+        "input_gaps": gaps,
+        "metrics_accounting": {
+            "weight_source": (
+                "risk_scaled_member_budget_weights"
+                if apply_risk_scaling
+                else "declared_member_budget_weights"
+            ),
+            "risk_scaling_applied": apply_risk_scaling,
+            "rebalance_fees_applied": bool(path["rebalance_fees_applied"]),
+            "member_costs_recharged": False,
+            "member_costs_treatment": "ALREADY_EMBEDDED_VIA_COST_MODEL_DIGEST",
+            "realized_vs_recommended": (
+                "METRICS_USE_RISK_SCALED_TARGET_WHEN_REQUESTED"
+                if apply_risk_scaling
+                else "METRICS_USE_DECLARED_FIXED_BUDGET_WITH_OPTIONAL_PATH_FEES"
+            ),
+        },
+        "rebalance_fee_reconstruction": path["rebalance_fee_reconstruction"],
+    }
+
+
 def _concentration(
     *,
     baseline: Mapping[str, object],
@@ -371,14 +538,16 @@ def compare_fixed_member_budget_baselines(
     baselines: Sequence[Mapping[str, object]],
     asset_risk_specs: Mapping[str, PortfolioAssetRiskSpec] | None = None,
     risk_policy: PortfolioRiskBudgetPolicy | None = None,
+    capital_path_options: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Compare ≥2 declared fixed member budgets on aligned member returns.
 
     Successful outputs remain research/shadow-only: ``execution_authorized``,
-    ``promotion_authorized`` stay false and ``no_order`` stays true.  Reported
+    ``promotion_authorized`` stay false and ``no_order`` stays true.  Default
     metrics represent the raw declared fixed-budget combination only: risk
-    scaling and rebalance-fee reconstruction are not applied to returns.
-    Member returns are not re-costed; cost meaning is bound by the shared
+    scaling and rebalance-fee reconstruction are not applied unless
+    ``capital_path_options`` supplies the explicit inputs required to compute
+    them.  Member returns are not re-costed; cost meaning is bound by the shared
     ``cost_model_digest``.  Different windows or synthetic splices are rejected
     via date/comparability fail-closed checks.
     """
@@ -414,9 +583,12 @@ def compare_fixed_member_budget_baselines(
         if not needs_risk and asset_risk_specs is not None:
             raise ValueError("RISK_DIAGNOSIS_INPUTS_INCOMPLETE")
 
+        path_options = _parse_capital_path_options(capital_path_options)
         comparability = dict(parsed_members[0]["comparability"])
         dates = parsed_members[0]["dates"]
         baseline_results: list[dict[str, object]] = []
+        any_scaling = False
+        fee_reconstruction = "NOT_COMPUTED"
         for baseline in parsed_baselines:
             combined = _combine_returns(
                 members=parsed_members, budgets=baseline["member_budget_weights"]
@@ -430,17 +602,41 @@ def compare_fixed_member_budget_baselines(
                 "baseline_id": baseline["baseline_id"],
                 "budget_digest": baseline["budget_digest"],
                 "member_budget_weights": baseline["member_budget_weights"],
-                # Metrics stay on declared fixed budgets only. Concentration
-                # recommendations / risk_scalar are diagnostic and must not be
-                # read as already-realized scaled returns or fee-adjusted PnL.
+                # Default metrics stay on declared fixed budgets only.
                 "metrics": _metrics(dates, combined),
                 "metrics_accounting": dict(_METRICS_ACCOUNTING),
                 "declared_one_way_turnover": baseline["declared_one_way_turnover"],
                 "concentration": concentration,
+                "capital_path": None,
             }
+            if path_options is not None:
+                capital_path = _capital_path_for_baseline(
+                    members=parsed_members,
+                    budgets=baseline["member_budget_weights"],
+                    dates=dates,
+                    options=path_options,
+                    concentration=concentration,
+                )
+                result["capital_path"] = capital_path
+                accounting = capital_path["metrics_accounting"]
+                assert isinstance(accounting, Mapping)
+                any_scaling = any_scaling or bool(accounting["risk_scaling_applied"])
+                fee_reconstruction = str(capital_path["rebalance_fee_reconstruction"])
             baseline_results.append(result)
 
         policy_digest = comparability["risk_policy_digest"]
+        boundaries = dict(_BOUNDARY_MARKERS)
+        if path_options is None:
+            pass
+        else:
+            boundaries["metrics_basis"] = (
+                "RAW_FIXED_PLUS_OPTIONAL_CAPITAL_PATH"
+            )
+            boundaries["risk_scaling_applied_to_returns"] = (
+                "APPLIED_IN_CAPITAL_PATH" if any_scaling else "NOT_APPLIED"
+            )
+            boundaries["rebalance_fee_reconstruction"] = fee_reconstruction
+            boundaries["member_costs_recharged"] = "FALSE_ALREADY_EMBEDDED"
         payload: dict[str, object] = {
             "schema_version": SCHEMA_VERSION,
             "research_only": True,
@@ -460,19 +656,21 @@ def compare_fixed_member_budget_baselines(
                     "member_refs": member_refs,
                     "baseline_refs": baseline_refs,
                     "comparability": comparability,
+                    "capital_path_options": path_options,
                 }
             ),
             "baselines": baseline_results,
-            "boundaries": dict(_BOUNDARY_MARKERS),
+            "boundaries": boundaries,
+            "capital_path_requested": path_options is not None,
         }
         if all(item["concentration"] is None for item in baseline_results):
             payload["boundaries"] = {
-                **_BOUNDARY_MARKERS,
+                **boundaries,
                 "concentration_underlying_diagnosis": "NOT_PROVIDED",
             }
         else:
             payload["boundaries"] = {
-                **_BOUNDARY_MARKERS,
+                **boundaries,
                 "concentration_underlying_diagnosis": "PORTFOLIO_RISK_BUDGET_SNAPSHOT_ONLY",
             }
         payload["evidence_digest"] = _digest_payload(payload)
