@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Stage locked R3 inputs from GCS and optionally run the offline evidence job.
 
+Historical entry only: R3 has exited the active Batch A path (§9.15.27).
+Prefer ``scripts/run_batch_a_from_gcs.py`` and
+``docs/research/batch_a_v2_contracts.zh-CN.md`` for new research inputs.
+This module is retained for historical evidence workflows; it is not an
+adapter or dual-version dispatcher for v2.
+
 The default action only stages the five fixed R3 input artifacts and runs the
 existing read-only preflight.  ``--run`` is an explicit research-only opt-in;
 it never touches brokers, credentials, workflows, or production settings.
