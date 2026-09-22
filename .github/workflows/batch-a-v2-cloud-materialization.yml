@@ -1,13 +1,15 @@
 name: Batch A v2 Cloud Materialization
 
-# Read-only R1 materialization + C3 comparison against a locked v2 GCS prefix.
-# Does not collect, upload, delete, call brokers/AI, deploy, or write GitHub APIs.
+# Read-only R1 materialize + C3 compare on a locked GCS v2 input prefix.
+# Manual default-branch only. Stages fixed objects to runner temp; no GCS
+# write/list/delete; no pricing or member-pack artifact upload; no order venues,
+# AI gateways, production publish paths, or strategy/runtime config changes.
 
 on:
   workflow_dispatch:
     inputs:
       gcs_input_prefix:
-        description: "Exact GCS input prefix gs://qsl-research-evidence-831478360303/research/v2/input/<dataset_id>"
+        description: "Exact locked GCS prefix gs://qsl-research-evidence-831478360303/research/v2/input/<dataset_id>"
         required: true
         type: string
 
@@ -20,13 +22,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  materialize-and-compare:
-    if: ${{ github.ref == 'refs/heads/main' }}
+  materialize_and_compare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Validate GCS input prefix
+        env:
+          GCS_INPUT_PREFIX: ${{ inputs.gcs_input_prefix }}
+        run: |
+          set -euo pipefail
+          prefix="${GCS_INPUT_PREFIX%/}"
+          # Exactly one dataset id segment under the approved research/v2/input root.
+          if [[ ! "${prefix}" =~ ^gs://qsl-research-evidence-831478360303/research/v2/input/[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]]; then
+            payload='{"status":"PARKED","reason_code":"GCS_INPUT_PREFIX_REJECTED","execution_authorized":false,"no_order":true}'
+            printf '%s\n' "${payload}" \
+              | tee "${RUNNER_TEMP}/batch-a-v2-cloud-materialization-result.json" \
+              | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 2
+          fi
+          echo "GCS_INPUT_PREFIX=${prefix}" >> "${GITHUB_ENV}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -39,36 +57,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
-      - name: Validate GCS input prefix
-        id: validate-prefix
-        env:
-          GCS_INPUT_PREFIX: ${{ inputs.gcs_input_prefix }}
-        run: |
-          set -euo pipefail
-          prefix="${GCS_INPUT_PREFIX%/}"
-          summary_path="${RUNNER_TEMP}/batch-a-v2-materialize-compare.json"
-          # Exactly one dataset id segment; reject path traversal and multi-segment prefixes.
-          allowed='^gs://qsl-research-evidence-831478360303/research/v2/input/[A-Za-z0-9][A-Za-z0-9._-]{0,62}$'
-          if [[ ! "$prefix" =~ $allowed ]]; then
-            python - <<'PY' | tee "${summary_path}" | tee -a "${GITHUB_STEP_SUMMARY}"
-          import json
-          print(
-              json.dumps(
-                  {
-                      "status": "PARKED",
-                      "reason_code": "GCS_INPUT_PREFIX_REJECTED",
-                      "execution_authorized": False,
-                      "no_order": True,
-                  },
-                  sort_keys=True,
-                  separators=(",", ":"),
-              )
-          )
-          PY
-            exit 2
-          fi
-          echo "gcs_input_prefix=${prefix}" >> "$GITHUB_OUTPUT"
-
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
@@ -76,40 +64,61 @@ jobs:
           service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
 
-      - name: Set up gcloud
+      - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
 
-      - name: Stage, materialize, and compare (sanitized JSON only)
+      - name: Materialize temporary member pack and compare
         env:
-          GCS_INPUT_PREFIX: ${{ steps.validate-prefix.outputs.gcs_input_prefix }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          pack_path="${RUNNER_TEMP}/batch-a-v2-member-pack.json"
-          summary_path="${RUNNER_TEMP}/batch-a-v2-materialize-compare.json"
+          work_root="${RUNNER_TEMP}/batch-a-v2-cloud-materialization"
+          mkdir -p "${work_root}"
+          chmod 700 "${work_root}"
+          pack_path="${work_root}/member-pack.v2.json"
+          result_json="${RUNNER_TEMP}/batch-a-v2-cloud-materialization-result.json"
+
           set +e
-          materialize_out="$(
-            python scripts/run_batch_a_from_gcs.py \
-              --gcs-input-prefix "${GCS_INPUT_PREFIX}" \
-              --pack-output "${pack_path}"
-          )"
+          PYTHONPATH=src python scripts/run_batch_a_from_gcs.py \
+            --gcs-input-prefix "${GCS_INPUT_PREFIX}" \
+            --staging-root "${work_root}/staging" \
+            --pack-output "${pack_path}" \
+            > "${work_root}/materialize.json"
           materialize_rc=$?
           set -e
-          if [[ "${materialize_rc}" -ne 0 || ! -f "${pack_path}" ]]; then
-            printf '%s\n' "${materialize_out}" \
-              | tee "${summary_path}" \
+
+          if [ "${materialize_rc}" -ne 0 ] || [ ! -f "${pack_path}" ]; then
+            if [ -f "${work_root}/materialize.json" ]; then
+              payload="$(tr -d '\n' < "${work_root}/materialize.json")"
+            else
+              payload='{"status":"PARKED","reason_code":"BATCH_A_V2_MATERIALIZE_FAILED","execution_authorized":false,"no_order":true}'
+            fi
+            printf '%s\n' "${payload}" \
+              | tee "${result_json}" \
               | tee -a "${GITHUB_STEP_SUMMARY}"
             exit 2
           fi
+
           set +e
-          compare_out="$(
-            python scripts/run_c3_batch_a_existing_member_baseline.py \
-              --frozen-member-pack "${pack_path}"
-          )"
+          PYTHONPATH=src python scripts/run_c3_batch_a_existing_member_baseline.py \
+            --frozen-member-pack "${pack_path}" \
+            > "${work_root}/comparison.json"
           compare_rc=$?
           set -e
-          printf '%s\n' "${compare_out}" \
-            | tee "${summary_path}" \
+
+          if [ ! -f "${work_root}/comparison.json" ]; then
+            payload='{"status":"PARKED","reason_code":"BATCH_A_V2_COMPARE_OUTPUT_MISSING","execution_authorized":false,"no_order":true}'
+            printf '%s\n' "${payload}" \
+              | tee "${result_json}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 2
+          fi
+
+          # Emit only the sanitized comparison JSON (no prices, no raw pack).
+          payload="$(tr -d '\n' < "${work_root}/comparison.json")"
+          printf '%s\n' "${payload}" \
+            | tee "${result_json}" \
             | tee -a "${GITHUB_STEP_SUMMARY}"
           exit "${compare_rc}"
