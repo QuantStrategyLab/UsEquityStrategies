@@ -51,6 +51,13 @@ _BOUNDARY_MARKERS = {
     "return_invention": "FORBIDDEN",
     "cost_accounting": "EMBEDDED_IN_MEMBER_RETURNS_VIA_COST_MODEL_DIGEST",
     "cash_symbol": "USD_CASH_NOT_BOXX",
+    "risk_scaling_applied_to_returns": "NOT_APPLIED_DEFAULT_RAW_C3",
+    "rebalance_fee_reconstruction": (
+        "NOT_COMPUTED_MISSING_COMBO_FEE_BPS_AND_REBALANCE_SCHEDULE"
+    ),
+    "capital_path_inputs": (
+        "NEED_EXPLICIT_COMBO_REBALANCE_FEE_BPS_AND_SCHEDULE_TO_APPLY"
+    ),
 }
 
 
