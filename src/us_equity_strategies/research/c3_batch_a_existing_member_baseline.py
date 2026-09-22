@@ -2,13 +2,13 @@
 
 This consumer does **not** invent daily returns.  It only:
 
-1. reports whether locked private R3 inputs / a frozen C3 member pack exist;
+1. accepts an explicit ``qsl.c3-batch-a-frozen-member-pack.v2`` pack;
 2. when a complete frozen pack is supplied, reuses
    ``compare_fixed_member_budget_baselines`` for declared fixed budgets; and
 3. always keeps research/shadow/no-order boundaries.
 
 Without a frozen, comparable SOXL/TQQQ/cash member pack the result is PARKED.
-Legacy combo derived-return replay is explicitly rejected as Batch A evidence.
+Legacy R3 private-root readiness and v1 packs are rejected as Batch A evidence.
 """
 
 from __future__ import annotations
@@ -18,30 +18,26 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 from us_equity_strategies.portfolio_risk_budget import (
     PortfolioAssetRiskSpec,
     PortfolioRiskBudgetPolicy,
 )
+from us_equity_strategies.research.batch_a_member_pack import (
+    CASH_RETURN_POLICY,
+    REQUIRED_MEMBER_IDS,
+    SCHEMA_VERSION as MEMBER_PACK_SCHEMA,
+    BatchAMemberPackError,
+    validate_batch_a_member_pack,
+)
 from us_equity_strategies.research.c3_fixed_budget_baseline_comparison import (
     compare_fixed_member_budget_baselines,
-)
-from us_equity_strategies.research.r3_joint_evidence import (
-    PRIVATE_ROOT,
-    assess_private_r3_readiness,
 )
 
 SCHEMA_VERSION = "qsl.c3-batch-a-existing-member-baseline-research.v1"
 EVIDENCE_SCOPE = "BATCH_A_EXISTING_SOXL_TQQQ_CASH_FIXED_BUDGET_ONLY"
-REQUIRED_MEMBER_IDS = ("cash_sleeve", "soxl_core", "tqqq_core")
-ALLOWED_CASH_POLICIES = frozenset(
-    {
-        "ASSUMED_ZERO_CASH_SLEEVE",
-        "FROZEN_BOXX_RETURNS",
-    }
-)
+ALLOWED_CASH_POLICIES = frozenset({CASH_RETURN_POLICY})
 _BOUNDARY_MARKERS = {
     "integer_share_sizing": "DIAGNOSTIC_ONLY_NOT_COMPUTED",
     "cash_reserve_enforcement": "DIAGNOSTIC_ONLY_NOT_COMPUTED",
@@ -49,8 +45,12 @@ _BOUNDARY_MARKERS = {
     "live_liquidity_gates": "NOT_COMPUTED",
     "optimization": "DISABLED_FIXED_BUDGETS_ONLY",
     "legacy_combo_derived_returns": "REJECTED_NOT_BATCH_A_EVIDENCE",
+    "legacy_r3_private_root": "EXITED_ACTIVE_BATCH_A_ENTRY",
+    "price_snapshot_v1": "REJECTED_NOT_BATCH_A_EVIDENCE",
+    "member_pack_v1": "REJECTED_NOT_BATCH_A_EVIDENCE",
     "return_invention": "FORBIDDEN",
     "cost_accounting": "EMBEDDED_IN_MEMBER_RETURNS_VIA_COST_MODEL_DIGEST",
+    "cash_symbol": "USD_CASH_NOT_BOXX",
 }
 
 
@@ -74,7 +74,6 @@ def _authority_fields() -> dict[str, object]:
 def _parked(
     *reasons: str,
     evidence_gaps: Sequence[str] | None = None,
-    r3_readiness: Mapping[str, object] | None = None,
     member_refs: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
@@ -84,7 +83,6 @@ def _parked(
         "status": "PARKED",
         "reason_codes": tuple(reasons),
         "evidence_gaps": list(evidence_gaps or ()),
-        "r3_readiness": dict(r3_readiness or {}),
         "member_refs": list(member_refs or ()),
         "standalone_members": [],
         "c3_comparison": None,
@@ -147,7 +145,7 @@ def _declared_baselines() -> tuple[dict[str, object], ...]:
                 "tqqq_core": 0.40,
             },
             "representative_target_weights": {
-                "BOXX": 0.20,
+                "USD_CASH": 0.20,
                 "SOXL": 0.40,
                 "TQQQ": 0.40,
             },
@@ -161,7 +159,7 @@ def _declared_baselines() -> tuple[dict[str, object], ...]:
                 "tqqq_core": 0.35,
             },
             "representative_target_weights": {
-                "BOXX": 0.45,
+                "USD_CASH": 0.45,
                 "SOXL": 0.20,
                 "TQQQ": 0.35,
             },
@@ -175,7 +173,7 @@ def _declared_baselines() -> tuple[dict[str, object], ...]:
                 "tqqq_core": 0.20,
             },
             "representative_target_weights": {
-                "BOXX": 0.20,
+                "USD_CASH": 0.20,
                 "SOXL": 0.60,
                 "TQQQ": 0.20,
             },
@@ -189,7 +187,7 @@ def _declared_baselines() -> tuple[dict[str, object], ...]:
                 "tqqq_core": 0.60,
             },
             "representative_target_weights": {
-                "BOXX": 0.20,
+                "USD_CASH": 0.20,
                 "SOXL": 0.20,
                 "TQQQ": 0.60,
             },
@@ -200,7 +198,7 @@ def _declared_baselines() -> tuple[dict[str, object], ...]:
 
 def _default_risk_specs() -> dict[str, PortfolioAssetRiskSpec]:
     return {
-        "BOXX": PortfolioAssetRiskSpec("BOXX", 1.0, "CASH", is_cash=True),
+        "USD_CASH": PortfolioAssetRiskSpec("USD_CASH", 1.0, "CASH", is_cash=True),
         "SOXL": PortfolioAssetRiskSpec("SOXL", 3.0, "SEMICONDUCTOR"),
         "TQQQ": PortfolioAssetRiskSpec("TQQQ", 3.0, "NASDAQ100"),
     }
@@ -208,111 +206,50 @@ def _default_risk_specs() -> dict[str, PortfolioAssetRiskSpec]:
 
 def _default_risk_policy() -> PortfolioRiskBudgetPolicy:
     return PortfolioRiskBudgetPolicy(
-        cash_symbol="BOXX",
+        cash_symbol="USD_CASH",
         max_effective_risk_exposure=1.5,
         max_symbol_weights={"SOXL": 0.60, "TQQQ": 0.60},
         max_underlying_effective_exposure={"SEMICONDUCTOR": 1.8, "NASDAQ100": 1.8},
     )
 
 
-def _validate_frozen_member_pack(raw: Mapping[str, object]) -> dict[str, Any]:
-    if raw.get("schema_version") != "qsl.c3-batch-a-frozen-member-pack.v1":
-        raise ValueError("FROZEN_MEMBER_PACK_SCHEMA_INVALID")
-    if raw.get("research_only") is not True:
-        raise ValueError("FROZEN_MEMBER_PACK_NOT_RESEARCH_ONLY")
-    if raw.get("execution_authorized") is not False:
-        raise ValueError("FROZEN_MEMBER_PACK_EXECUTION_AUTHORIZED")
-    cash_policy = raw.get("cash_return_policy")
-    if cash_policy not in ALLOWED_CASH_POLICIES:
-        raise ValueError("CASH_RETURN_POLICY_INVALID")
-    members_raw = raw.get("members")
-    if not isinstance(members_raw, Sequence) or isinstance(members_raw, (str, bytes)):
-        raise ValueError("FROZEN_MEMBERS_INVALID")
-    by_id: dict[str, Mapping[str, object]] = {}
-    for item in members_raw:
-        if not isinstance(item, Mapping):
-            raise ValueError("FROZEN_MEMBERS_INVALID")
-        member_id = item.get("member_id")
-        if not isinstance(member_id, str):
-            raise ValueError("FROZEN_MEMBERS_INVALID")
-        by_id[member_id] = item
-    if tuple(sorted(by_id)) != tuple(REQUIRED_MEMBER_IDS):
-        raise ValueError("FROZEN_MEMBERS_INCOMPLETE")
-    cash = by_id["cash_sleeve"]
-    dates = cash.get("dates")
-    if not isinstance(dates, Sequence) or isinstance(dates, (str, bytes)) or len(dates) < 2:
-        raise ValueError("CASH_DATES_INVALID")
-    returns = cash.get("returns")
-    if not isinstance(returns, Sequence) or isinstance(returns, (str, bytes)):
-        raise ValueError("CASH_RETURNS_INVALID")
-    if len(returns) != len(dates):
-        raise ValueError("CASH_RETURNS_INVALID")
-    parsed_returns = tuple(_finite_return(item) for item in returns)
-    if cash_policy == "ASSUMED_ZERO_CASH_SLEEVE" and any(
-        abs(item) > 1e-15 for item in parsed_returns
-    ):
-        raise ValueError("ASSUMED_ZERO_CASH_RETURNS_NONZERO")
-    return {
-        "cash_return_policy": cash_policy,
-        "members": tuple(by_id[member_id] for member_id in REQUIRED_MEMBER_IDS),
-        "pack_digest": raw.get("pack_digest"),
-        "source_note": raw.get("source_note"),
-    }
-
-
 def evaluate_batch_a_existing_member_baselines(
     *,
-    private_root: str | Path | None = None,
     frozen_member_pack: Mapping[str, object] | None = None,
+    private_root: Any = None,
     _r3_readiness_reader: Any = None,
 ) -> dict[str, object]:
     """Gate Batch A fixed-budget research without inventing returns.
 
     ``frozen_member_pack`` must already carry aligned SOXL/TQQQ/cash daily
-    returns and full C2 comparability fields.  This function never synthesizes
-    those series from public market data or legacy combo artifacts.
+    strategy returns and full C2 comparability fields under the v2 schema.
+    ``private_root`` / R3 readiness hooks are ignored: R3 has exited the
+    active Batch A entry.
     """
-    root = Path(private_root) if private_root is not None else PRIVATE_ROOT
-    readiness_fn = _r3_readiness_reader or assess_private_r3_readiness
-    readiness = readiness_fn(private_root=root)
-    readiness_payload = (
-        readiness.to_dict() if hasattr(readiness, "to_dict") else dict(readiness)
-    )
+    del private_root, _r3_readiness_reader
 
     gaps = [
-        "IN_REPO_ALIGNED_SOXL_TQQQ_DAILY_RETURNS_MISSING",
-        "IN_REPO_C3_COMPARABILITY_MEMBER_PACK_MISSING",
-        "CASH_OR_BOXX_ALIGNED_RETURN_SERIES_MISSING_UNLESS_DECLARED_IN_PACK",
-        "R3_PERSISTED_BUNDLE_OMITS_FULL_DAILY_RETURN_SERIES",
+        "BATCH_A_V2_FROZEN_MEMBER_PACK_REQUIRED",
+        "LEGACY_R3_PRIVATE_ROOT_EXITED_ACTIVE_ENTRY",
         "LEGACY_COMBO_DERIVED_RETURNS_REJECTED",
+        "PRICE_SNAPSHOT_V1_REJECTED",
+        "MEMBER_PACK_V1_REJECTED",
     ]
 
-    # A caller-supplied frozen pack is the Batch A evidence object.  Private R3
-    # readiness only explains why a pack cannot be produced on the default path.
     if frozen_member_pack is None:
-        reasons = [
+        return _parked(
             "BATCH_A_FROZEN_COMPARABLE_INPUTS_UNAVAILABLE",
             "BATCH_A_C3_MEMBER_PACK_NOT_PROVIDED",
             "BATCH_A_REFUSE_TO_INVENT_RETURNS",
-        ]
-        extra_gaps = [
-            "NEED_EXPLICIT_CASH_RETURN_POLICY_AND_ALIGNED_SERIES",
-        ]
-        if readiness_payload.get("ready"):
-            extra_gaps.insert(
-                0, "PRIVATE_R3_READY_BUT_NO_MATERIALIZED_C3_MEMBER_PACK"
-            )
-        else:
-            reasons.insert(1, "BATCH_A_PRIVATE_R3_NOT_READY")
-            reasons.extend(tuple(readiness_payload.get("findings") or ()))
-        return _parked(
-            *reasons,
-            evidence_gaps=gaps + extra_gaps,
-            r3_readiness=readiness_payload,
+            "BATCH_A_LEGACY_R3_ENTRY_EXITED",
+            evidence_gaps=gaps
+            + [
+                "NEED_EXPLICIT_ASSUMED_ZERO_USD_CASH_AND_ALIGNED_STRATEGY_SERIES",
+            ],
         )
 
     try:
-        pack = _validate_frozen_member_pack(frozen_member_pack)
+        pack = validate_batch_a_member_pack(frozen_member_pack)
         members = pack["members"]
         standalone = []
         for member in members:
@@ -343,7 +280,6 @@ def evaluate_batch_a_existing_member_baselines(
                 "BATCH_A_C3_COMPARISON_PARKED",
                 *tuple(comparison.get("reason_codes") or ()),
                 evidence_gaps=["C3_CONSUMER_REJECTED_FROZEN_PACK"],
-                r3_readiness=readiness_payload,
                 member_refs=list(comparison.get("member_refs") or ()),
             )
         payload: dict[str, object] = {
@@ -353,8 +289,8 @@ def evaluate_batch_a_existing_member_baselines(
             "status": "READY_RESEARCH_ONLY",
             "reason_codes": (),
             "evidence_gaps": [],
-            "r3_readiness": readiness_payload,
             "cash_return_policy": pack["cash_return_policy"],
+            "member_pack_schema": MEMBER_PACK_SCHEMA,
             "member_refs": list(comparison["member_refs"]),
             "standalone_members": standalone,
             "c3_comparison": comparison,
@@ -384,13 +320,18 @@ def evaluate_batch_a_existing_member_baselines(
         }
         payload["evidence_digest"] = _digest_payload(payload)
         return payload
+    except BatchAMemberPackError as exc:
+        return _parked(
+            "BATCH_A_FROZEN_PACK_INVALID",
+            exc.code,
+            evidence_gaps=["FROZEN_MEMBER_PACK_FAILED_VALIDATION"],
+        )
     except (ValueError, TypeError, ArithmeticError) as exc:
         reason = str(exc) if str(exc) else "BATCH_A_PACK_VALIDATION_FAILED"
         return _parked(
             "BATCH_A_FROZEN_PACK_INVALID",
             reason,
             evidence_gaps=["FROZEN_MEMBER_PACK_FAILED_VALIDATION"],
-            r3_readiness=readiness_payload,
         )
 
 

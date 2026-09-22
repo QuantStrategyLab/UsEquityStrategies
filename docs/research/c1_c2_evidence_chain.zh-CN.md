@@ -101,30 +101,33 @@
 - Shadow JSON：`promotion_state.live_enable_candidate=false`，不改变默认策略或 live 部署。
 - 本批不接生产配置、平台 workflow、真实账号、凭据、通知、部署或真实行情。
 
-## Batch A（§9.15.21）：现有 SOXL/TQQQ + 含现金固定预算基线
+## Batch A（§9.15.21 + §9.15.27）：现有 SOXL/TQQQ + 含现金固定预算基线
 
-来源：审计 §9.9 / §9.15.18 / §9.15.20–§9.15.21。目标是用**已存在**证据验证 C3 比较能否形成第一版可复核研究结果；不新增策略/优化器。
+来源：审计 §9.9 / §9.15.18 / §9.15.20–§9.15.21 / §9.15.27。目标是用冻结成员证据验证 C3 比较能否形成第一版可复核研究结果；不新增策略/优化器。
 
 | 项 | 当前结论 |
 |---|---|
 | C3 离线积木 | 已达标（见上节） |
-| Batch A 端到端研究案例 | **PARKED / 证据不足**（本 worktree） |
+| 数据合同 | **v2 唯一新入口**：见 `docs/research/batch_a_v2_contracts.zh-CN.md` |
+| Batch A 端到端研究案例 | **PARKED / 等待获准云端 v2 物化**（无真实采集/GCS 读写前不得宣称业务解除） |
 | Consumer | `research/c3_batch_a_existing_member_baseline.evaluate_batch_a_existing_member_baselines` |
+| 物化 | `batch_a_dataset` / `batch_a_member_pack` / `scripts/run_batch_a_from_gcs.py` |
 | CLI | `scripts/run_c3_batch_a_existing_member_baseline.py` |
-| 锁定测试 | `tests/test_c3_batch_a_existing_member_baseline.py` |
+| 锁定测试 | `tests/test_c3_batch_a_existing_member_baseline.py`、`tests/test_batch_a_v2_contracts.py` |
 
-**为何 PARKED（诚实边界，不编造收益）：**
+**活动边界：**
 
-1. 仓内没有带六项 C2 可比字段的对齐 SOXL/TQQQ 日收益序列；R3 落盘 bundle 只保留窗口指标与序列 SHA，不含完整日收益。
-2. 锁定私有 R3 输入默认路径不在本 worktree / 本机挂载点；缺则 `assess_private_r3_readiness` 失败。
-3. 现金/BOXX 仅有风险与权重语义（`portfolio_risk_budget` / shadow 配置），没有对齐冻结的现金日收益成员；`ASSUMED_ZERO_CASH_SLEEVE` 只在显式冻结 pack 中声明后才可用，不得静默合成。
-4. `legacy_combo_derived_returns_replay` / `us_equity_combo_backtest_20260628.json` 明确拒绝作为 Batch A 证据。
+1. 只接受 `qsl.c3-batch-a-frozen-member-pack.v2`；拒绝 v1 与自动转换。
+2. 现金腿仅为 `ASSUMED_ZERO_USD_CASH`；代表权重使用 `USD_CASH`，不把 BOXX 当现金。
+3. 成员收益必须来自冻结策略路径（typed SMA200 + 声明成本模型），禁止标的涨跌幅冒充。
+4. 旧 R3 `PRIVATE_ROOT` / `run_r3_from_gcs` 已退出 Batch A 活动入口；历史模块保留但不作为本 consumer 前置。
+5. `legacy_combo_derived_returns_replay` 明确拒绝作为 Batch A 证据。
 
-成功态仍固定 `research_only` / `shadow_only` / `execution_authorized=false` / `promotion_authorized=false` / `no_order=true`。合同测试可用显式 fixture pack 验证接线，**不**冒充私有 R3 研究结果。
+成功态仍固定 `research_only` / `shadow_only` / `execution_authorized=false` / `promotion_authorized=false` / `no_order=true`。合同测试可用显式 fixture pack 验证接线，**不**冒充已批准云端研究结果。
 
 ## 建议的下一最小缺口（非本批写集）
 
-1. **Batch A 解除 PARK 的最小前置**：在批准的私有研究环境挂载锁定 R3 输入，物化一份 `qsl.c3-batch-a-frozen-member-pack.v1`（对齐日收益 + 六项可比字段 + 明确现金口径），再跑本 consumer；不得用 public 行情或 synthetic 冒充。
-2. C5：仅对冻结成员、账户、总风险预算和再平衡规则做人工批准后的有限启用；仍由单一执行者与既有风控执行。
-3. 若现有模块外需要“按约束再搜索预算”：仅在固定基线比较证明不足后另开研究，仍禁止全 Kelly / 分数直接配权 / 扩大杠杆。
-4. 若要把风险缩放建议或再平衡费用计入可比收益：须另开有界研究，显式重建缩放后净值与费用，并保持与 raw fixed-budget metrics 分栏，不得覆盖本批口径。
+1. **D1 采集器**：在 `UsEquitySnapshotPipelines` 按 v2 合同采集 Alpaca SIP 并 create-only 写入 `research/v2/input/<dataset_id>/`。
+2. **R1**：获准云端一次采集→锁定→物化→比较；首个材料失败不重采。
+3. C5：仅对冻结成员、账户、总风险预算和再平衡规则做人工批准后的有限启用；仍由单一执行者与既有风控执行。
+4. 若现有模块外需要“按约束再搜索预算”：仅在固定基线比较证明不足后另开研究，仍禁止全 Kelly / 分数直接配权 / 扩大杠杆。

@@ -311,7 +311,7 @@ def test_saved_public_cycle_parks_and_reentry_reuses_result(monkeypatch, tmp_pat
         )
     }
     kwargs = {
-        "as_of": "2026-09-14",
+        "as_of": datetime.now(timezone.utc).date().isoformat(),
         "drift_score": 1.0,
         "source_revision": "ues-test",
         "input_paths": _paths(),
@@ -347,7 +347,7 @@ def test_candidate_found_stops_at_gate_without_shadow(monkeypatch, tmp_path):
     monkeypatch.setattr(adapter, "persist_rsi2_mean_reversion_result", lambda *args, **kwargs: None)
     identity = {key: key for key in ("code_revision", "input_revision", "param_space_revision", "cost_model_revision", "validator_revision")}
     result = adapter.run_soxl_rsi2_research_promotion(
-        as_of="2026-09-14",
+        as_of=datetime.now(timezone.utc).date().isoformat(),
         drift_score=1.0,
         source_revision="ues",
         input_paths=_paths(),
