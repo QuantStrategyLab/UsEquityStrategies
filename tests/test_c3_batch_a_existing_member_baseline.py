@@ -283,6 +283,35 @@ def test_missing_fee_schedule_parked_digest_binds_final_payload() -> None:
     assert result["evidence_digest"] == hashlib.sha256(canonical).hexdigest()
 
 
+def test_positive_rebalance_fee_requires_explicit_fee_bearing_members() -> None:
+    result = evaluate_batch_a_existing_member_baselines(
+        frozen_member_pack=_contract_pack(),
+        capital_path_options={
+            "rebalance_fee_bps": 10.0,
+            "rebalance_indices": (0,),
+        },
+    )
+    assert result["status"] == "PARKED"
+    assert "FEE_BEARING_MEMBER_IDS_REQUIRED" in result["reason_codes"]
+    assert result["execution_authorized"] is False
+    assert result["no_order"] is True
+
+
+def test_invalid_fee_bearing_member_parks() -> None:
+    result = evaluate_batch_a_existing_member_baselines(
+        frozen_member_pack=_contract_pack(),
+        capital_path_options={
+            "rebalance_fee_bps": 10.0,
+            "rebalance_indices": (0,),
+            "fee_bearing_member_ids": ("soxl_core", "missing_member"),
+        },
+    )
+    assert result["status"] == "PARKED"
+    assert "FEE_BEARING_MEMBER_IDS_INVALID" in result["reason_codes"]
+    assert result["execution_authorized"] is False
+    assert result["no_order"] is True
+
+
 def test_arbitrary_nonempty_cost_digest_does_not_claim_typed_baseline_zero() -> None:
     source = _contract_pack()
     members = [dict(member) for member in source["members"]]
@@ -329,6 +358,9 @@ def test_capital_path_synthetic_conserves_cash_fees_and_drift() -> None:
         "cash_member_id": "cash_sleeve",
         "rebalance_fee_bps": 100.0,
         "rebalance_indices": (0,),
+        # Synthetic contract: charge the two security sleeves; cash is the
+        # funding leg and is not itself a security order.
+        "fee_bearing_member_ids": ("soxl_core", "tqqq_core"),
         "member_costs_already_embedded": True,
     }
     unscaled = evaluate_batch_a_existing_member_baselines(
@@ -349,6 +381,10 @@ def test_capital_path_synthetic_conserves_cash_fees_and_drift() -> None:
         assert result["capital_path_requested"] is True
         assert result["capital_path_options"]["rebalance_fee_bps"] == 100.0
         assert result["capital_path_options"]["rebalance_indices"] == (0,)
+        assert result["capital_path_options"]["fee_bearing_member_ids"] == (
+            "soxl_core",
+            "tqqq_core",
+        )
         assert result["boundaries"]["rebalance_fee_reconstruction"] == (
             "COMPUTED_EXPLICIT_BPS_AND_SCHEDULE"
         )
@@ -383,9 +419,14 @@ def test_capital_path_synthetic_conserves_cash_fees_and_drift() -> None:
     one_way = 0.5 * math.fsum(
         abs(target[key] - drifted[key]) for key in target
     )
-    fee_fraction = (2.0 * one_way) * 0.01
+    # Only the two security sleeves are fee-bearing; cash is their funding leg.
+    fee_notional = math.fsum(
+        abs(target[key] - drifted[key]) for key in ("soxl_core", "tqqq_core")
+    )
+    fee_fraction = fee_notional * 0.01
     expected_nav = nav_pre * (1.0 - fee_fraction)
     assert path["one_way_turnovers"][0] == pytest.approx(one_way)
+    assert path["pre_trade_fee_notionals"][0] == pytest.approx(fee_notional)
     assert path["fee_fractions"][0] == pytest.approx(fee_fraction)
     assert path["metrics"]["terminal_nav"] == pytest.approx(expected_nav)
     assert math.fsum(path["final_weights"].values()) == pytest.approx(1.0)
