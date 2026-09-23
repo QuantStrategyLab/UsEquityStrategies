@@ -102,33 +102,32 @@
 - Shadow JSON：`promotion_state.live_enable_candidate=false`，不改变默认策略或 live 部署。
 - 本批不接生产配置、平台 workflow、真实账号、凭据、通知、部署或真实行情。
 
-## Batch A（§9.15.21 + §9.15.27）：现有 SOXL/TQQQ + 含现金固定预算基线
+## Batch A（§9.15.21 + §9.15.27 + §9.15.39–40）：现有 SOXL/TQQQ + 含现金固定预算基线
 
-来源：审计 §9.9 / §9.15.18 / §9.15.20–§9.15.21 / §9.15.27。目标是用冻结成员证据验证 C3 比较能否形成第一版可复核研究结果；不新增策略/优化器。
+来源：审计 §9.9 / §9.15.18 / §9.15.20–§9.15.21 / §9.15.27 / §9.15.39–40。目标是用冻结成员证据验证 C3 比较能否形成第一版可复核研究结果；不新增策略/优化器。PR #515 已合入显式 `capital_path`；本批只把 Batch A CLI/consumer 接到该路径，并用 synthetic 合同包验证调用与会计，**不做**真实组合比较。
 
 | 项 | 当前结论 |
 |---|---|
 | C3 离线积木 | 已达标（见上节） |
 | 数据合同 | **v2 唯一新入口**：见 `docs/research/batch_a_v2_contracts.zh-CN.md` |
-| Batch A 端到端研究案例 | **PARKED / 等待获准云端 v2 物化**（无真实采集/GCS 读写前不得宣称业务解除） |
+| 当前 capital_path 真实研究案例 | **PARKED**：v2 snapshot 已在获准 GCS 前缀锁定；早期 R1 已完成物化及原始固定预算比较，但没有组合再平衡成本比较。当前仅缺可信组合费率、计费口径和调仓日程；这些输入明确后，另需一次云端比较授权 |
 | Consumer | `research/c3_batch_a_existing_member_baseline.evaluate_batch_a_existing_member_baselines` |
 | 物化 | `batch_a_dataset` / `batch_a_member_pack` / `scripts/run_batch_a_from_gcs.py` |
 | CLI | `scripts/run_c3_batch_a_existing_member_baseline.py` |
 | 锁定测试 | `tests/test_c3_batch_a_existing_member_baseline.py`、`tests/test_batch_a_v2_contracts.py` |
+| 资本路径接线 | consumer/CLI 接线已完成（当前未提交改动）。默认不启用；默认无冻结包时 fail-closed 为 `PARKED`。请求资本路径时，须显式提供 `--rebalance-fee-bps` + `--rebalance-indices`（及可选 `--apply-risk-scaling` / `--cash-member-id`）；缺费率或日程 → `PARKED` + `NEED_EXPLICIT_*` 缺口，**不**默认零费用或无调仓 |
+| 本地验证 | 本轮定向 pytest **39 passed**，涵盖 Batch A consumer、capital path、固定预算比较、v2 合同和只读 workflow 合同；Ruff、compileall、diff check 通过 |
+| 验证范围 | 以上均为本地/合成合同验证，不代表真实组合收益，也不替代获准云端的后续单次比较 |
 
 **活动边界：**
 
 1. 只接受 `qsl.c3-batch-a-frozen-member-pack.v2`；拒绝 v1 与自动转换。
 2. 现金腿仅为 `ASSUMED_ZERO_USD_CASH`；代表权重使用 `USD_CASH`，不把 BOXX 当现金。
-3. 成员收益必须来自冻结策略路径（typed SMA200 + 声明成本模型），禁止标的涨跌幅冒充。
+3. 成员收益必须来自冻结策略路径（typed SMA200 + 声明成本模型），禁止标的涨跌幅冒充；成员侧披露 `TYPED_BASELINE_ZERO` 零交易费假设（`member_cost_scenario` / `boundaries.member_transaction_cost_scenario`），组合层增量费用另需显式 bps+日程。
 4. 旧 R3 `PRIVATE_ROOT` / `run_r3_from_gcs` 已退出 Batch A 活动入口；历史模块保留但不作为本 consumer 前置。
 5. `legacy_combo_derived_returns_replay` 明确拒绝作为 Batch A 证据。
+6. 显式资本路径启用时：未缩放与风险缩放请求共用同一套日期、调仓日程与费用口径；`input_digest` 绑定实际 `capital_path_options`；边界字段在启用后改为反映真实 `APPLIED_IN_CAPITAL_PATH` / `COMPUTED_EXPLICIT_*`，不再残留默认 `NOT_APPLIED` / `NOT_COMPUTED_MISSING_*` 误标。
 
 成功态仍固定 `research_only` / `shadow_only` / `execution_authorized=false` / `promotion_authorized=false` / `no_order=true`。合同测试可用显式 fixture pack 验证接线，**不**冒充已批准云端研究结果。
 
-## 建议的下一最小缺口（非本批写集）
-
-1. **D1 采集器**：在 `UsEquitySnapshotPipelines` 按 v2 合同采集 Alpaca SIP 并 create-only 写入 `research/v2/input/<dataset_id>/`。
-2. **R1**：获准云端一次采集→锁定→物化→比较；首个材料失败不重采。
-3. C5：仅对冻结成员、账户、总风险预算和再平衡规则做人工批准后的有限启用；仍由单一执行者与既有风控执行。
-4. 若现有模块外需要“按约束再搜索预算”：仅在固定基线比较证明不足后另开研究，仍禁止全 Kelly / 分数直接配权 / 扩大杠杆。
+当前不重采数据、不补造成员或组合费用，也不把成员侧 `TYPED_BASELINE_ZERO` 当作组合层成本证据。确认可信费率、计费口径和调仓日程后，仍须另行取得一次云端比较授权；成功输出继续保持 `execution_authorized=false`、`promotion_authorized=false`、`no_order=true`。本地 synthetic 验证不替代该研究结果。
