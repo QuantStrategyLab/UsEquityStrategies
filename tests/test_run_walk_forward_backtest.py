@@ -27,6 +27,8 @@ from scripts.run_walk_forward_backtest import (
 )
 from scripts.run_walk_forward_backtest import _shared_market_history
 from us_equity_strategies.strategies.global_etf_rotation import extract_managed_symbols_universe
+from us_equity_strategies.strategies.global_etf_rotation import PROFILE_NAME
+from us_equity_strategies.strategies.us_equity_combo import PROFILE_NAME as US_EQUITY_COMBO_PROFILE
 
 
 def test_two_year_windows_ending_matches_legacy_default_shape() -> None:
@@ -50,9 +52,26 @@ def test_resolve_walk_forward_windows_tracks_market_history_end() -> None:
     assert resolve_walk_forward_windows(as_of=date(2025, 5, 31)) == DEFAULT_WINDOWS
 
 
-def test_run_walk_forward_persists_lifecycle_baseline(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("profile", "expected_params"),
+    [
+        (PROFILE_NAME, {"min_history_days": walk_forward.DEFAULT_MIN_HISTORY_DAYS}),
+        (
+            US_EQUITY_COMBO_PROFILE,
+            {
+                "min_history_days": walk_forward.DEFAULT_MIN_HISTORY_DAYS,
+                "combo_mode": "dynamic",
+            },
+        ),
+    ],
+)
+def test_run_walk_forward_persists_lifecycle_baseline(
+    tmp_path: Path,
+    profile: str,
+    expected_params: dict[str, object],
+) -> None:
     payload = run_walk_forward(
-        profile="global_etf_rotation",
+        profile=profile,
         windows=DEFAULT_WINDOWS,
         synthetic_days=900,
         store_root=tmp_path,
@@ -60,13 +79,14 @@ def test_run_walk_forward_persists_lifecycle_baseline(tmp_path: Path) -> None:
 
     records = [
         json.loads(path.read_text(encoding="utf-8"))
-        for path in (tmp_path / "backtest" / "us_equity" / "global_etf_rotation").glob("*.json")
+        for path in (tmp_path / "backtest" / "us_equity" / profile).glob("*.json")
     ]
 
     assert payload["baseline"]["sharpe_ratio"] is not None
     baseline_records = [record for record in records if "_baseline_" in record["param_set_id"]]
     assert baseline_records
-    assert all(record["params"] == {"min_history_days": 260} for record in baseline_records)
+    assert all(record["params"] == expected_params for record in baseline_records)
+    assert all(record["periods_per_year"] == 252.0 for record in baseline_records)
     assert not any("_wf" in record["param_set_id"] for record in records)
     assert payload["orchestrator_full_window"]["sharpe_ratio"] is not None
     assert payload["walk_forward_folds"]
