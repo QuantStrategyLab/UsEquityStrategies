@@ -232,6 +232,119 @@ def test_concentration_snapshot_reuses_portfolio_risk_budget() -> None:
     assert result["boundaries"]["rebalance_fee_reconstruction"] == "NOT_COMPUTED"
 
 
+def test_comparison_forwards_explicit_fee_bearing_members() -> None:
+    dates = ("2026-01-02", "2026-01-05", "2026-01-06")
+    members = (
+        _member("cash_sleeve", (0.0, 0.0, 0.0), dates=dates),
+        _member("soxl_core", (0.5, 0.0, 0.10), dates=dates),
+        _member("tqqq_core", (0.0, 0.0, 0.0), dates=dates),
+    )
+    baselines = (
+        {
+            "baseline_id": "risk_tilt_20_40_40",
+            "member_budget_weights": {
+                "cash_sleeve": 0.2,
+                "soxl_core": 0.4,
+                "tqqq_core": 0.4,
+            },
+        },
+        {
+            "baseline_id": "split_50_25_25",
+            "member_budget_weights": {
+                "cash_sleeve": 0.5,
+                "soxl_core": 0.25,
+                "tqqq_core": 0.25,
+            },
+        },
+    )
+    missing = compare_fixed_member_budget_baselines(
+        members=members,
+        baselines=baselines,
+        capital_path_options={
+            "rebalance_fee_bps": 100.0,
+            "rebalance_indices": (1,),
+        },
+    )
+    assert missing["status"] == "PARKED"
+    assert missing["reason_codes"] == ("FEE_BEARING_MEMBER_IDS_REQUIRED",)
+    assert missing["execution_authorized"] is False
+    assert missing["no_order"] is True
+
+    illegal = compare_fixed_member_budget_baselines(
+        members=members,
+        baselines=baselines,
+        capital_path_options={
+            "rebalance_fee_bps": 100.0,
+            "rebalance_indices": (1,),
+            "fee_bearing_member_ids": ("not_a_member",),
+        },
+    )
+    assert illegal["status"] == "PARKED"
+    assert illegal["reason_codes"] == ("FEE_BEARING_MEMBER_IDS_INVALID",)
+
+    zero_fee = compare_fixed_member_budget_baselines(
+        members=members,
+        baselines=baselines,
+        capital_path_options={
+            "rebalance_fee_bps": 0.0,
+            "rebalance_indices": (1,),
+        },
+    )
+    assert zero_fee["status"] == "READY_RESEARCH_ONLY"
+    zero_path = zero_fee["baselines"][0]["capital_path"]
+    assert zero_path["metrics_accounting"]["rebalance_fees_applied"] is False
+    assert zero_path["fee_fractions"] == (0.0, 0.0, 0.0)
+    assert zero_path["rebalance_fee_basis"] == "ZERO_FEE_RATE_NO_COST"
+
+    def _ready(fee_bearing_member_ids: tuple[str, ...]) -> dict[str, object]:
+        return compare_fixed_member_budget_baselines(
+            members=members,
+            baselines=baselines,
+            capital_path_options={
+                "rebalance_fee_bps": 100.0,
+                "rebalance_indices": (1,),
+                "fee_bearing_member_ids": fee_bearing_member_ids,
+            },
+        )
+
+    exclude_cash = _ready(("soxl_core", "tqqq_core"))
+    include_cash = _ready(("cash_sleeve", "soxl_core", "tqqq_core"))
+    assert exclude_cash["status"] == "READY_RESEARCH_ONLY"
+    assert include_cash["status"] == "READY_RESEARCH_ONLY"
+    assert exclude_cash["boundaries"]["rebalance_fee_reconstruction"] == (
+        "COMPUTED_EXPLICIT_BPS_AND_SCHEDULE"
+    )
+    exclude_path = next(
+        item["capital_path"]
+        for item in exclude_cash["baselines"]
+        if item["baseline_id"] == "risk_tilt_20_40_40"
+    )
+    include_path = next(
+        item["capital_path"]
+        for item in include_cash["baselines"]
+        if item["baseline_id"] == "risk_tilt_20_40_40"
+    )
+    exclude_fee = (1.0 / 6.0) * 0.01
+    assert exclude_path["fee_bearing_member_ids"] == ("soxl_core", "tqqq_core")
+    assert exclude_path["fee_fractions"][0] == 0.0
+    assert exclude_path["fee_fractions"][2] == 0.0
+    assert math.isclose(float(exclude_path["fee_fractions"][1]), exclude_fee)
+    assert math.isclose(float(include_path["fee_fractions"][1]), 0.2 * 0.01)
+    assert not math.isclose(
+        float(exclude_path["fee_fractions"][1]),
+        float(include_path["fee_fractions"][1]),
+    )
+    terminal = 1.2 * (1.0 - exclude_fee) * 1.04
+    assert math.isclose(float(exclude_path["metrics"]["terminal_nav"]), terminal)
+    assert math.isclose(math.fsum(exclude_path["final_weights"].values()), 1.0)
+    assert math.isclose(exclude_path["final_weights"]["cash_sleeve"], 0.2 / 1.04)
+    assert math.isclose(exclude_path["final_weights"]["soxl_core"], 0.44 / 1.04)
+    assert math.isclose(exclude_path["final_weights"]["tqqq_core"], 0.4 / 1.04)
+    assert exclude_path["rebalance_fee_basis"] == (
+        "PRE_TRADE_NOTIONAL_TURNOVER_APPROXIMATION"
+    )
+
+
 def test_incomplete_comparability_fields_park() -> None:
     left = _member("soxl_core", (0.01, -0.02, 0.03, 0.00))
     right = _member("tqqq_core", (0.02, -0.01, 0.01, -0.01))
