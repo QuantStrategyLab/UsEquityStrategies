@@ -27,6 +27,12 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
 _TOKEN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 _PLACEHOLDERS = frozenset({"unknown", "default", "none", "null", "na", "n/a"})
+_LITERAL_RETENTION_NONE_FIELDS = frozenset(
+    {
+        "blend_gate_volatility_delever_retention_mode",
+        "dual_drive_volatility_delever_retention_mode",
+    }
+)
 _FOREIGN_SCHEMAS = frozenset(
     {
         "qsl.c3-batch-a-frozen-member-pack.v1",
@@ -217,9 +223,12 @@ def _cost_inputs(value: object) -> dict[str, float]:
     return parsed
 
 
-def _walk_params(value: object) -> None:
+def _walk_params(value: object, key: str = "", *, depth: int = 0) -> None:
     if isinstance(value, str):
-        if not value.strip() or _placeholder(value):
+        literal_none = (
+            depth == 1 and key in _LITERAL_RETENTION_NONE_FIELDS and value == "none"
+        )
+        if not value.strip() or (_placeholder(value) and not literal_none):
             _fail("invalid optimized member identity")
         return
     if isinstance(value, bool) or value is None:
@@ -232,13 +241,13 @@ def _walk_params(value: object) -> None:
         return
     if isinstance(value, list):
         for item in value:
-            _walk_params(item)
+            _walk_params(item, depth=depth + 1)
         return
     if isinstance(value, dict):
-        for key, item in value.items():
-            if type(key) is not str or not key.strip() or _placeholder(key):
+        for field, item in value.items():
+            if type(field) is not str or not field.strip() or _placeholder(field):
                 _fail("invalid optimized member identity")
-            _walk_params(item)
+            _walk_params(item, field, depth=depth + 1)
         return
     _fail("invalid optimized member identity")
 
