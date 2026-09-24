@@ -39,7 +39,10 @@ class LocalMemberInputError(ValueError):
 
 
 def _bar(value: dict[str, Any]) -> DatedBar:
-    return DatedBar(date.fromisoformat(value["session"]), value["symbol"], value["open"], value["high"], value["low"], value["close"])
+    return DatedBar(
+        date.fromisoformat(value["session"]), value["symbol"], value["open"], value["high"],
+        value["low"], value["close"], value.get("source_id"), value.get("available_at"),
+    )
 
 
 def _canonical_sha256(value: object) -> str:
@@ -58,10 +61,16 @@ def load_local_member_fixture(path: Path) -> tuple[dict[str, object], ReplayRequ
             raise ValueError()
         identity = validate_optimized_member_identity(payload["identity"])
         source = payload["input"]
-        if type(source) is not dict or set(source) != {
+        required_input_fields = {
             "runtime_config", "calendar", "initial_cash", "initial_quantities", "prices",
-            "computed_at", "derived_indicators", "benchmark_bars",
-        }:
+            "computed_at", "derived_indicators", "benchmark_bars", "indicator_sources",
+        }
+        if (type(source) is not dict
+                or not required_input_fields <= set(source)
+                or set(source) - required_input_fields - {
+                    "state_inputs", "income_cashflow", "external_cashflow", "ledger_events",
+                    "option_market_inputs",
+                }):
             raise ValueError()
         if _canonical_sha256(source) != identity["input_sha256"]:
             raise ValueError()
@@ -83,6 +92,51 @@ def load_local_member_fixture(path: Path) -> tuple[dict[str, object], ReplayRequ
         indicators = source["derived_indicators"]
         if indicators is not None and type(indicators) is not dict:
             raise ValueError()
+        state_inputs = source.get("state_inputs")
+        if state_inputs is not None and type(state_inputs) is not list:
+            raise ValueError()
+        income_cashflow = source.get("income_cashflow")
+        if income_cashflow is not None and type(income_cashflow) is not dict:
+            raise ValueError()
+        if income_cashflow is not None:
+            checked_income_cashflow = {}
+            for day, amount in income_cashflow.items():
+                if type(day) is not str:
+                    raise ValueError()
+                parsed_day = date.fromisoformat(day)
+                if parsed_day.isoformat() != day:
+                    raise ValueError()
+                checked_income_cashflow[parsed_day] = amount
+            income_cashflow = checked_income_cashflow
+        external_cashflow = source.get("external_cashflow")
+        if external_cashflow is not None:
+            if type(external_cashflow) is not dict:
+                raise ValueError()
+            checked_external_cashflow = {}
+            for day, amount in external_cashflow.items():
+                if type(day) is not str:
+                    raise ValueError()
+                parsed_day = date.fromisoformat(day)
+                if parsed_day.isoformat() != day:
+                    raise ValueError()
+                checked_external_cashflow[parsed_day] = amount
+            external_cashflow = checked_external_cashflow
+        ledger_events = source.get("ledger_events")
+        if ledger_events is not None:
+            if type(ledger_events) is not dict:
+                raise ValueError()
+            checked_ledger_events = {}
+            for day, row in ledger_events.items():
+                if type(day) is not str or type(row) is not dict:
+                    raise ValueError()
+                parsed_day = date.fromisoformat(day)
+                if parsed_day.isoformat() != day:
+                    raise ValueError()
+                checked_ledger_events[parsed_day] = row
+            ledger_events = checked_ledger_events
+        option_market_inputs = source.get("option_market_inputs")
+        if option_market_inputs is not None and type(option_market_inputs) is not list:
+            raise ValueError()
         execution = identity["execution"]
         costs = identity["cost_inputs"]
         request = ReplayRequest(
@@ -100,7 +154,16 @@ def load_local_member_fixture(path: Path) -> tuple[dict[str, object], ReplayRequ
             calendar_id=identity["calendar_id"],
             periods_per_year=identity["periods_per_year"],
             derived_indicators=None if indicators is None else {date.fromisoformat(day): values for day, values in indicators.items()},
+            indicator_sources=None if source["indicator_sources"] is None else {
+                date.fromisoformat(day): values for day, values in source["indicator_sources"].items()
+            },
             benchmark_bars=tuple(_bar(item) for item in source["benchmark_bars"]),
+            research_identity=identity,
+            state_inputs=None if state_inputs is None else tuple(state_inputs),
+            income_cashflow=income_cashflow,
+            external_cashflow=external_cashflow,
+            ledger_events=ledger_events,
+            option_market_inputs=None if option_market_inputs is None else tuple(option_market_inputs),
         )
         return identity, request
     except (OSError, KeyError, TypeError, ValueError, IndexError):

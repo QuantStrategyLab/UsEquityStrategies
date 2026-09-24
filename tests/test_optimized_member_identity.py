@@ -14,8 +14,10 @@ import pytest
 from us_equity_strategies.research.optimized_member_identity import (
     EVIDENCE_SCOPE,
     OPTIMIZED_MEMBER_IDENTITY_SCHEMA,
+    OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2,
     OptimizedMemberIdentityError,
     build_optimized_member_identity,
+    build_optimized_member_identity_v2,
     calculate_optimized_member_identity_sha256,
     validate_optimized_member_identity,
 )
@@ -55,6 +57,12 @@ def _args(**overrides: object) -> dict[str, object]:
 
 def _identity(**overrides: object) -> dict[str, object]:
     return build_optimized_member_identity(**_args(**overrides))
+
+
+def _identity_v2(**overrides: object) -> dict[str, object]:
+    values = _args(**overrides)
+    values.setdefault("qpk_workspace_patch_sha256", "d" * 64)
+    return build_optimized_member_identity_v2(**values)
 
 
 def test_synthetic_identity_is_deterministic_and_does_not_mutate_caller() -> None:
@@ -105,6 +113,41 @@ def test_distinct_synthetic_economics_change_the_digest() -> None:
 
     assert baseline not in digests
     assert len(digests) == len(variants)
+
+
+def test_v2_binds_both_workspace_patches_and_preserves_v1_identity() -> None:
+    v1 = _identity(ues_workspace_patch_sha256=None)
+    v2 = _identity_v2()
+    qpk_patch_changed = _identity_v2(qpk_workspace_patch_sha256="e" * 64)
+    ues_patch_changed = _identity_v2(ues_workspace_patch_sha256="f" * 64)
+
+    assert v1["schema_version"] == OPTIMIZED_MEMBER_IDENTITY_SCHEMA
+    assert "qpk_workspace_patch_sha256" not in v1
+    assert validate_optimized_member_identity(v1) == v1
+    assert v2["schema_version"] == OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2
+    assert v2["research_only"] is True
+    assert v2["execution_authorized"] is False
+    assert v2["promotion_authorized"] is False
+    assert validate_optimized_member_identity(v2) == v2
+    assert len({
+        v2["economic_identity_sha256"],
+        qpk_patch_changed["economic_identity_sha256"],
+        ues_patch_changed["economic_identity_sha256"],
+    }) == 3
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"ues_workspace_patch_sha256": None},
+        {"ues_workspace_patch_sha256": "a" * 63},
+        {"qpk_workspace_patch_sha256": None},
+        {"qpk_workspace_patch_sha256": "b" * 65},
+    ],
+)
+def test_v2_requires_two_valid_workspace_patch_digests(overrides: dict[str, object]) -> None:
+    with pytest.raises(OptimizedMemberIdentityError, match="invalid optimized member identity"):
+        _identity_v2(**overrides)
 
 
 @pytest.mark.parametrize(
