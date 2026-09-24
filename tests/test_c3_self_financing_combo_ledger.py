@@ -10,6 +10,7 @@ import math
 from datetime import UTC, date, datetime
 
 import pytest
+from quant_platform_kit.strategy_lifecycle.contracts import ResearchDailyLedger
 
 from us_equity_strategies.research.c3_capital_path import (
     scale_member_budgets_to_cash,
@@ -464,3 +465,133 @@ def test_zero_fee_rebalance_conserves_nav_and_restores_targets() -> None:
     assert _values(raw, TQQQ)[1] == pytest.approx(440.0)
     assert day.cash == pytest.approx(220.0)
     assert math.fsum((_values(raw, SOXL)[1], _values(raw, TQQQ)[1], day.cash)) == pytest.approx(day.nav)
+
+
+def _assert_machine_residual_is_not_a_borrow(
+    ledger,
+    *,
+    solved: float,
+    soxl_weight: float,
+    tqqq_weight: float,
+) -> None:
+    # 负现金是大额 NAV 相减留下的机器残差，不是真实借款。
+    assert isinstance(ledger, ResearchDailyLedger)
+    day0, day1 = ledger.days
+    assert day0.cash < 0.0
+    assert day0.cash == ledger.initial_cash + day0.trade_net_cashflow - day0.fees
+    scale = max(
+        abs(ledger.initial_nav),
+        abs(day0.nav),
+        abs(day0.trade_net_cashflow),
+        abs(day0.fees),
+        1.0,
+    )
+    assert day0.cash >= -4 * math.ulp(scale)
+    assert day0.nav == pytest.approx(solved)
+    pre_nav = ledger.initial_nav * (1.0 + soxl_weight * 0.10)
+    assert day0.fees == pytest.approx(pre_nav - solved)
+    assert math.isclose(
+        day0.cash,
+        ledger.initial_cash + day0.trade_net_cashflow - day0.fees,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    )
+    marks = {mark.symbol: mark.valuation for mark in day0.positions}
+    assert math.isclose(marks[SOXL] / day0.nav, soxl_weight, rel_tol=0.0, abs_tol=4 * math.ulp(soxl_weight))
+    assert math.isclose(marks[TQQQ] / day0.nav, tqqq_weight, rel_tol=0.0, abs_tol=4 * math.ulp(tqqq_weight))
+    assert day1.fees == 0.0
+    assert day1.trade_net_cashflow == 0.0
+    assert day1.cash == day0.cash
+    assert day1.cash == day0.cash + day1.trade_net_cashflow - day1.fees
+    assert math.isclose(
+        day1.nav,
+        day1.cash + sum(mark.valuation for mark in day1.positions),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    )
+    assert day1.daily_return == day1.nav / day0.nav - 1.0
+    assert _values(ledger, SOXL)[2] == pytest.approx(_values(ledger, SOXL)[1])
+    assert _values(ledger, TQQQ)[2] == pytest.approx(_values(ledger, TQQQ)[1] * 1.02)
+
+
+def _assert_material_overfill_rejected(capital: float, soxl_weight: float, tqqq_weight: float) -> None:
+    # 5e-13 仍能通过权重闭合，但美元缺口远多于几个 ULP，必须继续拒绝。
+    with pytest.raises(ValueError, match="SELF_FINANCING_CASH_NEGATIVE"):
+        _ledgers(
+            soxl_net_returns=(0.10, 0.0),
+            tqqq_net_returns=(0.0, 0.02),
+            initial_capital=capital,
+            target_weights={SOXL: soxl_weight + 5e-13, TQQQ: tqqq_weight, CASH: 0.0},
+            risk_scalar=1.0,
+            rebalance_indices=(0,),
+            combo_fee_bps=10.0,
+            fee_bearing_members=(SOXL, TQQQ),
+        )
+
+
+def test_million_full_investment_rebalance_keeps_machine_cash_residual() -> None:
+    # Capital 1_000_000 at 0.05/0.95/0. SOXL +10% before the only rebalance:
+    # grown 55_000/950_000/0, pre-fee NAV 1_005_000. Between the 1_000_000 and
+    # 1_100_000 breakpoints the book sells SOXL and buys TQQQ:
+    # V + 0.001 * ((55_000 - 0.05 V) + (0.95 V - 950_000)) = 1_005_000
+    # → 1.0009 V = 1_005_895.
+    solved = 1_005_895 / 1.0009
+    charged = _ledgers(
+        soxl_net_returns=(0.10, 0.0),
+        tqqq_net_returns=(0.0, 0.02),
+        initial_capital=1_000_000.0,
+        target_weights={SOXL: 0.05, TQQQ: 0.95, CASH: 0.0},
+        risk_scalar=1.0,
+        rebalance_indices=(0,),
+        combo_fee_bps=10.0,
+        fee_bearing_members=(SOXL, TQQQ),
+    )[RISK_SCALED_WITH_SYNTHETIC_COMBO_FEE]
+    _assert_machine_residual_is_not_a_borrow(charged, solved=solved, soxl_weight=0.05, tqqq_weight=0.95)
+    _assert_material_overfill_rejected(1_000_000.0, 0.05, 0.95)
+
+
+def test_hundred_million_full_investment_rebalance_keeps_machine_cash_residual() -> None:
+    # Capital 1e8 at 0.3/0.7/0. SOXL +10% before the only rebalance:
+    # grown 33_000_000/70_000_000/0, pre-fee NAV 103_000_000. Between the
+    # 100_000_000 and 110_000_000 breakpoints the book sells SOXL and buys TQQQ:
+    # V + 0.001 * ((33_000_000 - 0.3 V) + (0.7 V - 70_000_000)) = 103_000_000
+    # → 1.0004 V = 103_037_000. Theoretical cash is zero.
+    solved = 103_037_000 / 1.0004
+    charged = _ledgers(
+        soxl_net_returns=(0.10, 0.0),
+        tqqq_net_returns=(0.0, 0.02),
+        initial_capital=100_000_000.0,
+        target_weights={SOXL: 0.3, TQQQ: 0.7, CASH: 0.0},
+        risk_scalar=1.0,
+        rebalance_indices=(0,),
+        combo_fee_bps=10.0,
+        fee_bearing_members=(SOXL, TQQQ),
+    )[RISK_SCALED_WITH_SYNTHETIC_COMBO_FEE]
+    _assert_machine_residual_is_not_a_borrow(charged, solved=solved, soxl_weight=0.3, tqqq_weight=0.7)
+    _assert_material_overfill_rejected(100_000_000.0, 0.3, 0.7)
+
+
+def test_initial_cash_machine_residual_is_kept() -> None:
+    # 1e8 at 0.45/0.55/0. The weight products overshoot by a few ULPs of the
+    # opening NAV. 负现金是机器残差，不是真实借款。
+    raw = _ledgers(
+        soxl_net_returns=(0.0,),
+        tqqq_net_returns=(0.0,),
+        session_dates=(SESSIONS[0],),
+        initial_capital=100_000_000.0,
+        target_weights={SOXL: 0.45, TQQQ: 0.55, CASH: 0.0},
+        risk_scalar=1.0,
+        rebalance_indices=(),
+    )[RAW_FIXED_BUDGET]
+    assert isinstance(raw, ResearchDailyLedger)
+    assert raw.initial_cash < 0.0
+    assert raw.initial_cash >= -4 * math.ulp(max(abs(raw.initial_nav), 1.0))
+    assert raw.days[0].cash == raw.initial_cash
+    assert raw.days[0].trade_net_cashflow == 0.0
+    assert raw.days[0].fees == 0.0
+    assert math.isclose(
+        raw.days[0].cash,
+        raw.initial_cash + raw.days[0].trade_net_cashflow - raw.days[0].fees,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    )

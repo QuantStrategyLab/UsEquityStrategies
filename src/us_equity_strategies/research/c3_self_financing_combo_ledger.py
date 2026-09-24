@@ -222,6 +222,21 @@ def _solve_post_fee_nav(
     return nav
 
 
+def _material_negative_cash(cash: float, *magnitudes: float) -> bool:
+    """True when ``cash`` is below four ULPs of the funding scale.
+
+    The scale is the largest absolute NAV, cash, flow, or fee involved.
+    A small flow must not set the threshold alone. The caller keeps the
+    original finite value; replacing a residual with zero can break the
+    ledger identity ``cash_t = cash_prev + trade_net_cashflow - fees``.
+    """
+
+    scale = 1.0
+    for magnitude in magnitudes:
+        scale = max(scale, abs(magnitude))
+    return cash < -4 * math.ulp(scale)
+
+
 def _marks(
     soxl_units: float, soxl_value: float, tqqq_units: float, tqqq_value: float
 ) -> tuple[ResearchPositionMark, ...]:
@@ -256,10 +271,8 @@ def _book(
     if weights[TQQQ] == 0.0:
         tqqq = 0.0
     cash = initial_capital - soxl - tqqq
-    if cash < 0.0:
-        if cash < -1e-10:
-            raise ValueError("SELF_FINANCING_CASH_NEGATIVE")
-        cash = 0.0
+    if _material_negative_cash(cash, initial_capital, soxl, tqqq, cash):
+        raise ValueError("SELF_FINANCING_CASH_NEGATIVE")
     soxl_units = soxl
     tqqq_units = tqqq
     soxl_price = 1.0
@@ -280,6 +293,7 @@ def _book(
             TQQQ: tqqq_units * tqqq_price,
             CASH: cash,
         }
+        pre_nav = grown[SOXL] + grown[TQQQ] + grown[CASH]
         if index in rebalance_on:
             target_nav = _solve_post_fee_nav(grown, weights, fee_rate, fee_bearing)
             soxl = 0.0 if weights[SOXL] == 0.0 else weights[SOXL] * target_nav
@@ -289,18 +303,18 @@ def _book(
             fee = _absolute_fee(grown, weights, target_nav, fee_rate, fee_bearing)
             trade_net = -((soxl - grown[SOXL]) + (tqqq - grown[TQQQ]))
             cash = grown[CASH] + trade_net - fee
+            post_nav = target_nav
         else:
             soxl = grown[SOXL]
             tqqq = grown[TQQQ]
             cash = grown[CASH]
             fee = 0.0
             trade_net = 0.0
+            post_nav = pre_nav
         if fee < 0.0:
             raise ValueError("SELF_FINANCING_NAV_UNSOLVED")
-        if cash < 0.0:
-            if cash < -1e-10:
-                raise ValueError("SELF_FINANCING_CASH_NEGATIVE")
-            cash = 0.0
+        if _material_negative_cash(cash, pre_nav, post_nav, grown[CASH], trade_net, fee):
+            raise ValueError("SELF_FINANCING_CASH_NEGATIVE")
         nav = cash + soxl + tqqq
         if not math.isfinite(nav) or nav <= 0.0:
             raise ValueError("SELF_FINANCING_NAV_UNSOLVED")

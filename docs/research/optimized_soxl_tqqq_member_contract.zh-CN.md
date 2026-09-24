@@ -131,3 +131,23 @@ QPK 身份字段拒绝 `unknown`、`default`、`none`、`null`、`na`、`n/a` �
 输出 schema 为 `qsl.us-equity-optimized-member-identity.v1`，`economic_identity_sha256` 是去掉自身后的规范 JSON SHA-256。`research_only` 为真，执行与晋级为假，`evidence_scope` 为 `IDENTITY_ONLY_NO_HISTORICAL_RETURNS`。复权、现金、公司行为、外部现金流和股数只保存声明，`contract_proof` 固定为 `DECLARATION_ONLY`，不能证明来源真实。typed SMA200、Batch A v2 与 fixture replay 的 schema 或 `evidence_use` 在这里会被拒绝。
 
 仍缺 trial 生产者，以及账本上的参考价/成交价分列、佣金与不利成交分列、外部出入金和公司行为事件字段。因此该对象不是完整优化历史，也不是生产等价。合成身份测试通过同样不表示历史有效。
+
+## 8. 主线研究启动 / 预注册
+
+本节只登记主线开工前要锁住的身份和输入。不新建账本或研究框架，也不填写仓位、权重结果或历史收益。真实输入未进入本批时，写成具名 PARKED。
+
+两条成员都是完整策略：SOXL 为 `soxl_soxx_trend_income`，TQQQ 为 `tqqq_growth_income`。范围、`required_inputs` 和 `managed_symbols` 见第 1 节。TQQQ manifest 声明的基准代码是 `QQQ`。脱敏后的真实参数、开关和生产版本没有进入本批：`ACTUAL_PARAMS_UNKNOWN`、`PRODUCTION_VERSION_UNKNOWN`。不得用 manifest 默认值、V7 或 typed baseline 填上。
+
+共同交易日、预热长度和原始数据来源摘要未提供：`COMMON_TRADING_DAYS_PARKED`、`WARMUP_PARKED`、`RAW_SOURCE_DIGEST_PARKED`。
+
+成员内部费用和组合增量费只计一次。成员净收益若已含该成员的佣金和不利成交，组合层不得再收同一笔。组合增量费是另一层。两套真实费率都未提供：`MEMBER_INTERNAL_FEE_SCHEDULE_PARKED`、`COMBO_INCREMENTAL_FEE_SCHEDULE_PARKED`。
+
+现金、拆股、分红和外部现金流仍停在第 4 节：`CASH_CONTRACT_UNKNOWN`、`CORPORATE_ACTION_UNKNOWN`、`EXTERNAL_FLOW_UNKNOWN`。基准序列未附带：`QQQ_BENCHMARK_SERIES_PARKED`。
+
+时点沿用第 2 节：信号在交易日 t 已知，成交在下一交易日 t+1，净值按收盘标记。这是因果约定，不是已发生的成交。
+
+训练、验证和留出必须在组合选参前固定，并写明每条单策略是否用过该区间。日期和使用记录都未提供：`TRAIN_VALIDATION_HOLDOUT_PARKED`、`SINGLE_STRATEGY_INTERVAL_USE_PARKED`。先登记相关性上升、隔夜跳空、滑点扩大、执行延迟、不利现金收益、V 型反弹和长期水下七类压力情景；冲击幅度与适用窗口要在使用历史结果前固定，目前为 `STRESS_SEVERITY_PARKED`。25% 与 30% 只作为回撤上限情景预先登记，不是收益目标，也不是已经测得的回撤。
+
+资金路径把本金 A 作为连续正变量，不预设用户的本金数值。随财富增加收紧风险是待检验偏好；费用、现金约束和成交粒度是资金摩擦，两者分开记。比例成本下的规模一致性可先用合成账本检查；真实规模效应仍受费用、股数和容量输入限制。
+
+离线合同、合成资金路径和预注册设计现在可以继续。实际参数、可信逐日成员路径及经济口径仍缺时，完整优化历史回测、真实仓位比较和净成本结论保持 PARKED，不把空表写成历史结果。
