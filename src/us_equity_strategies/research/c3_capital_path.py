@@ -141,21 +141,18 @@ def simulate_fixed_budget_capital_path(
         if not math.isfinite(fee_rate) or fee_rate < 0.0:
             raise ValueError("REBALANCE_FEE_BPS_INVALID")
 
-    rebalance_set: set[int]
-    if rebalance_indices is None:
-        rebalance_set = set()
-    else:
-        rebalance_set = set()
+    rebalance_set: set[int] = set()
+    if rebalance_indices is not None:
         for index in rebalance_indices:
             if isinstance(index, bool) or not isinstance(index, int):
                 raise TypeError("REBALANCE_INDEX_INVALID")
             if index < 0 or index >= count:
                 raise ValueError("REBALANCE_INDEX_INVALID")
             rebalance_set.add(index)
-        if fee_rate is None and rebalance_set:
-            raise ValueError("REBALANCE_FEE_BPS_REQUIRED_FOR_REBALANCE")
-        if fee_rate is not None and not rebalance_set and fee_rate > 0.0:
-            raise ValueError("REBALANCE_SCHEDULE_REQUIRED_FOR_POSITIVE_FEE")
+    if fee_rate is None and rebalance_set:
+        raise ValueError("REBALANCE_FEE_BPS_REQUIRED_FOR_REBALANCE")
+    if fee_rate is not None and not rebalance_set and fee_rate > 0.0:
+        raise ValueError("REBALANCE_SCHEDULE_REQUIRED_FOR_POSITIVE_FEE")
 
     fee_bearing_ids = _fee_bearing_member_ids(
         fee_bearing_member_ids,
@@ -275,17 +272,22 @@ def smooth_bounded_capital_risk_ratio(
     upper: float,
     curvature: float,
 ) -> dict[str, object]:
-    """Map continuous capital to a smooth risk ratio inside explicit bounds.
+    """Map continuous capital to a risk ratio inside explicit bounds.
 
-    Closed form, with every substantive parameter required:
+    For positive capital the ratio is the smooth closed form, with every
+    substantive parameter required:
 
         lower + (upper - lower) / (1 + (capital / a0) ** curvature)
 
-    For ``curvature > 0`` the ratio is monotone non-increasing in capital,
-    equals ``upper`` at zero capital, and approaches ``lower`` as capital
-    grows.  ``upper <= 1`` so the function does not introduce leverage.
-    There is no default and no historical fit.  The result is a function
-    property only, not an optimal position.
+    That expression is evaluated with a log rewrite, which is defined only
+    for positive capital.  Zero capital returns the continuous extension of
+    the same positive-capital map: when ``curvature > 0`` the limit is
+    ``upper``.  The extension does not change the formula or the accepted
+    parameter domain.  On capital >= 0 the ratio is monotone non-increasing
+    and approaches ``lower`` as capital grows.  ``upper <= 1`` so the
+    function does not introduce leverage.  There is no default and no
+    historical fit.  The result is a function property only, not an optimal
+    position.
     """
 
     capital_value = _research_finite(capital)
@@ -302,6 +304,7 @@ def smooth_bounded_capital_risk_ratio(
         or lower_value > upper_value
     ):
         raise ValueError("CAPITAL_RISK_RATIO_PARAMETERS_INVALID")
+    # Zero capital is the continuous extension; log(capital) is undefined.
     if capital_value == 0.0:
         upper_fraction = 1.0
     else:

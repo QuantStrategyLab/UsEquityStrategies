@@ -69,6 +69,35 @@ def test_capital_conserved_and_weights_drift_without_rebalance() -> None:
     assert path["member_costs_recharged"] is False
 
 
+def test_positive_fee_without_rebalance_schedule_is_rejected() -> None:
+    with pytest.raises(ValueError, match="REBALANCE_SCHEDULE_REQUIRED_FOR_POSITIVE_FEE"):
+        simulate_fixed_budget_capital_path(
+            member_ids=("left", "right"),
+            member_returns={"left": (0.10, 0.0), "right": (0.0, 0.10)},
+            target_weights={"left": 0.5, "right": 0.5},
+            rebalance_fee_bps=100.0,
+            rebalance_indices=None,
+            fee_bearing_member_ids=("left", "right"),
+        )
+
+
+def test_zero_fee_without_rebalance_schedule_stays_on_drift_path() -> None:
+    path = simulate_fixed_budget_capital_path(
+        member_ids=("left", "right"),
+        member_returns={"left": (0.10, 0.0), "right": (0.0, 0.10)},
+        target_weights={"left": 0.5, "right": 0.5},
+        rebalance_fee_bps=0.0,
+        rebalance_indices=None,
+    )
+    assert path["daily_returns"] == pytest.approx((0.05, 1.10 / 1.05 - 1.0))
+    assert path["terminal_nav"] == pytest.approx(1.10)
+    assert path["fee_fractions"] == pytest.approx((0.0, 0.0))
+    assert path["rebalance_fees_applied"] is False
+    assert path["rebalance_fee_basis"] == "ZERO_FEE_RATE_NO_COST"
+    assert path["rebalance_indices"] == ()
+    assert path["fee_bearing_member_ids"] is None
+
+
 def test_rebalance_fee_is_incremental_and_does_not_recharge_member_costs() -> None:
     # After day0 A +100% / B flat from 50/50: NAV=1.5, weights 2/3 and 1/3.
     # Caller charges both sleeves. Pre-trade gross notional = L1 = 1/3.
