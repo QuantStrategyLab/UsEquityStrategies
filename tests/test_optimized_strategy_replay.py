@@ -220,7 +220,7 @@ def test_soxl_pre_gate_targets_match_hand_calculated_ledger(monkeypatch) -> None
     )
     json.dumps(backtest.params)
     assert backtest.benchmark_cagr is None
-    assert {"NO_SHARE_LOT_ROUNDING", "NO_CORPORATE_ACTIONS", "CASH_BPS_FEE_NOT_ADVERSE_FILL"} <= set(REPLAY_GAPS)
+    assert {"NO_SHARE_LOT_ROUNDING", "NO_CORPORATE_ACTIONS", "SYNTHETIC_BPS_NOT_LIVE_FEES"} <= set(REPLAY_GAPS)
 
 
 def test_soxl_local_vol_trigger_and_recovery_follows_next_trading_day(monkeypatch) -> None:
@@ -658,7 +658,9 @@ def _research_path(root: Path, profile: str, trial_id: str, name: str) -> Path:
 
 
 def test_rejected_trial_readback_has_no_metrics() -> None:
-    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        persist_optimized_strategy_trial,
+    )
 
     config = _config(soxl_soxx_trend_income_manifest)
     config["option_income_overlay_enabled"] = True
@@ -690,7 +692,9 @@ def test_rejected_trial_readback_has_no_metrics() -> None:
 
 def test_builder_exception_is_failed_without_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     from us_equity_strategies.research import optimized_strategy_replay as replay_module
-    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        persist_optimized_strategy_trial,
+    )
 
     def _boom(_ctx: object) -> None:
         raise RuntimeError("builder-boom-detail")
@@ -716,7 +720,9 @@ def test_builder_exception_is_failed_without_metrics(monkeypatch: pytest.MonkeyP
 
 
 def test_succeeded_trial_readback_matches_executed_ledger() -> None:
-    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        persist_optimized_strategy_trial,
+    )
 
     request = _soxl_request()
     replay = replay_optimized_strategy(request)
@@ -770,7 +776,7 @@ def test_succeeded_trial_readback_matches_executed_ledger() -> None:
     assert ledger.days[0].fees == replay.points[1].fees
     assert ledger.days[0].nav == replay.points[1].nav
     assert ledger.days[0].daily_return == replay.points[1].daily_return
-    assert dict((mark.symbol, mark.quantity) for mark in ledger.days[0].positions) == {
+    assert {mark.symbol: mark.quantity for mark in ledger.days[0].positions} == {
         symbol: quantity for symbol, quantity in replay.points[1].holdings if quantity != 0.0
     }
     assert ledger.calendar_id == result.calendar_id == replay.backtest.calendar_id
@@ -781,7 +787,9 @@ def test_succeeded_trial_readback_matches_executed_ledger() -> None:
 
 
 def test_store_failure_does_not_report_success() -> None:
-    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        persist_optimized_strategy_trial,
+    )
 
     class _UnavailableStore(PerformanceStore):
         def save_research_trial(self, trial: object) -> None:
@@ -831,7 +839,10 @@ def test_input_id_changes_with_prices_or_indicators() -> None:
 
 
 def test_tampered_cash_keeps_trade_flow_and_is_rejected() -> None:
-    from us_equity_strategies.research.optimized_strategy_replay import _research_ledger, _started_trial
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        _research_ledger,
+        _started_trial,
+    )
 
     request = _soxl_request()
     replay = replay_optimized_strategy(request)
@@ -856,6 +867,7 @@ def test_large_notional_cash_matches_trade_flow_in_qpk_ledger() -> None:
         ResearchLedgerDay,
         ResearchPositionMark,
     )
+
     from us_equity_strategies.research.optimized_strategy_replay import _rebalance
 
     opening = 10_000_000.0
@@ -879,23 +891,23 @@ def test_large_notional_cash_matches_trade_flow_in_qpk_ledger() -> None:
         nav,
         nav / opening - 1.0,
     )
-    ledger_kwargs = dict(
-        trial_id="fixture-large-notional",
-        domain="us_equity",
-        strategy_profile="soxl_soxx_trend_income",
-        run_id="fixture-large-notional-run",
-        param_version=1,
-        input_id="fixture-large-notional-input",
-        calendar_id="fixture-calendar-v1",
-        periods_per_year=252.0,
-        cost_source="EXPLICIT_ZERO",
-        cost_inputs={"commission_bps": 0.0},
-        initial_session_date=SIGNAL,
-        initial_nav=opening,
-        initial_cash=opening,
-        initial_positions=(),
-        synthetic=True,
-    )
+    ledger_kwargs = {
+        "trial_id": "fixture-large-notional",
+        "domain": "us_equity",
+        "strategy_profile": "soxl_soxx_trend_income",
+        "run_id": "fixture-large-notional-run",
+        "param_version": 1,
+        "input_id": "fixture-large-notional-input",
+        "calendar_id": "fixture-calendar-v1",
+        "periods_per_year": 252.0,
+        "cost_source": "EXPLICIT_ZERO",
+        "cost_inputs": {"commission_bps": 0.0},
+        "initial_session_date": SIGNAL,
+        "initial_nav": opening,
+        "initial_cash": opening,
+        "initial_positions": (),
+        "synthetic": True,
+    }
     accepted = ResearchDailyLedger(days=(day,), **ledger_kwargs)
     assert accepted.observation_count == 1
     tampered_nav = nav + 50.0
@@ -911,6 +923,7 @@ def test_hundred_million_full_deployment_ulp_is_accepted_and_real_shortfall_is_n
         ResearchLedgerDay,
         ResearchPositionMark,
     )
+
     from us_equity_strategies.research.optimized_strategy_replay import _rebalance
 
     opening = 100_000_000.0
@@ -949,3 +962,156 @@ def test_hundred_million_full_deployment_ulp_is_accepted_and_real_shortfall_is_n
     overspent["A"] += 1.0
     with pytest.raises(OptimizedStrategyReplayError, match="CASH_INVALID"):
         _rebalance(opening, {"A": 0.0, "B": 0.0}, overspent, fills, 0.0)
+
+
+def _ledger_day(cash: float, marks: tuple, trade_net: float, fee: float, nav: float, opening_nav: float):
+    from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerDay
+
+    return ResearchLedgerDay(EXECUTE, cash, marks, trade_net, fee, nav, nav / opening_nav - 1.0)
+
+
+def test_buy_and_sell_split_commission_cash_from_adverse_fill() -> None:
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        ResearchDailyLedger,
+        ResearchPositionMark,
+    )
+
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    buy_cash, buy_qty, buy_fee, buy_flow = _rebalance(
+        2_000.0, {"A": 0.0}, {"A": 800.0}, {"A": 80.0}, 0.25, 0.25
+    )
+    assert buy_qty["A"] == 10.0
+    assert buy_fee == 200.0
+    assert buy_flow == -1_000.0
+    assert buy_cash == 800.0
+    buy_nav = buy_cash + 800.0
+    buy_mark = ResearchPositionMark("A", 10.0, 800.0)
+    buy_ledger = ResearchDailyLedger(
+        trial_id="fixture-cost-buy",
+        domain="us_equity",
+        strategy_profile="soxl_soxx_trend_income",
+        run_id="fixture-cost-buy-run",
+        param_version=1,
+        input_id="fixture-cost-buy-input",
+        calendar_id="fixture-calendar-v1",
+        periods_per_year=252.0,
+        cost_source="SYNTHETIC_BPS",
+        cost_inputs={"commission_bps": 2_500.0, "slippage_bps": 2_500.0, "market_impact_bps": 0.0},
+        initial_session_date=SIGNAL,
+        initial_nav=2_000.0,
+        initial_cash=2_000.0,
+        initial_positions=(),
+        days=(_ledger_day(buy_cash, (buy_mark,), buy_flow, buy_fee, buy_nav, 2_000.0),),
+        synthetic=True,
+    )
+    assert buy_ledger.days[0].cash == 2_000.0 + buy_flow - buy_fee
+    assert buy_ledger.days[0].fees == 200.0
+    assert buy_ledger.total_fees == 200.0
+
+    sell_cash, sell_qty, sell_fee, sell_flow = _rebalance(
+        100.0, {"A": 10.0}, {"A": 0.0}, {"A": 80.0}, 0.25, 0.25
+    )
+    assert sell_qty["A"] == 0.0
+    assert sell_fee == 200.0
+    assert sell_flow == 600.0
+    assert sell_cash == 500.0
+    opening_nav = 900.0
+    sell_nav = sell_cash
+    sell_ledger = ResearchDailyLedger(
+        trial_id="fixture-cost-sell",
+        domain="us_equity",
+        strategy_profile="soxl_soxx_trend_income",
+        run_id="fixture-cost-sell-run",
+        param_version=1,
+        input_id="fixture-cost-sell-input",
+        calendar_id="fixture-calendar-v1",
+        periods_per_year=252.0,
+        cost_source="SYNTHETIC_BPS",
+        cost_inputs={"commission_bps": 2_500.0, "slippage_bps": 1_250.0, "market_impact_bps": 1_250.0},
+        initial_session_date=SIGNAL,
+        initial_nav=opening_nav,
+        initial_cash=100.0,
+        initial_positions=(ResearchPositionMark("A", 10.0, 800.0),),
+        days=(_ledger_day(sell_cash, (), sell_flow, sell_fee, sell_nav, opening_nav),),
+        synthetic=True,
+    )
+    assert sell_ledger.days[0].cash == 100.0 + sell_flow - sell_fee
+    assert sell_ledger.days[0].positions == ()
+
+    flat_cash, flat_qty, flat_fee, flat_flow = _rebalance(
+        1_000.0, {"A": 0.0}, {"A": 500.0}, {"A": 50.0}, 0.0
+    )
+    assert flat_qty["A"] == 10.0
+    assert flat_fee == 0.0
+    assert flat_flow == -500.0
+    assert flat_cash == 500.0
+
+
+def test_bad_cost_inputs_and_unfunded_buys_are_rejected() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    rejected = (
+        (PromotionCostModel("NEG_COMMISSION", -1.0, 0.0, 0.0), "NONFINITE_INPUT"),
+        (PromotionCostModel("NAN_SLIPPAGE", 0.0, float("nan"), 0.0), "NONFINITE_INPUT"),
+        (PromotionCostModel("INF_IMPACT", 0.0, 0.0, float("inf")), "NONFINITE_INPUT"),
+        (PromotionCostModel("FLAT_SELL", 0.0, 6_000.0, 4_000.0), "INVALID_FILL"),
+    )
+    for model, code in rejected:
+        with pytest.raises(OptimizedStrategyReplayError, match=code):
+            replay_optimized_strategy(_soxl_request(cost_model=model))
+    with pytest.raises(OptimizedStrategyReplayError, match="INVALID_FILL"):
+        _rebalance(1_000.0, {"A": 10.0}, {"A": 0.0}, {"A": 80.0}, 0.0, 1.0)
+    with pytest.raises(OptimizedStrategyReplayError, match="CASH_INVALID"):
+        _rebalance(900.0, {"A": 0.0}, {"A": 800.0}, {"A": 80.0}, 0.25, 0.25)
+    with pytest.raises(OptimizedStrategyReplayError, match="CASH_INVALID"):
+        replay_optimized_strategy(_soxl_request(cost_model=PromotionCostModel("SLIP500", 0.0, 500.0, 0.0)))
+    with pytest.raises(OptimizedStrategyReplayError, match="CASH_INVALID"):
+        replay_optimized_strategy(_soxl_request(cost_model=PromotionCostModel("COMM400", 400.0, 0.0, 0.0)))
+
+
+def test_replay_buy_reads_commission_and_adverse_fill_back_from_ledger() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        persist_optimized_strategy_trial,
+    )
+
+    traded = 100_000.0 * 0.97
+    commission = traded * 0.001
+    adverse = traded * (5.0 + 5.0) / 10_000.0
+    request = _soxl_request(cost_model=PromotionCostModel("HAND_SPLIT", 10.0, 5.0, 5.0))
+    replay = replay_optimized_strategy(request)
+    point = replay.points[1]
+    assert point.fees == pytest.approx(commission)
+    assert point.trade_net_cashflow == pytest.approx(-(traded + adverse))
+    assert point.cash == pytest.approx(100_000.0 + point.trade_net_cashflow - point.fees)
+    assert point.nav == pytest.approx(point.cash + traded)
+    assert point.nav == pytest.approx(100_000.0 - commission - adverse)
+    holdings = dict(point.holdings)
+    assert holdings["SOXL"] == pytest.approx((traded * 0.70) / 50.0)
+    assert holdings["SOXX"] == pytest.approx((traded * 0.20) / 100.0)
+    assert holdings["BOXX"] == pytest.approx((traded * 0.10) / 100.0)
+    assert replay.backtest.cost_model == "HAND_SPLIT"
+    assert dict(replay.backtest.cost_inputs) == {
+        "commission_bps": 10.0,
+        "slippage_bps": 5.0,
+        "market_impact_bps": 5.0,
+    }
+    assert "SYNTHETIC_BPS_NOT_LIVE_FEES" in replay.gaps
+    with tempfile.TemporaryDirectory() as tmp:
+        store = PerformanceStore(local_root=Path(tmp), cloud_bucket="")
+        persist_optimized_strategy_trial(request, store, trial_id="fixture-soxl-cost-split")
+        loaded = store.load_research_ledger(
+            "us_equity",
+            "soxl_soxx_trend_income",
+            "fixture-soxl-cost-split",
+            replay.backtest.run_id,
+            replay.backtest.param_version,
+        )
+    assert loaded is not None
+    assert loaded.days[0].cash == point.cash
+    assert loaded.days[0].fees == point.fees
+    assert loaded.days[0].trade_net_cashflow == point.trade_net_cashflow
+    assert loaded.days[0].nav == point.nav
+    assert loaded.days[0].daily_return == point.daily_return
+    assert dict(loaded.cost_inputs) == dict(replay.backtest.cost_inputs)
+    assert loaded.days[0].cash == pytest.approx(loaded.initial_cash + loaded.days[0].trade_net_cashflow - loaded.days[0].fees)

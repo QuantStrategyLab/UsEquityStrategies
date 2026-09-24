@@ -54,7 +54,7 @@ from us_equity_strategies.strategies.soxl_soxx_trend_income import (
 REPLAY_GAPS = (
     "PRE_RISK_GATE_NOT_LIVE_EXECUTABLE",
     "CALLER_SUPPLIED_INDICATORS_AND_BENCHMARK",
-    "CASH_BPS_FEE_NOT_ADVERSE_FILL",
+    "SYNTHETIC_BPS_NOT_LIVE_FEES",
     "NO_SHARE_LOT_ROUNDING",
     "NO_CORPORATE_ACTIONS",
     "NO_MIN_TRADE_OR_SETTLEMENT_FILTER",
@@ -422,16 +422,19 @@ def _metadata(value: object) -> dict[str, Any]:
     _fail("NONEMPTY_PORTFOLIO_METADATA")
 
 
-def _cost(value: object) -> tuple[PromotionCostModel, float]:
+def _cost(value: object) -> tuple[PromotionCostModel, float, float]:
     if type(value) is not PromotionCostModel:
         _fail("MISSING_FIELD:cost_model")
     _text(value.model_id, "INVALID_FIELD:cost_model")
-    rates = (
-        _number(value.commission_bps, "NONFINITE_INPUT"),
-        _number(value.slippage_bps, "NONFINITE_INPUT"),
-        _number(value.market_impact_bps, "NONFINITE_INPUT"),
-    )
-    return value, sum(rates) / 10_000.0
+    commission_bps = _number(value.commission_bps, "NONFINITE_INPUT")
+    slippage_bps = _number(value.slippage_bps, "NONFINITE_INPUT")
+    impact_bps = _number(value.market_impact_bps, "NONFINITE_INPUT")
+    adverse_bps = slippage_bps + impact_bps
+    if not math.isfinite(adverse_bps):
+        _fail("NONFINITE_INPUT")
+    if adverse_bps >= 10_000.0:
+        _fail("INVALID_FILL")
+    return value, commission_bps / 10_000.0, adverse_bps / 10_000.0
 
 
 def _field(bar: DatedBar, field_name: str) -> float:
@@ -483,28 +486,46 @@ def _check_timing(decision: Any, signal: date, effective: date) -> None:
         _fail("TIMING_MISMATCH")
 
 
+def _unit_rate(value: object) -> float:
+    return _number(value, "NONFINITE_INPUT")
+
+
+def _execution_price(reference: float, delta: float, adverse_rate: float) -> float:
+    if delta == 0.0 or adverse_rate == 0.0:
+        return reference
+    price = reference * (1.0 + adverse_rate) if delta > 0.0 else reference * (1.0 - adverse_rate)
+    if not math.isfinite(price) or price <= 0.0:
+        _fail("INVALID_FILL")
+    return price
+
+
 def _rebalance(
     cash: float,
     quantities: dict[str, float],
     targets: Mapping[str, float],
     fills: Mapping[str, float],
-    cost_rate: float,
+    commission_rate: float,
+    adverse_rate: float = 0.0,
 ) -> tuple[float, dict[str, float], float, float]:
+    """Size shares at the reference price. Commission is cash; slippage and impact worsen the fill."""
+
+    commission_rate = _unit_rate(commission_rate)
+    adverse_rate = _unit_rate(adverse_rate)
     opening_cash = cash
     updated = dict(quantities)
     traded = 0.0
     trade_net = 0.0
     for symbol in sorted(targets):
-        fill = fills[symbol]
-        delta = targets[symbol] / fill - quantities[symbol]
-        notion = delta * fill
-        traded += abs(notion)
-        trade_net -= notion
+        reference = fills[symbol]
+        delta = targets[symbol] / reference - quantities[symbol]
+        fill = _execution_price(reference, delta, adverse_rate)
+        traded += abs(delta * reference)
+        trade_net -= delta * fill
         updated[symbol] = quantities[symbol] + delta
-    fee = traded * cost_rate
+    fee = traded * commission_rate
     cash = opening_cash + trade_net - fee
     scale = max(abs(opening_cash), abs(trade_net), 1.0)
-    if not math.isfinite(cash) or cash < -4 * math.ulp(scale) or not math.isfinite(trade_net):
+    if not math.isfinite(cash) or not math.isfinite(fee) or cash < -4 * math.ulp(scale) or not math.isfinite(trade_net):
         _fail("CASH_INVALID")
     return cash, updated, fee, trade_net
 
@@ -618,7 +639,7 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
     cash = _number(request.initial_cash, "NONFINITE_INPUT")
     initial_cash = cash
     metadata = _metadata(request.portfolio_metadata)
-    cost_model, cost_rate = _cost(request.cost_model)
+    cost_model, commission_rate, adverse_rate = _cost(request.cost_model)
     signals = calendar[:-1]
     indicators = None
     benchmark: tuple[DatedBar, ...] = ()
@@ -647,7 +668,7 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                 _fail("TIMING_MISMATCH")
             fills = {symbol: _field(prices[(session, symbol)], execution.fill_price_field) for symbol in symbols}
             cash, quantities, fees, trade_net_cashflow = _rebalance(
-                cash, quantities, pending[1], fills, cost_rate
+                cash, quantities, pending[1], fills, commission_rate, adverse_rate
             )
             pending = None
         market_values = {symbol: quantities[symbol] * closes[symbol] for symbol in symbols}
