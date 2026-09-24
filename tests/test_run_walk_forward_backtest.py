@@ -79,7 +79,7 @@ def test_run_walk_forward_persists_lifecycle_baseline(
 
     records = [
         json.loads(path.read_text(encoding="utf-8"))
-        for path in (tmp_path / "backtest" / "us_equity" / profile).glob("*.json")
+        for path in (tmp_path / "backtest" / "us_equity" / profile).rglob("*.json")
     ]
 
     assert payload["baseline"]["sharpe_ratio"] is not None

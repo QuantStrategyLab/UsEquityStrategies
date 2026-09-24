@@ -170,7 +170,7 @@ def test_run_walk_forward_persists_soxl_lifecycle_baseline(tmp_path: Path) -> No
     )
     records = [
         json.loads(path.read_text(encoding="utf-8"))
-        for path in (tmp_path / "backtest" / "us_equity" / SOXL_PROFILE).glob("*.json")
+        for path in (tmp_path / "backtest" / "us_equity" / SOXL_PROFILE).rglob("*.json")
     ]
     assert payload["strategy_profile"] == SOXL_PROFILE
     assert payload["baseline"]["sharpe_ratio"] is not None
