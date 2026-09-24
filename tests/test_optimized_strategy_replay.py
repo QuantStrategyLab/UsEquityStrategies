@@ -803,3 +803,49 @@ def test_large_notional_cash_matches_trade_flow_in_qpk_ledger() -> None:
     assert tampered.trade_net_cashflow == trade_net
     with pytest.raises(ValueError, match="ledger_cash"):
         ResearchDailyLedger(days=(tampered,), **ledger_kwargs)
+
+
+def test_hundred_million_full_deployment_ulp_is_accepted_and_real_shortfall_is_not() -> None:
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        ResearchDailyLedger,
+        ResearchLedgerDay,
+        ResearchPositionMark,
+    )
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    opening = 100_000_000.0
+    fills = {"A": 551.9657193551195, "B": 205.2260336967429}
+    targets = {"A": 73739074.86326925, "B": 26260925.13673075}
+    cash, quantities, fee, trade_net = _rebalance(opening, {"A": 0.0, "B": 0.0}, targets, fills, 0.0)
+    assert fee == 0.0
+    assert cash == opening + trade_net - fee
+    assert cash < 0.0
+    marks = tuple(
+        ResearchPositionMark(symbol, quantities[symbol], quantities[symbol] * fills[symbol])
+        for symbol in ("A", "B")
+    )
+    nav = cash + sum(mark.valuation for mark in marks)
+    day = ResearchLedgerDay(EXECUTE, cash, marks, trade_net, fee, nav, nav / opening - 1.0)
+    accepted = ResearchDailyLedger(
+        trial_id="fixture-hundred-million",
+        domain="us_equity",
+        strategy_profile="soxl_soxx_trend_income",
+        run_id="fixture-hundred-million-run",
+        param_version=1,
+        input_id="fixture-hundred-million-input",
+        calendar_id="fixture-calendar-v1",
+        periods_per_year=252.0,
+        cost_source="EXPLICIT_ZERO",
+        cost_inputs={"commission_bps": 0.0},
+        initial_session_date=SIGNAL,
+        initial_nav=opening,
+        initial_cash=opening,
+        initial_positions=(),
+        days=(day,),
+        synthetic=True,
+    )
+    assert accepted.observation_count == 1
+    overspent = dict(targets)
+    overspent["A"] += 1.0
+    with pytest.raises(OptimizedStrategyReplayError, match="CASH_INVALID"):
+        _rebalance(opening, {"A": 0.0, "B": 0.0}, overspent, fills, 0.0)

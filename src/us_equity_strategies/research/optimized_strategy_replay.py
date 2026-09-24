@@ -503,7 +503,8 @@ def _rebalance(
         updated[symbol] = quantities[symbol] + delta
     fee = traded * cost_rate
     cash = opening_cash + trade_net - fee
-    if not math.isfinite(cash) or cash < -1e-8 or not math.isfinite(trade_net):
+    scale = max(abs(opening_cash), abs(trade_net), 1.0)
+    if not math.isfinite(cash) or cash < -4 * math.ulp(scale) or not math.isfinite(trade_net):
         _fail("CASH_INVALID")
     return cash, updated, fee, trade_net
 
