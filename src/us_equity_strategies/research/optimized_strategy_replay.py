@@ -24,7 +24,13 @@ from quant_platform_kit.common.strategy_contracts import StrategyContext
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     PromotionCostModel,
+    ResearchDailyLedger,
+    ResearchLedgerDay,
+    ResearchPositionMark,
+    ResearchTrialRecord,
+    ResearchTrialStatus,
 )
+from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 from us_equity_strategies.entrypoints import (
     _build_soxl_soxx_trend_income_decision,
@@ -171,6 +177,7 @@ class DailyReplayPoint:
     daily_return: float | None
     holdings: tuple[tuple[str, float], ...]
     market_values: tuple[tuple[str, float], ...]
+    trade_net_cashflow: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,20 +489,23 @@ def _rebalance(
     targets: Mapping[str, float],
     fills: Mapping[str, float],
     cost_rate: float,
-) -> tuple[float, dict[str, float], float]:
+) -> tuple[float, dict[str, float], float, float]:
+    opening_cash = cash
     updated = dict(quantities)
     traded = 0.0
+    trade_net = 0.0
     for symbol in sorted(targets):
         fill = fills[symbol]
         delta = targets[symbol] / fill - quantities[symbol]
-        traded += abs(delta) * fill
-        cash -= delta * fill
+        notion = delta * fill
+        traded += abs(notion)
+        trade_net -= notion
         updated[symbol] = quantities[symbol] + delta
     fee = traded * cost_rate
-    cash -= fee
-    if not math.isfinite(cash) or cash < -1e-8:
+    cash = opening_cash + trade_net - fee
+    if not math.isfinite(cash) or cash < -1e-8 or not math.isfinite(trade_net):
         _fail("CASH_INVALID")
-    return (0.0 if abs(cash) <= 1e-8 else cash), updated, fee
+    return cash, updated, fee, trade_net
 
 
 def _metrics(
@@ -630,11 +640,14 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
     for index, session in enumerate(calendar):
         closes = {symbol: _field(prices[(session, symbol)], "close") for symbol in symbols}
         fees = 0.0
+        trade_net_cashflow = 0.0
         if pending is not None:
             if pending[0] != session:
                 _fail("TIMING_MISMATCH")
             fills = {symbol: _field(prices[(session, symbol)], execution.fill_price_field) for symbol in symbols}
-            cash, quantities, fees = _rebalance(cash, quantities, pending[1], fills, cost_rate)
+            cash, quantities, fees, trade_net_cashflow = _rebalance(
+                cash, quantities, pending[1], fills, cost_rate
+            )
             pending = None
         market_values = {symbol: quantities[symbol] * closes[symbol] for symbol in symbols}
         nav = cash + sum(market_values.values())
@@ -649,6 +662,7 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                 daily_return=None if index == 0 else nav / previous_nav - 1.0,
                 holdings=tuple((symbol, quantities[symbol]) for symbol in sorted(symbols)),
                 market_values=tuple((symbol, market_values[symbol]) for symbol in sorted(symbols)),
+                trade_net_cashflow=trade_net_cashflow,
             )
         )
         previous_nav = nav
@@ -764,7 +778,7 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
             "signal_effective_after_trading_days": execution.signal_effective_after_trading_days,
             "fill_price_field": execution.fill_price_field,
             "nav_mark_field": execution.nav_mark_field,
-            "gaps": REPLAY_GAPS,
+            "gaps": list(REPLAY_GAPS),
         },
         sharpe_ratio=metrics["sharpe_ratio"],
         calmar_ratio=metrics["calmar_ratio"],
@@ -799,6 +813,288 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
     )
 
 
+def _safe_reason(code: str) -> str:
+    head = code.split(":", 1)[0].lower()
+    cleaned = "".join(char if char in "abcdefghijklmnopqrstuvwxyz0123456789_" else "_" for char in head).strip("_")
+    if not cleaned or cleaned[0] not in "abcdefghijklmnopqrstuvwxyz" or len(cleaned) > 64:
+        return "rejected"
+    return cleaned
+
+
+def _canonical_number(value: object) -> float:
+    return _signed(value, "NONFINITE_INPUT")
+
+
+def _canonical_calendar(value: object) -> list[str]:
+    if type(value) is not tuple or len(value) < 2 or any(type(item) is not date for item in value):
+        _fail("CALENDAR_INVALID")
+    return [item.isoformat() for item in value]
+
+
+def _canonical_bar(bar: object) -> dict[str, object]:
+    if type(bar) is not DatedBar or type(bar.session) is not date or type(bar.symbol) is not str or not bar.symbol:
+        _fail("INPUT_GAP")
+    return {
+        "session": bar.session.isoformat(),
+        "symbol": bar.symbol,
+        "open": _canonical_number(bar.open),
+        "high": _canonical_number(bar.high),
+        "low": _canonical_number(bar.low),
+        "close": _canonical_number(bar.close),
+    }
+
+
+def _canonical_bars(value: object) -> list[dict[str, object]]:
+    if type(value) is not tuple:
+        _fail("INPUT_GAP")
+    parsed = [_canonical_bar(bar) for bar in value]
+    keys = [(item["session"], item["symbol"]) for item in parsed]
+    if len(keys) != len(set(keys)):
+        _fail("INPUT_GAP")
+    return sorted(parsed, key=lambda item: (str(item["session"]), str(item["symbol"])))
+
+
+def _canonical_indicators(value: object) -> list[list[object]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        _fail("MISSING_FIELD:derived_indicators")
+    sessions: list[list[object]] = []
+    for session, payload in value.items():
+        if type(session) is not date or not isinstance(payload, Mapping):
+            _fail("MISSING_FIELD:derived_indicators")
+        symbols: list[list[object]] = []
+        for symbol, metrics in payload.items():
+            if type(symbol) is not str or not symbol or not isinstance(metrics, Mapping):
+                _fail("MISSING_FIELD:derived_indicators")
+            rows = []
+            for key, metric in metrics.items():
+                if type(key) is not str or not key:
+                    _fail("MISSING_FIELD:derived_indicators")
+                rows.append([key, _canonical_number(metric)])
+            rows.sort()
+            if len(rows) != len({row[0] for row in rows}):
+                _fail("MISSING_FIELD:derived_indicators")
+            symbols.append([symbol, rows])
+        symbols.sort()
+        if len(symbols) != len({row[0] for row in symbols}):
+            _fail("MISSING_FIELD:derived_indicators")
+        sessions.append([session.isoformat(), symbols])
+    sessions.sort()
+    if len(sessions) != len({row[0] for row in sessions}):
+        _fail("MISSING_FIELD:derived_indicators")
+    return sessions
+
+
+def _canonical_quantities(value: object) -> list[list[object]]:
+    if not isinstance(value, Mapping):
+        _fail("MISSING_FIELD:initial_quantities")
+    rows: list[list[object]] = []
+    for symbol, quantity in value.items():
+        if type(symbol) is not str or not symbol:
+            _fail("MISSING_FIELD:initial_quantities")
+        rows.append([symbol, _canonical_number(quantity)])
+    rows.sort()
+    if len(rows) != len({row[0] for row in rows}):
+        _fail("MISSING_FIELD:initial_quantities")
+    return rows
+
+
+def _input_id(request: ReplayRequest) -> str:
+    material = {
+        "benchmark_bars": _canonical_bars(request.benchmark_bars),
+        "calendar": _canonical_calendar(request.calendar),
+        "calendar_id": _text(request.calendar_id, "MISSING_FIELD:calendar_id"),
+        "derived_indicators": _canonical_indicators(request.derived_indicators),
+        "evidence_use": _text(request.evidence_use, "MISSING_FIELD:evidence_use"),
+        "initial_cash": _canonical_number(request.initial_cash),
+        "initial_quantities": _canonical_quantities(request.initial_quantities),
+        "prices": _canonical_bars(request.prices),
+    }
+    try:
+        encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        _fail("NONFINITE_INPUT")
+    return "fixture-" + hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _started_trial(request: ReplayRequest, trial_id: str) -> ResearchTrialRecord:
+    if type(request) is not ReplayRequest or type(request.identity) is not ReplayIdentity:
+        _fail("MISSING_FIELD:identity")
+    calendar = request.calendar
+    if type(calendar) is not tuple or len(calendar) < 2 or any(type(item) is not date for item in calendar):
+        _fail("CALENDAR_INVALID")
+    if type(request.cost_model) is not PromotionCostModel:
+        _fail("MISSING_FIELD:cost_model")
+    identity = request.identity
+    cost = request.cost_model
+    try:
+        return ResearchTrialRecord(
+            trial_id=trial_id,
+            domain=identity.domain,
+            strategy_profile=identity.strategy_profile,
+            status=ResearchTrialStatus.STARTED,
+            candidate_config_id=identity.param_set_id,
+            actual_params=None,
+            param_set_id=identity.param_set_id,
+            source_revision=identity.source_revision,
+            input_id=_input_id(request),
+            window_start=calendar[0],
+            window_end=calendar[-1],
+            calendar_id=request.calendar_id,
+            periods_per_year=request.periods_per_year,
+            cost_source=cost.model_id,
+            cost_inputs={
+                "commission_bps": float(cost.commission_bps),
+                "slippage_bps": float(cost.slippage_bps),
+                "market_impact_bps": float(cost.market_impact_bps),
+            },
+            reason_code="",
+            synthetic=True,
+            run_id=None,
+            param_version=None,
+        )
+    except OptimizedStrategyReplayError:
+        raise
+    except ValueError as exc:
+        _fail("INVALID_FIELD:" + _safe_reason(str(exc)))
+
+
+def _terminal(
+    started: ResearchTrialRecord,
+    status: ResearchTrialStatus,
+    reason_code: str,
+    *,
+    actual_params: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    param_version: int | None = None,
+) -> ResearchTrialRecord:
+    return ResearchTrialRecord(
+        trial_id=started.trial_id,
+        domain=started.domain,
+        strategy_profile=started.strategy_profile,
+        status=status,
+        candidate_config_id=started.candidate_config_id,
+        actual_params=actual_params,
+        param_set_id=started.param_set_id,
+        source_revision=started.source_revision,
+        input_id=started.input_id,
+        window_start=started.window_start,
+        window_end=started.window_end,
+        calendar_id=started.calendar_id,
+        periods_per_year=started.periods_per_year,
+        cost_source=started.cost_source,
+        cost_inputs=dict(started.cost_inputs),
+        reason_code=reason_code,
+        synthetic=started.synthetic,
+        run_id=run_id,
+        param_version=param_version,
+    )
+
+
+def _marks(point: DailyReplayPoint) -> tuple[ResearchPositionMark, ...]:
+    values = dict(point.market_values)
+    marks: list[ResearchPositionMark] = []
+    for symbol, quantity in point.holdings:
+        valuation = values[symbol]
+        if quantity == 0.0 and valuation == 0.0:
+            continue
+        marks.append(ResearchPositionMark(symbol=symbol, quantity=quantity, valuation=valuation))
+    return tuple(marks)
+
+
+def _research_ledger(replay: OptimizedStrategyReplay, started: ResearchTrialRecord) -> ResearchDailyLedger:
+    points = replay.points
+    if len(points) < 2 or points[0].daily_return is not None or points[0].trade_net_cashflow != 0.0:
+        _fail("CASH_INVALID")
+    days: list[ResearchLedgerDay] = []
+    for point in points[1:]:
+        if point.daily_return is None:
+            _fail("CASH_INVALID")
+        days.append(
+            ResearchLedgerDay(
+                session_date=point.session,
+                cash=point.cash,
+                positions=_marks(point),
+                trade_net_cashflow=point.trade_net_cashflow,
+                fees=point.fees,
+                nav=point.nav,
+                daily_return=point.daily_return,
+            )
+        )
+    backtest = replay.backtest
+    return ResearchDailyLedger(
+        trial_id=started.trial_id,
+        domain=started.domain,
+        strategy_profile=started.strategy_profile,
+        run_id=str(backtest.run_id),
+        param_version=backtest.param_version,
+        input_id=started.input_id,
+        calendar_id=str(backtest.calendar_id),
+        periods_per_year=float(backtest.periods_per_year),
+        cost_source=backtest.cost_model,
+        cost_inputs=dict(backtest.cost_inputs),
+        initial_session_date=points[0].session,
+        initial_nav=points[0].nav,
+        initial_cash=points[0].cash,
+        initial_positions=_marks(points[0]),
+        days=tuple(days),
+        synthetic=True,
+    )
+
+
+def _executed_params(replay: OptimizedStrategyReplay) -> dict[str, Any]:
+    raw = dict(replay.backtest.params)
+    try:
+        parsed = json.loads(json.dumps(raw, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError):
+        _fail("NONSERIALIZABLE_CONFIG")
+    if parsed != raw:
+        _fail("NONSERIALIZABLE_CONFIG")
+    return parsed
+
+
+def persist_optimized_strategy_trial(
+    request: ReplayRequest,
+    store: PerformanceStore,
+    *,
+    trial_id: str,
+) -> ResearchTrialRecord:
+    """Save one fixture trial. Rejection stores only a terminal reason code."""
+
+    if not isinstance(store, PerformanceStore):
+        _fail("MISSING_FIELD:performance_store")
+    started_record = _started_trial(request, trial_id)
+    store.save_research_trial(started_record)
+    try:
+        replay = replay_optimized_strategy(request)
+    except OptimizedStrategyReplayError as exc:
+        status = ResearchTrialStatus.FAILED if exc.code == "DECISION_INVALID" else ResearchTrialStatus.REJECTED
+        terminal = _terminal(started_record, status, _safe_reason(exc.code))
+        store.save_research_trial(terminal)
+        return terminal
+    except Exception:
+        store.save_research_trial(_terminal(started_record, ResearchTrialStatus.FAILED, "replay_failed"))
+        raise
+    try:
+        ledger = _research_ledger(replay, started_record)
+        terminal = _terminal(
+            started_record,
+            ResearchTrialStatus.SUCCEEDED,
+            "",
+            actual_params=_executed_params(replay),
+            run_id=str(replay.backtest.run_id),
+            param_version=replay.backtest.param_version,
+        )
+    except (OptimizedStrategyReplayError, ValueError):
+        store.save_research_trial(_terminal(started_record, ResearchTrialStatus.FAILED, "ledger_rejected"))
+        raise
+    store.save_backtest_result(replay.backtest)
+    store.save_research_ledger(ledger)
+    store.save_research_trial(terminal)
+    return terminal
+
+
 __all__ = [
     "REPLAY_GAPS",
     "DailyReplayPoint",
@@ -808,5 +1104,6 @@ __all__ = [
     "OptimizedStrategyReplayError",
     "ReplayIdentity",
     "ReplayRequest",
+    "persist_optimized_strategy_trial",
     "replay_optimized_strategy",
 ]

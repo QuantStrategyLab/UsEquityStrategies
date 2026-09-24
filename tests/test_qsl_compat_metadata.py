@@ -2,7 +2,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-QPK_REVISION = "8283534562a0fed1429ae7151c9d315d4047e9f0"
+QPK_REVISION = "c3dcf473c517853342cc893bb79d141e90208d8d"
 QPK_URL = (
     "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
     f"QuantPlatformKit.git@{QPK_REVISION}"

@@ -6,6 +6,7 @@ import hashlib
 import json
 import tempfile
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -548,3 +549,257 @@ def test_same_computed_at_different_costs_round_trip_from_local_store() -> None:
     assert loaded_cheap.total_return != pytest.approx(loaded_costly.total_return)
     assert missing_run is None
     assert wrong_profile is None
+
+
+def _research_path(root: Path, profile: str, trial_id: str, name: str) -> Path:
+    material = f"us_equity\0{profile}\0{trial_id}".encode()
+    digest = hashlib.sha256(material).hexdigest()
+    return root / "research_trial" / digest / f"{name}.json"
+
+
+def test_rejected_trial_readback_has_no_metrics() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+
+    config = _config(soxl_soxx_trend_income_manifest)
+    config["option_income_overlay_enabled"] = True
+    request = _soxl_request(runtime_config=config)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = PerformanceStore(local_root=root, cloud_bucket="")
+        returned = persist_optimized_strategy_trial(request, store, trial_id="fixture-soxl-reject")
+        loaded = store.load_research_trial("us_equity", "soxl_soxx_trend_income", "fixture-soxl-reject")
+        started = json.loads(_research_path(root, "soxl_soxx_trend_income", "fixture-soxl-reject", "started").read_text())
+        terminal = json.loads(_research_path(root, "soxl_soxx_trend_income", "fixture-soxl-reject", "terminal").read_text())
+        assert store.load_research_ledger(
+            "us_equity", "soxl_soxx_trend_income", "fixture-soxl-reject", "unused-run", 1
+        ) is None
+        assert list(root.rglob("backtest/**/*.json")) == []
+    assert returned.status.value == "rejected"
+    assert loaded is not None
+    assert loaded.status.value == "rejected"
+    assert loaded.reason_code == "unsimulated_option_overlay"
+    assert loaded.run_id is None
+    assert loaded.param_version is None
+    assert loaded.actual_params is None
+    assert loaded.synthetic is True
+    assert started["status"] == "started"
+    assert terminal["status"] == "rejected"
+    assert terminal["reason_code"] == "unsimulated_option_overlay"
+    assert ":" not in terminal["reason_code"]
+
+
+def test_builder_exception_is_failed_without_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    from us_equity_strategies.research import optimized_strategy_replay as replay_module
+    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+
+    def _boom(_ctx: object) -> None:
+        raise RuntimeError("builder-boom-detail")
+
+    manifest, _builder = replay_module._PROFILES["soxl_soxx_trend_income"]
+    monkeypatch.setitem(replay_module._PROFILES, "soxl_soxx_trend_income", (manifest, _boom))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = PerformanceStore(local_root=root, cloud_bucket="")
+        returned = persist_optimized_strategy_trial(_soxl_request(), store, trial_id="fixture-soxl-builder")
+        loaded = store.load_research_trial("us_equity", "soxl_soxx_trend_income", "fixture-soxl-builder")
+        terminal_text = _research_path(root, "soxl_soxx_trend_income", "fixture-soxl-builder", "terminal").read_text()
+        assert store.load_research_ledger(
+            "us_equity", "soxl_soxx_trend_income", "fixture-soxl-builder", "unused-run", 1
+        ) is None
+        assert list(root.rglob("backtest/**/*.json")) == []
+    assert returned.status.value == "failed"
+    assert loaded is not None
+    assert loaded.status.value == "failed"
+    assert loaded.reason_code == "decision_invalid"
+    assert loaded.run_id is None
+    assert "builder-boom-detail" not in terminal_text
+
+
+def test_succeeded_trial_readback_matches_executed_ledger() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+
+    request = _soxl_request()
+    replay = replay_optimized_strategy(request)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = PerformanceStore(local_root=root, cloud_bucket="")
+        persist_optimized_strategy_trial(request, store, trial_id="fixture-soxl-success")
+        loaded = store.load_research_trial(
+            "us_equity",
+            "soxl_soxx_trend_income",
+            "fixture-soxl-success",
+            run_id=replay.backtest.run_id,
+            param_version=replay.backtest.param_version,
+        )
+        result = store.load_backtest_by_run_id(
+            "us_equity",
+            "soxl_soxx_trend_income",
+            replay.backtest.run_id,
+            param_version=replay.backtest.param_version,
+        )
+        assert loaded is not None and result is not None
+        ledger = store.load_research_ledger(
+            "us_equity",
+            "soxl_soxx_trend_income",
+            "fixture-soxl-success",
+            loaded.run_id,
+            loaded.param_version,
+        )
+        wrong_version = store.load_research_trial(
+            "us_equity",
+            "soxl_soxx_trend_income",
+            "fixture-soxl-success",
+            run_id=replay.backtest.run_id,
+            param_version=replay.backtest.param_version + 1,
+        )
+        started = json.loads(_research_path(root, "soxl_soxx_trend_income", "fixture-soxl-success", "started").read_text())
+        assert started["status"] == "started"
+        assert started["run_id"] is None
+    assert ledger is not None
+    assert loaded.status.value == "succeeded"
+    assert loaded.reason_code == ""
+    assert dict(loaded.actual_params) == dict(result.params) == dict(replay.backtest.params)
+    assert result.run_id == replay.backtest.run_id
+    assert result.observation_count == ledger.observation_count == 1
+    assert result.total_return == ledger.total_return == replay.backtest.total_return
+    assert ledger.initial_session_date == replay.points[0].session
+    assert ledger.initial_nav == replay.points[0].nav
+    assert ledger.initial_cash == replay.points[0].cash
+    assert ledger.days[0].session_date == replay.points[1].session
+    assert ledger.days[0].cash == replay.points[1].cash
+    assert ledger.days[0].fees == replay.points[1].fees
+    assert ledger.days[0].nav == replay.points[1].nav
+    assert ledger.days[0].daily_return == replay.points[1].daily_return
+    assert dict((mark.symbol, mark.quantity) for mark in ledger.days[0].positions) == {
+        symbol: quantity for symbol, quantity in replay.points[1].holdings if quantity != 0.0
+    }
+    assert ledger.calendar_id == result.calendar_id == replay.backtest.calendar_id
+    assert ledger.periods_per_year == result.periods_per_year == 252.0
+    assert dict(ledger.cost_inputs) == dict(result.cost_inputs)
+    assert ledger.cost_source == result.cost_model
+    assert wrong_version is None
+
+
+def test_store_failure_does_not_report_success() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import persist_optimized_strategy_trial
+
+    class _UnavailableStore(PerformanceStore):
+        def save_research_trial(self, trial: object) -> None:
+            raise OSError("unavailable")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _UnavailableStore(local_root=Path(tmp), cloud_bucket="")
+        with pytest.raises(OSError, match="unavailable"):
+            persist_optimized_strategy_trial(_soxl_request(), store, trial_id="fixture-soxl-store")
+        assert store.load_research_trial("us_equity", "soxl_soxx_trend_income", "fixture-soxl-store") is None
+
+
+def test_input_id_changes_with_prices_or_indicators() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        _input_id,
+        persist_optimized_strategy_trial,
+    )
+
+    baseline = _soxl_request()
+    bar = baseline.prices[0]
+    priced = _soxl_request(prices=tuple(
+        DatedBar(bar.session, bar.symbol, bar.open, bar.high + 1.0, bar.low, bar.close + 1.0)
+        if index == 0 else item
+        for index, item in enumerate(baseline.prices)
+    ))
+    indicators = deepcopy(baseline.derived_indicators)
+    indicators[SIGNAL]["soxx"]["rsi14"] = 51.0
+    indicated = _soxl_request(derived_indicators=indicators)
+    richer_cash = _soxl_request(initial_cash=100_001.0)
+    assert baseline.calendar == priced.calendar == indicated.calendar
+    assert _input_id(baseline) != _input_id(priced)
+    assert _input_id(baseline) != _input_id(indicated)
+    assert _input_id(baseline) != _input_id(richer_cash)
+    assert _input_id(baseline) == _input_id(_soxl_request())
+    broken = list(baseline.prices)
+    broken[0] = DatedBar(bar.session, bar.symbol, float("nan"), bar.high, bar.low, bar.close)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = PerformanceStore(local_root=root, cloud_bucket="")
+        with pytest.raises(OptimizedStrategyReplayError, match="NONFINITE_INPUT"):
+            persist_optimized_strategy_trial(
+                _soxl_request(prices=tuple(broken)),
+                store,
+                trial_id="fixture-soxl-nonfinite",
+            )
+        assert list(root.rglob("*.json")) == []
+
+
+def test_tampered_cash_keeps_trade_flow_and_is_rejected() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import _research_ledger, _started_trial
+
+    request = _soxl_request()
+    replay = replay_optimized_strategy(request)
+    opening, settled = replay.points
+    assert opening.trade_net_cashflow == 0.0
+    assert settled.trade_net_cashflow == settled.cash - opening.cash + settled.fees
+    tampered_nav = settled.nav + 50.0
+    tampered = replace(
+        settled,
+        cash=settled.cash + 50.0,
+        nav=tampered_nav,
+        daily_return=tampered_nav / opening.nav - 1.0,
+    )
+    assert tampered.trade_net_cashflow == settled.trade_net_cashflow
+    with pytest.raises(ValueError, match="ledger_cash"):
+        _research_ledger(replace(replay, points=(opening, tampered)), _started_trial(request, "fixture-soxl-tamper"))
+
+
+def test_large_notional_cash_matches_trade_flow_in_qpk_ledger() -> None:
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        ResearchDailyLedger,
+        ResearchLedgerDay,
+        ResearchPositionMark,
+    )
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    opening = 10_000_000.0
+    fills = {"A": 531.2377222491674, "B": 610.5374082422157}
+    targets = {"A": 2577708.681153131, "B": 7422291.318846868}
+    cash, quantities, fee, trade_net = _rebalance(opening, {"A": 0.0, "B": 0.0}, targets, fills, 0.0)
+    assert fee == 0.0
+    assert cash == opening + trade_net - fee
+    assert cash != 0.0
+    marks = tuple(
+        ResearchPositionMark(symbol, quantities[symbol], quantities[symbol] * fills[symbol])
+        for symbol in ("A", "B")
+    )
+    nav = cash + sum(mark.valuation for mark in marks)
+    day = ResearchLedgerDay(
+        EXECUTE,
+        cash,
+        marks,
+        trade_net,
+        fee,
+        nav,
+        nav / opening - 1.0,
+    )
+    ledger_kwargs = dict(
+        trial_id="fixture-large-notional",
+        domain="us_equity",
+        strategy_profile="soxl_soxx_trend_income",
+        run_id="fixture-large-notional-run",
+        param_version=1,
+        input_id="fixture-large-notional-input",
+        calendar_id="fixture-calendar-v1",
+        periods_per_year=252.0,
+        cost_source="EXPLICIT_ZERO",
+        cost_inputs={"commission_bps": 0.0},
+        initial_session_date=SIGNAL,
+        initial_nav=opening,
+        initial_cash=opening,
+        initial_positions=(),
+        synthetic=True,
+    )
+    accepted = ResearchDailyLedger(days=(day,), **ledger_kwargs)
+    assert accepted.observation_count == 1
+    tampered_nav = nav + 50.0
+    tampered = replace(day, cash=cash + 50.0, nav=tampered_nav, daily_return=tampered_nav / opening - 1.0)
+    assert tampered.trade_net_cashflow == trade_net
+    with pytest.raises(ValueError, match="ledger_cash"):
+        ResearchDailyLedger(days=(tampered,), **ledger_kwargs)
