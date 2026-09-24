@@ -249,6 +249,7 @@ def _parse_capital_path_options(
         "cash_member_id",
         "rebalance_fee_bps",
         "rebalance_indices",
+        "fee_bearing_member_ids",
         "member_costs_already_embedded",
     }
     if unknown_keys:
@@ -289,6 +290,28 @@ def _parse_capital_path_options(
             parsed_indices.append(item)
         rebalance_indices = tuple(parsed_indices)
 
+    fee_bearing_member_ids: tuple[str, ...] | None = None
+    if "fee_bearing_member_ids" in value:
+        raw_fee_bearing_ids = value["fee_bearing_member_ids"]
+        if (
+            raw_fee_bearing_ids is None
+            or isinstance(raw_fee_bearing_ids, (str, bytes))
+            or not isinstance(raw_fee_bearing_ids, Sequence)
+            or len(raw_fee_bearing_ids) == 0
+        ):
+            raise ValueError("FEE_BEARING_MEMBER_IDS_INVALID")
+        valid_member_ids = {"cash_sleeve", "soxl_core", "tqqq_core"}
+        parsed_fee_bearing_ids: list[str] = []
+        for item in raw_fee_bearing_ids:
+            if (
+                not isinstance(item, str)
+                or item not in valid_member_ids
+                or item in parsed_fee_bearing_ids
+            ):
+                raise ValueError("FEE_BEARING_MEMBER_IDS_INVALID")
+            parsed_fee_bearing_ids.append(item)
+        fee_bearing_member_ids = tuple(sorted(parsed_fee_bearing_ids))
+
     member_costs_already_embedded = value.get("member_costs_already_embedded", True)
     if member_costs_already_embedded is not True:
         raise ValueError("MEMBER_GROSS_RETURNS_REQUIRED_TO_RECHARGE_MEMBER_COSTS")
@@ -306,6 +329,7 @@ def _parse_capital_path_options(
         "cash_member_id": cash_member_id,
         "rebalance_fee_bps": rebalance_fee_bps,
         "rebalance_indices": rebalance_indices,
+        "fee_bearing_member_ids": fee_bearing_member_ids,
         "member_costs_already_embedded": True,
     }
     return options, tuple(gaps)
@@ -345,6 +369,7 @@ def _boundaries_for_comparison(
         "cash_member_id": path_options["cash_member_id"],
         "rebalance_fee_bps": path_options["rebalance_fee_bps"],
         "rebalance_indices": path_options["rebalance_indices"],
+        "fee_bearing_member_ids": path_options["fee_bearing_member_ids"],
         "member_costs_already_embedded": True,
         "member_cost_scenario": MEMBER_COST_SCENARIO,
     }
@@ -435,6 +460,7 @@ def evaluate_batch_a_existing_member_baselines(
                 "cash_member_id": path_options["cash_member_id"],
                 "rebalance_fee_bps": path_options["rebalance_fee_bps"],
                 "rebalance_indices": path_options["rebalance_indices"],
+                "fee_bearing_member_ids": path_options["fee_bearing_member_ids"],
                 "member_costs_already_embedded": True,
                 "member_cost_scenario": MEMBER_COST_SCENARIO,
                 "input_gaps": list(path_gaps),
@@ -464,12 +490,18 @@ def evaluate_batch_a_existing_member_baselines(
                 }
             )
         baselines = _declared_baselines()
+        comparison_path_options = dict(path_options) if path_options is not None else None
+        if (
+            comparison_path_options is not None
+            and comparison_path_options["fee_bearing_member_ids"] is None
+        ):
+            comparison_path_options.pop("fee_bearing_member_ids")
         comparison = compare_fixed_member_budget_baselines(
             members=members,
             baselines=baselines,
             asset_risk_specs=_default_risk_specs(),
             risk_policy=_default_risk_policy(),
-            capital_path_options=path_options,
+            capital_path_options=comparison_path_options,
         )
         if comparison["status"] != "READY_RESEARCH_ONLY":
             return _parked(
