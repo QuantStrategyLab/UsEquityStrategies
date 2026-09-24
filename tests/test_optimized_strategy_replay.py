@@ -46,6 +46,10 @@ EXECUTE = date(2024, 1, 3)
 SOXL_SYMBOLS = ("BOXX", "DGRO", "QQQI", "SCHD", "SGOV", "SOXL", "SOXX", "SPYI")
 
 
+def _canonical(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
 def _local_fixture_file(path: Path) -> dict[str, object]:
     request = _soxl_request()
     config = {key: value for key, value in request.runtime_config.items() if key not in {"translator", "signal_text_fn"}}
@@ -64,13 +68,12 @@ def _local_fixture_file(path: Path) -> dict[str, object]:
         "derived_indicators": {day.isoformat(): values for day, values in request.derived_indicators.items()},
         "benchmark_bars": [],
     }
-    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     identity = build_optimized_member_identity(
         strategy_profile="soxl_soxx_trend_income", ues_revision="a" * 40,
         qpk_revision="b" * 40, ues_workspace_patch_sha256=None,
         param_set_id="synthetic-local", actual_params=config,
-        config_sha256=hashlib.sha256(canonical(config)).hexdigest(),
-        input_sha256=hashlib.sha256(canonical(source)).hexdigest(),
+        config_sha256=hashlib.sha256(_canonical(config)).hexdigest(),
+        input_sha256=hashlib.sha256(_canonical(source)).hexdigest(),
         window_start=source["calendar"][0], window_end=source["calendar"][-1],
         calendar_id="synthetic-calendar", periods_per_year=252,
         cost_source="SYNTHETIC_10BPS", cost_inputs={"commission_bps": 10, "slippage_bps": 0, "market_impact_bps": 0},
@@ -112,10 +115,9 @@ def test_local_file_rejects_changed_input_and_unsupported_control(tmp_path: Path
     payload = _local_fixture_file(path)
     payload["input"]["runtime_config"]["option_overlay_enabled"] = True
     config = payload["input"]["runtime_config"]
-    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     payload["identity"]["actual_params"] = config
-    payload["identity"]["config_sha256"] = hashlib.sha256(canonical(config)).hexdigest()
-    payload["identity"]["input_sha256"] = hashlib.sha256(canonical(payload["input"])).hexdigest()
+    payload["identity"]["config_sha256"] = hashlib.sha256(_canonical(config)).hexdigest()
+    payload["identity"]["input_sha256"] = hashlib.sha256(_canonical(payload["input"])).hexdigest()
     payload["identity"]["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(payload["identity"])
     path.write_text(json.dumps(payload), encoding="utf-8")
     _, request = load_local_member_fixture(path)
@@ -177,16 +179,15 @@ def test_local_tqqq_file_requires_benchmark_warmup(tmp_path: Path) -> None:
     identity = payload["identity"]
     identity["strategy_profile"] = "tqqq_growth_income"
     identity["actual_params"] = source["runtime_config"]
-    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-    identity["config_sha256"] = hashlib.sha256(canonical(source["runtime_config"])).hexdigest()
-    identity["input_sha256"] = hashlib.sha256(canonical(source)).hexdigest()
+    identity["config_sha256"] = hashlib.sha256(_canonical(source["runtime_config"])).hexdigest()
+    identity["input_sha256"] = hashlib.sha256(_canonical(source)).hexdigest()
     identity["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(identity)
     path.write_text(json.dumps(payload), encoding="utf-8")
     _, request = load_local_member_fixture(path)
     assert len(request.benchmark_bars) == 200
     assert replay_optimized_strategy(request).live_executable is False
     source["benchmark_bars"].pop(0)
-    identity["input_sha256"] = hashlib.sha256(canonical(source)).hexdigest()
+    identity["input_sha256"] = hashlib.sha256(_canonical(source)).hexdigest()
     identity["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(identity)
     path.write_text(json.dumps(payload), encoding="utf-8")
     _, short_request = load_local_member_fixture(path)
