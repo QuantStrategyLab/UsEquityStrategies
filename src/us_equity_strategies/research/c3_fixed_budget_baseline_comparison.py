@@ -377,11 +377,36 @@ def _parse_capital_path_options(value: object) -> dict[str, object] | None:
     member_costs_already_embedded = value.get("member_costs_already_embedded", True)
     if member_costs_already_embedded is not True:
         raise ValueError("MEMBER_GROSS_RETURNS_REQUIRED_TO_RECHARGE_MEMBER_COSTS")
+    fee_bearing_member_ids: tuple[str, ...] | None
+    if "fee_bearing_member_ids" not in value:
+        fee_bearing_member_ids = None
+    else:
+        raw_ids = value["fee_bearing_member_ids"]
+        if (
+            raw_ids is None
+            or isinstance(raw_ids, (str, bytes))
+            or not isinstance(raw_ids, Sequence)
+            or len(raw_ids) == 0
+        ):
+            raise ValueError("FEE_BEARING_MEMBER_IDS_INVALID")
+        parsed_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for item in raw_ids:
+            if not isinstance(item, str) or item in seen_ids:
+                raise ValueError("FEE_BEARING_MEMBER_IDS_INVALID")
+            try:
+                parsed_id = _identity(item, "FEE_BEARING_MEMBER_ID")
+            except ValueError as exc:
+                raise ValueError("FEE_BEARING_MEMBER_IDS_INVALID") from exc
+            seen_ids.add(parsed_id)
+            parsed_ids.append(parsed_id)
+        fee_bearing_member_ids = tuple(sorted(parsed_ids))
     return {
         "apply_risk_scaling": apply_risk_scaling,
         "cash_member_id": cash_member_id,
         "rebalance_fee_bps": rebalance_fee_bps,
         "rebalance_indices": rebalance_indices,
+        "fee_bearing_member_ids": fee_bearing_member_ids,
         "member_costs_already_embedded": True,
     }
 
@@ -398,6 +423,7 @@ def _capital_path_for_baseline(
     cash_member_id = options["cash_member_id"]
     rebalance_fee_bps = options["rebalance_fee_bps"]
     rebalance_indices = options["rebalance_indices"]
+    fee_bearing_member_ids = options["fee_bearing_member_ids"]
     gaps = diagnose_capital_path_inputs(
         apply_risk_scaling=apply_risk_scaling,
         rebalance_fee_bps=(
@@ -408,6 +434,9 @@ def _capital_path_for_baseline(
         ),
         cash_member_id=cash_member_id if isinstance(cash_member_id, str) else None,
         has_risk_diagnosis=concentration is not None,
+        fee_bearing_member_ids=(
+            fee_bearing_member_ids if isinstance(fee_bearing_member_ids, tuple) else None
+        ),
     )
     # Drift-only (no fee schedule) is allowed when scaling or path is requested
     # without positive fee inputs; drop the "not requested" diagnostic noise.
@@ -429,6 +458,12 @@ def _capital_path_for_baseline(
         raise ValueError("REBALANCE_SCHEDULE_REQUIRED_FOR_POSITIVE_FEE")
     if rebalance_indices is not None and rebalance_fee_bps is None:
         raise ValueError("REBALANCE_FEE_BPS_REQUIRED_FOR_REBALANCE")
+    if (
+        isinstance(rebalance_fee_bps, float)
+        and rebalance_fee_bps > 0.0
+        and not isinstance(fee_bearing_member_ids, tuple)
+    ):
+        raise ValueError("FEE_BEARING_MEMBER_IDS_REQUIRED")
 
     path_budgets = dict(budgets)
     risk_scalar = 1.0
@@ -459,6 +494,9 @@ def _capital_path_for_baseline(
         rebalance_indices=(
             rebalance_indices if isinstance(rebalance_indices, tuple) else None
         ),
+        fee_bearing_member_ids=(
+            fee_bearing_member_ids if isinstance(fee_bearing_member_ids, tuple) else None
+        ),
         member_costs_already_embedded=True,
     )
     path_returns = tuple(float(item) for item in path["daily_returns"])  # type: ignore[arg-type]
@@ -482,6 +520,9 @@ def _capital_path_for_baseline(
         "weight_path": path["weight_path"],
         "fee_fractions": path["fee_fractions"],
         "one_way_turnovers": path["one_way_turnovers"],
+        "pre_trade_fee_notionals": path["pre_trade_fee_notionals"],
+        "fee_bearing_member_ids": path["fee_bearing_member_ids"],
+        "rebalance_fee_basis": path["rebalance_fee_basis"],
         "total_fee_fraction_sum": path["total_fee_fraction_sum"],
         "input_gaps": gaps,
         "metrics_accounting": {
@@ -547,7 +588,9 @@ def compare_fixed_member_budget_baselines(
     metrics represent the raw declared fixed-budget combination only: risk
     scaling and rebalance-fee reconstruction are not applied unless
     ``capital_path_options`` supplies the explicit inputs required to compute
-    them.  Member returns are not re-costed; cost meaning is bound by the shared
+    them.  A positive rebalance fee also requires ``fee_bearing_member_ids``;
+    that charge is the pre-trade notional approximation from the capital-path
+    simulator.  Member returns are not re-costed; cost meaning is bound by the shared
     ``cost_model_digest``.  Different windows or synthetic splices are rejected
     via date/comparability fail-closed checks.
     """
