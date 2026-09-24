@@ -15,11 +15,11 @@ Batch2 顶层只有两个成员，各自是一条完整策略：
 | SOXL 策略 | `soxl_soxx_trend_income` | `derived_indicators`、`portfolio_snapshot` | `SOXL`、`SOXX`、`BOXX`、`SCHD`、`DGRO`、`SGOV`、`SPYI`、`QQQI` |
 | TQQQ 策略 | `tqqq_growth_income` | `benchmark_history`、`portfolio_snapshot` | `TQQQ`、`QQQM`、`BOXX`、`SCHD`、`DGRO`、`SGOV`、`SPYI`、`QQQI` |
 
-TQQQ manifest 还声明 `benchmark_symbol = QQQ`。SOXL 通道是派生指标，replay 在调用方给出配置后才确定具体指标名：趋势标的上的 `price` 与 `ma_trend` 始终需要；RSI、布林和已实现波动只在对应开关打开时成为必需项。TQQQ replay 要求信号日及其之前的 `QQQ` K 线，可见根数随波动降杠杆窗口变化，且拒绝把 `benchmark_symbol` 改成其他代码。
+TQQQ manifest 还声明 `benchmark_symbol = QQQ`。SOXL 通道是派生指标，replay 在调用方给出配置后才确定具体指标名：趋势标的上的 `price` 与 `ma_trend` 始终需要；RSI、布林和已实现波动只在对应开关打开时成为必需项。TQQQ replay 要求信号日可见的 `QQQ` K 线，根数按第 10 节公式计算，且拒绝把 `benchmark_symbol` 改成其他代码。
 
 这两份 manifest 的 `default_config` 还展开了收入层、期权覆盖，以及市场状态控制；TQQQ 另含 AI 扩展、危机防御和波动降杠杆相关开关。`income_layer_default_config` 与 `option_overlay_default_config` 的键清单本次未逐项展开，记为 `DECLARED_BY_HELPER`。`BOXX`、收入层证券、期权和这些插件留在成员范围内。fixture 若遇到未模拟的期权或目标插件会失败关闭（`UNSIMULATED_OPTION_OVERLAY`、`UNSIMULATED_TARGET_PLUGIN`），这只说明该 runner 不能假装已经交易了它们。
 
-`managed_symbols` 是 manifest 文本里的声明全集。实际优化参数、开关取值和生产版本均为 `UNKNOWN`。`ResearchTrialRecord` 在参数未知时保持 `actual_params = null`，禁止用 manifest 默认值、V7 冻结档或 typed baseline 版本填成“已优化”。`soxl_soxx_core_only_p2_v7` 是另一条研究 manifest，不替代本成员。单个 ETF 的买入持有不是本候选的成员。
+`managed_symbols` 是 manifest 文本里的声明全集。实际优化参数、开关取值和生产版本均为 `UNKNOWN`。`PRODUCTION_VERSION_UNKNOWN` 只阻塞把结果称为生产等价，不阻塞调用方提交完整参数后的独立研究。`ResearchTrialRecord` 在参数未知时保持 `actual_params = null`，禁止用 manifest 默认值、V7 冻结档或 typed baseline 版本填成“已优化”。`soxl_soxx_core_only_p2_v7` 是另一条研究 manifest，不替代本成员。单个 ETF 的买入持有不是本候选的成员。
 
 组合外壳复用 `historical_combo_p2_candidate`：两条 leg 的 `strategy_id` 分别为上述 profile，`research_only` 为真，`candidate_state` 为 `FROZEN_RESEARCH_CANDIDATE`，`promotion_recommendation` 为空，`p4_paper_authorized`、`p5_shadow_authorized`、`p6_live_authorized` 均为假。leg 权重在声明前是 `UNKNOWN`，不得写入一条“最佳权重”候选。
 
@@ -120,11 +120,13 @@ QPK 身份字段拒绝 `unknown`、`default`、`none`、`null`、`na`、`n/a` �
 
 直接 PARKED 的原因码：`ACTUAL_PARAMS_UNKNOWN`、`PRODUCTION_VERSION_UNKNOWN`、`ADJUSTMENT_CONTRACT_UNKNOWN`、`CASH_CONTRACT_UNKNOWN`、`EXTERNAL_FLOW_UNKNOWN`、`CORPORATE_ACTION_UNKNOWN`、`BATCH_A_V2_NOT_OPTIMIZED_HISTORY`、`FIXTURE_REPLAY_NOT_OPTIMIZED_HISTORY`、`SYNTHETIC_LEDGER_NOT_PROMOTABLE`、`LABEL_ONLY_PROMOTION_REJECTED`、`LEDGER_INCOMPLETE_FOR_OPTIMIZED_HISTORY`、`FEE_DOUBLE_COUNT`、`IDENTITY_DIGEST_COLLISION`、`CAPITAL_PATH_NOT_CASH_LEDGER`。
 
-当前可执行的离线结论是：第 1 节成员范围和第 4 节 QPK 闭合关系可以陈述；完整优化历史停在 `LEDGER_INCOMPLETE_FOR_OPTIMIZED_HISTORY`，因为实际参数、生产版本、复权合同、现金合同、外部出入金和公司行为仍是 `UNKNOWN`。
+当前可执行的离线结论是：第 1 节成员范围和第 4 节 QPK 闭合关系可以陈述；完整优化历史停在 `LEDGER_INCOMPLETE_FOR_OPTIMIZED_HISTORY`，因为实际参数、复权合同、现金合同、外部出入金和公司行为仍是 `UNKNOWN`。`PRODUCTION_VERSION_UNKNOWN` 只阻塞生产等价，不阻塞独立研究。
 
 ## 7. 已落地的身份入口
 
 `build_optimized_member_identity` 与 `validate_optimized_member_identity` 在 `us_equity_strategies.research.optimized_member_identity`。调用方自行提交 UES 与 QPK 的 40 位 revision、工作区有补丁时的 64 位补丁摘要、非占位参数对象、配置与输入摘要、窗口、日历、非负成本，以及 t 信号、t+1 成交、收盘估值。模块不读 git，不生成日收益，也不写 `ResearchDailyLedger`。
+
+`actual_params` 顶层里，字面小写 `none` 只接受两个确切字段：`blend_gate_volatility_delever_retention_mode` 与 `dual_drive_volatility_delever_retention_mode`。同名字段放在嵌套对象或数组里同样拒绝。字段名仅仅以 `_retention_mode` 结尾并不放行。其他字段上的 `none` 或 `unknown`，以及这两个字段上的大小写变体、空白和其他占位符，仍然拒绝。这个例外只承认策略保留模式的顶层字面值；它不把 V7 冻结档或 manifest 默认登记成完整原优化候选。
 
 校验器要求配置摘要与提交的参数对象实际匹配；每年期数沿用 QPK 账本支持的 252 或 365.25。它仍无法证明调用方提交的是完整的真实优化参数，来源验证留给历史生产者。
 
@@ -136,7 +138,7 @@ QPK 身份字段拒绝 `unknown`、`default`、`none`、`null`、`na`、`n/a` �
 
 本节只登记主线开工前要锁住的身份和输入。不新建账本或研究框架，也不填写仓位、权重结果或历史收益。真实输入未进入本批时，写成具名 PARKED。
 
-两条成员都是完整策略：SOXL 为 `soxl_soxx_trend_income`，TQQQ 为 `tqqq_growth_income`。范围、`required_inputs` 和 `managed_symbols` 见第 1 节。TQQQ manifest 声明的基准代码是 `QQQ`。脱敏后的真实参数、开关和生产版本没有进入本批：`ACTUAL_PARAMS_UNKNOWN`、`PRODUCTION_VERSION_UNKNOWN`。不得用 manifest 默认值、V7 或 typed baseline 填上。
+两条成员都是完整策略：SOXL 为 `soxl_soxx_trend_income`，TQQQ 为 `tqqq_growth_income`。范围、`required_inputs` 和 `managed_symbols` 见第 1 节。TQQQ manifest 声明的基准代码是 `QQQ`。脱敏后的真实参数、开关和生产版本没有进入本批：`ACTUAL_PARAMS_UNKNOWN`、`PRODUCTION_VERSION_UNKNOWN`。不得用 manifest 默认值、V7 或 typed baseline 填上。`PRODUCTION_VERSION_UNKNOWN` 只阻塞生产等价，不阻塞独立研究。
 
 共同交易日、预热长度和原始数据来源摘要未提供：`COMMON_TRADING_DAYS_PARKED`、`WARMUP_PARKED`、`RAW_SOURCE_DIGEST_PARKED`。
 
@@ -151,3 +153,40 @@ QPK 身份字段拒绝 `unknown`、`default`、`none`、`null`、`na`、`n/a` �
 资金路径把本金 A 作为连续正变量，不预设用户的本金数值。随财富增加收紧风险是待检验偏好；费用、现金约束和成交粒度是资金摩擦，两者分开记。比例成本下的规模一致性可先用合成账本检查；真实规模效应仍受费用、股数和容量输入限制。
 
 离线合同、合成资金路径和预注册设计现在可以继续。实际参数、可信逐日成员路径及经济口径仍缺时，完整优化历史回测、真实仓位比较和净成本结论保持 PARKED，不把空表写成历史结果。
+
+## 9. 4A 本地文件接线
+
+`local_member_replay_input.load_local_member_fixture(path)` 读取一份本地 JSON，顶层仅有 `identity` 和 `input`。`identity` 使用第 7 节的完整身份对象；`input` 必须显式含 `runtime_config`、`calendar`、`initial_cash`、`initial_quantities`、`prices`、`computed_at`、`derived_indicators`、`benchmark_bars`。日期用 ISO 格式，价格行含 `session`、`symbol`、`open`、`high`、`low`、`close`；SOXL 的指标按日期键给出，TQQQ 的 `QQQ` 预热 K 线放在 `benchmark_bars`。不使用的指标输入填 `null`，不使用的 K 线填空数组。
+
+文件的 `runtime_config` 是完整、可 JSON 序列化的策略配置，但不含 `translator` 和 `signal_text_fn`；适配器只注入现有默认 callable。`managed_symbols` 用数组。输入 `runtime_config` 按 `optimized_member_identity._canonical_json` 的规范 JSON 计算 SHA-256，必须与已经验证的 `identity.config_sha256` 逐字相同；`True` 与 `1` 不算同一配置。`input_sha256` 是 `input` 对象以 UTF-8、`sort_keys=True`、紧凑分隔符、`ensure_ascii=False` 和 `allow_nan=False` 序列化后的 SHA-256。`derived_indicators` 为 null 或对象；非 null 且非对象时拒绝为 `LOCAL_MEMBER_INPUT_INVALID`。窗口首尾、费用和执行约定由身份对象绑定。输入摘要不证明来源真实。
+
+`produce_local_member_fixture(path, store, trial_id=...)` 只接受无 cloud bucket 的 QPK `PerformanceStore`，调用既有 builder、replay 和 QPK 研究账本写入路径。结果始终是 `synthetic=true` 的 `fixture`；身份声明随返回值交给调用方，不靠改标记晋级。未模拟的期权覆盖及目标插件会按现有 replay 拒绝；此入口不填补复权、公司行为、现金合同、外部资金流和完整优化参数来源。没有这些输入时不运行真实成员历史，也不输出真实仓位或净收益。
+
+## 10. 批次 4B 准确来源
+
+本批只核对仓库内已经写明的来源，并分开登记：完整原优化候选参数、生产版本、manifest 默认、收入层局部研究选择、V7/SMA 基线。完整候选参数仍然缺失，因此本批不按该候选回放，也不把另外三类接成原优化历史。生产版本未知只阻止把结果称为生产等价，不阻止调用方提交完整参数后的独立研究。
+
+成员逐日收益和 `ResearchDailyLedger` 是输入通过后由 replay 生成的输出，不是待采集来源。组合增量费只阻塞组合费用后的结论。研究可以显式声明没有外部资金流；未声明时才使用 `EXTERNAL_FLOW_UNKNOWN`。
+
+下表后半是真实候选启用功能确认之后才做的逐项回放核对。状态只描述 `optimized_strategy_replay.py` 里已经写明的行为。候选哪些开关为真尚未确认，本表不猜测。
+
+| 项目 | 准确来源 | 状态 | 阻塞哪一步 |
+| --- | --- | --- | --- |
+| 完整原优化候选参数：`soxl_soxx_trend_income` 与 `tqqq_growth_income` 的完整参数和开关 | 本仓库没有这份候选的冻结对象。停笔码是 `ACTUAL_PARAMS_UNKNOWN` | 缺失 | 按该候选做完整优化历史回放、真实仓位和净收益。不猜测开关取值 |
+| 生产版本 | 第 1、8 节：`PRODUCTION_VERSION_UNKNOWN`。本仓库没有把该候选登记成某一生产版本 | 未知 | 不阻塞独立研究。阻塞把研究路径称为生产等价或生产版本回放 |
+| manifest 默认 | `src/us_equity_strategies/manifests/__init__.py` 的 `soxl_soxx_trend_income_manifest.default_config` 与 `tqqq_growth_income_manifest.default_config`。收入层和期权键由 helper 展开，第 1 节记为 `DECLARED_BY_HELPER`。两份默认里，`blend_gate_volatility_delever_retention_mode` 与 `dual_drive_volatility_delever_retention_mode` 都是 `environment` | 已有 | 默认声明不能写入 `actual_params` 充当已优化参数。不据此开发原优化回放 |
+| 收入层局部研究选择 | `docs/research/income_layer_design.zh-CN.md` 的 2026-06-04 默认表，以及 `src/us_equity_strategies/income_layer_defaults.py` 的 `INCOME_LAYER_DEFAULT_CONFIGS`。范围只有 `income_layer_*`：TQQQ 起点 `250000`、上限 `55%`、平滑带 `20%`；SOXL 起点 `150000`、上限 `95%`、平滑带 `20%`。同文写明该研究保持 `dual_drive_*` 与 `blend_gate_*` 不动。2026-05-26 曾列出的 SOXL `start=250000, max=95%` 行，已由 2026-06-04 的当前默认替换 | 已有 | 只覆盖收入层局部选择。不能补全完整原优化候选，也不进入原优化回放 |
+| V7 基线 | `src/us_equity_strategies/v7_soxl_profile.py` 的 `V7_FROZEN_RUNTIME_CONFIG`，由 manifest `soxl_soxx_core_only_p2_v7` 暴露。profile 是 `soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve`，`managed_symbols` 为 `SOXL`、`SOXX`、`BOXX`，`income_layer_enabled` 为假，`blend_gate_volatility_delever_retention_mode` 为字面 `none`。仓库里没有对应的 TQQQ V7 冻结档 | 已有 | 这是另一条 SOXL 研究 profile。不能替代第 1 节成员，也不能当作完整原优化候选去回放 |
+| SMA 基线 | `src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py`：profile `soxl_soxx_trend_income_parity_baseline_v1`，时点 `SOXX_SMA200_INCLUSIVE_CLOSE_NEXT_SOXL_OPEN_V1`，窗口 200，交易成本率 0。`src/us_equity_strategies/research/tqqq_typed_baseline_result.py`：profile `tqqq_growth_income_research_baseline_v1`，时点 `SMA200_INCLUSIVE_CLOSE_V1`，窗口 200，交易成本率 0。`soxl_core_optimization.py` 的窗口是 140/160/180/200，`tqqq_core_optimization.py` 的窗口是 150/200/250，插件控制为 `ABSENT`。Batch A v2 使用这条 typed SMA200 基线 | 已有 | 身份校验拒绝这些 foreign schema、profile 和 `TYPED_BASELINE_ZERO`。证据停在 `BATCH_A_V2_NOT_OPTIMIZED_HISTORY`。不开发成原优化回放 |
+| SOXL 指标及因果预热 | `optimized_strategy_replay._required_indicator_metrics` 与 `_indicators`。信号日必须有调用方提交的 `derived_indicators`。趋势标的上的 `price` 与 `ma_trend` 始终检查；`rsi14`、`rsi14_dynamic_threshold`、布林三列和 `realized_volatility_*` 只在提交配置里对应开关为真时才列入必需。指标用于当日信号、下一交易日成交。replay 不计算指标，也不核对指标自身的预热长度。缺口含 `CALLER_SUPPLIED_INDICATORS_AND_BENCHMARK` | 按提交配置消费指标：已支持。因果预热计算：能力未实现 | 候选开关未确认前不判断 RSI、布林或波动是否必需。未提供已按因果预热算好的指标时，不能把原序列直接当信号 |
+| TQQQ 按完整配置计算预热 | `_required_benchmark_bars` 与信号日可见根数检查。未开 `dual_drive_volatility_delever_enabled` 时所需根数为 200。打开后，`dual_drive_volatility_delever_window`、`dual_drive_volatility_delever_dynamic_lookback` 与 `dual_drive_volatility_delever_dynamic_min_periods` 先经现有 `_control_window`（`_as_positive_int`）规范化。阈值模式规范化后不是 `rolling_percentile` 时（缺省为 `fixed`）所需根数为 `max(200, window+1)`。模式为 `rolling_percentile` 时为 `max(200, window+max(1, min(lookback, min_periods)))`。可见 `QQQ` 根数不足则 `INSUFFICIENT_BENCHMARK`。`benchmark_symbol` 不是 `QQQ` 则 `UNSUPPORTED_BENCHMARK` | 已支持按提交的完整配置计算所需根数 | 完整候选未到，不能把 200 或 manifest 默认窗口写成该候选的预热长度 |
+| 插件 / 期权 | `_reject_unsimulated`。`option_overlay_enabled`、`option_growth_overlay_enabled`、`option_income_overlay_enabled` 任一为真则 `UNSIMULATED_OPTION_OVERLAY`。保留模式不在 `none` 与 `fixed`、TQQQ 的 `dual_drive_macro_risk_governor_enabled`（缺键视为开）、`market_regime_control_enabled`，以及 TQQQ 的 `dual_drive_crisis_defense_enabled` 与 `dual_drive_volatility_delever_taco_veto_enabled` 任一为真则 `UNSIMULATED_TARGET_PLUGIN`。缺口含 `NO_OPTION_OVERLAY_FILLS`、`FIXTURE_ONLY_NO_STATIC_PLUGIN_STATE` | 拒绝未模拟开关：已支持。插件与期权成交：能力未实现 | 不猜测候选是否打开这些开关。打开则现有 replay 失败关闭，不能假装已经交易 |
+| 价格复权 / 分红 / 拆股 | replay 按调用方 OHLC 取价，没有复权、分红或拆股逻辑。缺口 `NO_CORPORATE_ACTIONS`。身份层只保存 `adjustment` 与 `corporate_action` 声明 | 能力未实现 | `ADJUSTMENT_CONTRACT_UNKNOWN` 与 `CORPORATE_ACTION_UNKNOWN` 阻塞把账本登记为完整优化历史 |
+| 现金收益 | `_rebalance` 之后，现金只随成交净额和佣金变化，没有现金收益项。Batch A 的 `ASSUMED_ZERO_USD_CASH` 不属于这条 replay | 非零现金收益：能力未实现 | 未声明现金合同时，`CASH_CONTRACT_UNKNOWN` 阻塞完整优化历史。显式声明现金收益为零时，现有现金等式与该声明一致，仍不证明合同，也不把 Batch A 的零现金政策写成来源 |
+| 成员费率 | `_cost` 与 `_rebalance`：调用方 `PromotionCostModel` 的 `commission_bps` 进入 `fees`，`slippage_bps` 与 `market_impact_bps` 恶化成交价。缺口 `SYNTHETIC_BPS_NOT_LIVE_FEES` | 合成 bps 入账：已支持。真实费率表：缺失 | `MEMBER_INTERNAL_FEE_SCHEDULE_PARKED` 只阻塞真实净成本。不阻塞使用调用方显式合成费率的研究账本 |
+| 股数规则 | `_rebalance` 用参考价把目标金额换成数量，数量连续，不做整手取整。缺口 `NO_SHARE_LOT_ROUNDING`。身份层的 `share_quantity` 只是声明 | 连续股数：已支持。整手取整：能力未实现 | 不把连续股数写成候选的股数规则。整手规则在实现前不能核对为已通过 |
+| 成员逐日收益与账本 | `replay_optimized_strategy` 在 fixture 输入通过后写出 `DailyReplayPoint`；`persist_optimized_strategy_trial` 可写入 `ResearchDailyLedger` | 待生成输出 | 尚未生成不阻塞独立研究。`synthetic=true` 的 fixture 账本仍不是 `optimized_history` |
+| 组合增量费 | 第 5、8 节 `COMBO_INCREMENTAL_FEE_SCHEDULE_PARKED`。成员 replay 不计算组合调仓增量费 | 缺失 | 只阻塞组合费用后结论。不阻塞成员层研究 |
+| 外部资金流 | 身份对象可保存 `external_cashflow` 声明。replay 现金等式没有外部现金流字段，见第 4 节 | 研究可声明无外部资金流 | 未声明时 `EXTERNAL_FLOW_UNKNOWN` 阻塞完整优化历史。声明无外部资金流后，该码不再阻塞独立研究；声明仍是 `DECLARATION_ONLY` |
+| 按完整原优化候选回放 | 现有 replay 已支持调用方提交的 fixture 输入。完整候选参数见本表第一行 | 候选回放未做 | `ACTUAL_PARAMS_UNKNOWN`。不把 fixture 输出登记成该候选的优化历史 |
+| 运行配置、账户、云历史与行情采集 | 本批没有读取或采集这些材料的授权 | 未获授权 | `COMMON_TRADING_DAYS_PARKED`、`RAW_SOURCE_DIGEST_PARKED`，以及真实历史回测。预热长度在候选配置提交后由上表 TQQQ 行计算；SOXL 指标预热仍由调用方提供 |

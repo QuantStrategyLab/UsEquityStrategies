@@ -22,6 +22,15 @@ from us_equity_strategies.manifests import (
     soxl_soxx_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
+from us_equity_strategies.research.local_member_replay_input import (
+    LocalMemberInputError,
+    load_local_member_fixture,
+    produce_local_member_fixture,
+)
+from us_equity_strategies.research.optimized_member_identity import (
+    build_optimized_member_identity,
+    calculate_optimized_member_identity_sha256,
+)
 from us_equity_strategies.research.optimized_strategy_replay import (
     REPLAY_GAPS,
     DatedBar,
@@ -35,6 +44,154 @@ from us_equity_strategies.research.optimized_strategy_replay import (
 SIGNAL = date(2024, 1, 2)
 EXECUTE = date(2024, 1, 3)
 SOXL_SYMBOLS = ("BOXX", "DGRO", "QQQI", "SCHD", "SGOV", "SOXL", "SOXX", "SPYI")
+
+
+def _local_fixture_file(path: Path) -> dict[str, object]:
+    request = _soxl_request()
+    config = {key: value for key, value in request.runtime_config.items() if key not in {"translator", "signal_text_fn"}}
+    config = json.loads(json.dumps(config))
+    source = {
+        "runtime_config": config,
+        "calendar": [day.isoformat() for day in request.calendar],
+        "initial_cash": request.initial_cash,
+        "initial_quantities": dict(request.initial_quantities),
+        "prices": [
+            {"session": bar.session.isoformat(), "symbol": bar.symbol, "open": bar.open,
+             "high": bar.high, "low": bar.low, "close": bar.close}
+            for bar in request.prices
+        ],
+        "computed_at": request.computed_at,
+        "derived_indicators": {day.isoformat(): values for day, values in request.derived_indicators.items()},
+        "benchmark_bars": [],
+    }
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    identity = build_optimized_member_identity(
+        strategy_profile="soxl_soxx_trend_income", ues_revision="a" * 40,
+        qpk_revision="b" * 40, ues_workspace_patch_sha256=None,
+        param_set_id="synthetic-local", actual_params=config,
+        config_sha256=hashlib.sha256(canonical(config)).hexdigest(),
+        input_sha256=hashlib.sha256(canonical(source)).hexdigest(),
+        window_start=source["calendar"][0], window_end=source["calendar"][-1],
+        calendar_id="synthetic-calendar", periods_per_year=252,
+        cost_source="SYNTHETIC_10BPS", cost_inputs={"commission_bps": 10, "slippage_bps": 0, "market_impact_bps": 0},
+        fill_price_field="close", adjustment_contract="synthetic unadjusted prices",
+        cash_contract="synthetic zero interest", corporate_action_contract="synthetic no events",
+        external_cashflow_contract="synthetic no external flows", share_quantity_contract="synthetic fractional units",
+    )
+    payload = {"identity": identity, "input": source}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return payload
+
+
+def test_local_file_produces_only_synthetic_ledger(tmp_path: Path) -> None:
+    path = tmp_path / "member.json"
+    payload = _local_fixture_file(path)
+    identity, request = load_local_member_fixture(path)
+    assert identity == payload["identity"]
+    assert request.promotion_eligible is False
+    store = PerformanceStore(local_root=tmp_path / "store", cloud_bucket="")
+    _, record = produce_local_member_fixture(path, store, trial_id="local-synthetic")
+    assert record.synthetic is True
+    ledger = store.load_research_ledger("us_equity", "soxl_soxx_trend_income", "local-synthetic", record.run_id, record.param_version)
+    assert ledger is not None and ledger.synthetic is True
+    previous_cash, previous_nav = ledger.initial_cash, ledger.initial_nav
+    for day in ledger.days:
+        assert day.nav == pytest.approx(day.cash + sum(position.valuation for position in day.positions))
+        assert day.cash == pytest.approx(previous_cash + day.trade_net_cashflow - day.fees)
+        assert day.daily_return == pytest.approx(day.nav / previous_nav - 1.0)
+        previous_cash, previous_nav = day.cash, day.nav
+
+
+def test_local_file_rejects_changed_input_and_unsupported_control(tmp_path: Path) -> None:
+    path = tmp_path / "member.json"
+    payload = _local_fixture_file(path)
+    payload["input"]["initial_cash"] = 1
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(LocalMemberInputError, match="LOCAL_MEMBER_INPUT_INVALID"):
+        load_local_member_fixture(path)
+    payload = _local_fixture_file(path)
+    payload["input"]["runtime_config"]["option_overlay_enabled"] = True
+    config = payload["input"]["runtime_config"]
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    payload["identity"]["actual_params"] = config
+    payload["identity"]["config_sha256"] = hashlib.sha256(canonical(config)).hexdigest()
+    payload["identity"]["input_sha256"] = hashlib.sha256(canonical(payload["input"])).hexdigest()
+    payload["identity"]["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(payload["identity"])
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    with pytest.raises(OptimizedStrategyReplayError, match="UNSIMULATED_OPTION_OVERLAY"):
+        replay_optimized_strategy(request)
+
+
+def _rebind_input_digest(payload: dict[str, object]) -> None:
+    identity = payload["identity"]
+    encoded = json.dumps(
+        payload["input"], sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode()
+    identity["input_sha256"] = hashlib.sha256(encoded).hexdigest()
+    identity["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(identity)
+
+
+def test_local_file_rejects_python_equal_config_types(tmp_path: Path) -> None:
+    path = tmp_path / "member.json"
+    payload = _local_fixture_file(path)
+    config = payload["input"]["runtime_config"]
+    config["option_overlay_enabled"] = 0
+    assert config["option_overlay_enabled"] == payload["identity"]["actual_params"]["option_overlay_enabled"]
+    payload["identity"]["config_sha256"] = hashlib.sha256(
+        json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    _rebind_input_digest(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(LocalMemberInputError, match="LOCAL_MEMBER_INPUT_INVALID"):
+        load_local_member_fixture(path)
+
+
+def test_local_file_rejects_non_object_derived_indicators(tmp_path: Path) -> None:
+    path = tmp_path / "member.json"
+    payload = _local_fixture_file(path)
+    payload["input"]["derived_indicators"] = []
+    _rebind_input_digest(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(LocalMemberInputError, match="LOCAL_MEMBER_INPUT_INVALID"):
+        load_local_member_fixture(path)
+
+
+def test_local_tqqq_file_requires_benchmark_warmup(tmp_path: Path) -> None:
+    path = tmp_path / "tqqq.json"
+    payload = _local_fixture_file(path)
+    source = payload["input"]
+    config = _config(tqqq_growth_income_manifest)
+    source["runtime_config"] = json.loads(json.dumps({key: value for key, value in config.items() if key not in {"translator", "signal_text_fn"}}))
+    symbols = tuple(source["runtime_config"]["managed_symbols"])
+    source["initial_quantities"] = {symbol: 0.0 for symbol in symbols}
+    source["prices"] = [
+        {"session": day.isoformat(), "symbol": symbol, "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0}
+        for day in (SIGNAL, EXECUTE) for symbol in symbols
+    ]
+    source["derived_indicators"] = None
+    source["benchmark_bars"] = [
+        {"session": day.isoformat(), "symbol": "QQQ", "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0}
+        for day in _business_days_ending(SIGNAL, 200)
+    ]
+    identity = payload["identity"]
+    identity["strategy_profile"] = "tqqq_growth_income"
+    identity["actual_params"] = source["runtime_config"]
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    identity["config_sha256"] = hashlib.sha256(canonical(source["runtime_config"])).hexdigest()
+    identity["input_sha256"] = hashlib.sha256(canonical(source)).hexdigest()
+    identity["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(identity)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    assert len(request.benchmark_bars) == 200
+    assert replay_optimized_strategy(request).live_executable is False
+    source["benchmark_bars"].pop(0)
+    identity["input_sha256"] = hashlib.sha256(canonical(source)).hexdigest()
+    identity["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(identity)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _, short_request = load_local_member_fixture(path)
+    with pytest.raises(OptimizedStrategyReplayError, match="INSUFFICIENT_BENCHMARK"):
+        replay_optimized_strategy(short_request)
 
 
 def _config(manifest) -> dict[str, object]:

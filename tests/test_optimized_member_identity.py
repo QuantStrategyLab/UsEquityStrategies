@@ -144,6 +144,94 @@ def test_missing_placeholder_and_illegal_synthetic_fields_are_rejected(overrides
         _identity(**overrides)
 
 
+def test_literal_none_is_accepted_only_on_the_two_retention_mode_fields() -> None:
+    params = {
+        "blend_gate_volatility_delever_retention_mode": "none",
+        "dual_drive_volatility_delever_retention_mode": "none",
+        "blend_gate_volatility_delever_retention_policy": "soxl_step_rebound_0.25_0.50",
+    }
+
+    identity = _identity(actual_params=params)
+
+    assert identity["actual_params"] == params
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "blend_gate_volatility_delever_retention_mode",
+        "dual_drive_volatility_delever_retention_mode",
+    ],
+)
+@pytest.mark.parametrize(
+    "value",
+    ["NONE", "None", " none ", "unknown", "default", "null", "na", "n/a"],
+)
+def test_known_retention_fields_reject_nonliteral_placeholders(field: str, value: str) -> None:
+    with pytest.raises(OptimizedMemberIdentityError, match="invalid optimized member identity"):
+        _identity(actual_params={field: value})
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"other_retention_mode": "none"},
+        {"other_retention_mode": "unknown"},
+        {"volatility_delever_retention_mode": "none"},
+        {"volatility_delever_retention_mode": "unknown"},
+        {"blend_gate_volatility_delever_retention_mode_extra": "none"},
+        {"prefix_dual_drive_volatility_delever_retention_mode": "none"},
+        {"Blend_gate_volatility_delever_retention_mode": "none"},
+        {"market_signal_fallback_mode": "none"},
+        {"market_signal_fallback_mode": "unknown"},
+        {"blend_gate_volatility_delever_retention_policy": "none"},
+        {"blend_gate_volatility_delever_retention_policy": "unknown"},
+        {"synthetic_switch": "none"},
+        {"synthetic_switch": "unknown"},
+        {"blend_gate_volatility_delever_retention_mode": ["none"]},
+        {"blend_gate_volatility_delever_retention_mode": {"mode": "none"}},
+        {
+            "dual_drive_volatility_delever_retention_mode": "none",
+            "notes": "none",
+        },
+        {
+            "blend_gate_volatility_delever_retention_mode": "none",
+            "custom_retention_mode": "unknown",
+        },
+        {"wrapper": {"dual_drive_volatility_delever_retention_mode": "unknown"}},
+    ],
+)
+def test_literal_none_on_any_other_param_field_is_rejected(params: dict[str, object]) -> None:
+    with pytest.raises(OptimizedMemberIdentityError, match="invalid optimized member identity"):
+        _identity(actual_params=params)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"wrapper": {"blend_gate_volatility_delever_retention_mode": "none"}},
+        {"wrapper": {"dual_drive_volatility_delever_retention_mode": "none"}},
+        {
+            "outer": {
+                "inner": {"blend_gate_volatility_delever_retention_mode": "none"},
+            }
+        },
+        {"levels": [{"dual_drive_volatility_delever_retention_mode": "none"}]},
+        {
+            "blend_gate_volatility_delever_retention_mode": "none",
+            "nested": {"dual_drive_volatility_delever_retention_mode": "none"},
+        },
+        {
+            "dual_drive_volatility_delever_retention_mode": "none",
+            "nested": {"blend_gate_volatility_delever_retention_mode": "none"},
+        },
+    ],
+)
+def test_nested_retention_mode_literal_none_is_rejected(params: dict[str, object]) -> None:
+    with pytest.raises(OptimizedMemberIdentityError, match="invalid optimized member identity"):
+        _identity(actual_params=params)
+
+
 def test_omitted_caller_field_and_nonfinite_numbers_are_rejected() -> None:
     arguments = _args()
     del arguments["input_sha256"]
