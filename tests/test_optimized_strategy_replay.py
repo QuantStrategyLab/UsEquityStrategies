@@ -223,6 +223,106 @@ def test_soxl_pre_gate_targets_match_hand_calculated_ledger(monkeypatch) -> None
     assert {"NO_SHARE_LOT_ROUNDING", "NO_CORPORATE_ACTIONS", "CASH_BPS_FEE_NOT_ADVERSE_FILL"} <= set(REPLAY_GAPS)
 
 
+def test_soxl_local_vol_trigger_and_recovery_follows_next_trading_day(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "us_equity_strategies.entrypoints.apply_risk_gate",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("live risk gate called")),
+    )
+    sessions = (
+        date(2024, 1, 2),
+        date(2024, 1, 3),
+        date(2024, 1, 4),
+        date(2024, 1, 5),
+    )
+    config = _config(soxl_soxx_trend_income_manifest)
+    config["blend_gate_volatility_delever_retention_mode"] = "fixed"
+    assert config["blend_gate_volatility_delever_enabled"] is True
+    assert config["blend_gate_volatility_delever_symbol"] == "SOXX"
+    assert config["blend_gate_volatility_delever_window"] == 10
+    assert config["blend_gate_volatility_delever_threshold_mode"] == "rolling_percentile"
+    assert config["blend_gate_volatility_delever_retention_ratio"] == 0.0
+    assert config["blend_gate_volatility_delever_redirect_symbol"] == "SOXX"
+    for key in (
+        "option_overlay_enabled",
+        "option_growth_overlay_enabled",
+        "option_income_overlay_enabled",
+        "market_regime_control_enabled",
+        "market_regime_control_apply_risk_off",
+        "market_regime_control_apply_risk_reduced",
+    ):
+        assert config[key] is False
+
+    base_indicators = deepcopy(_soxl_request().derived_indicators[SIGNAL])
+    volatilities = (0.20, 0.60, 0.20)
+    indicators = {}
+    for session, volatility in zip(sessions[:-1], volatilities, strict=True):
+        payload = deepcopy(base_indicators)
+        assert payload["soxx"]["realized_volatility_10_dynamic_threshold"] == 0.50
+        payload["soxx"]["realized_volatility_10"] = volatility
+        indicators[session] = payload
+    prices = {symbol: 100.0 for symbol in SOXL_SYMBOLS}
+    prices["SOXL"] = 50.0
+    request = _soxl_request(
+        runtime_config=config,
+        calendar=sessions,
+        prices=_bars(sessions, SOXL_SYMBOLS, prices),
+        derived_indicators=indicators,
+        cost_model=PromotionCostModel("ZERO", 0.0, 0.0, 0.0),
+        portfolio_metadata=None,
+        evidence_use="fixture",
+        promotion_eligible=False,
+    )
+    assert request.portfolio_metadata is None
+    assert request.evidence_use == "fixture"
+    assert request.promotion_eligible is False
+
+    result = replay_optimized_strategy(request)
+
+    equity = 100_000.0
+    reserve = equity * 0.03
+    deployable = equity - reserve
+    fills = {"SOXL": 50.0, "SOXX": 100.0, "BOXX": 100.0}
+    baseline = {"SOXL": deployable * 0.70, "SOXX": deployable * 0.20, "BOXX": deployable * 0.10}
+    delevered = {"SOXL": 0.0, "SOXX": deployable * 0.90, "BOXX": deployable * 0.10}
+    expected_targets = (baseline, delevered, baseline)
+    points = result.points
+    assert [point.session for point in points] == list(sessions)
+    assert points[0].fees == 0.0
+    assert points[0].cash == pytest.approx(equity)
+    assert points[0].nav == pytest.approx(equity)
+    assert points[0].daily_return is None
+    assert all(quantity == pytest.approx(0.0) for _, quantity in points[0].holdings)
+    for index, targets in enumerate(expected_targets, start=1):
+        point = points[index]
+        previous = points[index - 1]
+        assert point.session == sessions[index]
+        assert point.session == sessions[index - 1] + timedelta(days=1)
+        assert point.fees == 0.0
+        assert point.cash == pytest.approx(reserve)
+        assert point.nav == pytest.approx(point.cash + sum(value for _, value in point.market_values))
+        assert point.nav == pytest.approx(previous.nav)
+        assert point.daily_return == pytest.approx(0.0)
+        holdings = dict(point.holdings)
+        for symbol, target in targets.items():
+            assert holdings[symbol] == pytest.approx(target / fills[symbol])
+        for symbol in ("SCHD", "DGRO", "SGOV", "SPYI", "QQQI"):
+            assert holdings[symbol] == pytest.approx(0.0)
+    triggered = dict(points[2].holdings)
+    baseline_holdings = dict(points[1].holdings)
+    restored = dict(points[3].holdings)
+    assert triggered["SOXL"] < baseline_holdings["SOXL"]
+    assert triggered["SOXX"] > baseline_holdings["SOXX"]
+    assert restored["SOXL"] == pytest.approx(baseline_holdings["SOXL"])
+    assert restored["SOXX"] == pytest.approx(baseline_holdings["SOXX"])
+    assert result.backtest.params["evidence_use"] == "fixture"
+    assert result.backtest.params["promotion_eligible"] is False
+    assert result.backtest.params["execution_timing_contract"] == "next_trading_day"
+    effective = result.backtest.params["effective_runtime_config"]
+    assert effective["blend_gate_volatility_delever_retention_mode"] == "fixed"
+    assert effective["market_regime_control_enabled"] is False
+    assert effective["option_overlay_enabled"] is False
+
+
 def test_non_qqq_benchmark_and_unsimulated_controls_are_rejected() -> None:
     tqqq_config = _config(tqqq_growth_income_manifest)
     tqqq_config["benchmark_symbol"] = "SPY"
