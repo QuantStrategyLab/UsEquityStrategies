@@ -186,3 +186,44 @@ def test_settled_transfer_funding_requires_complete_reconciled_input():
     assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"
     data["settled_transfer_funding"]["free_cash_usd"]["CASH"] = 100001
     assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"
+
+
+def test_explicit_fixed_weights_use_same_funding_and_risk_checks():
+    data = input_data()
+    data.update(nav_usd=100, current_usd={"SOXL": 0, "TQQQ": 0, "CASH": 100},
+                locked_usd={"SOXL": 0, "TQQQ": 0, "CASH": 0},
+                transfer_fee_bps=0, stress_loss_limit_usd=100,
+                fixed_member_weights={"SOXL": 0.4, "TQQQ": 0.2})
+    del data["search_step_usd"]
+    data["evidence"]["scenarios"] = [
+        {"weight": 1.0, "returns": {"SOXL": 0.1, "TQQQ": 0.0}}
+    ]
+    result = MODULE.allocate(data)
+    assert result["status"] == "MECHANISM_APPROXIMATION"
+    assert result["allocation_mode"] == "fixed_member_weights_v1"
+    assert result["budget_usd"] == {"SOXL": 40, "TQQQ": 20, "CASH": 40}
+    assert result["funding_check_usd"] == 100
+    assert result["search_step_usd"] is None
+
+    data["settled_transfer_funding"] = {"version": "settled_transfer_v1",
+        "free_cash_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 30}}
+    blocked = MODULE.allocate(data)
+    assert blocked["status"] == "INFEASIBLE"
+    assert "fixed member weights" in blocked["reason"]
+
+
+def test_fixed_weights_do_not_override_curve_or_use_future_selection():
+    data = input_data()
+    data.update(nav_usd=100, current_usd={"SOXL": 0, "TQQQ": 0, "CASH": 100},
+                locked_usd={"SOXL": 0, "TQQQ": 0, "CASH": 0},
+                transfer_fee_bps=0, stress_loss_limit_usd=100,
+                fixed_member_weights={"SOXL": 0.5, "TQQQ": 0.1},
+                capital_curve_policy={"version": "explicit_reference_v1",
+                    "wealth_reference_usd": 200, "a0_usd": 100,
+                    "lower": 0.2, "upper": 0.8, "curvature": 1})
+    data["evidence"]["scenarios"] = [
+        {"weight": 1.0, "returns": {"SOXL": 0.1, "TQQQ": 0.1}}
+    ]
+    assert MODULE.allocate(data)["status"] == "INFEASIBLE"
+    data["fixed_member_weights"] = {"SOXL": 0.7, "TQQQ": 0.5}
+    assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"
