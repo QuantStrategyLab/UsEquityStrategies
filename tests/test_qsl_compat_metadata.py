@@ -2,7 +2,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-QPK_REVISION = "c3dcf473c517853342cc893bb79d141e90208d8d"
+QPK_REVISION = "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62"
 QPK_URL = (
     "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
     f"QuantPlatformKit.git@{QPK_REVISION}"
@@ -48,7 +48,7 @@ def test_qpk_pin_lock_and_ci_are_dependency_enabled() -> None:
 
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "--no-deps" not in ci
-    assert "python -m pip install -e ." in ci
+    assert "python -m pip install -e '.[research]'" in ci
     assert "python -m pip check" in ci
 
     # The selected package pins are checked above, not against a moving upstream bundle.
