@@ -60,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("NO_INPUTS_ALLOWED")
     command = [
         "gcloud", "storage", "objects", "list", PREFIX + "**",
-        "--raw", "--format=json", f"--limit={MAX_OBJECTS}",
+        "--raw", "--exhaustive", "--format=json", f"--limit={MAX_OBJECTS}",
         f"--page-size={PAGE_SIZE}", "--quiet",
     ]
     try:
