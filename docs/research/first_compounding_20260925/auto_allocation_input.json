@@ -1,0 +1,19 @@
+{
+  "members": ["SOXL", "TQQQ"],
+  "decision_date": "2026-09-25",
+  "nav_usd": 100000,
+  "current_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 100000},
+  "locked_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 0},
+  "transfer_fee_bps": 5,
+  "stress_loss_limit_usd": 5000,
+  "search_step_usd": 1000,
+  "evidence": {
+    "source": "manual_scenarios",
+    "observed_through": "2026-09-25",
+    "horizon_days": 20,
+    "scenarios": [
+      {"weight": 0.6, "returns": {"SOXL": 0.12, "TQQQ": 0.03}},
+      {"weight": 0.4, "returns": {"SOXL": -0.08, "TQQQ": -0.04}}
+    ]
+  }
+}

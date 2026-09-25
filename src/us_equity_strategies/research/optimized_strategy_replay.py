@@ -187,6 +187,7 @@ class ReplayRequest:
     external_cashflow: Mapping[date, float] | None = None
     ledger_events: Mapping[date, Mapping[str, Any]] | None = None
     option_market_inputs: tuple[Mapping[str, Any], ...] | None = None
+    whole_share_execution: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +220,7 @@ class OptimizedStrategyReplay:
     live_executable: bool
     risk_gate_applied: bool
     gaps: tuple[str, ...]
+    decision_targets: tuple[tuple[date, date, tuple[tuple[str, float], ...]], ...] = ()
 
 
 def _symbols(config: Mapping[str, Any]) -> tuple[str, ...]:
@@ -354,7 +356,10 @@ def _bar_price(bar: DatedBar) -> None:
         _fail("INVALID_FIELD:ohlc")
 
 
-def _prices(bars: object, calendar: tuple[date, ...], symbols: tuple[str, ...]) -> dict[tuple[date, str], DatedBar]:
+def _prices(
+    bars: object, calendar: tuple[date, ...], symbols: tuple[str, ...],
+    required_symbols: set[str],
+) -> dict[tuple[date, str], DatedBar]:
     if type(bars) is not tuple:
         _fail("MISSING_FIELD:prices")
     indexed: dict[tuple[date, str], DatedBar] = {}
@@ -365,8 +370,8 @@ def _prices(bars: object, calendar: tuple[date, ...], symbols: tuple[str, ...]) 
         if (bar.session, bar.symbol) in indexed:
             _fail("INPUT_GAP")
         indexed[(bar.session, bar.symbol)] = bar
-    expected = {(session, symbol) for session in calendar for symbol in symbols}
-    if set(indexed) != expected:
+    required = {(session, symbol) for session in calendar for symbol in required_symbols}
+    if not required.issubset(indexed):
         _fail("INPUT_GAP")
     return indexed
 
@@ -462,6 +467,7 @@ def _tqqq_leaps_candidate(
         if (
             quote["contract_id"] not in excluded
             and quote["right"] == "call"
+            and quote["bid"] > 0.0
             and quote["ask"] > 0.0
             and mid > 0.0
             and quote["strike"] > 0.0
@@ -559,7 +565,7 @@ def _snapshot(
     return PortfolioSnapshot(
         as_of=datetime(session.year, session.month, session.day, tzinfo=UTC),
         total_equity=cash + dividend_receivable + option_market_value + sum(
-            quantity * closes[symbol] for symbol, quantity in quantities.items()
+            quantity * closes[symbol] for symbol, quantity in quantities.items() if quantity != 0.0
         ),
         buying_power=cash,
         cash_balance=cash,
@@ -614,6 +620,7 @@ def _rebalance(
     fills: Mapping[str, float],
     commission_rate: float,
     adverse_rate: float = 0.0,
+    whole_shares: bool = False,
 ) -> tuple[float, dict[str, float], float, float]:
     """Size shares at the reference price. Commission is cash; slippage and impact worsen the fill."""
 
@@ -623,7 +630,31 @@ def _rebalance(
     updated = dict(quantities)
     traded = 0.0
     trade_net = 0.0
+    active = {symbol for symbol in targets if targets[symbol] != 0.0 or quantities[symbol] != 0.0}
+    if not active.issubset(fills):
+        _fail("INPUT_GAP")
+    if whole_shares:
+        desired = {symbol: math.floor(targets[symbol] / fills[symbol] + 1e-9)
+                   if symbol in active else 0 for symbol in targets}
+        for selling in (True, False):
+            for symbol in sorted(targets):
+                delta = desired[symbol] - updated[symbol]
+                if (delta < 0.0) != selling or delta == 0.0:
+                    continue
+                reference = fills[symbol]
+                fill = _execution_price(reference, delta, adverse_rate)
+                fee = abs(delta * reference) * commission_rate
+                cash -= delta * fill + fee
+                traded += abs(delta * reference)
+                trade_net -= delta * fill
+                updated[symbol] += delta
+        fee = traded * commission_rate
+        if not math.isfinite(cash) or cash < -1e-8:
+            _fail("PLAN_UNFUNDED")
+        return cash, updated, fee, trade_net
     for symbol in sorted(targets):
+        if symbol not in active:
+            continue
         reference = fills[symbol]
         delta = targets[symbol] / reference - quantities[symbol]
         fill = _execution_price(reference, delta, adverse_rate)
@@ -788,6 +819,8 @@ def _checked_research_identity(request: ReplayRequest) -> dict[str, Any] | None:
             }
         if request.option_market_inputs is not None:
             source["option_market_inputs"] = list(request.option_market_inputs)
+        if request.whole_share_execution:
+            source["whole_share_execution"] = True
         execution = {
             "signal_effective_after_trading_days": request.execution.signal_effective_after_trading_days,
             "execution_timing_contract": request.execution.execution_timing_contract,
@@ -892,8 +925,22 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
     execution = _execution(request.execution)
     if config["signal_effective_after_trading_days"] != execution.signal_effective_after_trading_days:
         _fail("TIMING_MISMATCH")
-    prices = _prices(request.prices, calendar, symbols)
+    required_symbols = (
+        {"SOXL", "SOXX", "BOXX"} if profile == "soxl_soxx_trend_income"
+        else {"TQQQ", str(config.get("dual_drive_unlevered_symbol") or "QQQM").strip().upper(), "BOXX"}
+    )
+    if not required_symbols.issubset(symbols):
+        _fail("MISSING_FIELD:managed_symbols")
+    prices = _prices(request.prices, calendar, symbols, required_symbols)
     quantities = _quantities(request.initial_quantities, symbols)
+    if type(request.whole_share_execution) is not bool:
+        _fail("INVALID_FIELD:whole_share_execution")
+    if request.whole_share_execution:
+        if (research_identity is None or research_identity["declared_contracts"]["share_quantity"]
+                != "synthetic whole equity shares and integer option lots"):
+            _fail("SHARE_QUANTITY_CONTRACT_MISMATCH")
+        if any(abs(quantity - round(quantity)) > 1e-9 for quantity in quantities.values()):
+            _fail("FRACTIONAL_INITIAL_HOLDINGS_UNSUPPORTED")
     initial_quantities = dict(quantities)
     cash = _number(request.initial_cash, "NONFINITE_INPUT")
     initial_cash = cash
@@ -924,7 +971,12 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         benchmark = _benchmark(request.benchmark_bars, calendar, signals)
     started = perf_counter()
     points: list[DailyReplayPoint] = []
-    initial_closes = {symbol: _field(prices[(calendar[0], symbol)], "close") for symbol in symbols}
+    initial_closes = {
+        symbol: _field(prices[(calendar[0], symbol)], "close")
+        for symbol in symbols if (calendar[0], symbol) in prices
+    }
+    if any(quantity != 0.0 and symbol not in initial_closes for symbol, quantity in quantities.items()):
+        _fail("INPUT_GAP")
     initial_option_value = 0.0
     initial_restricted_cash = 0.0
     if option_rows is not None:
@@ -946,11 +998,13 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                 if quote is None:
                     _fail("OPTION_QUOTE_MISSING")
                 initial_option_value += quote["bid"] * quote["multiplier"]
-    initial_nav = cash + sum(quantities[symbol] * initial_closes[symbol] for symbol in symbols) + initial_option_value
+    initial_nav = cash + sum(quantities[symbol] * initial_closes[symbol] for symbol in symbols
+                             if quantities[symbol] != 0.0) + initial_option_value
     if initial_nav <= 0.0:
         _fail("CASH_INVALID")
     previous_nav = initial_nav
     pending: tuple[date, dict[str, float]] | None = None
+    decision_targets: list[tuple[date, date, tuple[tuple[str, float], ...]]] = []
     dividend_receivable = 0.0
     open_dividends: dict[str, tuple[str, float]] = {}
     option_lots: dict[str, dict[str, Any]] = {}
@@ -961,7 +1015,10 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
     pending_soxx_close: tuple[date, str] | None = None
     restricted_cash = initial_restricted_cash
     for index, session in enumerate(calendar):
-        closes = {symbol: _field(prices[(session, symbol)], "close") for symbol in symbols}
+        closes = {symbol: _field(prices[(session, symbol)], "close")
+                  for symbol in symbols if (session, symbol) in prices}
+        if any(quantity != 0.0 and symbol not in closes for symbol, quantity in quantities.items()):
+            _fail("INPUT_GAP")
         fees = 0.0
         trade_net_cashflow = 0.0
         external_cashflow = external_cashflows.get(session, 0.0)
@@ -986,10 +1043,11 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         option_marks: tuple[ResearchPositionMark, ...] = ()
         if option_enabled and not soxx_credit_enabled:
             option_row = option_rows[session]
-            reported = {item["ledger_position_id"]: item for item in option_row["positions"]}
+            reported = (None if option_row["positions"] is None else
+                        {item["ledger_position_id"]: item for item in option_row["positions"]})
             if index == 0:
                 option_lots = dict(reported)
-            elif reported != option_lots:
+            elif reported is not None and reported != option_lots:
                 _fail("OPTION_POSITION_STATE_MISMATCH")
             quotes = {item["contract_id"]: item for item in option_row["quotes"]}
             for quote in quotes.values():
@@ -1145,15 +1203,6 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                     for lot in option_lots.values():
                         if lot["campaign_id"] == campaign_id:
                             lot["recovered_proceeds"] = recovered + close_count * proceeds_per_lot
-            if gate and not option_lots and index < len(calendar) - 1:
-                selected = _tqqq_leaps_candidate(quotes, session, config)
-                if selected is not None:
-                    budget = previous_nav * float(config.get("option_growth_overlay_nav_budget_ratio", 0.03))
-                    mid = (selected["bid"] + selected["ask"]) / 2.0
-                    limit_price = round(min(selected["ask"], mid * 1.03), 2)
-                    contracts = math.floor(budget / (limit_price * selected["multiplier"]))
-                    if contracts > 0:
-                        pending_option_open = (selected["contract_id"], contracts, selected)
             marks: list[ResearchPositionMark] = []
             for lot_id, lot in sorted(option_lots.items()):
                 quote = quotes.get(lot["contract_id"])
@@ -1176,10 +1225,11 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
             cash += option_cashflow
         elif soxx_credit_enabled:
             option_row = option_rows[session]
-            reported = {item["ledger_position_id"]: item for item in option_row["positions"]}
+            reported = (None if option_row["positions"] is None else
+                        {item["ledger_position_id"]: item for item in option_row["positions"]})
             if index == 0:
                 option_lots = dict(reported)
-            elif reported != option_lots:
+            elif reported is not None and reported != option_lots:
                 _fail("OPTION_POSITION_STATE_MISMATCH")
             quotes = {item["contract_id"]: item for item in option_row["quotes"]}
             for quote in quotes.values():
@@ -1266,16 +1316,6 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                         symbol="CASH", amount=required_collateral,
                     ))
                 pending_soxx_spread = None
-            gate = (
-                option_row["soxx_trend"]["positive"]
-                and option_row["iv_rank"] is not None
-                and option_row["iv_rank"]["value"] <= 0.80
-            )
-            if gate and not option_lots and not closed_campaign_today and index < len(calendar) - 1:
-                spot = closes["SOXX"]
-                candidate = _soxx_put_credit_candidate(tuple(quotes.values()), session, spot)
-                if candidate is not None:
-                    pending_soxx_spread = (candidate[0]["contract_id"], candidate[1]["contract_id"])
             management = option_row["management"]
             if management is not None:
                 if pending_soxx_close is not None or pending_soxx_spread is not None:
@@ -1317,6 +1357,9 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                 if old_quantity <= 0.0:
                     _fail("LEDGER_SPLIT_QUANTITY")
                 quantities[event.symbol] = old_quantity * event.ratio
+                if (request.whole_share_execution
+                        and abs(quantities[event.symbol] - round(quantities[event.symbol])) > 1e-9):
+                    _fail("FRACTIONAL_SPLIT_UNSUPPORTED")
             elif event.event_type == "dividend_accrual":
                 quantity = quantities.get(event.symbol, 0.0)
                 if quantity <= 0.0:
@@ -1336,10 +1379,12 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         if pending is not None:
             if pending[0] != session:
                 _fail("TIMING_MISMATCH")
-            fills = {symbol: _field(prices[(session, symbol)], execution.fill_price_field) for symbol in symbols}
+            fills = {symbol: _field(prices[(session, symbol)], execution.fill_price_field)
+                     for symbol in symbols if (session, symbol) in prices}
             before_equity_trade = dict(quantities)
             cash, quantities, fees, equity_trade_cashflow = _rebalance(
-                cash, quantities, pending[1], fills, commission_rate, adverse_rate
+                cash, quantities, pending[1], fills, commission_rate, adverse_rate,
+                request.whole_share_execution,
             )
             if soxx_credit_enabled and cash + 1e-9 < restricted_cash:
                 _fail("OPTION_COLLATERAL_SPENT")
@@ -1375,6 +1420,9 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                 expiring_by_underlying.setdefault(terms["underlying"], []).append(contract_id)
             for underlying, contract_ids in sorted(expiring_by_underlying.items()):
                 spot = _field(prices[(session, underlying)], "close")
+                expiring_lots = [
+                    lot for lot in option_lots.values() if lot["contract_id"] in contract_ids
+                ]
                 required_put_assignment_cash = sum(
                     -lot["quantity"] * option_terms[contract_id]["multiplier"]
                     * option_terms[contract_id]["strike"]
@@ -1437,13 +1485,13 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
                 ))
                 if soxx_credit_enabled and underlying == "SOXX":
                     settling_campaigns = {
-                        position["campaign_id"] for position in option_row["positions"]
+                        position["campaign_id"] for position in expiring_lots
                         if position["contract_id"] in contract_ids
                     }
                     released = 0.0
                     for campaign_id in settling_campaigns:
                         campaign_basis = next(
-                            position["campaign_basis"] for position in option_row["positions"]
+                            position["campaign_basis"] for position in expiring_lots
                             if position["campaign_id"] == campaign_id
                         )
                         released += campaign_basis
@@ -1467,10 +1515,37 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         )
         if not math.isfinite(cash) or cash < -4 * math.ulp(cash_scale):
             _fail("CASH_INVALID")
-        market_values = {symbol: quantities[symbol] * closes[symbol] for symbol in symbols}
+        market_values = {symbol: quantities[symbol] * closes[symbol]
+                         if quantities[symbol] != 0.0 else 0.0 for symbol in symbols}
         nav = cash + sum(market_values.values()) + dividend_receivable + sum(mark.valuation for mark in option_marks)
         if not math.isfinite(nav) or nav <= 0.0:
             _fail("CASH_INVALID")
+        # New option entries are decided from this session's funded, marked NAV.
+        # Held lots and pending exits remain managed regardless of entry threshold.
+        if option_enabled and index < len(calendar) - 1 and not option_lots:
+            if soxx_credit_enabled:
+                if (nav >= float(config["option_income_overlay_start_usd"])
+                        and option_row["soxx_trend"]["positive"]
+                        and not closed_campaign_today):
+                    if option_row["iv_rank"] is None:
+                        _fail("OPTION_IV_RANK_REQUIRED")
+                    if option_row["iv_rank"]["value"] <= 0.80:
+                        if not quotes:
+                            _fail("OPTION_QUOTE_MISSING")
+                        candidate = _soxx_put_credit_candidate(tuple(quotes.values()), session, closes["SOXX"])
+                        if candidate is not None:
+                            pending_soxx_spread = (candidate[0]["contract_id"], candidate[1]["contract_id"])
+            elif gate and nav >= float(config["option_growth_overlay_start_usd"]):
+                if not quotes:
+                    _fail("OPTION_QUOTE_MISSING")
+                selected = _tqqq_leaps_candidate(quotes, session, config)
+                if selected is not None:
+                    budget = nav * float(config.get("option_growth_overlay_nav_budget_ratio", 0.03))
+                    mid = (selected["bid"] + selected["ask"]) / 2.0
+                    limit_price = round(min(selected["ask"], mid * 1.03), 2)
+                    contracts = math.floor(budget / (limit_price * selected["multiplier"]))
+                    if contracts > 0:
+                        pending_option_open = (selected["contract_id"], contracts, selected)
         return_basis = previous_nav + external_cashflow
         if return_basis <= 0.0:
             _fail("CASH_INVALID")
@@ -1548,7 +1623,9 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         except Exception as exc:
             raise OptimizedStrategyReplayError("DECISION_INVALID") from exc
         _check_timing(decision, session, effective)
-        pending = (effective, _targets(decision, symbols))
+        targets = _targets(decision, symbols)
+        pending = (effective, targets)
+        decision_targets.append((session, effective, tuple(sorted(targets.items()))))
     if pending is not None:
         _fail("TIMING_MISMATCH")
     ledger = tuple(points)
@@ -1606,6 +1683,7 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         "effective_runtime_config": effective_config,
         "initial_cash": initial_cash,
         "initial_quantities": {symbol: initial_quantities[symbol] for symbol in sorted(symbols)},
+        "whole_share_execution": request.whole_share_execution,
         "inputs": input_identity,
         "cost": cost_identity,
         "execution": {
@@ -1670,6 +1748,7 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
         live_executable=False,
         risk_gate_applied=False,
         gaps=REPLAY_GAPS,
+        decision_targets=tuple(decision_targets),
     )
 
 
@@ -2119,11 +2198,14 @@ def _validated_option_market_inputs(
         "contract_id", "underlying", "right", "strike", "expiration", "multiplier",
         "bid", "ask", "delta", "source_id", "available_at",
     }
-    for expected_day, row in zip(calendar, value, strict=True):
+    for index, (expected_day, row) in enumerate(zip(calendar, value, strict=True)):
         if request.identity.strategy_profile == "soxl_soxx_trend_income":
-            required = {"session", "decision_at", "soxx_trend", "positions_source", "positions", "quotes"}
+            required = {"session", "decision_at", "soxx_trend", "quotes"}
             if (not isinstance(row, Mapping) or not required <= set(row)
-                    or set(row) - required - {"iv_rank", "management"} or row["session"] != expected_day.isoformat()):
+                    or set(row) - required - {"iv_rank", "management", "positions_source", "positions"}
+                    or ("positions" in row) != ("positions_source" in row)
+                    or (index == 0 and "positions" not in row)
+                    or row["session"] != expected_day.isoformat()):
                 _fail("OPTION_INPUT_INVALID")
             decision_at = _utc_timestamp(row["decision_at"], "OPTION_INPUT_INVALID")
             if decision_at.date() != expected_day:
@@ -2141,12 +2223,13 @@ def _validated_option_market_inputs(
                     _fail("OPTION_INPUT_NOT_AVAILABLE")
             if type(trend["positive"]) is not bool:
                 _fail("OPTION_INPUT_INVALID")
-            position_source = row["positions_source"]
-            if not isinstance(position_source, Mapping) or set(position_source) != {"source_id", "available_at"} or type(position_source["source_id"]) is not str or not position_source["source_id"].strip():
-                _fail("OPTION_POSITION_SOURCE_REQUIRED")
-            if _utc_timestamp(position_source["available_at"], "OPTION_INPUT_INVALID") > decision_at:
-                _fail("OPTION_INPUT_NOT_AVAILABLE")
-            if type(row["positions"]) is not list or type(row["quotes"]) is not list:
+            if "positions_source" in row:
+                position_source = row["positions_source"]
+                if not isinstance(position_source, Mapping) or set(position_source) != {"source_id", "available_at"} or type(position_source["source_id"]) is not str or not position_source["source_id"].strip():
+                    _fail("OPTION_POSITION_SOURCE_REQUIRED")
+                if _utc_timestamp(position_source["available_at"], "OPTION_INPUT_INVALID") > decision_at:
+                    _fail("OPTION_INPUT_NOT_AVAILABLE")
+            if ("positions" in row and type(row["positions"]) is not list) or type(row["quotes"]) is not list:
                 _fail("OPTION_INPUT_INVALID")
             management = row.get("management")
             checked_management = None
@@ -2166,7 +2249,7 @@ def _validated_option_market_inputs(
                 checked_management = dict(management)
             checked_positions = []
             seen_position_ids: set[str] = set()
-            for position in row["positions"]:
+            for position in row.get("positions", []):
                 fields = {"ledger_position_id", "contract_id", "campaign_id", "leg", "quantity", "cost_basis_per_contract", "campaign_basis", "recovered_proceeds"}
                 if not isinstance(position, Mapping) or set(position) != fields or position["leg"] not in {"short", "long"}:
                     _fail("OPTION_POSITION_INVALID")
@@ -2202,7 +2285,7 @@ def _validated_option_market_inputs(
                 iv_rank_value = _number(iv_rank["value"], "OPTION_INPUT_INVALID")
                 if not 0.0 <= iv_rank_value <= 1.0:
                     _fail("OPTION_INPUT_INVALID")
-            if iv_rank_value is None and not checked_positions:
+            if iv_rank_value is None and "positions" in row and not checked_positions:
                 _fail("OPTION_IV_RANK_REQUIRED")
             checked_quotes = []
             seen = set()
@@ -2230,13 +2313,16 @@ def _validated_option_market_inputs(
             result[expected_day] = {
                 "soxx_trend": dict(trend),
                 "iv_rank": None if iv_rank is None else {**iv_rank, "value": iv_rank_value},
-                "positions": checked_positions, "quotes": checked_quotes,
+                "positions": checked_positions if "positions" in row else None,
+                "quotes": checked_quotes,
                 "management": checked_management,
             }
             continue
-        if not isinstance(row, Mapping) or set(row) != {
-            "session", "decision_at", "qqq_indicator", "positions_source", "positions", "quotes"
-        }:
+        required = {"session", "decision_at", "qqq_indicator", "quotes"}
+        if (not isinstance(row, Mapping) or not required <= set(row)
+                or set(row) - required - {"positions_source", "positions"}
+                or ("positions" in row) != ("positions_source" in row)
+                or (index == 0 and "positions" not in row)):
             _fail("OPTION_INPUT_INVALID")
         if row["session"] != expected_day.isoformat():
             _fail("OPTION_INPUT_GAP")
@@ -2254,16 +2340,17 @@ def _validated_option_market_inputs(
         momentum = _signed(indicator["momentum_63d"], "OPTION_INDICATOR_INVALID")
         if _utc_timestamp(indicator["available_at"], "OPTION_INDICATOR_INVALID") > decision_at:
             _fail("OPTION_INPUT_NOT_AVAILABLE")
-        position_source = row["positions_source"]
-        if not isinstance(position_source, Mapping) or set(position_source) != {"source_id", "available_at"} or type(position_source["source_id"]) is not str or not position_source["source_id"].strip():
-            _fail("OPTION_POSITION_SOURCE_REQUIRED")
-        if _utc_timestamp(position_source["available_at"], "OPTION_POSITION_SOURCE_REQUIRED") > decision_at:
-            _fail("OPTION_INPUT_NOT_AVAILABLE")
-        if type(row["positions"]) is not list or type(row["quotes"]) is not list:
+        if "positions_source" in row:
+            position_source = row["positions_source"]
+            if not isinstance(position_source, Mapping) or set(position_source) != {"source_id", "available_at"} or type(position_source["source_id"]) is not str or not position_source["source_id"].strip():
+                _fail("OPTION_POSITION_SOURCE_REQUIRED")
+            if _utc_timestamp(position_source["available_at"], "OPTION_POSITION_SOURCE_REQUIRED") > decision_at:
+                _fail("OPTION_INPUT_NOT_AVAILABLE")
+        if ("positions" in row and type(row["positions"]) is not list) or type(row["quotes"]) is not list:
             _fail("OPTION_INPUT_INVALID")
         positions: list[dict[str, Any]] = []
         seen_positions: set[str] = set()
-        for position in row["positions"]:
+        for position in row.get("positions", []):
             if not isinstance(position, Mapping) or set(position) != position_fields:
                 _fail("OPTION_POSITION_INVALID")
             if type(position["ledger_position_id"]) is not str or not position["ledger_position_id"] or position["ledger_position_id"] in seen_positions:
@@ -2306,7 +2393,8 @@ def _validated_option_market_inputs(
             quotes.append(checked_quote)
         result[expected_day] = {
             "qqq_indicator": {**indicator, "momentum_63d": momentum},
-            "positions": positions, "quotes": quotes,
+            "positions": positions if "positions" in row else None,
+            "quotes": quotes,
         }
     return result
 

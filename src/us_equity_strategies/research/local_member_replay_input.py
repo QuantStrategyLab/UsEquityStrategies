@@ -69,8 +69,10 @@ def load_local_member_fixture(path: Path) -> tuple[dict[str, object], ReplayRequ
                 or not required_input_fields <= set(source)
                 or set(source) - required_input_fields - {
                     "state_inputs", "income_cashflow", "external_cashflow", "ledger_events",
-                    "option_market_inputs",
+                    "option_market_inputs", "whole_share_execution",
                 }):
+            raise ValueError()
+        if "whole_share_execution" in source and source["whole_share_execution"] is not True:
             raise ValueError()
         if _canonical_sha256(source) != identity["input_sha256"]:
             raise ValueError()
@@ -164,6 +166,7 @@ def load_local_member_fixture(path: Path) -> tuple[dict[str, object], ReplayRequ
             external_cashflow=external_cashflow,
             ledger_events=ledger_events,
             option_market_inputs=None if option_market_inputs is None else tuple(option_market_inputs),
+            whole_share_execution=source.get("whole_share_execution", False),
         )
         return identity, request
     except (OSError, KeyError, TypeError, ValueError, IndexError):
