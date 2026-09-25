@@ -93,3 +93,20 @@ All six $1-fee paths had lower cumulative returns than their same-principal $0-f
 | $100,000 | matched defense | — | 2023-03-29 | 2023-03-29 |
 
 The aggregate private output is `phase5_capital_scale_v1/phase5_locked_inventory_audit_summary.v1.json`, SHA256 `9e091b0816c26b0033d1ddbf321dbd2b7e55b4d01d7d9a0dafb54fbd82d89b90`, retained with mode `0600` under the approved private research root. A breach proves the original daily holdings cannot represent that hypothetical fixed share floor from that date. No breach proves only that the total-share floor was respected; it does not identify which tax lot was sold, establish that a specific lot remained transferable, or prove the cash and future execution of an alternative locked path. The result does not supply the absent account-specific initial holdings, cost bases, funding restrictions or loss limit. It changes no Phase 4/5 returns, candidate identity or personal setting.
+
+## Read-only wealth-floor loss-space audit
+
+`phase5_wealth_floor_audit.py` checks the same eight SHA-bound 10 bps ledgers. At each recorded signal, `N_t` is **decision equity**, and `H_t` is the maximum of `A_init` and decision equity observed through that signal. The diagnostic reports `max_t(H_t − N_t)`: the smallest constant dollar `L` for which the **unchanged original path** never strictly falls below a hypothetical `H_t − L` wealth floor at a recorded signal. Equality touches the floor. The maximum is known only after the full window and never enters a past budget decision. This is not an implemented `high_water_policy`, an estimated stress loss, or a declared risk preference.
+
+| Research principal | Path | Ex-post minimum `L` | `L / A_init` | Signal at maximum gap |
+|---:|---|---:|---:|---|
+| $1,000 | enhanced | $48.84 | 4.88% | 2024-08-05 |
+| $1,000 | matched defense | $82.08 | 8.21% | 2024-08-07 |
+| $1,250 | enhanced | $81.75 | 6.54% | 2024-08-07 |
+| $1,250 | matched defense | $97.93 | 7.83% | 2024-08-07 |
+| $10,000 | enhanced | $815.61 | 8.16% | 2024-08-07 |
+| $10,000 | matched defense | $879.67 | 8.80% | 2024-08-07 |
+| $100,000 | enhanced | $8,361.17 | 8.36% | 2024-08-07 |
+| $100,000 | matched defense | $8,985.54 | 8.99% | 2024-08-07 |
+
+The private aggregate summary is `phase5_capital_scale_v1/phase5_wealth_floor_audit_summary.v1.json`, SHA256 `1af8f89867b3e90a9b72520b7138149a39f4057061ac623e3c973ed81b5bbf12`, mode `0600`. Astra reviewed the narrow formula and time semantics and returned GO; it did not inspect private ledgers or verify the aggregate values. For example, the $1,000 enhanced path's $48.84 decision-equity high-water gap need not equal the earlier table's $43.89 **dollar amount associated with maximum percentage drawdown** on economic NAV: the observation series and metric differ. Neither number is an ex ante constraint. A tighter declared floor could change trades and subsequent states, so its effects cannot be inferred by deleting breach days or scaling this path. An actual loss policy still requires a separately frozen limit, failure/stock-management behavior and account-specific inputs before any counterfactual replay.
