@@ -66,3 +66,15 @@ The table gives sample daily-return standard deviation times `sqrt(252)`, the si
 | 15 bps | Matched defense | 8.453% | −1.164% | −3.741% | −6.638% |
 
 The paired enhanced/baseline daily **account-return** correlations are 0.998555, 0.998601 and 0.998584 at 5/10/15 bps. Both accounts hold overlapping assets, so these are not TQQQ-versus-SOXL member correlations or an estimate of diversification among independent strategies. The enhanced path's historical volatility, tail mean and five-session loss were slightly less severe in this window, consistent with its lower actual security exposure; none is an adoption argument. The 23-day mean is not exact-quantile or predictive CVaR, and the selected five-session span is not an unseen-crisis stress test. Astra returned GO for this narrow math and accounting interpretation after code review; it did not inspect the private values. This readback still does not establish a declared portfolio risk limit or original complete v2 risk.
+
+## Same-window traded-asset correlation
+
+`phase4_asset_correlation.py` separately reads the already approved raw bars and corporate actions through the existing manifest-verified reader, then aligns the 444 execution-window sessions to a SHA-checked Phase 4 ledger. The manifest SHA256 is `cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182` and declares `price_adjustment=raw`. No TQQQ, QQQM or BOXX split takes effect in this window. A one-session retrospective economic holding return is `(raw close_t + per-share cash dividend with ex_date=t) / raw close_(t−1) − 1`; this avoids treating an ex-dividend raw price drop as the entire economic loss. The formula is not used at a historical signal. The private aggregate summary `phase4_fixed_pair_v3/phase4_asset_correlation_summary.v1.json` is mode `0600`, SHA256 `8e19a2484aa0f8beccde765cb05bef89e972711fd9a86a8db77fcd0e673383f5`.
+
+| Historical daily-return correlation | QQQM | TQQQ | BOXX |
+|---|---:|---:|---:|
+| QQQM | 1.0000 | 0.9997 | 0.0056 |
+| TQQQ | 0.9997 | 1.0000 | 0.0035 |
+| BOXX | 0.0056 | 0.0035 | 1.0000 |
+
+Observed negative one-session returns occurred on 185 QQQM days, 188 TQQQ days and 66 BOXX days; all three were negative on 22 of the 444 common sessions. The dividend event counts in the window were 7/7/1 for TQQQ/QQQM/BOXX. Astra reviewed the narrow price/dividend and time semantics and returned GO without inspecting the private values. The near-zero BOXX price-plus-dividend correlation does not make it Treasury cash or risk-free, and the QQQM/TQQQ correlation is between ETF holding returns, not between full strategy members with guard, budgets, fees and internal cash. The matrix describes this already-seen period only; it is neither a stable covariance forecast nor evidence from an unseen crisis. Historical provider processing dates do not prove past dividend announcement times, so these ex-date economic returns cannot be fed into earlier decisions as then-known signals.
