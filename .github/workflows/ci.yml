@@ -25,8 +25,25 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . numpy pandas pandas_market_calendars pytz pytest pytest-cov ruff==0.15.22
+          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest pytest-cov ruff==0.15.22
           python -m pip check
+
+      - name: Verify research dependency commits
+        run: |
+          python - <<'PY'
+          import json
+          from importlib.metadata import distribution
+
+          expected = {
+              "quant-platform-kit": "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62",
+              "quant-strategy-plugins": "3416da47580be1537183e378f3ca9efacc6f9b8c",
+          }
+          for name, sha in expected.items():
+              provenance = json.loads(distribution(name).read_text("direct_url.json"))
+              if provenance.get("vcs_info", {}).get("commit_id") != sha:
+                  raise SystemExit(f"{name}: installed revision differs from research pin")
+              print(f"{name}: {sha}")
+          PY
 
       - name: Run Ruff
         run: |
