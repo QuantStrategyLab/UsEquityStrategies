@@ -1,0 +1,13 @@
+# Phase 5: Fixed-policy capital-scale development study
+
+## Frozen scope
+
+`phase5_capital_scale_policy.v1.json` adds a distinct scale-study identity over the reviewed Phase 4 v3 candidate. The only experimental input changed is initial research principal. The four declared points are $1,000, $1,250, $10,000 and $100,000; they are examples, not user account parameters or recommended allocations. The pre-existing $10,000 ledgers and summary are reused by hash. The other points must run the same prior-close guard core, QQQM/TQQQ/BOXX targets, next-open whole-share execution, funding order, event recognition, two-session sale settlement, and 5/10/15 bps per-side cost assumptions on the same 444-session seen-development window.
+
+The two small points straddle an approximately $1,124 initial-NAV one-TQQQ-share threshold, computed from the 2023-03-27 known TQQQ close and the unchanged first-signal core target of 45% of a 5% member budget. The next open, fees and later guard states can move the actual activation threshold. Neither the points nor the threshold use later outcomes. A separate large round point tests whether integer shares become less dominant. No interpolation or grid search is authorized.
+
+`A_init` is the explicit research principal. `N_t` is the actual recursively computed economic NAV; each decision uses the Phase 4 v3 decision-equity rule and funds only from available cash. `W_ref` and `capital_curve_policy` are not applied to this fixed-budget pair, so the experiment cannot claim a capital-curve effect. No new portfolio drawdown limit, fixed commission, margin, shorting or initial locked holding is introduced. The frozen cost contract has zero fixed commission; real minimum-order or per-ticket fees are an identified evidence gap, not silently assumed away. Initial state is cash only. Previously completed Phase 2 direct tests cover locked and unsettled funding behavior, but this historical scale experiment does not validate an account with locked starting positions.
+
+## Review and execution gate
+
+Before any new scale replay, Astra must review whether varying only the initial principal while reusing the frozen v3 policy preserves the research identity, mathematical comparison and funding/known-at semantics. The new runner must report actual TQQQ purchase days and target-versus-filled share gaps, not infer activation from a positive budget. All returns and risk metrics must come from each independently evolved account path; the $10,000 existing ledger is referenced rather than recomputed. The study remains development and cannot select a best size or a personal capital rule.
