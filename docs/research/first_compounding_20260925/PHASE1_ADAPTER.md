@@ -4,7 +4,7 @@
 
 UES catalog definitions already identify the production strategy profile, entrypoint, target mode, and coarse required inputs. QPK `StrategyDecision` already carries position targets, budget intents, risk flags, and diagnostics. The independent TQQQ/QQQ guard study has a separate frozen candidate contract and a daily result with member budget, TQQQ target, guard route, and core state. QPK candidate-control and research-ledger records bind research evidence but do not authorize execution.
 
-`portfolio_candidate_adapter.py` projects those existing outputs into a research-only member view. It does not run a builder, estimate returns, choose a budget, change a target, or convert a reference asset into an independent strategy. The QQQM and BOXX buy-and-hold adapters produce reference identities with `portfolio_member=False`. The BOXX outer-settlement policy remains an account-level funding policy, not a second TQQQ member or a cash asset.
+`portfolio_candidate_adapter.py` projects those existing outputs into a research-only member view. The BOXX outer-cash replay now consumes the independent TQQQ projection for its member budget and TQQQ value target; its original builder, settlement order and outer policy remain unchanged. The adapter does not run a builder, estimate returns, choose a budget, change a target, or convert a reference asset into an independent strategy. The QQQM and BOXX buy-and-hold adapters produce reference identities with `portfolio_member=False`. The BOXX outer-settlement policy remains an account-level funding policy, not a second TQQQ member or a cash asset.
 
 | Identity | Adapter source | Capital and target unit | Historical evidence status |
 | --- | --- | --- | --- |
