@@ -123,3 +123,66 @@ def test_curve_policy_requires_complete_explicit_parameters():
         "wealth_reference_usd": 100, "a0_usd": 100,
         "lower": 0.2, "upper": 0.8, "curvature": 1, "unknown": 1}
     assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"
+
+
+def test_settled_transfer_funding_rejects_same_day_sale_proceeds():
+    data = input_data()
+    data.update(nav_usd=100, current_usd={"SOXL": 100, "TQQQ": 0, "CASH": 0},
+                locked_usd={"SOXL": 0, "TQQQ": 0, "CASH": 0},
+                transfer_fee_bps=0, search_step_usd=100, stress_loss_limit_usd=100)
+    data["evidence"]["scenarios"] = [
+        {"weight": 1.0, "returns": {"SOXL": 0.0, "TQQQ": 0.1}}
+    ]
+    assert MODULE.allocate(data)["budget_usd"] == {"SOXL": 0, "TQQQ": 100, "CASH": 0}
+
+    data["settled_transfer_funding"] = {
+        "version": "settled_transfer_v1",
+        "free_cash_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 0},
+    }
+    waiting = MODULE.allocate(data)
+    assert waiting["status"] == "MECHANISM_APPROXIMATION"
+    assert waiting["budget_usd"] == {"SOXL": 100, "TQQQ": 0, "CASH": 0}
+    assert waiting["settled_transfer_funding_version"] == "settled_transfer_v1"
+
+    data["settled_transfer_funding"]["free_cash_usd"]["SOXL"] = 100
+    funded = MODULE.allocate(data)
+    assert funded["budget_usd"] == {"SOXL": 0, "TQQQ": 100, "CASH": 0}
+
+
+def test_unsettled_outer_value_cannot_fund_member_purchase():
+    data = input_data()
+    data.update(nav_usd=100, current_usd={"SOXL": 0, "TQQQ": 0, "CASH": 100},
+                locked_usd={"SOXL": 0, "TQQQ": 0, "CASH": 0},
+                transfer_fee_bps=0, search_step_usd=100, stress_loss_limit_usd=100,
+                settled_transfer_funding={"version": "settled_transfer_v1",
+                    "free_cash_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 0}})
+    data["evidence"]["scenarios"] = [
+        {"weight": 1.0, "returns": {"SOXL": 0.0, "TQQQ": 0.1}}
+    ]
+    result = MODULE.allocate(data)
+    assert result["budget_usd"] == {"SOXL": 0, "TQQQ": 0, "CASH": 100}
+
+
+def test_settled_transfer_fee_is_funded_once():
+    data = input_data()
+    data.update(nav_usd=100, current_usd={"SOXL": 100, "TQQQ": 0, "CASH": 0},
+                locked_usd={"SOXL": 0, "TQQQ": 0, "CASH": 0},
+                transfer_fee_bps=100, search_step_usd=1, stress_loss_limit_usd=100,
+                settled_transfer_funding={"version": "settled_transfer_v1",
+                    "free_cash_usd": {"SOXL": 100, "TQQQ": 0, "CASH": 0}})
+    data["evidence"]["scenarios"] = [
+        {"weight": 1.0, "returns": {"SOXL": 0.0, "TQQQ": 0.1}}
+    ]
+    result = MODULE.allocate(data)
+    assert result["budget_usd"] == {"SOXL": 0, "TQQQ": 98, "CASH": 0.02}
+    assert result["fee_usd"] == 1.98
+    assert result["funding_check_usd"] == 100
+
+
+def test_settled_transfer_funding_requires_complete_reconciled_input():
+    data = input_data()
+    data["settled_transfer_funding"] = {"version": "settled_transfer_v1",
+        "free_cash_usd": {"SOXL": 0, "TQQQ": 0}}
+    assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"
+    data["settled_transfer_funding"]["free_cash_usd"]["CASH"] = 100001
+    assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"

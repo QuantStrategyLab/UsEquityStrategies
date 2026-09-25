@@ -162,6 +162,18 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
             raise ValueError("current holdings do not sum to NAV")
         if any(floor[key] > cur[key] + 0.01 for key in ids):
             raise ValueError("locked amount exceeds current holding")
+        funding = data.get("settled_transfer_funding")
+        free_cash = None
+        if funding is not None:
+            if (not isinstance(funding, dict) or set(funding) != {"version", "free_cash_usd"}
+                    or funding["version"] != "settled_transfer_v1"
+                    or not isinstance(funding["free_cash_usd"], dict)
+                    or set(funding["free_cash_usd"]) != set(ids)):
+                raise ValueError("settled_transfer_funding: complete settled_transfer_v1 required")
+            free_cash = {key: _number(funding["free_cash_usd"][key], f"free_cash_usd.{key}")
+                         for key in ids}
+            if any(free_cash[key] > cur[key] - floor[key] + 0.01 for key in ids):
+                raise ValueError("settled free cash exceeds unlocked current holding")
         fee_bps = _number(data["transfer_fee_bps"], "transfer_fee_bps")
         loss_limit = _number(data["stress_loss_limit_usd"], "stress_loss_limit_usd")
         policy = data.get("high_water_policy")
@@ -233,6 +245,13 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
         if member_budget_cap is not None and a + b > member_budget_cap + 1e-9:
             return
         fee = round(fee_bps / 10000 * (abs(a - cur[names[0]]) + abs(b - cur[names[1]])), 2)
+        if free_cash is not None:
+            releases = [max(0.0, cur[name] - target) for name, target in zip(names, (a, b))]
+            if any(release > free_cash[name] + 1e-9 for name, release in zip(names, releases)):
+                return
+            inward = sum(max(0.0, target - cur[name]) for name, target in zip(names, (a, b)))
+            if inward + fee > free_cash["CASH"] + sum(releases) + 1e-9:
+                return
         cash = nav - a - b - fee
         if cash < floor["CASH"] - 1e-9:
             return
@@ -261,7 +280,10 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
         for j in range(int((nav - a) / step) + 1):
             consider(a, j * step)
     if best is None:
-        return {"status": "INFEASIBLE", "reason": "no grid point satisfies actual locked holdings, cash, fees and risk floors", "locked_usd": floor, "stress_loss_limit_usd": loss_limit, "wealth_floor_usd": wealth_floor}
+        reason = "no grid point satisfies actual locked holdings, cash, fees and risk floors"
+        if free_cash is not None:
+            reason += " and settled transfer funding"
+        return {"status": "INFEASIBLE", "reason": reason, "locked_usd": floor, "stress_loss_limit_usd": loss_limit, "wealth_floor_usd": wealth_floor}
     objective, _, _, _, a, b, cash, fee, loss, wealth = best
     binding = []
     if abs(loss - loss_limit) <= max(0.01, step * 0.02):
@@ -303,6 +325,12 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
             member_budget_cap_role="max_current_member_budgets_including_internal_cash",
             reference_curve_risk_capital_usd=round(float(curve_result["risk_capital"]), 6),
             reference_curve_risk_capital_role="not_current_available_funds",
+        )
+    if free_cash is not None:
+        result.update(
+            settled_transfer_funding_version="settled_transfer_v1",
+            free_cash_usd=free_cash,
+            funding_scope="settled outer and member cash transfers only; builder trades and future settlements require replay",
         )
     return result
 

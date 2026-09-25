@@ -122,6 +122,11 @@ def _cash_only_daily_path(allocator, allocation_input, initial_outer_cash, base_
         candidate_input = deepcopy(allocation_input)
         candidate_input.update(decision_date=session, nav_usd=nav,
                                current_usd=current, locked_usd=preserved)
+        candidate_input["settled_transfer_funding"] = {
+            "version": "settled_transfer_v1",
+            "free_cash_usd": {**{member: states[member].cash for member in members},
+                              "CASH": outer_cash},
+        }
         candidate_input["high_water_policy"]["high_water_usd"] = high_water
         if session == revision["decision_date"]:
             candidate_input["evidence"]["observed_through"] = revision["observed_through"]
