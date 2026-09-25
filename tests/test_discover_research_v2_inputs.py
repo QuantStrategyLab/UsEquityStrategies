@@ -58,7 +58,7 @@ def test_permission_denied_has_no_retry(monkeypatch):
 
     monkeypatch.setattr(discovery, "urlopen", deny)
     with pytest.raises(ValueError, match="LIST_PERMISSION_DENIED"):
-        discovery._list_page(Credentials(), None, 1)
+        discovery._list_page(Credentials(), None, 1, object)
     assert len(calls) == 1
 
 
@@ -76,5 +76,5 @@ def test_transient_http_error_retries_twice(monkeypatch):
     monkeypatch.setattr(discovery, "urlopen", unavailable)
     monkeypatch.setattr(discovery.time, "sleep", lambda _: None)
     with pytest.raises(ValueError, match="LIST_HTTP_FAILED"):
-        discovery._list_page(Credentials(), None, 1)
+        discovery._list_page(Credentials(), None, 1, object)
     assert len(calls) == 3

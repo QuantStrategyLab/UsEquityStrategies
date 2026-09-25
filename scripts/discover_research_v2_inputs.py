@@ -11,9 +11,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-import google.auth
-from google.auth.transport import _http_client
-
 BUCKET = "qsl-research-evidence-831478360303"
 OBJECT_PREFIX = "research/v2/input/"
 PREFIX = f"gs://{BUCKET}/{OBJECT_PREFIX}"
@@ -24,7 +21,16 @@ MAX_RETRIES = 2
 MATCHES = ("qqqm", "boxx", "regime", "taco", "crisis", "macro", "manifest", "schema", "catalog", "index")
 
 
-def _list_page(credentials: object, token: str | None, limit: int) -> dict[str, object]:
+def _list_page(
+    credentials: object,
+    token: str | None,
+    limit: int,
+    auth_request_factory: Callable[[], object] | None = None,
+) -> dict[str, object]:
+    if auth_request_factory is None:
+        from google.auth.transport.requests import Request as AuthRequest
+
+        auth_request_factory = AuthRequest
     query = {"prefix": OBJECT_PREFIX, "maxResults": limit,
              "fields": "nextPageToken,items(name,generation,size,md5Hash,crc32c,updated)"}
     if token:
@@ -32,7 +38,7 @@ def _list_page(credentials: object, token: str | None, limit: int) -> dict[str, 
     url = f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o?{urlencode(query)}"
     for attempt in range(MAX_RETRIES + 1):
         headers: dict[str, str] = {}
-        credentials.before_request(_http_client.Request(), "GET", url, headers)
+        credentials.before_request(auth_request_factory(), "GET", url, headers)
         try:
             with urlopen(Request(url, headers=headers), timeout=45) as response:
                 page = json.load(response)
@@ -100,6 +106,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if argv:
         raise ValueError("NO_INPUTS_ALLOWED")
     try:
+        import google.auth
+
         credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/devstorage.read_only"])
         payload = discover(lambda token, limit: _list_page(credentials, token, limit))
         code = 0
