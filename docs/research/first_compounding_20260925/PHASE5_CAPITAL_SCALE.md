@@ -76,3 +76,20 @@ Six independent cash-only paths ran for the same 444 development sessions, and e
 | $10,000 | matched defense | 33.41% / 35.14% | 17.78% | −6.69% / −6.66% | $874.69 | 67 | $209.67 / $30.46 | 177 | 97.66% | 49.16% | 0 |
 
 All six $1-fee paths had lower cumulative returns than their same-principal $0-fee controls. The effect is not calculated by subtracting `$1 ×` the old ticket count from old NAV: fees changed affordable share counts and subsequent states. For example, the $1,250 enhanced path held TQQQ on 31 sessions rather than 32 and executed 32 symbol-side tickets rather than the zero-fee path's 24. The $1,000 enhanced path still never bought TQQQ. Percentage drawdowns did not improve consistently, so this sensitivity offers no adoption argument. These outcomes are conditional on a hypothetical flat fee; they are not a real broker-cost estimate, personal account advice, or evidence outside the seen development window.
+
+## Read-only locked-inventory applicability audit
+
+`phase5_locked_inventory_audit.py` hash-checks the frozen Phase 5 summary and eight existing 10 bps daily ledgers (including the reused $10,000 Phase 4 paths). For each symbol independently, it hypothetically locks the shares held **after the first execution close** on 2023-03-28, then finds the first later day on which the original path holds fewer shares. The lock amount is set before observing later conflicts. The approved local company-action inputs show zero forward splits for TQQQ, QQQM and BOXX within this fixed 444-session window, so the share units do not change under those inputs. This is a necessary share-count test of the original path, not an account with locked starting holdings or an alternative replay.
+
+| Research principal | Path | First TQQQ breach | First QQQM breach | First BOXX breach |
+|---:|---|---|---|---|
+| $1,000 | enhanced | — | 2024-01-24 | — |
+| $1,000 | matched defense | — | — | — |
+| $1,250 | enhanced | 2023-05-11 | 2023-06-16 | — |
+| $1,250 | matched defense | — | 2024-06-13 | — |
+| $10,000 | enhanced | 2023-05-12 | 2023-03-30 | — |
+| $10,000 | matched defense | — | 2023-03-30 | — |
+| $100,000 | enhanced | 2023-03-29 | 2023-03-29 | — |
+| $100,000 | matched defense | — | 2023-03-29 | 2023-03-29 |
+
+The aggregate private output is `phase5_capital_scale_v1/phase5_locked_inventory_audit_summary.v1.json`, SHA256 `9e091b0816c26b0033d1ddbf321dbd2b7e55b4d01d7d9a0dafb54fbd82d89b90`, retained with mode `0600` under the approved private research root. A breach proves the original daily holdings cannot represent that hypothetical fixed share floor from that date. No breach proves only that the total-share floor was respected; it does not identify which tax lot was sold, establish that a specific lot remained transferable, or prove the cash and future execution of an alternative locked path. The result does not supply the absent account-specific initial holdings, cost bases, funding restrictions or loss limit. It changes no Phase 4/5 returns, candidate identity or personal setting.
