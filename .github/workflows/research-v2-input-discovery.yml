@@ -34,4 +34,5 @@ jobs:
       - name: Discover bounded input metadata
         run: |
           set -euo pipefail
-          python3 scripts/discover_research_v2_inputs.py | tee "$GITHUB_STEP_SUMMARY"
+          sdk_root="$(gcloud info --format='value(installation.sdk_root)')"
+          PYTHONPATH="${sdk_root}/lib/third_party" python3 scripts/discover_research_v2_inputs.py | tee "$GITHUB_STEP_SUMMARY"
