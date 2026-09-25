@@ -669,12 +669,15 @@ def _sale_funding_path(allocator, allocation_input, base_sources, position_sourc
 
 def run(*, terminal_price_shock: bool = True,
         omit_inactive_income_prices: bool = False,
-        capital_curve_policy: dict | None = None) -> dict[str, object]:
+        capital_curve_policy: dict | None = None,
+        fixed_member_weights: dict[str, float] | None = None) -> dict[str, object]:
     allocator = _load_module("small_account_allocator", HERE / "auto_allocate.py")
     fixtures = _load_module("small_account_fixtures", ROOT / "tests/test_optimized_strategy_replay.py")
     allocation_input = json.loads((HERE / "small_account_input.json").read_text())
     if capital_curve_policy is not None:
         allocation_input["capital_curve_policy"] = deepcopy(capital_curve_policy)
+    if fixed_member_weights is not None:
+        allocation_input["fixed_member_weights"] = deepcopy(fixed_member_weights)
     allocation = allocator.allocate(allocation_input)
     if allocation["status"] != "MECHANISM_APPROXIMATION" or allocation["fee_usd"] != 0:
         raise RuntimeError("small-account allocation is not funded without internal transfer fees")

@@ -167,3 +167,31 @@ def test_future_price_change_cannot_change_prior_decisions():
         "sale_funding_path"]["planned_sales"]
     assert shocked["sale_funding_path"]["post_sale_account_nav_usd"] != flat[
         "sale_funding_path"]["post_sale_account_nav_usd"]
+
+
+def test_initially_frozen_fixed_budget_uses_same_continuous_builders():
+    automatic = MODULE.run()
+    initial = automatic["allocation"]["budget_usd"]
+    weights = {member: initial[member] / 10_000 for member in ("SOXL", "TQQQ")}
+    fixed = MODULE.run(fixed_member_weights=weights)
+    fixed_flat_future = MODULE.run(fixed_member_weights=weights, terminal_price_shock=False)
+    assert fixed["allocation"]["allocation_mode"] == "fixed_member_weights_v1"
+    assert fixed["allocation"]["budget_usd"] == initial
+    automatic_path = automatic["dynamic_cash_only_path"]
+    fixed_path = fixed["dynamic_cash_only_path"]
+    assert fixed_path["status"] == automatic_path["status"] == "SYNTHETIC_CASH_ONLY_CONTINUATION"
+    assert fixed_path["account_days"][:2] == automatic_path["account_days"][:2]
+    assert fixed_path["transfers"][0]["target_budget_usd"] == automatic_path[
+        "transfers"][0]["target_budget_usd"]
+    second = fixed_path["transfers"][1]
+    assert second["target_budget_usd"]["SOXL"] == 599.97
+    assert second["target_budget_usd"]["TQQQ"] == 9399.53
+    assert second["target_budget_usd"] != automatic_path["transfers"][1]["target_budget_usd"]
+    assert fixed_path["account_days"][-1]["holdings_shares"] != automatic_path[
+        "account_days"][-1]["holdings_shares"]
+    assert fixed_path["account_days"][-1]["account_nav_usd"] == automatic_path[
+        "account_days"][-1]["account_nav_usd"]
+    assert len(fixed_path["segment_qpk_readbacks"]) == 4
+    assert fixed_path["transfers"] == fixed_flat_future["dynamic_cash_only_path"]["transfers"]
+    assert fixed_path["account_days"][-1]["account_nav_usd"] != fixed_flat_future[
+        "dynamic_cash_only_path"]["account_days"][-1]["account_nav_usd"]
