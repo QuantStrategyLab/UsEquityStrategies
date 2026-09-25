@@ -209,7 +209,7 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
             )
             member_budget_cap = nav * float(curve_result["risk_ratio"])
         fixed_weights = data.get("fixed_member_weights")
-        if fixed_weights is not None:
+        if "fixed_member_weights" in data:
             if (not isinstance(fixed_weights, dict) or set(fixed_weights) != set(names)):
                 raise ValueError("fixed_member_weights: both members required")
             fixed_weights = {name: _number(fixed_weights[name], f"fixed_member_weights.{name}")

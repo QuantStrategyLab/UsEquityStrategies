@@ -227,3 +227,11 @@ def test_fixed_weights_do_not_override_curve_or_use_future_selection():
     assert MODULE.allocate(data)["status"] == "INFEASIBLE"
     data["fixed_member_weights"] = {"SOXL": 0.7, "TQQQ": 0.5}
     assert MODULE.allocate(data)["status"] == "DATA_INSUFFICIENT"
+
+
+def test_explicit_null_fixed_weights_cannot_fall_back_to_search():
+    data = input_data()
+    data["fixed_member_weights"] = None
+    result = MODULE.allocate(data)
+    assert result["status"] == "DATA_INSUFFICIENT"
+    assert "fixed_member_weights" in result["reason"]
