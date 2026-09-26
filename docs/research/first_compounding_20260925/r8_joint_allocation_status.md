@@ -57,3 +57,11 @@ v2 三会话短窗通过，私有摘要 SHA-256 `55cd5ccaa2b7e6a6eeae6e359bb7f14
 三份私有日账本各 444 行，文件 SHA-256 与摘要内绑定值一致；账本中经济净值与 owner 净值之和误差均小于 1e-6 USD，最大账户身份误差约 `3.64e-12` USD。每次动态选择有 60 情景，`observed_through` 不晚于信号日，正式 10 bps 的前三行与三日短窗逐行相同。未来价格扰动及拆股/未知股息有定向反例测试。固定动作强制接线对 R7 的 B0/B1/B2/B3 × 5/10/15 bps，12/12 条完整账本逐行相同（仅旧报告中混合名义指数暴露字段的名称校正）。18 项 S4/R7/R8 直接测试及 Ruff 检查通过；当前提交的 CI 状态以 PR 为准。Astra 对最终汇总只作经济与声明窄审，未读取私有字节，未发现需阻塞交付的语义问题。
 
 本研究保留为 development 负结果，不自动调参或提高默认资金权限。R6 单源边界、R7 固定比较及原完整 v2 未验证状态保持不变。下一研究若继续，应先选独立新时段/输入验证或更简单的外层动作政策；本批不启动后续实验。
+
+## UX1 本地预览适配（2026-09-27）
+
+`ux1_preview_adapter.py` 是固定的 JSON stdin/stdout 入口，只接受 `qsl.ux1.preview_request.v1` 和冻结逻辑身份 `r8_first_dynamic_2023_03_29`。私有输入根来自进程启动时的 `UX1_RAW_ROOT`、`UX1_R6_ROOT`、`UX1_MATERIALIZED`，必须是本机绝对路径；请求不能提供路径、命令、URL、凭据或授权字段。
+
+计算复用 R8 `_policy` / `_selector`、R7 `_load_inputs` / `_replay`、日期生效结算和 `capital_hook("C2", 10000)`，只跑三会话前缀。`request_fingerprint` 是业务字段的 SHA-256：`advanced_settings`、`candidate_id`、`candidate_set_id`、`capital_variant`、`cost_bps`、`objective`、`research_case_id`、`source_class`，JSON 按键排序、`,`/`:` 分隔、保留整数，不含 `schema` 或视图偏好。高级金额与比例在请求及摘要中用规范十进制字符串（例如 `0.00001`），避免 JavaScript 与 Python 对小浮点数的指数写法不同。`decision_preview` 只含 2023-03-29 收盘已知的 60 个情景、评分、选中的 B0–B3、成员预算、资产目标和资本曲线。`historical_execution_check` 才是 2023-03-30 的模拟整股、费用、结算现金、待结算、应收和短缺；这些成交不回写 03-29 的选择。`no_advantage` 由相对上一动作的评分增益是否落在冻结 tie tolerance 内决定。`no_action` 由模拟成交股数是否全部为零决定。`previous_action_retained` 不能单独证明这两项，选中动作也不表示目标已全部成交。
+
+`optimality_scope` 只表示可行 B0–B3 中的评分最优。旧窗口累计收益、年化和回撤不是这份新草案的绩效。高级字段出现显式非空值时返回 `unsupported_scope` 并保留原值；字段为 null 并不表示原完整 v2 的对应开关处于关闭。原完整 v2 不会被映射成这条简化 R8，也不会被静默停用。直接测试覆盖适配合同，不代替一次实际私有输入计算。
