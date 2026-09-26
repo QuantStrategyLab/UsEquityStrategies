@@ -269,10 +269,17 @@ def _read_r7_reference(root: Path, r8: dict) -> dict:
 
 
 def analyze(raw_root: Path, r6_root: Path, materialized_path: Path,
-            r7_reference_root: Path, *, short_sessions: int | None = None) -> tuple[dict, dict]:
+            r7_reference_root: Path, *, short_sessions: int | None = None,
+            continuation_last_session: str | None = None,
+            continuation_from_session: str | None = None,
+            continuation_checkpoints: dict[str, dict] | None = None,
+            checkpoint_out: dict[str, dict] | None = None,
+            replay_inputs: tuple[list[dict], dict] | None = None) -> tuple[dict, dict]:
     r8 = _policy()
     r7 = r7_policy()
     rows, actions, indicators, source = _load_inputs(raw_root, r6_root, materialized_path, r7)
+    if replay_inputs is not None:
+        rows, actions = replay_inputs
     reference = _read_r7_reference(r7_reference_root, r8)
     if short_sessions is not None and not 1 <= short_sessions <= 12:
         raise ValueError("R8_SHORT_WINDOW_INVALID")
@@ -282,9 +289,17 @@ def analyze(raw_root: Path, r6_root: Path, materialized_path: Path,
     selector = _selector(indicators, source["tqqq_contract"], actions, r7, r8)
     for cost in costs:
         key = f"dynamic_{cost}bps"
+        checkpoint = (None if continuation_checkpoints is None
+                      else continuation_checkpoints.get(key))
+        checkpoint_result = (None if checkpoint_out is None
+                             else checkpoint_out.setdefault(key, {}))
         metrics, ledger = _replay(rows, actions, indicators, source["tqqq_contract"], r7,
                                   path_name="B0", cost_bps=cost, short_sessions=short_sessions,
-                                  action_selector=selector, candidate_id=r8["candidate_id"])
+                                  action_selector=selector, candidate_id=r8["candidate_id"],
+                                  continuation_last_session=continuation_last_session,
+                                  continuation_from_session=continuation_from_session,
+                                  continuation_checkpoint=checkpoint,
+                                  checkpoint_out=checkpoint_result)
         counts = Counter(item["path"] for item in ledger)
         metrics["action_counts"] = {name: counts[name] for name in r8["action_ids"]}
         metrics["startup_fixed_sessions"] = sum(item["action_selection"]["startup_fixed"]
