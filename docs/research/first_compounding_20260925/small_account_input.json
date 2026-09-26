@@ -1,0 +1,25 @@
+{
+  "members": ["SOXL", "TQQQ"],
+  "decision_date": "2024-01-02",
+  "nav_usd": 10000,
+  "current_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 10000},
+  "locked_usd": {"SOXL": 0, "TQQQ": 0, "CASH": 0},
+  "transfer_fee_bps": 0,
+  "stress_loss_limit_usd": 1000,
+  "high_water_policy": {
+    "version": "synthetic_no_external_flow_v1",
+    "initial_principal_usd": 10000,
+    "high_water_usd": 10000,
+    "cumulative_loss_limit_usd": 1000
+  },
+  "search_step_usd": 100,
+  "evidence": {
+    "source": "manual_scenarios",
+    "observed_through": "2024-01-02",
+    "horizon_days": 20,
+    "scenarios": [
+      {"weight": 0.5, "returns": {"SOXL": 0.12, "TQQQ": -0.04}},
+      {"weight": 0.5, "returns": {"SOXL": -0.08, "TQQQ": 0.10}}
+    ]
+  }
+}

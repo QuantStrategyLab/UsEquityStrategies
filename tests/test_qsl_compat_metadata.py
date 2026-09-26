@@ -48,7 +48,7 @@ def test_qpk_pin_lock_and_ci_are_dependency_enabled() -> None:
 
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "--no-deps" not in ci
-    assert "python -m pip install -e ." in ci
+    assert "python -m pip install -e '.[research]'" in ci
     assert "python -m pip check" in ci
 
     # The selected package pins are checked above, not against a moving upstream bundle.

@@ -51,6 +51,62 @@ def _canonical(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
+def test_whole_share_execution_sells_first_and_never_spends_unavailable_cash() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    cash, quantities, fees, trade_cashflow = _rebalance(
+        0.2, {"AAA": 1.0, "BBB": 0.0},
+        {"AAA": 0.0, "BBB": 100.0}, {"AAA": 100.0, "BBB": 100.0},
+        0.001, whole_shares=True,
+    )
+    assert quantities == {"AAA": 0.0, "BBB": 1.0}
+    assert cash == pytest.approx(0.0)
+    assert fees == pytest.approx(0.2)
+    assert trade_cashflow == pytest.approx(0.0)
+
+
+def test_whole_share_execution_rejects_unfunded_plan_without_symbol_priority() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    for first, second in (("AAA", "ZZZ"), ("ZZZ", "AAA")):
+        with pytest.raises(OptimizedStrategyReplayError, match="PLAN_UNFUNDED"):
+            _rebalance(
+                100.0, {first: 0.0, second: 0.0},
+                {first: 50.0, second: 50.0}, {first: 50.0, second: 50.0},
+                0.01, whole_shares=True,
+            )
+
+
+@pytest.mark.parametrize("profile", ("SOXL", "TQQQ"))
+def test_unheld_inactive_income_assets_do_not_require_daily_prices(profile: str) -> None:
+    request = (_soxl_market_regime_request(("no_action", "no_action"))
+               if profile == "SOXL" else _tqqq_market_regime_request(("no_action", "no_action")))
+    inactive = {"SCHD", "DGRO", "SGOV", "SPYI", "QQQI"}
+    baseline = replay_optimized_strategy(request)
+    sparse = replace(request, prices=tuple(bar for bar in request.prices if bar.symbol not in inactive))
+    actual = replay_optimized_strategy(sparse)
+    assert [point.nav for point in actual.points] == pytest.approx([point.nav for point in baseline.points])
+    assert actual.decision_targets == baseline.decision_targets
+    assert all(dict(point.holdings)[symbol] == 0 for point in actual.points for symbol in inactive)
+
+
+def test_missing_price_for_held_income_asset_still_fails() -> None:
+    request = _soxl_market_regime_request(("no_action", "no_action"))
+    held = dict(request.initial_quantities)
+    held["SCHD"] = 1.0
+    request = replace(request, initial_quantities=held,
+                      prices=tuple(bar for bar in request.prices if bar.symbol != "SCHD"))
+    with pytest.raises(OptimizedStrategyReplayError, match="INPUT_GAP"):
+        replay_optimized_strategy(request)
+
+
+def test_missing_price_for_newly_targeted_asset_still_fails() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import _rebalance
+
+    with pytest.raises(OptimizedStrategyReplayError, match="INPUT_GAP"):
+        _rebalance(100.0, {"SCHD": 0.0}, {"SCHD": 50.0}, {}, 0.0, whole_shares=True)
+
+
 def _v2_identity_from_v1(
     identity: dict[str, object], *, ues_patch: str = "c" * 64, qpk_patch: str = "d" * 64
 ) -> dict[str, object]:
@@ -136,7 +192,7 @@ def _tqqq_option_fixture_file(
         option_overlay_enabled=True,
         option_growth_overlay_enabled=True,
         option_growth_overlay_recipe="tqqq_leaps_growth_v1",
-        option_growth_overlay_start_usd=500_000.0,
+        option_growth_overlay_start_usd=250_000.0,
         option_growth_overlay_nav_budget_ratio=0.03,
         option_income_overlay_enabled=False,
     )
@@ -231,6 +287,8 @@ def _build_tqqq_v2_identity(
     *,
     cost_source: str = "SYNTHETIC_ZERO",
     cost_inputs: dict[str, float] | None = None,
+    param_set_id: str = "synthetic-tqqq-leaps-slice-v1",
+    share_quantity_contract: str = "synthetic fractional equity units and integer option lots",
 ) -> dict[str, object]:
     from us_equity_strategies.research.optimized_member_identity import build_optimized_member_identity_v2
 
@@ -243,7 +301,7 @@ def _build_tqqq_v2_identity(
         qpk_revision="b" * 40,
         ues_workspace_patch_sha256="c" * 64,
         qpk_workspace_patch_sha256="d" * 64,
-        param_set_id="synthetic-tqqq-leaps-slice-v1",
+        param_set_id=param_set_id,
         actual_params=config,
         config_sha256=config_sha,
         input_sha256=input_sha,
@@ -258,12 +316,14 @@ def _build_tqqq_v2_identity(
         cash_contract="synthetic zero interest",
         corporate_action_contract="synthetic no corporate actions",
         external_cashflow_contract="synthetic no external flows",
-        share_quantity_contract="synthetic fractional equity units and integer option lots",
+        share_quantity_contract=share_quantity_contract,
     )
 
 
 def _build_soxl_option_v2_identity(
-    source: dict[str, object], *, fill_price_field: str = "close"
+    source: dict[str, object], *, fill_price_field: str = "close",
+    param_set_id: str = "synthetic-soxx-put-credit-slice-v1",
+    share_quantity_contract: str = "synthetic fractional units and integer option contracts",
 ) -> dict[str, object]:
     from us_equity_strategies.research.optimized_member_identity import build_optimized_member_identity_v2
 
@@ -271,7 +331,7 @@ def _build_soxl_option_v2_identity(
     return build_optimized_member_identity_v2(
         strategy_profile="soxl_soxx_trend_income", ues_revision="a" * 40,
         qpk_revision="b" * 40, ues_workspace_patch_sha256="c" * 64,
-        qpk_workspace_patch_sha256="d" * 64, param_set_id="synthetic-soxx-put-credit-slice-v1",
+        qpk_workspace_patch_sha256="d" * 64, param_set_id=param_set_id,
         actual_params=config, config_sha256=hashlib.sha256(_canonical(config)).hexdigest(),
         input_sha256=hashlib.sha256(_canonical(source)).hexdigest(),
         window_start=source["calendar"][0], window_end=source["calendar"][-1],
@@ -281,7 +341,7 @@ def _build_soxl_option_v2_identity(
         fill_price_field=fill_price_field, adjustment_contract="synthetic unadjusted prices",
         cash_contract="synthetic zero interest", corporate_action_contract="synthetic no events",
         external_cashflow_contract="synthetic no external flows",
-        share_quantity_contract="synthetic fractional units and integer option contracts",
+        share_quantity_contract=share_quantity_contract,
     )
 
 
@@ -1041,10 +1101,14 @@ def test_split_event_preserves_nav_and_updates_shares(monkeypatch) -> None:
     )
     _install_fixed_soxl_targets(monkeypatch, sessions, {SIGNAL: 100.0})
     replay = replay_optimized_strategy(request)
+    before = replay.points[0]
     day = replay.points[1]
+    assert dict(before.holdings)["SOXL"] == pytest.approx(1.0)
+    assert before.nav == pytest.approx(100.0)
     assert dict(day.holdings)["SOXL"] == pytest.approx(2.0)
     assert day.nav == pytest.approx(100.0)
     assert day.daily_return == pytest.approx(0.0)
+    assert day.trade_net_cashflow == pytest.approx(0.0)
 
 
 @pytest.mark.parametrize("invalid_kind", ("missing_day", "missing_event", "duplicate_id", "cash_mismatch"))
@@ -1793,6 +1857,24 @@ def test_tqqq_leaps_synthetic_open_and_daily_mark_round_trip(tmp_path: Path, mon
     assert payload["identity"]["schema_version"].endswith(".v2")
 
 
+@pytest.mark.parametrize("opening_cash,expected_open", [(10_000.0, False), (300_000.0, True)])
+def test_tqqq_new_leaps_obeys_original_budget_threshold_without_future_positions(
+    tmp_path: Path, monkeypatch, opening_cash: float, expected_open: bool
+) -> None:
+    path = tmp_path / "tqqq-start-threshold.json"
+    fixture = _tqqq_option_fixture_file(path, initial_cash=opening_cash)
+    source = fixture["input"]
+    for row in source["option_market_inputs"][1:]:
+        row.pop("positions")
+        row.pop("positions_source")
+    fixture["identity"] = _build_tqqq_v2_identity(source)
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    _install_fixed_tqqq_targets(monkeypatch, request.calendar)
+    replay = replay_optimized_strategy(request)
+    assert bool(replay.points[1].option_positions) is expected_open
+
+
 def test_tqqq_leaps_fixture_identity_is_not_the_full_v2_candidate(tmp_path: Path) -> None:
     path = tmp_path / "tqqq-leaps-identity-separation.json"
     fixture = _tqqq_option_fixture_file(path)
@@ -1822,6 +1904,7 @@ def _soxx_credit_fixture(path: Path) -> dict[str, object]:
         "option_overlay_enabled": True, "option_growth_overlay_enabled": False,
         "option_income_overlay_enabled": True,
         "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
+        "option_income_overlay_start_usd": 50_000.0,
     })
     expiration = "2024-02-16"
     quotes = (
@@ -1892,6 +1975,77 @@ def test_soxx_put_credit_open_is_fully_collateralized_and_readable(tmp_path: Pat
     assert ledger.days[1].restricted_cash == pytest.approx(800.0)
     assert 2 * ledger.days[0].restricted_cash > ledger.days[0].nav * 0.01
     assert fixture["identity"]["param_set_id"] == "synthetic-soxx-put-credit-slice-v1"
+
+
+@pytest.mark.parametrize("opening_cash,expected_open", [(100_000.0, False), (200_000.0, True)])
+def test_soxx_new_spread_obeys_original_budget_threshold(
+    tmp_path: Path, opening_cash: float, expected_open: bool
+) -> None:
+    path = tmp_path / "soxx-start-threshold.json"
+    fixture = _soxx_credit_fixture(path)
+    source = fixture["input"]
+    source["initial_cash"] = opening_cash
+    source["runtime_config"]["option_income_overlay_start_usd"] = 150_000.0
+    for row in source["option_market_inputs"][1:]:
+        row.pop("positions")
+        row.pop("positions_source")
+    fixture["identity"] = _build_soxl_option_v2_identity(source)
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    replay = replay_optimized_strategy(request)
+    assert bool(replay.points[1].option_positions) is expected_open
+
+
+def test_soxx_existing_spread_below_new_entry_threshold_is_still_managed(tmp_path: Path) -> None:
+    path = tmp_path / "soxx-held-below-start.json"
+    fixture = _soxx_credit_fixture(path)
+    source = fixture["input"]
+    _soxx_restore_open_spread(source, "2024-02-16")
+    source["runtime_config"]["option_income_overlay_start_usd"] = 150_000.0
+    source["initial_cash"] = 70_200.0
+    for row in source["option_market_inputs"][1:]:
+        row.pop("positions")
+        row.pop("positions_source")
+    fixture["identity"] = _build_soxl_option_v2_identity(source)
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    replay = replay_optimized_strategy(request)
+    assert all(len(point.option_positions) == 2 for point in replay.points)
+    assert all(point.restricted_cash == pytest.approx(800.0) for point in replay.points)
+
+
+def test_soxx_rechecks_new_entry_threshold_after_account_funding(tmp_path: Path) -> None:
+    path = tmp_path / "soxx-cross-start.json"
+    fixture = _soxx_credit_fixture(path)
+    _soxx_add_session(fixture, date(2024, 1, 5))
+    source = fixture["input"]
+    source["initial_cash"] = 100_000.0
+    source["external_cashflow"] = {EXECUTE.isoformat(): 100_000.0}
+    source["runtime_config"]["option_income_overlay_start_usd"] = 150_000.0
+    for row in source["option_market_inputs"][1:]:
+        row.pop("positions")
+        row.pop("positions_source")
+    fixture["identity"] = _build_soxl_option_v2_identity(source)
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    replay = replay_optimized_strategy(request)
+    assert replay.points[1].option_positions == ()
+    assert len(replay.points[2].option_positions) == 2
+    assert len(replay.points[3].option_positions) == 2
+
+
+def test_soxx_above_entry_threshold_cannot_use_empty_quote_chain(tmp_path: Path) -> None:
+    path = tmp_path / "soxx-missing-chain.json"
+    fixture = _soxx_credit_fixture(path)
+    source = fixture["input"]
+    for row in source["option_market_inputs"]:
+        row["positions"] = []
+        row["quotes"] = []
+    fixture["identity"] = _build_soxl_option_v2_identity(source)
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    with pytest.raises(OptimizedStrategyReplayError, match="OPTION_QUOTE_MISSING"):
+        replay_optimized_strategy(request)
 
 
 def test_soxx_put_credit_rejects_future_iv_rank(tmp_path: Path) -> None:
@@ -2507,6 +2661,22 @@ def test_tqqq_leaps_zero_bid_marks_existing_lots_without_selling(tmp_path: Path,
     assert len(replay.points[1].option_positions) == 3
     assert all(mark.valuation == 0.0 for mark in replay.points[1].option_positions)
     assert not any(event.event_type == "option_trade" for event in replay.points[1].events)
+
+
+def test_tqqq_leaps_new_candidate_rejects_zero_bid_and_keeps_valid_spread() -> None:
+    from us_equity_strategies.research.optimized_strategy_replay import _tqqq_leaps_candidate
+
+    zero_bid = _tqqq_option_quote("zero-bid", strike=90.0, bid=0.0, ask=30.0)
+    valid = _tqqq_option_quote("valid", strike=100.0, bid=29.0, ask=31.0)
+    boundary = _tqqq_option_quote("boundary", strike=100.0, bid=90.0, ask=110.0)
+    too_wide = _tqqq_option_quote("too-wide", strike=100.0, bid=89.0, ask=111.0)
+    config = {"option_growth_overlay_max_bid_ask_spread_ratio": 0.12}
+
+    assert _tqqq_leaps_candidate({"zero-bid": zero_bid}, SIGNAL, config) is None
+    assert _tqqq_leaps_candidate({"zero-bid": zero_bid, "valid": valid}, SIGNAL, config) == valid
+    config["option_growth_overlay_max_bid_ask_spread_ratio"] = 0.2
+    assert _tqqq_leaps_candidate({"boundary": boundary}, SIGNAL, config) == boundary
+    assert _tqqq_leaps_candidate({"too-wide": too_wide}, SIGNAL, config) is None
 
 
 def test_tqqq_leaps_candidate_matches_recipe_mid_spread_and_dte_priority(tmp_path: Path, monkeypatch) -> None:
