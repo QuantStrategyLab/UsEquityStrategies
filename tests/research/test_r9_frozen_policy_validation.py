@@ -122,7 +122,10 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
         action_path.parent.mkdir(parents=True, exist_ok=True)
         new_dividends = ([{"symbol": symbol, "ex_date": "2025-02-03",
                            "payable_date": "2025-02-04", "process_date": "2025-02-03",
-                           "rate": 0.1}] if symbol == "QQQM" else [])
+                           "rate": 0.1}] if symbol == "QQQM" else
+                         [{"symbol": symbol, "ex_date": "2024-12-23",
+                           "payable_date": "2024-12-24", "process_date": "2024-12-23",
+                           "rate": 0.1}] if symbol == "QQQ" else [])
         action_content = json.dumps({"symbol": symbol, "next_page_token": None,
                                      "corporate_actions": {"forward_splits": [],
                                                            "cash_dividends": new_dividends}},
@@ -178,8 +181,52 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
     assert rows[-1]["date"] == "2026-08-25"
     assert len(merged_actions["QQQM"]["cash_dividends"]) == 1
     assert merged_actions["SOXL"]["cash_dividends"] == []
+    assert "QQQ" not in merged_actions  # Signal-only QQQ has no owner action book.
     assert metadata["future_session_count"] == len(days)
     assert metadata["license_basis_record_sha256"] == m.LICENSE_BASIS_SHA256
+
+    # A missing old dividend for an actually owned security remains a hard conflict.
+    action_path = future_root / "actions" / "QQQM" / "page-001.json"
+    original_content = action_path.read_bytes()
+    payload = json.loads(action_path.read_bytes())
+    payload["corporate_actions"]["cash_dividends"].append({
+        "symbol": "QQQM", "ex_date": "2024-12-23", "payable_date": "2024-12-24",
+        "process_date": "2024-12-23", "rate": 0.1})
+    content = json.dumps(payload, separators=(",", ":")).encode()
+    old_size = action_path.stat().st_size
+    action_path.write_bytes(content)
+    conflict_manifest = json.loads(valid_manifest)
+    action_entry = next(item for item in conflict_manifest["inputs"]
+                        if item["symbol"] == "QQQM" and item["kind"] == "actions")
+    action_entry["count"] += 1
+    action_entry["pages"][0].update(bytes=len(content),
+                                      sha256=m.hashlib.sha256(content).hexdigest())
+    conflict_manifest["provider_response_bytes"] += len(content) - old_size
+    manifest_path.write_text(json.dumps(conflict_manifest))
+    with pytest.raises(ValueError, match="R9_OLD_CORPORATE_ACTION_CONFLICT"):
+        m._verified_future(future_root, prefix, actions,
+                           {"2024-12-31": {}, **{session: {} for session in days}})
+
+    # QQQ is signal-only, but a split would change its raw-price signal units.
+    action_path.write_bytes(original_content)
+    action_path = future_root / "actions" / "QQQ" / "page-001.json"
+    payload = json.loads(action_path.read_bytes())
+    payload["corporate_actions"]["forward_splits"].append({
+        "symbol": "QQQ", "ex_date": "2025-02-03", "old_rate": 1, "new_rate": 2})
+    content = json.dumps(payload, separators=(",", ":")).encode()
+    old_size = action_path.stat().st_size
+    action_path.write_bytes(content)
+    split_manifest = json.loads(valid_manifest)
+    action_entry = next(item for item in split_manifest["inputs"]
+                        if item["symbol"] == "QQQ" and item["kind"] == "actions")
+    action_entry["count"] += 1
+    action_entry["pages"][0].update(bytes=len(content),
+                                      sha256=m.hashlib.sha256(content).hexdigest())
+    split_manifest["provider_response_bytes"] += len(content) - old_size
+    manifest_path.write_text(json.dumps(split_manifest))
+    with pytest.raises(ValueError, match="R9_QQQ_SPLIT_ADJUSTMENT_NOT_IMPLEMENTED"):
+        m._verified_future(future_root, prefix, actions,
+                           {"2024-12-31": {}, **{session: {} for session in days}})
 
 
 def test_bootstrap_is_deterministic_and_uses_frozen_draw_count() -> None:

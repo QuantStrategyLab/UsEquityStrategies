@@ -251,6 +251,8 @@ def _verified_future(root: Path, base_rows: list[dict], base_actions: dict,
                         or not math.isfinite(float(event.get("rate", -1)))
                         or float(event["rate"]) < 0):
                     raise ValueError("R9_DIVIDEND_EVENT_INVALID")
+            if symbol == "QQQ" and actions:
+                raise ValueError("R9_QQQ_SPLIT_ADJUSTMENT_NOT_IMPLEMENTED")
             future_actions[symbol] = {"forward_splits": actions, "cash_dividends": dividends}
     days_by_symbol = {symbol: set(bars) for symbol, bars in future_bars.items()}
     days = sorted(days_by_symbol[SYMBOLS[0]])
@@ -276,7 +278,9 @@ def _verified_future(root: Path, base_rows: list[dict], base_actions: dict,
         merged_rows.append(row)
     # Prefix replay below must still receive the untouched original action book.
     merged_actions = copy.deepcopy(base_actions)
-    for symbol in SYMBOLS:
+    # QQQ is a raw-price signal input, never an owned security in the R7/R8 books.
+    # Its action page is validated above but does not join the execution action book.
+    for symbol in EXECUTION_SYMBOLS:
         existing = merged_actions.get(symbol, {"forward_splits": [], "cash_dividends": []})
         extra = future_actions[symbol]
         old_events = {
@@ -316,8 +320,7 @@ def _verified_future(root: Path, base_rows: list[dict], base_actions: dict,
                         raise ValueError("R9_DIVIDEND_EVENT_INVALID")
                     existing.setdefault("cash_dividends", []).append(event)
                     old_events.add((kind, _canonical(event)))
-        if symbol in EXECUTION_SYMBOLS:
-            merged_actions[symbol] = existing
+        merged_actions[symbol] = existing
     if [row["date"] for row in merged_rows[:len(base_rows)]] != [row["date"] for row in base_rows]:
         raise ValueError("R9_OLD_PREFIX_MUTATED")
     return merged_rows, merged_actions, {
@@ -633,7 +636,8 @@ def run(raw_root: Path, r6_root: Path, materialized_path: Path,
     with os.fdopen(os.open(output_root / "summary.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
         stream.write(content)
     return {"status": "COMPLETE", "path_count": len(ledgers),
-            "first_date": FIRST_EXTENSION, "last_date": LAST_EXTENSION,
+            "first_date": summary["input_validation"]["first_extension_session"],
+            "last_date": summary["input_validation"]["last_extension_session"],
             "summary_sha256": hashlib.sha256(content).hexdigest()}
 
 
