@@ -36,15 +36,15 @@ from r7_joint_account_compare import (
 )
 
 HERE = Path(__file__).resolve().parent
-POLICY_PATH = HERE / "r8_joint_allocation_policy.v1.json"
-POLICY_SHA256 = "3d975c1988cbcbe75e83b043bfcdb9436d0f2def0c61d59cfdbd38867b39181d"
+POLICY_PATH = HERE / "r8_joint_allocation_policy.v2.json"
+POLICY_SHA256 = "f7f4c062e952ca46a5087dc7da0f67cca3cdd7208f3d84357376deb225375dc4"
 
 
 def _policy() -> dict:
     if _sha(POLICY_PATH) != POLICY_SHA256:
         raise ValueError("R8_POLICY_CHANGED")
     policy = json.loads(POLICY_PATH.read_bytes())
-    if (policy["schema"] != "qsl.research.r8_joint_allocation_policy.v1"
+    if (policy["schema"] != "qsl.research.r8_joint_allocation_policy.v2"
             or policy["research_only"] is not True or policy["development"] is not True
             or any(policy[key] is not False for key in
                    ("paper_authorized", "shadow_authorized", "live_authorized"))
@@ -52,7 +52,13 @@ def _policy() -> dict:
             or policy["initial_action"] != "B0"
             or policy["cost_bps_scenarios"] != [5, 10, 15]
             or policy["estimator"]["training_observations"] != 60
-            or policy["estimator"]["horizon_sessions"] != 1):
+            or policy["estimator"]["horizon_sessions"] != 1
+            or policy["policy_revision_parent_sha256"] !=
+               _sha(HERE / "r8_joint_allocation_policy.v1.json")
+            or policy["startup"]["decision_dates"] != ["2023-03-27", "2023-03-28"]
+            or policy["startup"]["required_action"] != "B0"
+            or policy["startup"]["dynamic_first_decision_date"] != "2023-03-29"
+            or policy["startup"]["first_dynamic_trade_date"] != "2023-03-30"):
         raise ValueError("R8_POLICY_IDENTITY_INVALID")
     base = r7_policy()
     if (policy["r7_policy_sha256"] != _sha(HERE / "r7_joint_account_policy.v1.json")
@@ -197,6 +203,15 @@ def _selector(indicators: dict, contract: dict, actions: dict,
                decision_equity: float, prior_closes: dict[str, float],
                previous_action: str, cost_bps: int) -> dict:
         signal_day = rows[index - 1]["date"]
+        if signal_day in r8["startup"]["decision_dates"]:
+            return {"selected_action": r8["startup"]["required_action"],
+                    "previous_action": previous_action, "startup_fixed": True,
+                    "observed_through": signal_day, "scenario_count": 0,
+                    "estimated_mean_log_growth": None, "estimated_scores": None,
+                    "estimated_mean_trade_shares": None,
+                    "previous_action_retained": previous_action == "B0"}
+        if signal_day < r8["startup"]["dynamic_first_decision_date"]:
+            raise ValueError("R8_UNDECLARED_STARTUP_DATE")
         if index not in scenario_cache:
             scenario_cache[index] = _historical_scenarios(
                 rows, actions, index - 1,
@@ -229,6 +244,7 @@ def _selector(indicators: dict, contract: dict, actions: dict,
             tie_log_tolerance=r8["estimator"]["tie_log_tolerance"])
         return {"selected_action": selected["selected_action"],
                 "previous_action": previous_action,
+                "startup_fixed": False,
                 "observed_through": scenarios[-1]["date"],
                 "scenario_count": selected["scenario_count"],
                 "estimated_mean_log_growth": selected["estimated_mean_log_growth"],
@@ -271,6 +287,9 @@ def analyze(raw_root: Path, r6_root: Path, materialized_path: Path,
                                   action_selector=selector, candidate_id=r8["candidate_id"])
         counts = Counter(item["path"] for item in ledger)
         metrics["action_counts"] = {name: counts[name] for name in r8["action_ids"]}
+        metrics["startup_fixed_sessions"] = sum(item["action_selection"]["startup_fixed"]
+                                                for item in ledger)
+        metrics["dynamic_selected_sessions"] = len(ledger) - metrics["startup_fixed_sessions"]
         metrics["action_transitions"] = sum(ledger[i]["path"] != ledger[i - 1]["path"]
                                          for i in range(1, len(ledger)))
         metrics["average_nasdaq_nominal_to_nav"] = statistics.mean(

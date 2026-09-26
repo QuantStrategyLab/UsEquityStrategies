@@ -67,6 +67,31 @@ def test_unprocessed_dividend_cannot_fill_required_training_window() -> None:
         m._historical_scenarios(rows, actions, 1, count=1)
 
 
+def test_future_price_perturbation_does_not_change_past_scenarios() -> None:
+    m = _modules()["r8_joint_allocation_compare"]
+    rows = [{"date": day} for day in ("2023-03-27", "2023-03-28", "2023-03-29")]
+    for row in rows:
+        for symbol in m.SYMBOLS:
+            row[symbol.lower() + "_open"] = 100.0
+            row[symbol.lower() + "_close"] = 100.0
+    actions = {symbol: {"forward_splits": [], "cash_dividends": []} for symbol in m.SYMBOLS}
+    before = m._historical_scenarios(rows, actions, 1, count=1)
+    rows[2]["tqqq_open"] = 900.0
+    rows[2]["tqqq_close"] = 1.0
+    after = m._historical_scenarios(rows, actions, 1, count=1)
+    assert after == before
+
+
+def test_startup_is_fixed_b0_without_scenario_estimation() -> None:
+    m = _modules()["r8_joint_allocation_compare"]
+    choose = m._selector({}, {}, {}, {}, m._policy())
+    selected = choose([{"date": "2023-03-27"}, {"date": "2023-03-28"}],
+                      1, {}, 10000.0, {}, "B0", 10)
+    assert selected["selected_action"] == "B0"
+    assert selected["startup_fixed"] is True
+    assert selected["scenario_count"] == 0
+
+
 def test_unknown_claim_excluded_from_both_estimator_values() -> None:
     modules = _modules()
     m = modules["r8_joint_allocation_compare"]
