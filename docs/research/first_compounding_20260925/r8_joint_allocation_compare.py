@@ -136,8 +136,14 @@ def _historical_scenarios(rows: list[dict], actions: dict, decision_index: int,
 
 def _targets_for_action(rows: list[dict], index: int, books: dict,
                         decision_equity: float, prior_closes: dict[str, float],
-                        action: str, indicators: dict, contract: dict, r7: dict) -> dict:
-    path = r7["paths"][action]
+                        action: str, indicators: dict, contract: dict, r7: dict,
+                        capital_freeze=None) -> dict:
+    if capital_freeze is None:
+        path = r7["paths"][action]
+    else:
+        if abs(float(capital_freeze.decision_equity_usd) - decision_equity) > 1e-6:
+            raise ValueError("POST_R9_CAPITAL_FREEZE_N_MISMATCH")
+        path = capital_freeze.weights(action)
     signal_day = rows[index - 1]["date"]
     owner_equity = {owner: _book_decision_equity(book, signal_day, prior_closes)
                     for owner, book in books.items()}
@@ -170,7 +176,8 @@ def _scenario_wealth(books: dict, prior_closes: dict[str, float],
                      scenario: dict, plan: dict, *, signal_day: str,
                      trade_day: str, trade_index: int, fee_rate: float,
                      decision_equity: float,
-                     settlement_policy: dict | None = None) -> tuple[float, dict]:
+                     settlement_policy: dict | None = None,
+                     capital_freeze=None) -> tuple[float, dict]:
     projected = _known_books(books, signal_day)
     opening = {symbol: prior_closes[symbol] * scenario["overnight"][symbol]
                for symbol in SYMBOLS}
@@ -187,10 +194,16 @@ def _scenario_wealth(books: dict, prior_closes: dict[str, float],
         _release(projected, trade_day, trade_index, settlement_policy)
         trades, fees = _sell_to_targets(projected, plan["targets"], opening, fee_rate,
                                         trade_index, settlement_policy, trade_day=trade_day)
+    if capital_freeze is None:
+        aggregate_cap = decision_equity * 0.05
+    else:
+        if abs(float(capital_freeze.decision_equity_usd) - decision_equity) > 1e-6:
+            raise ValueError("POST_R9_CAPITAL_FREEZE_N_MISMATCH")
+        aggregate_cap = capital_freeze.aggregate_member_cap_usd
     transfers = _fund_owners(projected, plan["budgets"], plan["owner_equity"], opening,
                              signal_day, plan["outer_cash_target"], plan["soxl_signal"],
                              plan["tqqq_target"], sweep_zero_budget=True,
-                             aggregate_member_cap_usd=decision_equity * 0.05)
+                             aggregate_member_cap_usd=aggregate_cap)
     shortages = _buy_to_targets(projected, plan["targets"], opening, signal_day,
                                  fee_rate, plan["budgets"], plan["outer_cash_target"],
                                  plan["soxl_signal"], trades, fees)
@@ -207,7 +220,7 @@ def _selector(indicators: dict, contract: dict, actions: dict,
 
     def choose(rows: list[dict], index: int, books: dict,
                decision_equity: float, prior_closes: dict[str, float],
-               previous_action: str, cost_bps: int) -> dict:
+               previous_action: str, cost_bps: int, capital_freeze=None) -> dict:
         signal_day = rows[index - 1]["date"]
         if signal_day in r8["startup"]["decision_dates"]:
             return {"selected_action": r8["startup"]["required_action"],
@@ -231,7 +244,8 @@ def _selector(indicators: dict, contract: dict, actions: dict,
         executable = {}
         for action in r8["action_ids"]:
             plan = _targets_for_action(rows, index, books, decision_equity,
-                                       prior_closes, action, indicators, contract, r7)
+                                       prior_closes, action, indicators, contract, r7,
+                                       capital_freeze)
             values = []
             trades = 0
             for scenario in scenarios:
@@ -239,7 +253,7 @@ def _selector(indicators: dict, contract: dict, actions: dict,
                     books, prior_closes, scenario, plan, signal_day=signal_day,
                     trade_day=rows[index]["date"], trade_index=index,
                     fee_rate=cost_bps / 10_000.0, decision_equity=decision_equity,
-                    settlement_policy=settlement_policy)
+                    settlement_policy=settlement_policy, capital_freeze=capital_freeze)
                 values.append(wealth)
                 trades += sum(abs(quantity) for item in detail["trades"].values()
                               for quantity in item.values())
