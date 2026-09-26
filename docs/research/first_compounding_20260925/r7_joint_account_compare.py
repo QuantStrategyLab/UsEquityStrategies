@@ -7,6 +7,7 @@ its account execution is a separate, whole-share joint policy. No orders exist.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -419,27 +420,64 @@ def _buy_to_targets(books: dict, targets: dict, opens: dict[str, float], signal_
 def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             policy: dict, *, path_name: str, cost_bps: int,
             short_sessions: int | None = None, action_selector=None,
-            candidate_id: str | None = None) -> tuple[dict, list[dict]]:
+            candidate_id: str | None = None,
+            continuation_last_session: str | None = None,
+            continuation_from_session: str | None = None,
+            continuation_checkpoint: dict | None = None,
+            checkpoint_out: dict | None = None) -> tuple[dict, list[dict]]:
     path = policy["paths"][path_name]
     by_date = {row["date"]: index for index, row in enumerate(rows)}
     start = by_date[policy["data"]["first_trade"]]
     if rows[start - 1]["date"] != policy["data"]["first_signal"]:
         raise ValueError("R7_FIRST_SIGNAL_CHANGED")
-    end = len(rows) if short_sessions is None else start + short_sessions
+    loop_start = start
+    initial = float(policy["initial_research_nav_usd"])
+    if continuation_checkpoint is not None:
+        if continuation_from_session is None or continuation_from_session not in by_date:
+            raise ValueError("R7_CONTINUATION_CHECKPOINT_BOUNDARY_INVALID")
+        boundary_index = by_date[continuation_from_session]
+        if (continuation_checkpoint.get("last_date") != continuation_from_session
+                or continuation_checkpoint.get("last_global_index") != boundary_index
+                or set(continuation_checkpoint.get("books", {})) != set(OWNERS)
+                or set(continuation_checkpoint.get("books", {}).keys()) != set(OWNERS)
+                or continuation_checkpoint.get("prior_nav_usd", 0) <= 0
+                or continuation_checkpoint.get("previous_action") not in policy["paths"]):
+            raise ValueError("R7_CONTINUATION_CHECKPOINT_INVALID")
+        loop_start = boundary_index + 1
+    elif continuation_from_session is not None:
+        raise ValueError("R7_CONTINUATION_CHECKPOINT_MISSING")
+    if short_sessions is not None and (continuation_last_session is not None
+                                       or continuation_checkpoint is not None):
+        raise ValueError("R7_CONTINUATION_SHORT_WINDOW_CONFLICT")
+    if continuation_last_session is None:
+        end = len(rows) if short_sessions is None else start + short_sessions
+    else:
+        end_by_date = {row["date"]: index for index, row in enumerate(rows)}
+        if continuation_last_session not in end_by_date:
+            raise ValueError("R7_CONTINUATION_END_MISSING")
+        if continuation_last_session <= policy["data"]["last_session"]:
+            raise ValueError("R7_CONTINUATION_END_NOT_AFTER_PREFIX")
+        end = end_by_date[continuation_last_session] + 1
+        if end <= loop_start:
+            raise ValueError("R7_CONTINUATION_WINDOW_INVALID")
     if end > len(rows) or (short_sessions is not None and not 1 <= short_sessions <= 12):
         raise ValueError("R7_SHORT_WINDOW_INVALID")
-    initial = float(policy["initial_research_nav_usd"])
-    books = {
-        "outer": _book(initial * (1 - path["tqqq_cap"] - path["soxl_cap"]), OWNER_SYMBOLS["outer"]),
-        "tqqq": _book(initial * path["tqqq_cap"], OWNER_SYMBOLS["tqqq"]),
-        "soxl": _book(initial * path["soxl_cap"], OWNER_SYMBOLS["soxl"]),
-    }
+    books = (copy.deepcopy(continuation_checkpoint["books"])
+             if continuation_checkpoint is not None else {
+                 "outer": _book(initial * (1 - path["tqqq_cap"] - path["soxl_cap"]), OWNER_SYMBOLS["outer"]),
+                 "tqqq": _book(initial * path["tqqq_cap"], OWNER_SYMBOLS["tqqq"]),
+                 "soxl": _book(initial * path["soxl_cap"], OWNER_SYMBOLS["soxl"]),
+             })
     events = _events(actions)
     fee_rate = cost_bps / 10_000.0
     ledger = []
-    prior_nav = initial
-    previous_action = path_name
-    for index in range(start, end):
+    prior_nav = (float(continuation_checkpoint["prior_nav_usd"])
+                 if continuation_checkpoint is not None else initial)
+    replay_initial_nav = prior_nav
+    replay_initial_date = continuation_from_session or policy["data"]["first_signal"]
+    previous_action = (continuation_checkpoint["previous_action"]
+                       if continuation_checkpoint is not None else path_name)
+    for index in range(loop_start, end):
         row = rows[index]
         day = row["date"]
         signal_day = rows[index - 1]["date"]
@@ -567,10 +605,19 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             ledger[-1]["action_selection"] = selection
         prior_nav = nav
         previous_action = selected
-    if short_sessions is None and (len(ledger) != policy["data"]["expected_replay_sessions"]
+    if short_sessions is None and continuation_last_session is None and continuation_checkpoint is None and (
+            len(ledger) != policy["data"]["expected_replay_sessions"]
                                    or ledger[-1]["date"] != policy["data"]["last_session"]):
         raise ValueError("R7_FORMAL_WINDOW_CHANGED")
-    metrics = _metrics(ledger, initial, policy["data"]["first_signal"])
+    if checkpoint_out is not None:
+        if not ledger:
+            raise ValueError("R7_CHECKPOINT_EMPTY_REPLAY")
+        checkpoint_out.update({"last_date": rows[end - 1]["date"],
+                               "last_global_index": end - 1,
+                               "prior_nav_usd": prior_nav,
+                               "previous_action": previous_action,
+                               "books": copy.deepcopy(books)})
+    metrics = _metrics(ledger, replay_initial_nav, replay_initial_date)
     for row in ledger:
         row["nominal_equity_index_exposure_to_nav"] = row.pop("nasdaq_lookthrough_to_nav")
     for prefix in ("average", "maximum"):
