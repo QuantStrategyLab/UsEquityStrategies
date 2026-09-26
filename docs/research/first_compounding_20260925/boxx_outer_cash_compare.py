@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tqqq_cash_budget_compare import _policy as s4_policy, _recovery
 from us_equity_strategies.research.c3_capital_path import smooth_bounded_capital_risk_ratio
+from us_equity_strategies.research.portfolio_candidate_adapter import adapt_guard_research_decision
 from us_equity_strategies.research.tqqq_qqq_guard_cash_research import _decision, _validated_bars, _verified_bundle
 
 POLICY_NAME = "boxx_outer_cash_policy.v1.json"
@@ -259,6 +260,9 @@ def _replay(rows: list[dict], actions: dict, policy: dict, s4: dict, contract: d
                                           cost_bps=cost_bps)
         signal = _decision(rows, signal_index, shares=state["shares"]["TQQQ"], nav=state["nav"],
                            use_guard=True, config=contract, member_budget_usd=budget)
+        member_decision = adapt_guard_research_decision(
+            decision=signal, cost_model_id=f"{cost_bps}bps",
+        )
         row = rows[i]
         old_shares = dict(state["shares"])
         prior_nav = state["nav"]
@@ -280,7 +284,8 @@ def _replay(rows: list[dict], actions: dict, policy: dict, s4: dict, contract: d
         boxx_target = max(0.0, prior_nav - budget - signal_receivable) if boxx else 0.0
         execution = _execute(state, t_open=row["tqqq_open"], b_open=row["boxx_open"],
                              t_close=row["tqqq_close"], b_close=row["boxx_close"],
-                             budget=budget, t_target=signal["target_tqqq_usd"],
+                             budget=member_decision.member_budget_usd,
+                             t_target=member_decision.targets[0][1],
                              b_target=boxx_target, fee=cost_bps / 10000.0, release=i + 2)
         state.update({k: execution[k] for k in ("cash", "shares", "pending", "receivable", "nav")})
         cost = sum(execution["costs"].values())

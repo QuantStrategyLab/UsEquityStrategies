@@ -49,3 +49,28 @@ def test_paired_scenarios_are_prefix_only(monkeypatch) -> None:
     rows[61].update(tqqq_open=900, tqqq_close=901, boxx_open=1, boxx_close=2)
     assert module._scenario_pairs(rows, 60, actions, True) == original
     assert len(original) == 60 and all(set(item) == {"TQQQ", "BOXX"} for item in original)
+
+
+def test_replay_consumes_research_member_projection(monkeypatch) -> None:
+    module = _module(monkeypatch)
+    monkeypatch.setattr(module, "_choose_budget", lambda *args, **kwargs: (50.0, 1))
+    monkeypatch.setattr(module, "_decision", lambda *args, **kwargs: {
+        "signal_date": "2024-01-02", "member_budget_usd": 50.0,
+        "target_tqqq_usd": 20.0, "guard_route": "no_action",
+        "applied_route": "no_action", "core_state": "risk_on",
+        "volatility_applied": False,
+    })
+    rows = [
+        {"date": "2024-01-02", "tqqq_close": 10.0, "boxx_close": 100.0},
+        {"date": "2024-01-03", "tqqq_open": 10.0, "tqqq_close": 10.0,
+         "boxx_open": 100.0, "boxx_close": 100.0},
+    ]
+    metrics, ledger = module._replay(
+        rows, {"TQQQ": {}, "BOXX": {}},
+        {"first_trade": "2024-01-03", "initial_nav_usd": 100.0},
+        {}, {}, cost_bps=0, automatic=False, boxx=False,
+    )
+    assert ledger[0]["member_budget_usd"] == 50.0
+    assert ledger[0]["target_tqqq_usd"] == 20.0
+    assert ledger[0]["tqqq_shares"] == 2
+    assert metrics["max_identity_error_usd"] == 0
