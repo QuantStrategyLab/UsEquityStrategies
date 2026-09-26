@@ -1,7 +1,8 @@
-"""Offline bounded budget searches over explicitly supplied joint scenarios.
+"""Offline bounded budget searches and finite executable-action scoring.
 
-This is a sleeve-level, linear-return mechanism check. It cannot validate the
-full threshold/option-dependent SOXL or TQQQ builders.
+The existing grid routines are sleeve-level, linear-return mechanism checks;
+they cannot validate full threshold/option-dependent builders. The finite
+scorer accepts already executed whole-account scenario outcomes from a caller.
 """
 
 from __future__ import annotations
@@ -20,6 +21,40 @@ def _number(value: object, name: str, *, minimum: float = 0.0) -> float:
     if not math.isfinite(result) or result < minimum:
         raise ValueError(f"{name}: finite value >= {minimum} required")
     return result
+
+
+def select_finite_executable_action(*, scenario_wealth_usd: dict[str, list[float]],
+                                    nav_usd: float, previous_action: str,
+                                    tie_log_tolerance: float) -> dict[str, object]:
+    """Rank supplied self-financing account outcomes; caller owns execution.
+
+    Unlike the linear sleeve allocator below, this helper does not infer
+    trades or returns. Each wealth path must already include the caller's
+    integer execution, ownership, settlement, reserves and costs.
+    """
+    nav = _number(nav_usd, "nav_usd", minimum=0.01)
+    tolerance = _number(tie_log_tolerance, "tie_log_tolerance")
+    if (not scenario_wealth_usd or previous_action not in scenario_wealth_usd
+            or not all(isinstance(name, str) and name and isinstance(values, list)
+                       for name, values in scenario_wealth_usd.items())):
+        raise ValueError("complete finite action wealth paths required")
+    sizes = {len(values) for values in scenario_wealth_usd.values()}
+    if len(sizes) != 1 or 0 in sizes:
+        raise ValueError("paired scenario count differs between actions")
+    scores = {}
+    for name, values in scenario_wealth_usd.items():
+        outcomes = [_number(value, f"scenario_wealth_usd.{name}", minimum=0.01)
+                    for value in values]
+        scores[name] = math.fsum(math.log(value / nav) for value in outcomes) / len(outcomes)
+    top = max(scores.values())
+    if scores[previous_action] >= top - tolerance:
+        selected = previous_action
+    else:
+        selected = next(name for name in scenario_wealth_usd
+                        if scores[name] >= top - tolerance)
+    return {"selected_action": selected, "estimated_mean_log_growth": scores[selected],
+            "scores": scores, "scenario_count": next(iter(sizes)),
+            "previous_action_retained": selected == previous_action}
 
 
 def allocate_single_member_budget(data: dict[str, object]) -> dict[str, object]:
