@@ -119,14 +119,18 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
                                    "sha256": m.hashlib.sha256(content).hexdigest()}]})
         action_path = future_root / "actions" / symbol / "page-001.json"
         action_path.parent.mkdir(parents=True, exist_ok=True)
+        new_dividends = ([{"symbol": symbol, "ex_date": "2025-02-03",
+                           "payable_date": "2025-02-04", "process_date": "2025-02-03",
+                           "rate": 0.1}] if symbol == "QQQM" else [])
         action_content = json.dumps({"symbol": symbol, "next_page_token": None,
                                      "corporate_actions": {"forward_splits": [],
-                                                           "cash_dividends": []}},
+                                                           "cash_dividends": new_dividends}},
                                     separators=(",", ":")).encode()
         action_path.write_bytes(action_content)
         entries.append({"symbol": symbol, "kind": "actions",
                         "request": m._expected_request(symbol, "actions"),
-                        "count": 0, "first_bar_time": None, "last_bar_time": None,
+                        "count": len(new_dividends), "first_bar_time": None,
+                        "last_bar_time": None,
                         "complete_pagination": True,
                         "pages": [{"uri": f"gs://{m.PRIVATE_BUCKET}/{m.PRIVATE_PREFIX}actions/{symbol}/page-001.json",
                                    "generation": "1", "bytes": len(action_content),
@@ -150,12 +154,15 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
     original = json.loads(json.dumps(prefix))
     actions = {symbol: {"forward_splits": [], "cash_dividends": []}
                for symbol in m.EXECUTION_SYMBOLS}
+    original_actions = json.loads(json.dumps(actions))
     rows, merged_actions, metadata = m._verified_future(
         future_root, prefix, actions, {"2024-12-31": {}, **{session: {} for session in days}})
     assert prefix == original
+    assert actions == original_actions
     assert len(rows) == len(days) + 1
     assert rows[1]["qqq_close"] == 100.0
     assert rows[-1]["date"] == "2026-08-25"
+    assert len(merged_actions["QQQM"]["cash_dividends"]) == 1
     assert merged_actions["SOXL"]["cash_dividends"] == []
     assert metadata["future_session_count"] == len(days)
 

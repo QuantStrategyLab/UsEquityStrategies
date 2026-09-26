@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import importlib
 import json
@@ -259,7 +260,8 @@ def _verified_future(root: Path, base_rows: list[dict], base_actions: dict,
             row[symbol.lower() + "_open"] = float(bar["o"])
             row[symbol.lower() + "_close"] = float(bar["c"])
         merged_rows.append(row)
-    merged_actions = {symbol: dict(value) for symbol, value in base_actions.items()}
+    # Prefix replay below must still receive the untouched original action book.
+    merged_actions = copy.deepcopy(base_actions)
     for symbol in SYMBOLS:
         existing = merged_actions.get(symbol, {"forward_splits": [], "cash_dividends": []})
         extra = future_actions[symbol]
