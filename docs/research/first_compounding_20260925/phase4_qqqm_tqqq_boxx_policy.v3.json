@@ -1,0 +1,79 @@
+{
+  "schema": "qsl.research.phase4_qqqm_tqqq_boxx_policy.v3",
+  "candidate_id": "qqqm_tqqq_guard_boxx_fixed_research_v3",
+  "comparator_id": "qqqm_boxx_matched_defense_research_v3",
+  "budget_policy_version": "fixed_45_05_49_01_vs_50_00_49_01_restricted_paid_cash_v3",
+  "research_only": true,
+  "development": true,
+  "paper_authorized": false,
+  "shadow_authorized": false,
+  "live_authorized": false,
+  "source_manifest_sha256": "cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182",
+  "core_contract_sha256": "7b603312762262ebb2fe90c86bef2ed0b7914ab26586b0b9db93ee39b4d1e60b",
+  "core_candidate_id": "tqqq_qqq_guard_cash_research_v1",
+  "initial_research_nav_usd": 10000,
+  "paths": {
+    "enhanced": {
+      "qqqm_target_nav_fraction": 0.45,
+      "tqqq_member_budget_cap_nav_fraction": 0.05,
+      "boxx_target_nav_fraction": 0.49,
+      "outer_settled_cash_target_nav_fraction": 0.01
+    },
+    "matched_defense_baseline": {
+      "qqqm_target_nav_fraction": 0.5,
+      "tqqq_member_budget_cap_nav_fraction": 0.0,
+      "boxx_target_nav_fraction": 0.49,
+      "outer_settled_cash_target_nav_fraction": 0.01
+    }
+  },
+  "capital_curve_policy": "not_applied_to_this_fixed_budget_pair",
+  "capital_curve_member_set": [],
+  "budget_rule": "Fractions apply to decision equity, not post-hoc economic NAV. Decision equity is economic NAV less dividend claims whose provider process_date is not strictly before the signal date. TQQQ receives at most its 5% member budget; its unchanged core builder may target fewer shares or cash. Member internal cash is reserved once and never outer BOXX purchasing power. QQQM and BOXX targets are ceilings for buys, not guaranteed holdings.",
+  "funding_order": [
+    "Apply effective-date splits and ex-date dividend entitlements to the isolated retrospective economic ledger. An unverified dividend enters decision equity only at a signal close strictly after provider process_date. At payable_date its cash receipt enters economic cash, but remains restricted from every purchase until that later signal has recognized the claim.",
+    "At the next observed open, sell excess TQQQ, QQQM and BOXX whole shares; sale proceeds become spendable at the opening of the second subsequent common session.",
+    "Use already settled outer cash for TQQQ core buys up to the original builder target and member budget, then QQQM buys up to its target, then BOXX buys up to its target, reserving the 1% outer cash target where funded.",
+    "Charge each executed buy or sale once; shrink or defer buys when settled cash is insufficient. Never spend a receivable, unsettled proceeds, collateral or member internal reserve twice."
+  ],
+  "risk_constraints": {
+    "long_only": true,
+    "margin_borrowing_allowed": false,
+    "option_overlay_allowed": false,
+    "tqqq_member_budget_cap_nav_fraction": 0.05,
+    "qqqm_target_nav_fraction_enhanced": 0.45,
+    "qqqm_target_nav_fraction_baseline": 0.5,
+    "intended_enhanced_nasdaq_daily_notional_target_cap_nav_fraction": 0.6,
+    "lookthrough_multiplier_tqqq_for_reporting": 3.0,
+    "lookthrough_multiplier_qqqm_for_reporting": 1.0,
+    "outer_settled_cash_target_not_guaranteed_floor": 0.01,
+    "drawdown_limit": "not_declared_for_this_development_comparison"
+  },
+  "cost_model": {
+    "trade_cost_bps_scenarios": [
+      5,
+      10,
+      15
+    ],
+    "basis": "executed open-price notional on both buys and sells",
+    "fixed_commission_usd": 0,
+    "slippage_and_spread": "included only through the stated bps scenario, not separately estimated",
+    "taxes": "not_modelled"
+  },
+  "data_window": {
+    "selection_rule": "First common execution session after 61 completed common QQQ/TQQQ/QQQM/BOXX bars; fixed by data coverage before portfolio outcomes.",
+    "first_signal": "2023-03-27",
+    "first_trade": "2023-03-28",
+    "last_session": "2024-12-31",
+    "historical_status": "seen_development"
+  },
+  "rebalance_rule": "Each prior close computes targets from information then available; next common-session open executes whole-share trades subject to settlement and cost. No free reset of drifted positions.",
+  "comparison_objective": "Describe the paired, same-window difference in cost-adjusted log terminal economic wealth and CAGR, jointly with maximum drawdown, dollar drawdown, peak-to-recovery time, costs, actual security value/economic NAV, decision equity and Nasdaq lookthrough exposure. No weight search or promotion decision.",
+  "failure_policy": "Missing process_date, payable before ex_date, invalid action chronology, source, price, builder state, or economic/decision account reconciliation invalidates the affected path; do not delete dates, fill neutral states or substitute proxy assets.",
+  "known_at_policy": {
+    "status": "conservative_development_proxy_not_verified_historical_announcement",
+    "availability_proxy": "provider process_date is used only as a conservative dated proxy; with no intraday timestamp, a dividend claim may first enter decision equity and any dividend-sensitive decision at a signal close strictly after process_date",
+    "retrospective_accounting": "Economic NAV accrues an earned dividend claim on ex-date for performance accounting only. Before recognized availability the claim is excluded from decision equity and builder budget/state inputs; it is not settled cash.",
+    "cash_availability": "Payable_date moves the claim from economic receivable to economic cash, even when payable_date equals process_date. Paid cash stays restricted from every purchase until a signal close strictly after process_date, so the earliest trade using it is the next common open. Payable before ex_date, missing process_date, or invalid dates fail closed; same-day process/payable is expected and remains restricted until recognition.",
+    "unverified_scope": "This rule does not certify the actual historic public announcement time or that the provider delivered the event before the assumed decision. Results are conditional on this delayed-recognition research assumption."
+  }
+}
