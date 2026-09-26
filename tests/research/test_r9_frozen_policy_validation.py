@@ -85,13 +85,13 @@ def test_missing_future_data_is_fail_closed() -> None:
 
 def test_unverified_license_blocks_future_input_before_any_read(tmp_path: Path) -> None:
     m = _module()
+    m.LICENSE_BASIS_SHA256 = None
     with pytest.raises(ValueError, match="LICENSE_RECORD_UNVERIFIED"):
         m._manifest_entries(tmp_path)
 
 
 def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -> None:
     m = _module()
-    m.LICENSE_BASIS_SHA256 = "a" * 64  # Synthetic-only checked entitlement fixture.
     days = []
     day = date(2025, 1, 2)
     last = date(2026, 8, 25)
@@ -135,7 +135,8 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
                         "pages": [{"uri": f"gs://{m.PRIVATE_BUCKET}/{m.PRIVATE_PREFIX}actions/{symbol}/page-001.json",
                                    "generation": "1", "bytes": len(action_content),
                                    "sha256": m.hashlib.sha256(action_content).hexdigest()}]})
-    future_root.joinpath("manifest.json").write_text(json.dumps({
+    manifest_path = future_root / "manifest.json"
+    manifest_path.write_text(json.dumps({
         "schema_version": "qsl.research.raw_sip_input.v1",
         "source": "alpaca.stocks.bars.v2_and_corporate_actions.v1",
         "feed": "sip", "price_adjustment": "raw", "calendar": "XNYS",
@@ -149,6 +150,13 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
         "provider_response_bytes": sum(page["bytes"] for item in entries for page in item["pages"]),
         "no_order": True, "research_only": True, "execution_authorized": False,
         "inputs": entries}))
+    valid_manifest = manifest_path.read_text()
+    wrong_binding = json.loads(valid_manifest)
+    wrong_binding["license_basis_record_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(wrong_binding))
+    with pytest.raises(ValueError, match="R9_FUTURE_MANIFEST_INVALID"):
+        m._manifest_entries(future_root)
+    manifest_path.write_text(valid_manifest)
     prefix = [{"date": "2024-12-31", **{symbol.lower() + "_close": 99.0
                                         for symbol in m.EXECUTION_SYMBOLS}}]
     original = json.loads(json.dumps(prefix))
@@ -165,6 +173,7 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
     assert len(merged_actions["QQQM"]["cash_dividends"]) == 1
     assert merged_actions["SOXL"]["cash_dividends"] == []
     assert metadata["future_session_count"] == len(days)
+    assert metadata["license_basis_record_sha256"] == m.LICENSE_BASIS_SHA256
 
 
 def test_bootstrap_is_deterministic_and_uses_frozen_draw_count() -> None:

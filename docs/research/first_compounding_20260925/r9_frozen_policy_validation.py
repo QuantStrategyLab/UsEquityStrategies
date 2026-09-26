@@ -29,7 +29,8 @@ LAST_EXTENSION = "2026-08-25"
 PREFIX_END = "2024-12-31"
 PRIVATE_BUCKET = "qsl-research-evidence-831478360303"
 PRIVATE_PREFIX = "research/v2/input/r9-temporal-extension-20260926-001/"
-LICENSE_BASIS_SHA256 = None  # Bind only an independently verified entitlement record.
+# SHA of the private user_attested R9 record, not of a supplier document.
+LICENSE_BASIS_SHA256 = "779f219f35f6b396caba0c787337b9593d9eb98597895afd280eb4dca1ccf73f"
 ACTION_TYPES = frozenset({
     "capital_gains_distributions", "cash_dividends", "cash_mergers", "forward_splits",
     "name_changes", "partial_calls", "redemptions", "reorganizations", "reverse_splits",
