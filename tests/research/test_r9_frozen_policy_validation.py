@@ -92,6 +92,7 @@ def test_unverified_license_blocks_future_input_before_any_read(tmp_path: Path) 
 
 def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -> None:
     m = _module()
+    assert m._expected_request("QQQM", "bars")["end"] == "2026-08-25T23:59:59-04:00"
     days = []
     day = date(2025, 1, 2)
     last = date(2026, 8, 25)
@@ -145,7 +146,12 @@ def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -
         "license_basis_record_sha256": m.LICENSE_BASIS_SHA256,
         "retrieved_at": "2026-09-26T00:00:00Z",
         "write_probe": {"uri": f"gs://{m.PRIVATE_BUCKET}/{m.PRIVATE_PREFIX}_write_probe.json",
-                        "generation": "1", "bytes": 10, "sha256": "a" * 64},
+                        "generation": m.R9_PRIOR_PROBE_GENERATION,
+                        "bytes": m.R9_PRIOR_PROBE_BYTES, "sha256": "a" * 64},
+        "prior_provider_page_requests": m.R9_PRIOR_PROVIDER_PAGES,
+        "prior_provider_response_bytes": m.R9_PRIOR_PROVIDER_BYTES,
+        "prior_storage_operations": m.R9_PRIOR_STORAGE_OPERATIONS,
+        "prior_storage_transfer_bytes": m.R9_PRIOR_STORAGE_TRANSFER_BYTES,
         "provider_page_requests": 12,
         "provider_response_bytes": sum(page["bytes"] for item in entries for page in item["pages"]),
         "no_order": True, "research_only": True, "execution_authorized": False,

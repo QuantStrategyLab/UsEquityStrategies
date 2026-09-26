@@ -31,6 +31,12 @@ PRIVATE_BUCKET = "qsl-research-evidence-831478360303"
 PRIVATE_PREFIX = "research/v2/input/r9-temporal-extension-20260926-001/"
 # SHA of the private user_attested R9 record, not of a supplier document.
 LICENSE_BASIS_SHA256 = "779f219f35f6b396caba0c787337b9593d9eb98597895afd280eb4dca1ccf73f"
+R9_PRIOR_PROBE_GENERATION = "1790428811648938"
+R9_PRIOR_PROBE_BYTES = 180
+R9_PRIOR_PROVIDER_PAGES = 1
+R9_PRIOR_PROVIDER_BYTES = 46047
+R9_PRIOR_STORAGE_OPERATIONS = 3
+R9_PRIOR_STORAGE_TRANSFER_BYTES = 2 * R9_PRIOR_PROBE_BYTES
 ACTION_TYPES = frozenset({
     "capital_gains_distributions", "cash_dividends", "cash_mergers", "forward_splits",
     "name_changes", "partial_calls", "redemptions", "reorganizations", "reverse_splits",
@@ -91,20 +97,27 @@ def _manifest_entries(root: Path) -> tuple[dict, dict[tuple[str, str], dict]]:
         raise ValueError("R9_FUTURE_MANIFEST_INVALID")
     probe = manifest.get("write_probe", {})
     if (probe.get("uri") != f"gs://{PRIVATE_BUCKET}/{PRIVATE_PREFIX}_write_probe.json"
-            or not str(probe.get("generation", "")).isdigit()
-            or probe.get("bytes", 0) <= 0 or len(str(probe.get("sha256", ""))) != 64):
+            or probe.get("generation") != R9_PRIOR_PROBE_GENERATION
+            or probe.get("bytes") != R9_PRIOR_PROBE_BYTES
+            or len(str(probe.get("sha256", ""))) != 64):
         raise ValueError("R9_FUTURE_WRITE_PROBE_REFERENCE_INVALID")
     total_pages = sum(len(item.get("pages", [])) for item in manifest.get("inputs", []))
-    if (total_pages > 60 or manifest.get("provider_page_requests", 0) > 60
-            or manifest.get("provider_response_bytes", 0) > 128 * 1024 * 1024):
+    if (manifest.get("prior_provider_page_requests") != R9_PRIOR_PROVIDER_PAGES
+            or manifest.get("prior_provider_response_bytes") != R9_PRIOR_PROVIDER_BYTES
+            or manifest.get("prior_storage_operations") != R9_PRIOR_STORAGE_OPERATIONS
+            or manifest.get("prior_storage_transfer_bytes") != R9_PRIOR_STORAGE_TRANSFER_BYTES
+            or total_pages + R9_PRIOR_PROVIDER_PAGES > 60
+            or manifest.get("provider_page_requests", 0) + R9_PRIOR_PROVIDER_PAGES > 60
+            or manifest.get("provider_response_bytes", 0) + R9_PRIOR_PROVIDER_BYTES > 128 * 1024 * 1024):
         raise ValueError("R9_FUTURE_SOURCE_BUDGET_EXCEEDED")
     page_bytes = [page.get("bytes") for item in manifest.get("inputs", [])
                   for page in item.get("pages", [])]
     if (any(not isinstance(size, int) or isinstance(size, bool) or size <= 0 for size in page_bytes)
             or sum(page_bytes) != manifest.get("provider_response_bytes")
             or manifest.get("provider_page_requests") != total_pages
-            or 3 * (total_pages + 2) > 200
-            or 2 * (sum(page_bytes) + probe["bytes"] + (root / "manifest.json").stat().st_size)
+            or R9_PRIOR_STORAGE_OPERATIONS + 1 + 3 * (total_pages + 1) > 200
+            or (R9_PRIOR_STORAGE_TRANSFER_BYTES + R9_PRIOR_PROBE_BYTES
+                + 2 * (sum(page_bytes) + (root / "manifest.json").stat().st_size))
             > 1024 * 1024 * 1024):
         raise ValueError("R9_FUTURE_SOURCE_BUDGET_MISMATCH")
     entries = {}
@@ -126,7 +139,7 @@ def _manifest_entries(root: Path) -> tuple[dict, dict[tuple[str, str], dict]]:
 def _expected_request(symbol: str, kind: str) -> dict:
     if kind == "bars":
         return {"timeframe": "1Day", "start": "2025-01-01T00:00:00-05:00",
-                "end": "2026-08-26T00:00:00-04:00", "asof": LAST_EXTENSION,
+                "end": "2026-08-25T23:59:59-04:00", "asof": LAST_EXTENSION,
                 "feed": "sip", "adjustment": "raw", "currency": "USD",
                 "sort": "asc", "limit": "10000"}
     return {"symbols": symbol, "region": "us", "start": "2024-10-01",
