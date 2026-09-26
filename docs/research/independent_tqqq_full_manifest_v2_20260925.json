@@ -1,0 +1,147 @@
+{
+  "candidate_id": "independent-tqqq-full-manifest-v2",
+  "implementation_status": {
+    "status": "partial",
+    "implemented": [
+      "Synthetic fixture option open, daily mark, and partial principal payback with QPK ledger readback.",
+      "Synthetic fixture expiration lapse and funded physical exercise with QPK ledger readback.",
+      "Synthetic fixture twelve-month LEAPS roll with QPK ledger readback."
+    ],
+    "not_implemented": [
+      "Historical point-in-time option-chain evidence and real-history validity; synthetic fixtures do not establish these."
+    ]
+  },
+  "config_sha256": "1dd3851d278eb6209d749d84c016d930e99f283a4f6a1d37d8f6b2523ca73007",
+  "parent_candidate_id": "independent-tqqq-full-manifest-v1",
+  "revision_delta": {
+    "changes": [
+      "Represent each option contract as a stable unit lot in the QPK ledger so one contract can close while remaining contracts retain their original identities.",
+      "Recover only the remaining unrecovered acquisition premium, using that held contract quote; do not use a replacement contract quote to price an old-contract sale.",
+      "On expiration, apply QPK-declared before/after settlement stock quantities and do not sell shares before exercise delivery.",
+      "When remaining DTE is positive and at most int(12 * 30.4375), schedule a next-session roll only on a core risk_on signal with QQQ above MA200 and positive 63-day momentum, a visible positive old-contract bid, and a visible eligible replacement quote.",
+      "At execution, recheck source-timed old bid and replacement ask. Sell all remaining unit lots in that campaign using the old contract bid, then buy the eligible replacement at the existing recipe limit price within both the 3% prior-NAV premium budget and post-sale available cash. If the replacement is missing or untradeable, retain and mark the old campaign without opening a replacement; a failed entry gate does not force liquidation.",
+      "Keep roll option cashflows distinct from same-day core equity trade cashflow; synthetic run identity binds both repositories' revisions and workspace patch digests."
+    ],
+    "evidence_scope": "SYNTHETIC_FIXTURE_MECHANISM_ONLY",
+    "execution_authorized": false,
+    "preserved": [
+      "All v1 runtime parameter values and tqqq_leaps_growth_v1 recipe settings.",
+      "Long call only, 3% premium budget, 0.75 target delta, 24-month target expiry, 12-month roll point.",
+      "research_only recipe status and zero live option intents."
+    ],
+    "promotion_authorized": false,
+    "scope": "synthetic research-only TQQQ LEAPS lifecycle accounting"
+  },
+  "runtime_config": {
+    "ai_extensions": {
+      "apply_order": [
+        "crisis_regime_guard",
+        "taco_panic_rebound"
+      ],
+      "enabled": false,
+      "fail_safe_action": "ignore_and_keep_base_plan",
+      "mode": "off",
+      "modules": {
+        "crisis_regime_guard": {
+          "ai_mode": "classify_only",
+          "allow_taco_overlay_when_systemic": false,
+          "enabled": false,
+          "max_risk_multiplier": 1.0,
+          "min_risk_multiplier": 0.0,
+          "mode": "paper",
+          "module_type": "risk_guard",
+          "require_price_confirmation": true,
+          "risk_scope": "growth_layer"
+        },
+        "taco_panic_rebound": {
+          "ai_mode": "classify_only",
+          "enabled": false,
+          "event_family": "tariff_trade_war",
+          "funding_source": "safe_asset_and_cash_only",
+          "max_hold_days": 63,
+          "max_internal_exposure": 0.7,
+          "min_confidence": 0.8,
+          "mode": "paper",
+          "module_type": "opportunity_overlay",
+          "runner_exposure": 0.35,
+          "safe_asset": "BOXX",
+          "sleeve_ratio": 0.05,
+          "stop_loss_from_entry": -0.08,
+          "target_asset": "TQQQ",
+          "trigger_mode": "price_stress_only",
+          "use_macro_veto": false,
+          "use_vix_for_position": false
+        }
+      }
+    },
+    "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
+    "benchmark_symbol": "QQQ",
+    "cash_reserve_ratio": 0.02,
+    "dual_drive_allow_pullback": true,
+    "dual_drive_cash_reserve_ratio": 0.02,
+    "dual_drive_crisis_defense_enabled": true,
+    "dual_drive_macro_risk_governor_enabled": true,
+    "dual_drive_pullback_rebound_threshold": 0.0,
+    "dual_drive_pullback_rebound_threshold_mode": "volatility_scaled",
+    "dual_drive_pullback_rebound_volatility_multiplier": 2.0,
+    "dual_drive_pullback_rebound_window": 20,
+    "dual_drive_qqq_weight": 0.45,
+    "dual_drive_require_ma20_slope": true,
+    "dual_drive_tqqq_weight": 0.45,
+    "dual_drive_unlevered_symbol": "QQQM",
+    "dual_drive_volatility_delever_dynamic_cap": 0.36,
+    "dual_drive_volatility_delever_dynamic_floor": 0.24,
+    "dual_drive_volatility_delever_dynamic_lookback": 252,
+    "dual_drive_volatility_delever_dynamic_min_periods": 126,
+    "dual_drive_volatility_delever_dynamic_percentile": 0.9,
+    "dual_drive_volatility_delever_enabled": true,
+    "dual_drive_volatility_delever_exit_threshold": 0.28,
+    "dual_drive_volatility_delever_max_retention_ratio": 0.5,
+    "dual_drive_volatility_delever_retention_context_required": true,
+    "dual_drive_volatility_delever_retention_mode": "environment",
+    "dual_drive_volatility_delever_retention_policy": "tqqq_step_softzero_0.25_0.50",
+    "dual_drive_volatility_delever_retention_ratio": 0.0,
+    "dual_drive_volatility_delever_taco_veto_enabled": true,
+    "dual_drive_volatility_delever_threshold": 0.28,
+    "dual_drive_volatility_delever_threshold_mode": "rolling_percentile",
+    "dual_drive_volatility_delever_window": 5,
+    "execution_cash_reserve_ratio": 0.0,
+    "income_layer_activation_band_ratio": 0.2,
+    "income_layer_allocations": {
+      "DGRO": 0.2,
+      "QQQI": 0.02,
+      "SCHD": 0.3,
+      "SGOV": 0.4,
+      "SPYI": 0.08
+    },
+    "income_layer_base_drawdown_budget_ratio": 0.45,
+    "income_layer_core_stress_drawdown_ratio": 0.45,
+    "income_layer_drawdown_budget_decay_per_double": 0.05,
+    "income_layer_enabled": true,
+    "income_layer_income_stress_drawdown_ratio": 0.08,
+    "income_layer_max_ratio": 0.55,
+    "income_layer_min_drawdown_budget_ratio": 0.25,
+    "income_layer_ratio_mode": "log_total_drawdown_budget",
+    "income_layer_start_usd": 250000.0,
+    "managed_symbols": [
+      "TQQQ",
+      "QQQM",
+      "BOXX",
+      "SCHD",
+      "DGRO",
+      "SGOV",
+      "SPYI",
+      "QQQI"
+    ],
+    "market_regime_control_enabled": true,
+    "option_growth_overlay_enabled": true,
+    "option_growth_overlay_nav_budget_ratio": 0.03,
+    "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+    "option_growth_overlay_start_usd": 250000.0,
+    "option_income_overlay_enabled": false,
+    "option_overlay_enabled": true,
+    "rebalance_threshold_ratio": 0.01,
+    "signal_effective_after_trading_days": 1
+  },
+  "strategy_profile": "tqqq_growth_income"
+}
