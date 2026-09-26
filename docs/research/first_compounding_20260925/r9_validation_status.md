@@ -95,3 +95,9 @@ dynamic legacy：累计收益 64.280748316%，最大回撤 10.314437704%，恢�
 未支持：资本曲线仍未参与这些路径，本批不启动它；没有真实成交校准、部分成交、融资或 buying power；paper/shadow/live 未授权；QQQ 拆股仍由既有读取器拒绝；不把本入口当成 15 条旧结果的替换。
 
 合入顺序：#523，#525，#526，#527，#528，#529，#530，#531，#532，#533，本分支最后。本段不合并、不推送。草稿 CI 或本地测试通过都不表示主线或生产已升级。
+
+## Post-R9 资本边界方法
+
+本段只记录方法，没有回放结果。政策文件是 `post_r9_capital_policy.v1.json`，`policy_id` 为 `post_r9_active_capital_boundary_v1`。它复用 `smooth_bounded_capital_risk_ratio`，参数固定为 a0=10000、lower=0.01、upper=0.05、curvature=1。C0 是日期生效结算 dynamic 上的恒定 5%。C1 把比例固定为 r(初始净值)。C2 在每次实际决策前用 W=max(初始净值, 此前及当前 signal decision equity) 计算 r(W)。聚合成员帽是当期决策净值乘以该比例，不是 W 乘以该比例。B0–B3 的权重按该比例映射；比例为 5% 时与现有动作一致。情景循环和实际回放共用同一次冻结帽，情景循环不更新 W。初始持仓仍按 dynamic B0 启动，全部初始资金在 outer。hook 缺省时 R7/R8 旧行为不变。
+
+正式八条新路径没有外部现金流，并与只读复用的 10000/C0 M1 dynamic 账本和 summary 分开写出。外部流只在直接合成验收里走同一参考入口：期末流语义复用 `cash_flow_adjusted_return`，再连成投资指数和高水位。该指数不是美元 W，也不表示真实定投。入金和出金不计入投资盈亏，分红、未结算款和 owner 转账不是外部流，亏损后的入金不消除投资回撤。重复事件身份在恢复前后拒绝，无效输入 fail closed。checkpoint 绑定资本政策身份、W 和已见事件。研究输出保持 research_only，没有 paper/shadow/live 权限。本方法不假定曲线更优。

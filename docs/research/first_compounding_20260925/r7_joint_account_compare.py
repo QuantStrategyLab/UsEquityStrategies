@@ -545,7 +545,8 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             continuation_from_session: str | None = None,
             continuation_checkpoint: dict | None = None,
             checkpoint_out: dict | None = None,
-            settlement_policy: dict | None = None) -> tuple[dict, list[dict]]:
+            settlement_policy: dict | None = None,
+            capital_hook=None) -> tuple[dict, list[dict]]:
     path = policy["paths"][path_name]
     by_date = {row["date"]: index for index, row in enumerate(rows)}
     start = by_date[policy["data"]["first_trade"]]
@@ -575,6 +576,12 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             for book in continuation_checkpoint["books"].values():
                 for item in book.get("pending", []):
                     _require_pending_settlement(item, settlement_policy)
+        if capital_hook is None:
+            if any(key in continuation_checkpoint for key in (
+                    "capital_policy_id", "capital_w_usd", "capital_seen_event_ids")):
+                raise ValueError("POST_R9_CAPITAL_CHECKPOINT_UNEXPECTED")
+        else:
+            capital_hook.restore(continuation_checkpoint)
         loop_start = boundary_index + 1
     elif continuation_from_session is not None:
         raise ValueError("R7_CONTINUATION_CHECKPOINT_MISSING")
@@ -622,15 +629,23 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         if decision_equity <= 0 or not math.isfinite(decision_equity):
             raise ValueError("R7_DECISION_EQUITY_INVALID")
         selection = None
+        frozen = None if capital_hook is None else capital_hook.freeze_actual(decision_equity)
         if action_selector is not None:
-            selection = action_selector(rows, index, books, decision_equity,
-                                        prior_closes, previous_action, cost_bps)
+            if frozen is None:
+                selection = action_selector(rows, index, books, decision_equity,
+                                            prior_closes, previous_action, cost_bps)
+            else:
+                selection = action_selector(
+                    rows, index, books, decision_equity, prior_closes, previous_action, cost_bps,
+                    capital_freeze=frozen)
             selected = selection["selected_action"]
             if selected not in policy["paths"]:
                 raise ValueError("R8_ACTION_NOT_IN_FROZEN_SET")
-            path = policy["paths"][selected]
+            path = policy["paths"][selected] if frozen is None else frozen.weights(selected)
         else:
             selected = path_name
+            if frozen is not None:
+                path = frozen.weights(selected)
         budgets = {owner: decision_equity * path[owner + "_cap"] for owner in ("tqqq", "soxl")}
         tqqq_signal = None
         tqqq_target = 0.0
@@ -663,11 +678,16 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             released, paid = _release(books, day, index, settlement_policy, released_records)
             trades, fees = _sell_to_targets(books, targets, opens, fee_rate, index,
                                             settlement_policy, trade_day=day)
+        if frozen is not None:
+            aggregate_cap = frozen.aggregate_member_cap_usd
+        elif action_selector is not None:
+            aggregate_cap = decision_equity * 0.05
+        else:
+            aggregate_cap = None
         transfers = _fund_owners(books, budgets, prior_owner_equity, opens, signal_day,
                                  outer_cash_target, soxl_signal, tqqq_target,
                                  sweep_zero_budget=action_selector is not None,
-                                 aggregate_member_cap_usd=(decision_equity * 0.05
-                                                           if action_selector is not None else None))
+                                 aggregate_member_cap_usd=aggregate_cap)
         shortages = _buy_to_targets(books, targets, opens, signal_day, fee_rate, budgets,
                                     outer_cash_target, soxl_signal, trades, fees)
         owner_nav = {owner: _book_value(book, closes) for owner, book in books.items()}
@@ -692,6 +712,10 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         account_identity = abs(nav - math.fsum((settled_cash, pending, receivable, security_value)))
         if account_identity > 1e-6:
             raise ValueError("R7_OWNER_AGGREGATION_FAILED")
+        reference = None
+        if capital_hook is not None:
+            reference = capital_hook.apply_period_reference(
+                previous_equity=prior_nav, ending_equity=nav, events=())
         nominal_leverage = (values["outer"]["QQQM"] + 3 * values["tqqq"]["TQQQ"]
                             + 3 * values["soxl"]["SOXL"] + values["soxl"]["SOXX"])
         traded_notional = math.fsum(abs(quantity) * opens[symbol]
@@ -741,6 +765,23 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         })
         if selection is not None:
             ledger[-1]["action_selection"] = selection
+        if frozen is not None:
+            member_nav = owner_nav["tqqq"] + owner_nav["soxl"]
+            overcap = max(0.0, member_nav - frozen.aggregate_member_cap_usd)
+            ledger[-1].update({
+                "wealth_reference_usd": frozen.wealth_reference_usd,
+                "curve_ratio": frozen.curve_ratio,
+                "aggregate_member_cap_usd": frozen.aggregate_member_cap_usd,
+                "capital_binding": capital_hook.binding(
+                    selected=selected, shortages=shortages, overcap=overcap,
+                    ratio=frozen.curve_ratio),
+                "overcap_residual_usd": overcap,
+                "external_flow_usd": reference["external_flow_usd"],
+                "investment_index": reference["investment_index"],
+                "investment_high_water": reference["investment_high_water"],
+                "capital_policy_id": frozen.policy_id,
+                "capital_variant": frozen.variant,
+            })
         if settlement_policy is not None:
             ledger[-1]["settlement_cash_releases"] = released_records
         prior_nav = nav
@@ -760,6 +801,8 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         if settlement_policy is not None:
             checkpoint["settlement_policy_id"] = settlement_policy["policy_id"]
             checkpoint["settlement_calendar_id"] = settlement_policy["calendar_id"]
+        if capital_hook is not None:
+            checkpoint.update(capital_hook.export_state())
         checkpoint_out.update(checkpoint)
     metrics = _metrics(ledger, replay_initial_nav, replay_initial_date)
     for row in ledger:
