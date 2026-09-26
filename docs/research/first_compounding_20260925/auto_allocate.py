@@ -162,6 +162,18 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
             raise ValueError("current holdings do not sum to NAV")
         if any(floor[key] > cur[key] + 0.01 for key in ids):
             raise ValueError("locked amount exceeds current holding")
+        funding = data.get("settled_transfer_funding")
+        free_cash = None
+        if funding is not None:
+            if (not isinstance(funding, dict) or set(funding) != {"version", "free_cash_usd"}
+                    or funding["version"] != "settled_transfer_v1"
+                    or not isinstance(funding["free_cash_usd"], dict)
+                    or set(funding["free_cash_usd"]) != set(ids)):
+                raise ValueError("settled_transfer_funding: complete settled_transfer_v1 required")
+            free_cash = {key: _number(funding["free_cash_usd"][key], f"free_cash_usd.{key}")
+                         for key in ids}
+            if any(free_cash[key] > cur[key] - floor[key] + 0.01 for key in ids):
+                raise ValueError("settled free cash exceeds unlocked current holding")
         fee_bps = _number(data["transfer_fee_bps"], "transfer_fee_bps")
         loss_limit = _number(data["stress_loss_limit_usd"], "stress_loss_limit_usd")
         policy = data.get("high_water_policy")
@@ -196,9 +208,19 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
                 curvature=_number(curve_policy["curvature"], "curve.curvature", minimum=0.01),
             )
             member_budget_cap = nav * float(curve_result["risk_ratio"])
-        step = _number(data["search_step_usd"], "search_step_usd", minimum=0.01)
-        if nav / step > 1000:
-            raise ValueError("search_step_usd: at most 1000 steps required")
+        fixed_weights = data.get("fixed_member_weights")
+        if "fixed_member_weights" in data:
+            if (not isinstance(fixed_weights, dict) or set(fixed_weights) != set(names)):
+                raise ValueError("fixed_member_weights: both members required")
+            fixed_weights = {name: _number(fixed_weights[name], f"fixed_member_weights.{name}")
+                             for name in names}
+            if any(value > 1 for value in fixed_weights.values()) or sum(fixed_weights.values()) > 1 + 1e-9:
+                raise ValueError("fixed_member_weights: total member weight must be <= 1")
+            step = None
+        else:
+            step = _number(data["search_step_usd"], "search_step_usd", minimum=0.01)
+            if nav / step > 1000:
+                raise ValueError("search_step_usd: at most 1000 steps required")
         scenarios = evidence["scenarios"]
         if not isinstance(scenarios, list) or not scenarios:
             raise ValueError("evidence.scenarios: nonempty list required")
@@ -233,6 +255,13 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
         if member_budget_cap is not None and a + b > member_budget_cap + 1e-9:
             return
         fee = round(fee_bps / 10000 * (abs(a - cur[names[0]]) + abs(b - cur[names[1]])), 2)
+        if free_cash is not None:
+            releases = [max(0.0, cur[name] - target) for name, target in zip(names, (a, b))]
+            if any(release > free_cash[name] + 1e-9 for name, release in zip(names, releases)):
+                return
+            inward = sum(max(0.0, target - cur[name]) for name, target in zip(names, (a, b)))
+            if inward + fee > free_cash["CASH"] + sum(releases) + 1e-9:
+                return
         cash = nav - a - b - fee
         if cash < floor["CASH"] - 1e-9:
             return
@@ -252,27 +281,40 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
 
     # An actual holding need not coincide with the search grid. Keeping it is
     # always a candidate unless the supplied stress policy itself rules it out.
-    if any(abs(cur[name] / step - round(cur[name] / step)) > 1e-9 for name in names):
-        consider(cur[names[0]], cur[names[1]])
-    for i in range(int(nav / step) + 1):
-        a = i * step
-        if a < floor[names[0]] - 1e-9:
-            continue
-        for j in range(int((nav - a) / step) + 1):
-            consider(a, j * step)
+    if fixed_weights is not None:
+        consider(nav * fixed_weights[names[0]], nav * fixed_weights[names[1]])
+    else:
+        if any(abs(cur[name] / step - round(cur[name] / step)) > 1e-9 for name in names):
+            consider(cur[names[0]], cur[names[1]])
+        for i in range(int(nav / step) + 1):
+            a = i * step
+            if a < floor[names[0]] - 1e-9:
+                continue
+            for j in range(int((nav - a) / step) + 1):
+                consider(a, j * step)
     if best is None:
-        return {"status": "INFEASIBLE", "reason": "no grid point satisfies actual locked holdings, cash, fees and risk floors", "locked_usd": floor, "stress_loss_limit_usd": loss_limit, "wealth_floor_usd": wealth_floor}
+        reason = ("fixed member weights violate funding or risk constraints" if fixed_weights is not None
+                  else "no grid point satisfies actual locked holdings, cash, fees and risk floors")
+        if free_cash is not None:
+            reason += " and settled transfer funding"
+        return {"status": "INFEASIBLE", "reason": reason, "locked_usd": floor, "stress_loss_limit_usd": loss_limit, "wealth_floor_usd": wealth_floor}
     objective, _, _, _, a, b, cash, fee, loss, wealth = best
     binding = []
-    if abs(loss - loss_limit) <= max(0.01, step * 0.02):
+    tolerance = max(0.01, (step or 0.0) * 0.02)
+    if abs(loss - loss_limit) <= tolerance:
         binding.append("stress_loss_limit_usd")
-    if wealth_floor is not None and abs(min(wealth) - wealth_floor) <= max(0.01, step * 0.02):
+    if wealth_floor is not None and abs(min(wealth) - wealth_floor) <= tolerance:
         binding.append("wealth_floor_usd")
-    if member_budget_cap is not None and abs(a + b - member_budget_cap) <= max(0.01, step * 0.02):
+    if member_budget_cap is not None and abs(a + b - member_budget_cap) <= tolerance:
         binding.append("member_budget_cap_usd")
     for key, value in zip(ids, (a, b, cash)):
-        if abs(value - floor[key]) <= max(0.01, step * 0.02):
+        if abs(value - floor[key]) <= tolerance:
             binding.append(f"locked_usd.{key}")
+    method_limit = (
+        "Linear sleeve returns and explicitly fixed member weights; objective is reported, not optimized. Thresholds, income targets, integer option contracts, internal stock/option funding and state transitions are not replayed. No full-candidate or real-optimal claim."
+        if fixed_weights is not None else
+        "Linear sleeve returns and grid search; thresholds, income targets, integer option contracts, internal stock/option funding and state transitions are not replayed. No full-candidate or real-optimal claim."
+    )
     result = {
         "status": "MECHANISM_APPROXIMATION",
         # Preserve marked NAV precision in research proposals; cent rounding
@@ -293,7 +335,7 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
         "evidence_source": source,
         "horizon_days": horizon,
         "decision_date": decision.isoformat(),
-        "method_limit": "Linear sleeve returns and grid search; thresholds, income targets, integer option contracts, internal stock/option funding and state transitions are not replayed. No full-candidate or real-optimal claim.",
+        "method_limit": method_limit,
         "weight_meaning": "Manual scenario weights are objective weights, not estimated future probabilities." if source == "manual_scenarios" else "Historical estimate; validity requires separate time-ordered replay.",
     }
     if curve_result is not None:
@@ -304,6 +346,16 @@ def allocate(data: dict[str, object]) -> dict[str, object]:
             reference_curve_risk_capital_usd=round(float(curve_result["risk_capital"]), 6),
             reference_curve_risk_capital_role="not_current_available_funds",
         )
+    if free_cash is not None:
+        result.update(
+            settled_transfer_funding_version="settled_transfer_v1",
+            free_cash_usd=free_cash,
+            funding_scope="settled outer and member cash transfers only; builder trades and future settlements require replay",
+        )
+    if fixed_weights is not None:
+        result.update(allocation_mode="fixed_member_weights_v1",
+                      fixed_member_weights=fixed_weights,
+                      feasible_grid_points=None, search_step_usd=None)
     return result
 
 
