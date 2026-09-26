@@ -126,3 +126,61 @@ def test_pending_exit_consumes_aggregate_member_capacity_until_settlement() -> N
                                sweep_zero_budget=True, aggregate_member_cap_usd=500.0)
     assert transfer == {"tqqq": -500.0, "soxl": 500.0}
     assert books["soxl"]["cash"] == 500.0
+
+
+def test_due_pending_changes_buy_the_same_way_in_selector_and_formal_replay() -> None:
+    modules = _modules()
+    r7 = modules["r7_joint_account_compare"]
+    r8 = modules["r8_joint_allocation_compare"]
+    root = Path(__file__).parents[2] / "docs/research/first_compounding_20260925"
+    settlement = r7._load_settlement_policy(root / "post_r9_date_effective_settlement_policy.v1.json")
+    rows = []
+    for day in ("2024-05-24", "2024-05-28", "2024-05-29"):
+        row = {"date": day}
+        for symbol in r7.SYMBOLS:
+            row[symbol.lower() + "_open"] = 100.0
+            row[symbol.lower() + "_close"] = 100.0
+        rows.append(row)
+    actions = {symbol: {"forward_splits": [], "cash_dividends": []} for symbol in r7.SYMBOLS}
+    path = {"qqqm": 0.50, "tqqq_cap": 0.0, "soxl_cap": 0.0, "outer_boxx": 0.49, "outer_cash": 0.01}
+    account = {"candidate_id": "synthetic", "paths": {"B0": path, "B1": dict(path)},
+               "initial_research_nav_usd": 1000.0,
+               "data": {"first_signal": "2024-05-24", "first_trade": "2024-05-28",
+                        "last_session": "2024-05-28", "expected_replay_sessions": 1}}
+    selector_policy = {"action_ids": ["B0"],
+                       "startup": {"decision_dates": [], "required_action": "B0",
+                                   "dynamic_first_decision_date": "2024-05-24"},
+                       "estimator": {"training_observations": 1, "tie_log_tolerance": 1e-8}}
+    prices = {symbol: 100.0 for symbol in r7.SYMBOLS}
+
+    def books_for(due: str) -> dict:
+        books = {owner: r7._book(0, symbols) for owner, symbols in r7.OWNER_SYMBOLS.items()}
+        books["outer"]["pending"].append({
+            "symbol": "QQQM", "amount": 1000.0, "settlement_date": due,
+            "settlement_policy_id": settlement["policy_id"],
+            "settlement_calendar_id": settlement["calendar_id"]})
+        return books
+
+    def trade_count(day: str) -> tuple[float, int]:
+        books = books_for(day)
+        choose = r8._selector({}, {}, actions, account, selector_policy, settlement)
+        decision = sum(r7._book_decision_equity(book, "2024-05-28", prices) for book in books.values())
+        selected = choose(rows, 2, books, decision, prices, "B0", 10)
+        checkpoint = {
+            "last_date": "2024-05-28", "last_global_index": 1, "prior_nav_usd": decision,
+            "previous_action": "B0", "books": books_for(day),
+            "settlement_policy_id": settlement["policy_id"],
+            "settlement_calendar_id": settlement["calendar_id"]}
+        _metrics, ledger = r7._replay(
+            rows, actions, {}, {}, account, path_name="B0", cost_bps=10,
+            settlement_policy=settlement, continuation_from_session="2024-05-28",
+            continuation_last_session="2024-05-29", continuation_checkpoint=checkpoint)
+        filled = sum(abs(quantity) for owner in ledger[-1]["trade_shares"].values()
+                     for quantity in owner.values())
+        return selected["estimated_mean_trade_shares"]["B0"], filled
+
+    due_estimate, due_filled = trade_count("2024-05-29")
+    held_estimate, held_filled = trade_count("2024-05-30")
+    assert due_filled > 0
+    assert due_estimate == pytest.approx(due_filled)
+    assert (held_estimate, held_filled) == (0, 0)

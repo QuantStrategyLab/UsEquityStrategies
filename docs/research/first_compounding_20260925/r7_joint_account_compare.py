@@ -14,7 +14,7 @@ import math
 import os
 import statistics
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from boxx_outer_cash_compare import _decision, _load
@@ -31,6 +31,13 @@ from us_equity_strategies.v7_soxl_profile import (
 HERE = Path(__file__).resolve().parent
 POLICY_PATH = HERE / "r7_joint_account_policy.v1.json"
 POLICY_SHA256 = "9bec154d80b7794f97477cecdd366a7b207947031c1bd76008aebf6f38e5225b"
+SETTLEMENT_POLICY_SHA256 = "c135c023ee7329ad6103021ffbb79d4cdfea01e903ac331865c157a6a1246853"
+_SETTLEMENT_SOURCE_IDS = frozenset({
+    "sec_t1_faq", "sec_t1_final_transition",
+    "dtcc_2023_anticipated_holidays", "dtcc_2024_anticipated_holidays",
+    "dtcc_2025_anticipated_holidays", "dtcc_2026_anticipated_holidays",
+    "carter_2025_01_09_settlement_open", "dtcc_2026_07_03_independence_day_observed",
+})
 OWNERS = ("outer", "tqqq", "soxl")
 OWNER_SYMBOLS = {"outer": ("QQQM", "BOXX"), "tqqq": ("TQQQ",),
                  "soxl": ("SOXL", "SOXX", "BOXX")}
@@ -71,6 +78,94 @@ def _policy() -> dict:
         if not math.isclose(math.fsum(path.values()), 1.0, abs_tol=1e-12):
             raise ValueError("R7_POLICY_WEIGHTS_INVALID")
     return policy
+
+
+def _load_settlement_policy(path: Path) -> dict:
+    content = Path(path).read_bytes()
+    if _bytes_sha(content) != SETTLEMENT_POLICY_SHA256:
+        raise ValueError("POST_R9_SETTLEMENT_POLICY_CHANGED")
+    policy = json.loads(content)
+    closed = set(policy.get("dtc_non_settlement_dates", []))
+    carter = [item for item in policy.get("known_settlement_only_dates", [])
+              if item.get("date") == "2025-01-09"]
+    source_ids = {item.get("id") for item in policy.get("official_sources", [])}
+    if (policy.get("schema") != "qsl.research.post_r9_date_effective_settlement_policy.v1"
+            or policy.get("research_only") is not True
+            or policy.get("policy_id") != "post_r9_us_equity_dtc_standard_settlement_v1"
+            or policy.get("calendar_id") !=
+               "post_r9_dtc_weekday_excluding_frozen_non_settlement_20230328_20260827_v1"
+            or policy.get("coverage_start") != "2023-03-28"
+            or policy.get("coverage_end") != "2026-08-27"
+            or policy.get("transition_trade_date") != "2024-05-28"
+            or policy.get("settlement_lag_before_transition") != 2
+            or policy.get("settlement_lag_on_or_after_transition") != 1
+            or "2023-11-10" in closed or "2025-01-09" in closed or "2026-07-03" not in closed
+            or len(carter) != 1 or carter[0].get("exchange_closed") is not True
+            or carter[0].get("settlement_closed") is not False
+            or not _SETTLEMENT_SOURCE_IDS <= source_ids):
+        raise ValueError("POST_R9_SETTLEMENT_POLICY_INVALID")
+    return policy
+
+
+def _coverage_date(value: str, settlement_policy: dict) -> date:
+    current = date.fromisoformat(value)
+    if (current < date.fromisoformat(settlement_policy["coverage_start"])
+            or current > date.fromisoformat(settlement_policy["coverage_end"])):
+        raise ValueError("R7_SETTLEMENT_COVERAGE_MISSING")
+    return current
+
+
+def _is_settlement_day(day: str, settlement_policy: dict) -> bool:
+    current = _coverage_date(day, settlement_policy)
+    return (current.weekday() < 5
+            and day not in set(settlement_policy["dtc_non_settlement_dates"]))
+
+
+def _settlement_date(trade_date: str, settlement_policy: dict) -> str:
+    """T+1/T+2 on weekdays minus frozen DTC closures. Not an XNYS row index."""
+    _coverage_date(trade_date, settlement_policy)
+    end = date.fromisoformat(settlement_policy["coverage_end"])
+    lag = (settlement_policy["settlement_lag_before_transition"]
+           if trade_date < settlement_policy["transition_trade_date"]
+           else settlement_policy["settlement_lag_on_or_after_transition"])
+    closed = set(settlement_policy["dtc_non_settlement_dates"])
+    cursor = date.fromisoformat(trade_date)
+    found = 0
+    while found < lag:
+        cursor += timedelta(days=1)
+        if cursor > end:
+            raise ValueError("R7_SETTLEMENT_COVERAGE_MISSING")
+        if cursor.weekday() < 5 and cursor.isoformat() not in closed:
+            found += 1
+    return cursor.isoformat()
+
+
+def _require_pending_settlement(item: dict, settlement_policy: dict | None) -> None:
+    has_release = "release" in item
+    has_settlement = "settlement_date" in item
+    if has_release and has_settlement:
+        raise ValueError("R7_SETTLEMENT_PENDING_AMBIGUOUS")
+    if settlement_policy is None:
+        if has_settlement or not has_release:
+            raise ValueError("R7_SETTLEMENT_PENDING_INVALID")
+        return
+    if (has_release or not has_settlement
+            or item.get("settlement_policy_id") != settlement_policy["policy_id"]
+            or item.get("settlement_calendar_id") != settlement_policy["calendar_id"]):
+        raise ValueError("R7_SETTLEMENT_PENDING_INVALID")
+    try:
+        parsed = date.fromisoformat(item["settlement_date"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("R7_SETTLEMENT_PENDING_INVALID") from exc
+    if parsed.isoformat() != item["settlement_date"]:
+        raise ValueError("R7_SETTLEMENT_PENDING_INVALID")
+    _coverage_date(item["settlement_date"], settlement_policy)
+    if not _is_settlement_day(item["settlement_date"], settlement_policy):
+        raise ValueError("R7_SETTLEMENT_PENDING_INVALID")
+    amount = item.get("amount")
+    if (isinstance(amount, bool) or not isinstance(amount, (int, float))
+            or not math.isfinite(amount) or amount < 0):
+        raise ValueError("R7_SETTLEMENT_PENDING_INVALID")
 
 
 def _load_inputs(raw_root: Path, r6_root: Path, materialized_path: Path, policy: dict) -> tuple[list[dict], dict, dict, dict]:
@@ -297,14 +392,28 @@ def _corporate_actions(books: dict, events: dict, day: str) -> tuple[dict, float
     return ratios, accrued
 
 
-def _release(books: dict, day: str, index: int) -> tuple[float, float]:
+def _release(books: dict, day: str, index: int, settlement_policy: dict | None = None,
+             released_out: list | None = None) -> tuple[float, float]:
+    for book in books.values():
+        for item in book["pending"]:
+            _require_pending_settlement(item, settlement_policy)
+    if released_out is not None:
+        released_out.clear()
     proceeds = paid = 0.0
     for book in books.values():
-        due = [item for item in book["pending"] if item["release"] <= index]
+        if settlement_policy is None:
+            due = [item for item in book["pending"] if item["release"] <= index]
+            book["pending"] = [item for item in book["pending"] if item["release"] > index]
+        else:
+            due = [item for item in book["pending"] if item["settlement_date"] <= day]
+            book["pending"] = [item for item in book["pending"] if item["settlement_date"] > day]
+            if released_out is not None:
+                released_out.extend({"settlement_date": item["settlement_date"],
+                                     "observation_date": day, "amount": item["amount"]}
+                                    for item in due)
         amount = math.fsum(item["amount"] for item in due)
         book["cash"] += amount
         proceeds += amount
-        book["pending"] = [item for item in book["pending"] if item["release"] > index]
         for claim in book["claims"]:
             if not claim["paid"] and claim["payable_date"] <= day:
                 book["cash"] += claim["amount"]
@@ -314,7 +423,8 @@ def _release(books: dict, day: str, index: int) -> tuple[float, float]:
 
 
 def _sell_to_targets(books: dict, targets: dict, opens: dict[str, float],
-                     fee_rate: float, index: int) -> tuple[dict, dict]:
+                     fee_rate: float, index: int, settlement_policy: dict | None = None,
+                     trade_day: str | None = None) -> tuple[dict, dict]:
     trades = {owner: {symbol: 0 for symbol in symbols} for owner, symbols in OWNER_SYMBOLS.items()}
     fees = {owner: {symbol: 0.0 for symbol in symbols} for owner, symbols in OWNER_SYMBOLS.items()}
     for owner in OWNERS:
@@ -326,8 +436,18 @@ def _sell_to_targets(books: dict, targets: dict, opens: dict[str, float],
                 continue
             cost = quantity * opens[symbol] * fee_rate
             book["shares"][symbol] -= quantity
-            book["pending"].append({"symbol": symbol, "amount": quantity * opens[symbol] - cost,
-                                    "release": index + 2})
+            amount = quantity * opens[symbol] - cost
+            if settlement_policy is None:
+                book["pending"].append({"symbol": symbol, "amount": amount, "release": index + 2})
+            else:
+                if trade_day is None:
+                    raise ValueError("R7_SETTLEMENT_TRADE_DATE_MISSING")
+                book["pending"].append({
+                    "symbol": symbol, "amount": amount,
+                    "settlement_date": _settlement_date(trade_day, settlement_policy),
+                    "settlement_policy_id": settlement_policy["policy_id"],
+                    "settlement_calendar_id": settlement_policy["calendar_id"],
+                })
             trades[owner][symbol] -= quantity
             fees[owner][symbol] += cost
     return trades, fees
@@ -424,7 +544,8 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             continuation_last_session: str | None = None,
             continuation_from_session: str | None = None,
             continuation_checkpoint: dict | None = None,
-            checkpoint_out: dict | None = None) -> tuple[dict, list[dict]]:
+            checkpoint_out: dict | None = None,
+            settlement_policy: dict | None = None) -> tuple[dict, list[dict]]:
     path = policy["paths"][path_name]
     by_date = {row["date"]: index for index, row in enumerate(rows)}
     start = by_date[policy["data"]["first_trade"]]
@@ -443,6 +564,17 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
                 or continuation_checkpoint.get("prior_nav_usd", 0) <= 0
                 or continuation_checkpoint.get("previous_action") not in policy["paths"]):
             raise ValueError("R7_CONTINUATION_CHECKPOINT_INVALID")
+        if settlement_policy is None:
+            if ("settlement_policy_id" in continuation_checkpoint
+                    or "settlement_calendar_id" in continuation_checkpoint):
+                raise ValueError("R7_SETTLEMENT_CHECKPOINT_UNEXPECTED")
+        elif (continuation_checkpoint.get("settlement_policy_id") != settlement_policy["policy_id"]
+                or continuation_checkpoint.get("settlement_calendar_id") != settlement_policy["calendar_id"]):
+            raise ValueError("R7_SETTLEMENT_CHECKPOINT_IDENTITY_MISMATCH")
+        else:
+            for book in continuation_checkpoint["books"].values():
+                for item in book.get("pending", []):
+                    _require_pending_settlement(item, settlement_policy)
         loop_start = boundary_index + 1
     elif continuation_from_session is not None:
         raise ValueError("R7_CONTINUATION_CHECKPOINT_MISSING")
@@ -523,8 +655,14 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         outer_cash_target = decision_equity * path["outer_cash"]
         old_shares = {owner: dict(book["shares"]) for owner, book in books.items()}
         split_ratios, accrued = _corporate_actions(books, events, day)
-        released, paid = _release(books, day, index)
-        trades, fees = _sell_to_targets(books, targets, opens, fee_rate, index)
+        released_records: list = []
+        if settlement_policy is None:
+            released, paid = _release(books, day, index)
+            trades, fees = _sell_to_targets(books, targets, opens, fee_rate, index)
+        else:
+            released, paid = _release(books, day, index, settlement_policy, released_records)
+            trades, fees = _sell_to_targets(books, targets, opens, fee_rate, index,
+                                            settlement_policy, trade_day=day)
         transfers = _fund_owners(books, budgets, prior_owner_equity, opens, signal_day,
                                  outer_cash_target, soxl_signal, tqqq_target,
                                  sweep_zero_budget=action_selector is not None,
@@ -603,6 +741,8 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         })
         if selection is not None:
             ledger[-1]["action_selection"] = selection
+        if settlement_policy is not None:
+            ledger[-1]["settlement_cash_releases"] = released_records
         prior_nav = nav
         previous_action = selected
     if short_sessions is None and continuation_last_session is None and continuation_checkpoint is None and (
@@ -612,11 +752,15 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
     if checkpoint_out is not None:
         if not ledger:
             raise ValueError("R7_CHECKPOINT_EMPTY_REPLAY")
-        checkpoint_out.update({"last_date": rows[end - 1]["date"],
-                               "last_global_index": end - 1,
-                               "prior_nav_usd": prior_nav,
-                               "previous_action": previous_action,
-                               "books": copy.deepcopy(books)})
+        checkpoint = {"last_date": rows[end - 1]["date"],
+                      "last_global_index": end - 1,
+                      "prior_nav_usd": prior_nav,
+                      "previous_action": previous_action,
+                      "books": copy.deepcopy(books)}
+        if settlement_policy is not None:
+            checkpoint["settlement_policy_id"] = settlement_policy["policy_id"]
+            checkpoint["settlement_calendar_id"] = settlement_policy["calendar_id"]
+        checkpoint_out.update(checkpoint)
     metrics = _metrics(ledger, replay_initial_nav, replay_initial_date)
     for row in ledger:
         row["nominal_equity_index_exposure_to_nav"] = row.pop("nasdaq_lookthrough_to_nav")

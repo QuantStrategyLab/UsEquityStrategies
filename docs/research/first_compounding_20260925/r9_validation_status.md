@@ -55,3 +55,43 @@
 主分析 10 bps：R8 v2 动态政策相对固定 B0 的累计收益低 0.349 个百分点，区间最大回撤低 1.143 个百分点，恢复快 11 会话；实际证券投入也不同，不能只按收益评胜负。配对日对数收益差的年化点估计为 -0.001736；预注册 20 会话块、2000 次、固定种子的条件 bootstrap 95% 区间为 [-0.013134, 0.010759]，跨零。它只描述本段观测序列的敏感性，不是因果优势、未来胜率或可执行的重采样策略。5/15 bps 情景中动态相对 B0 的累计收益分别低 0.327/0.209 个百分点。B2 在这段样本的收益和回撤同时优于 B0，属于描述性观察，不因见过结果而升级为默认政策。费用变化下非单调的净收益受整股、门槛、状态和资金路径影响，不把固定费用情景按旧曲线线性缩放。
 
 **研究处置：R9 指定 development 时间扩展验证完成；没有证据支持自动把 R8 动态政策晋级为默认，也不按 B2 同窗表现改选比例。** 保留五种冻结政策、全部正负结果及原始私有证据；不开展同窗调参。原完整 v2、严格 PIT、跨来源保证、券商原生执行及 paper/shadow/live 权限仍未验证或授予。未来若开展真正前向验证，需独立预注册未来决策与可知截止、观察期限和不变账户合同；本批不启动调度、部署或交易。
+
+## Post-R9 首批当前入口
+
+日期：2026-09-26。本段收口当前入口。上文 R9 complete 与原结论原文保持不变。
+
+这是 **COMPLETE development 研究结果**。它不是采用建议，不推断券商 buying power，不授予 paper、shadow 或 live，不改变 R9 complete，也不启动资本曲线或后续路线图。本地测试和本段记录都不是生产验收。
+
+候选与政策：独立 `policy_id` 为 `post_r9_us_equity_dtc_standard_settlement_v1`，日历 `post_r9_dtc_weekday_excluding_frozen_non_settlement_20230328_20260827_v1`，文件 `post_r9_date_effective_settlement_policy.v1.json`，政策 SHA-256 `c135c023ee7329ad6103021ffbb79d4cdfea01e903ac331865c157a6a1246853`。只比较 B0 与 R8 v2 dynamic，费用 10 bps。全窗口 856 个会话，2023-03-28 至 2026-08-25。唯一变量是标准结算：2024-05-28 之前的交易按 T+2，当天及之后按 T+1；结算日是普通 weekday 减去政策里冻结的 DTC 非结算日，周末不算，也不从 XNYS 行号推导。2025-01-09 标明为交易所休市、DTC 仍结算。信号、四动作、60 情景、起点资本、5% 增强上限、门槛、费用和未启用的资本曲线都不改。旧路径在 `settlement_policy` 缺省时仍只保存 `release = index + 2`。旧固定两会话 baseline 直接合并既有前缀和 R9 扩展，不重跑其余 13 条，也不调用 `r9.analyze`。
+
+数据身份：沿用本文已记录的 R9 协议 SHA-256 `27109d8d4ee5c5da594977b9fa5e8c7f825707dc789d48e5b8cf34c500e25ca6`。原 R9 summary SHA-256 `628de89afde2fad718ae6298370e895585d3c4c082452a5c9044b5abeb2ba95f` 未变。结算研究只读 R7 `B0_10bps`、R8 `dynamic_10bps` 前缀和对应 R9 扩展账本。不另设私有 URI。
+
+源码与依赖：本工作树基线 `55771f45c245d8f5999b7ba1242c77924c7cbe8f`，分支 `codex/post-r9-maturity-20260926-001`。工作区 `.venv` 已用 `uv sync --frozen --extra research` 建立。锁定 QuantPlatformKit `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62`、QuantStrategyPlugins `3416da47580be1537183e378f3ca9efacc6f9b8c`，另装 pytest 9.1.1、ruff 0.15.22。
+
+权威输出根为 `/Users/lisiyi/Projects/.private-research/post-r9-maturity-20260926-003`。目录 0700，文件 0600，只含两条新账本与 summary。summary SHA-256 `e0e5c2e51836edb246e70cd9ea7f4b64def713928aafd4d6933b403a69f793cc`；B0 ledger SHA-256 `68b96ff510bec653c2286d456b719fa680a7a731debd71b0a1bb27b4c57392ba`；dynamic ledger SHA-256 `9ab7b28d0fa9a024c389d49d4eaa3f79adae591cd100d80411f125bf03da832e`。`post-r9-maturity-20260926-001` 与 `002` 是保留的前序运行证据，账本 SHA 与 003 相同，不是权威摘要。最大账户恒等式误差 7.28e-12 USD。两条路径的全部 release observation 都等于法律 settlement date，本窗口 late observation 为 0。
+
+B0 legacy：累计收益 66.583064305%，最大回撤 11.457141005%，恢复 2025-06-03 / 72 会话，费用 63.1123795 USD，shortage 83。新结算：累计收益 66.258233305%，最大回撤 11.512115253%，恢复 2025-06-04 / 73 会话，费用 67.1387995 USD，shortage 49，release 174。相对 legacy，收益 -0.324831 个百分点，回撤幅度恶化 0.054974 个百分点，恢复晚 1 会话，费用 +4.02642 USD，shortage -34。release-observation 映射首次不同的 trade date 是 2023-10-05；账户状态首次不同的日期是 2023-10-09。
+
+dynamic legacy：累计收益 64.280748316%，最大回撤 10.314437704%，恢复 2025-05-16 / 61 会话，费用 81.5775644 USD，shortage 214。新结算：累计收益 64.443648406%，最大回撤 10.241174853%，恢复 2025-05-15 / 60 会话，费用 90.1302274 USD，shortage 136，release 260。相对 legacy，收益 +0.162900 个百分点，回撤幅度改善 0.073263 个百分点，恢复早 1 会话，费用 +8.552663 USD，shortage -78。release-observation 映射首次不同的 trade date 是 2023-10-05；账户状态首次不同的日期是 2024-05-29。
+
+归因只限结算政策。差异可以变好或变差，本段不据此改选 B0 或 dynamic。
+
+验证：锁定 `.venv` 的定向研究测试 31 passed；主助手全量 `tests/research` 89 passed；ruff 与 `git diff --check` 通过。既有 ruff 配置弃用 warning（顶层 `ignore` 应迁到 `lint.ignore`）不是本批失败。Astra CONDITIONAL GO 的两项条件现已落实：非结算日 checkpoint fail-closed，以及本入口的文档与命令。这仍只是 development 研究结果，不是生产验收。
+
+命令模板。从本工作树运行锁定解释器，不设置 `PYTHONPATH`，也不使用外部 `src`。八个参数使用本次正式运行的输入路径；`--output-root` 必须是新的、尚不存在的目录，003 已是权威输出，不能当作再次覆盖目标：
+
+```bash
+.venv/bin/python docs/research/first_compounding_20260925/post_r9_settlement_study.py \
+  --raw-root /Users/lisiyi/Projects/.private-research/qqqm-boxx-raw-20260925-001 \
+  --r6-root /Users/lisiyi/Projects/.private-research/soxl-v7-td-single-source-20260926-001 \
+  --materialized /Users/lisiyi/Projects/.private-research/r7-joint-account-20260926/r6_materialized.json \
+  --r7-archive-root /Users/lisiyi/Projects/.private-research/r7-joint-account-20260926/formal-v1 \
+  --r8-archive-root /Users/lisiyi/Projects/.private-research/r8-joint-allocation-20260926/formal-v2 \
+  --r9-archive-root /Users/lisiyi/Projects/.private-research/r9-frozen-policy-validation-20260926-001/formal-v1 \
+  --future-root /Users/lisiyi/Projects/.private-research/r9-frozen-policy-validation-20260926-001/future-input-v1 \
+  --output-root <新的不存在目录>
+```
+
+未支持：资本曲线仍未参与这些路径，本批不启动它；没有真实成交校准、部分成交、融资或 buying power；paper/shadow/live 未授权；QQQ 拆股仍由既有读取器拒绝；不把本入口当成 15 条旧结果的替换。
+
+合入顺序：#523，#525，#526，#527，#528，#529，#530，#531，#532，#533，本分支最后。本段不合并、不推送。草稿 CI 或本地测试通过都不表示主线或生产已升级。

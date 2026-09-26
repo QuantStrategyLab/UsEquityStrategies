@@ -169,7 +169,8 @@ def _targets_for_action(rows: list[dict], index: int, books: dict,
 def _scenario_wealth(books: dict, prior_closes: dict[str, float],
                      scenario: dict, plan: dict, *, signal_day: str,
                      trade_day: str, trade_index: int, fee_rate: float,
-                     decision_equity: float) -> tuple[float, dict]:
+                     decision_equity: float,
+                     settlement_policy: dict | None = None) -> tuple[float, dict]:
     projected = _known_books(books, signal_day)
     opening = {symbol: prior_closes[symbol] * scenario["overnight"][symbol]
                for symbol in SYMBOLS}
@@ -179,8 +180,13 @@ def _scenario_wealth(books: dict, prior_closes: dict[str, float],
     dividend = math.fsum(prior_shares[owner][symbol] * prior_closes[symbol]
                          * scenario["dividend_yield"][symbol]
                          for owner in OWNERS for symbol in OWNER_SYMBOLS[owner])
-    _release(projected, trade_day, trade_index)
-    trades, fees = _sell_to_targets(projected, plan["targets"], opening, fee_rate, trade_index)
+    if settlement_policy is None:
+        _release(projected, trade_day, trade_index)
+        trades, fees = _sell_to_targets(projected, plan["targets"], opening, fee_rate, trade_index)
+    else:
+        _release(projected, trade_day, trade_index, settlement_policy)
+        trades, fees = _sell_to_targets(projected, plan["targets"], opening, fee_rate,
+                                        trade_index, settlement_policy, trade_day=trade_day)
     transfers = _fund_owners(projected, plan["budgets"], plan["owner_equity"], opening,
                              signal_day, plan["outer_cash_target"], plan["soxl_signal"],
                              plan["tqqq_target"], sweep_zero_budget=True,
@@ -196,7 +202,7 @@ def _scenario_wealth(books: dict, prior_closes: dict[str, float],
 
 
 def _selector(indicators: dict, contract: dict, actions: dict,
-              r7: dict, r8: dict):
+              r7: dict, r8: dict, settlement_policy: dict | None = None):
     scenario_cache = {}
 
     def choose(rows: list[dict], index: int, books: dict,
@@ -232,7 +238,8 @@ def _selector(indicators: dict, contract: dict, actions: dict,
                 wealth, detail = _scenario_wealth(
                     books, prior_closes, scenario, plan, signal_day=signal_day,
                     trade_day=rows[index]["date"], trade_index=index,
-                    fee_rate=cost_bps / 10_000.0, decision_equity=decision_equity)
+                    fee_rate=cost_bps / 10_000.0, decision_equity=decision_equity,
+                    settlement_policy=settlement_policy)
                 values.append(wealth)
                 trades += sum(abs(quantity) for item in detail["trades"].values()
                               for quantity in item.values())
@@ -274,7 +281,8 @@ def analyze(raw_root: Path, r6_root: Path, materialized_path: Path,
             continuation_from_session: str | None = None,
             continuation_checkpoints: dict[str, dict] | None = None,
             checkpoint_out: dict[str, dict] | None = None,
-            replay_inputs: tuple[list[dict], dict] | None = None) -> tuple[dict, dict]:
+            replay_inputs: tuple[list[dict], dict] | None = None,
+            settlement_policy: dict | None = None) -> tuple[dict, dict]:
     r8 = _policy()
     r7 = r7_policy()
     rows, actions, indicators, source = _load_inputs(raw_root, r6_root, materialized_path, r7)
@@ -286,7 +294,7 @@ def analyze(raw_root: Path, r6_root: Path, materialized_path: Path,
     costs = [10] if short_sessions is not None else r8["cost_bps_scenarios"]
     results = {}
     ledgers = {}
-    selector = _selector(indicators, source["tqqq_contract"], actions, r7, r8)
+    selector = _selector(indicators, source["tqqq_contract"], actions, r7, r8, settlement_policy)
     for cost in costs:
         key = f"dynamic_{cost}bps"
         checkpoint = (None if continuation_checkpoints is None
@@ -299,7 +307,8 @@ def analyze(raw_root: Path, r6_root: Path, materialized_path: Path,
                                   continuation_last_session=continuation_last_session,
                                   continuation_from_session=continuation_from_session,
                                   continuation_checkpoint=checkpoint,
-                                  checkpoint_out=checkpoint_result)
+                                  checkpoint_out=checkpoint_result,
+                                  settlement_policy=settlement_policy)
         counts = Counter(item["path"] for item in ledger)
         metrics["action_counts"] = {name: counts[name] for name in r8["action_ids"]}
         metrics["startup_fixed_sessions"] = sum(item["action_selection"]["startup_fixed"]
