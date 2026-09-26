@@ -341,16 +341,18 @@ def _transfer(source: dict, destination: dict, amount: float, signal_day: str) -
 
 def _fund_owners(books: dict, budgets: dict, prior_owner_equity: dict,
                  opens: dict[str, float], signal_day: str, outer_cash_target: float,
-                 soxl_signal: dict | None, tqqq_target: float) -> dict:
+                 soxl_signal: dict | None, tqqq_target: float, *,
+                 sweep_zero_budget: bool = False,
+                 aggregate_member_cap_usd: float | None = None) -> dict:
     transferred = {owner: 0.0 for owner in ("tqqq", "soxl")}
     for owner in ("tqqq", "soxl"):
         budget = budgets[owner]
-        if budget <= 0:
+        if budget <= 0 and not sweep_zero_budget:
             continue
         book = books[owner]
         current_equity = _book_decision_equity(book, signal_day, opens)
         if owner == "soxl":
-            reserve = max(0.0, float(soxl_signal["reserved_cash"]))
+            reserve = 0.0 if soxl_signal is None else max(0.0, float(soxl_signal["reserved_cash"]))
         else:
             reserve = max(0.0, budget - tqqq_target)
         excess = min(max(0.0, current_equity - budget),
@@ -366,6 +368,10 @@ def _fund_owners(books: dict, budgets: dict, prior_owner_equity: dict,
         deficit = min(deficit, max(0.0, budget - _book_decision_equity(books[owner], signal_day, opens)))
         available = max(0.0, _eligible_cash(books["outer"], signal_day) - outer_cash_target)
         amount = min(deficit, available)
+        if aggregate_member_cap_usd is not None:
+            member_equity = math.fsum(_book_decision_equity(books[name], signal_day, opens)
+                                      for name in ("tqqq", "soxl"))
+            amount = min(amount, max(0.0, aggregate_member_cap_usd - member_equity))
         if amount:
             _transfer(books["outer"], books[owner], amount, signal_day)
             transferred[owner] += amount
@@ -412,7 +418,8 @@ def _buy_to_targets(books: dict, targets: dict, opens: dict[str, float], signal_
 
 def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             policy: dict, *, path_name: str, cost_bps: int,
-            short_sessions: int | None = None) -> tuple[dict, list[dict]]:
+            short_sessions: int | None = None, action_selector=None,
+            candidate_id: str | None = None) -> tuple[dict, list[dict]]:
     path = policy["paths"][path_name]
     by_date = {row["date"]: index for index, row in enumerate(rows)}
     start = by_date[policy["data"]["first_trade"]]
@@ -431,6 +438,7 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
     fee_rate = cost_bps / 10_000.0
     ledger = []
     prior_nav = initial
+    previous_action = path_name
     for index in range(start, end):
         row = rows[index]
         day = row["date"]
@@ -443,6 +451,16 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         decision_equity = math.fsum(prior_owner_equity.values())
         if decision_equity <= 0 or not math.isfinite(decision_equity):
             raise ValueError("R7_DECISION_EQUITY_INVALID")
+        selection = None
+        if action_selector is not None:
+            selection = action_selector(rows, index, books, decision_equity,
+                                        prior_closes, previous_action, cost_bps)
+            selected = selection["selected_action"]
+            if selected not in policy["paths"]:
+                raise ValueError("R8_ACTION_NOT_IN_FROZEN_SET")
+            path = policy["paths"][selected]
+        else:
+            selected = path_name
         budgets = {owner: decision_equity * path[owner + "_cap"] for owner in ("tqqq", "soxl")}
         tqqq_signal = None
         tqqq_target = 0.0
@@ -454,7 +472,7 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
                 raise ValueError("R7_TQQQ_SIGNAL_DATE_INVALID")
             tqqq_target = float(tqqq_signal["target_tqqq_usd"])
         soxl_signal = None
-        if budgets["soxl"]:
+        if budgets["soxl"] and prior_owner_equity["soxl"] > 0:
             soxl_signal = _soxl_signal(indicators[signal_day], books["soxl"], signal_day,
                                        prior_closes, budgets["soxl"])
         targets = {
@@ -470,7 +488,10 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         released, paid = _release(books, day, index)
         trades, fees = _sell_to_targets(books, targets, opens, fee_rate, index)
         transfers = _fund_owners(books, budgets, prior_owner_equity, opens, signal_day,
-                                 outer_cash_target, soxl_signal, tqqq_target)
+                                 outer_cash_target, soxl_signal, tqqq_target,
+                                 sweep_zero_budget=action_selector is not None,
+                                 aggregate_member_cap_usd=(decision_equity * 0.05
+                                                           if action_selector is not None else None))
         shortages = _buy_to_targets(books, targets, opens, signal_day, fee_rate, budgets,
                                     outer_cash_target, soxl_signal, trades, fees)
         owner_nav = {owner: _book_value(book, closes) for owner, book in books.items()}
@@ -501,8 +522,8 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
                                     for owner, item in trades.items()
                                     for symbol, quantity in item.items())
         ledger.append({
-            "date": day, "signal_date": signal_day, "path": path_name, "cost_bps": cost_bps,
-            "candidate_id": policy["candidate_id"],
+            "date": day, "signal_date": signal_day, "path": selected, "cost_bps": cost_bps,
+            "candidate_id": candidate_id or policy["candidate_id"],
             "decision_equity_usd": decision_equity,
             "unrecognized_claim_at_signal_usd": prior_nav - decision_equity,
             "member_budget_usd": budgets, "owner_decision_equity_usd": prior_owner_equity,
@@ -542,7 +563,10 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             "nasdaq_lookthrough_to_nav": nominal_leverage / nav,
             "account_identity_error_usd": max(identity_error, account_identity),
         })
+        if selection is not None:
+            ledger[-1]["action_selection"] = selection
         prior_nav = nav
+        previous_action = selected
     if short_sessions is None and (len(ledger) != policy["data"]["expected_replay_sessions"]
                                    or ledger[-1]["date"] != policy["data"]["last_session"]):
         raise ValueError("R7_FORMAL_WINDOW_CHANGED")
@@ -558,7 +582,7 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         "shortage_event_count": sum(len(x["shortages"]) for x in ledger),
         "max_owner_cap_overage_usd": max((max(0.0, row["owner_nav_usd"][owner]
             - row["member_budget_usd"][owner]) for row in ledger for owner in ("tqqq", "soxl")
-            if path[owner + "_cap"] > 0), default=0.0),
+            if row["member_budget_usd"][owner] > 0), default=0.0),
         "average_soxl_internal_boxx_to_nav": statistics.mean(
             row["soxl_internal_boxx_value_usd"] / row["economic_nav_close_usd"] for row in ledger),
         "average_outer_boxx_to_nav": statistics.mean(
