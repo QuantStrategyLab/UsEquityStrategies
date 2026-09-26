@@ -33,6 +33,7 @@ jobs:
           python - <<'PY'
           import json
           from importlib.metadata import distribution
+          from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerEvent
 
           expected = {
               "quant-platform-kit": "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62",
@@ -43,6 +44,7 @@ jobs:
               if provenance.get("vcs_info", {}).get("commit_id") != sha:
                   raise SystemExit(f"{name}: installed revision differs from research pin")
               print(f"{name}: {sha}")
+          print(f"ResearchLedgerEvent: {ResearchLedgerEvent.__name__}")
           PY
 
       - name: Run Ruff
