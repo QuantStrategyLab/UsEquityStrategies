@@ -1,0 +1,16 @@
+{
+  "schema": "qsl.research.phase5_curve_binding_diagnostic.v1",
+  "study_id": "phase5_frozen_pair_s4_curve_nonbinding_diagnostic_v1",
+  "research_only": true,
+  "development": true,
+  "changes_trades_or_ledger": false,
+  "source_phase5_summary_sha256": "f9345361e8b5aed249b4d2039d67ac00b2bc8eeb2c590a9a0f4c587f41edbfef",
+  "source_s4_policy_sha256": "8c7a4410717c52222bb09c91a9c5d6774524625b8b2ad3226ffb2cd28dd31bbd",
+  "covered_member_set_M": ["TQQQ"],
+  "uncovered_assets": ["QQQM", "BOXX", "outer cash"],
+  "wealth_reference_at_signal": "max(initial research principal, all decision_equity_usd values through the current signal close); not-yet-recognized dividend claims are excluded under the frozen delayed-recognition research proxy; no external flows",
+  "current_budget_base_at_signal": "existing Phase 4 decision_equity_usd, which excludes not-yet-recognized dividend claims",
+  "curve": {"a0_usd": 10000, "lower": 0.2, "upper": 0.8, "curvature": 1},
+  "comparison": "For each existing enhanced ledger row only, compare recorded TQQQ member_budget_usd against decision_equity_usd times the existing smooth_bounded_capital_risk_ratio(wealth_reference). Report the separate reference risk_capital. No change to past targets, fills, NAV, costs or candidate identity.",
+  "limits": "S4 parameters are reproduced as a descriptive diagnostic, not adopted by the Phase 4 candidate. The covered set M is diagnostic only; applying this curve or changing M would require a separate reviewed research policy. A nonbinding historical overlay cannot establish a counterfactual strategy return or loss guarantee."
+}

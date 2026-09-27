@@ -19,6 +19,7 @@ from typing import Any
 from quant_platform_kit.strategy_lifecycle.contracts import validate_periods_per_year
 
 OPTIMIZED_MEMBER_IDENTITY_SCHEMA = "qsl.us-equity-optimized-member-identity.v1"
+OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2 = "qsl.us-equity-optimized-member-identity.v2"
 EVIDENCE_SCOPE = "IDENTITY_ONLY_NO_HISTORICAL_RETURNS"
 CONTRACT_PROOF = "DECLARATION_ONLY"
 _DOMAIN = "us_equity"
@@ -81,7 +82,7 @@ _CONTRACT_FIELDS = frozenset(
         "share_quantity",
     }
 )
-_ROOT_FIELDS = frozenset(
+_ROOT_FIELDS_V1 = frozenset(
     {
         "actual_params",
         "calendar_id",
@@ -109,6 +110,7 @@ _ROOT_FIELDS = frozenset(
         "window_start",
     }
 )
+_ROOT_FIELDS_V2 = _ROOT_FIELDS_V1 | {"qpk_workspace_patch_sha256"}
 
 
 class OptimizedMemberIdentityError(ValueError):
@@ -379,6 +381,91 @@ def build_optimized_member_identity(
     share_quantity_contract: object,
 ) -> dict[str, object]:
     """Bind one caller-supplied member identity without evaluating it."""
+    return _build_optimized_member_identity(
+        schema_version=OPTIMIZED_MEMBER_IDENTITY_SCHEMA,
+        strategy_profile=strategy_profile,
+        ues_revision=ues_revision,
+        qpk_revision=qpk_revision,
+        ues_workspace_patch_sha256=ues_workspace_patch_sha256,
+        qpk_workspace_patch_sha256=None,
+        param_set_id=param_set_id,
+        actual_params=actual_params,
+        config_sha256=config_sha256,
+        input_sha256=input_sha256,
+        window_start=window_start,
+        window_end=window_end,
+        calendar_id=calendar_id,
+        periods_per_year=periods_per_year,
+        cost_source=cost_source,
+        cost_inputs=cost_inputs,
+        fill_price_field=fill_price_field,
+        adjustment_contract=adjustment_contract,
+        cash_contract=cash_contract,
+        corporate_action_contract=corporate_action_contract,
+        external_cashflow_contract=external_cashflow_contract,
+        share_quantity_contract=share_quantity_contract,
+    )
+
+
+def build_optimized_member_identity_v2(
+    *,
+    strategy_profile: object,
+    ues_revision: object,
+    qpk_revision: object,
+    ues_workspace_patch_sha256: object,
+    qpk_workspace_patch_sha256: object,
+    param_set_id: object,
+    actual_params: object,
+    config_sha256: object,
+    input_sha256: object,
+    window_start: object,
+    window_end: object,
+    calendar_id: object,
+    periods_per_year: object,
+    cost_source: object,
+    cost_inputs: object,
+    fill_price_field: object,
+    adjustment_contract: object,
+    cash_contract: object,
+    corporate_action_contract: object,
+    external_cashflow_contract: object,
+    share_quantity_contract: object,
+) -> dict[str, object]:
+    """Bind both repositories' revisions and workspace patches in one v2 identity."""
+    return _build_optimized_member_identity(
+        schema_version=OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2,
+        strategy_profile=strategy_profile,
+        ues_revision=ues_revision,
+        qpk_revision=qpk_revision,
+        ues_workspace_patch_sha256=ues_workspace_patch_sha256,
+        qpk_workspace_patch_sha256=qpk_workspace_patch_sha256,
+        param_set_id=param_set_id,
+        actual_params=actual_params,
+        config_sha256=config_sha256,
+        input_sha256=input_sha256,
+        window_start=window_start,
+        window_end=window_end,
+        calendar_id=calendar_id,
+        periods_per_year=periods_per_year,
+        cost_source=cost_source,
+        cost_inputs=cost_inputs,
+        fill_price_field=fill_price_field,
+        adjustment_contract=adjustment_contract,
+        cash_contract=cash_contract,
+        corporate_action_contract=corporate_action_contract,
+        external_cashflow_contract=external_cashflow_contract,
+        share_quantity_contract=share_quantity_contract,
+    )
+
+
+def _build_optimized_member_identity(
+    *, schema_version: str, strategy_profile: object, ues_revision: object, qpk_revision: object,
+    ues_workspace_patch_sha256: object, qpk_workspace_patch_sha256: object, param_set_id: object,
+    actual_params: object, config_sha256: object, input_sha256: object, window_start: object,
+    window_end: object, calendar_id: object, periods_per_year: object, cost_source: object,
+    cost_inputs: object, fill_price_field: object, adjustment_contract: object, cash_contract: object,
+    corporate_action_contract: object, external_cashflow_contract: object, share_quantity_contract: object,
+) -> dict[str, object]:
     _reject_foreign(
         {
             "strategy_profile": strategy_profile,
@@ -388,7 +475,7 @@ def build_optimized_member_identity(
     )
     start, end = _window(window_start, window_end)
     result: dict[str, object] = {
-        "schema_version": OPTIMIZED_MEMBER_IDENTITY_SCHEMA,
+        "schema_version": schema_version,
         "research_only": True,
         "execution_authorized": False,
         "promotion_authorized": False,
@@ -397,7 +484,11 @@ def build_optimized_member_identity(
         "strategy_profile": _profile(strategy_profile),
         "ues_revision": _revision(ues_revision),
         "qpk_revision": _revision(qpk_revision),
-        "ues_workspace_patch_sha256": _patch(ues_workspace_patch_sha256),
+        "ues_workspace_patch_sha256": (
+            _digest(ues_workspace_patch_sha256)
+            if schema_version == OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2
+            else _patch(ues_workspace_patch_sha256)
+        ),
         "param_set_id": _token(param_set_id),
         "actual_params": _params(actual_params),
         "config_sha256": _digest(config_sha256),
@@ -424,6 +515,8 @@ def build_optimized_member_identity(
         "contract_proof": CONTRACT_PROOF,
         "economic_identity_sha256": "",
     }
+    if schema_version == OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2:
+        result["qpk_workspace_patch_sha256"] = _digest(qpk_workspace_patch_sha256)
     result["economic_identity_sha256"] = calculate_optimized_member_identity_sha256(result)
     return validate_optimized_member_identity(result)
 
@@ -432,9 +525,14 @@ def validate_optimized_member_identity(value: object) -> dict[str, object]:
     """Validate one identity envelope. This does not prove the declared sources."""
     if isinstance(value, Mapping):
         _reject_foreign(value)
-    if not isinstance(value, Mapping) or set(value) != _ROOT_FIELDS:
+    if not isinstance(value, Mapping):
         _fail("invalid optimized member identity")
-    if value["schema_version"] != OPTIMIZED_MEMBER_IDENTITY_SCHEMA:
+    schema_version = value.get("schema_version")
+    expected_fields = {
+        OPTIMIZED_MEMBER_IDENTITY_SCHEMA: _ROOT_FIELDS_V1,
+        OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2: _ROOT_FIELDS_V2,
+    }.get(schema_version)
+    if expected_fields is None or set(value) != expected_fields:
         _fail("invalid optimized member identity")
     if value["research_only"] is not True:
         _fail("optimized member identity must remain research only")
@@ -448,7 +546,7 @@ def validate_optimized_member_identity(value: object) -> dict[str, object]:
         _fail("invalid optimized member identity")
     start, end = _window(value["window_start"], value["window_end"])
     normalized: dict[str, object] = {
-        "schema_version": OPTIMIZED_MEMBER_IDENTITY_SCHEMA,
+        "schema_version": schema_version,
         "research_only": True,
         "execution_authorized": False,
         "promotion_authorized": False,
@@ -457,7 +555,11 @@ def validate_optimized_member_identity(value: object) -> dict[str, object]:
         "strategy_profile": _profile(value["strategy_profile"]),
         "ues_revision": _revision(value["ues_revision"]),
         "qpk_revision": _revision(value["qpk_revision"]),
-        "ues_workspace_patch_sha256": _patch(value["ues_workspace_patch_sha256"]),
+        "ues_workspace_patch_sha256": (
+            _digest(value["ues_workspace_patch_sha256"])
+            if schema_version == OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2
+            else _patch(value["ues_workspace_patch_sha256"])
+        ),
         "param_set_id": _token(value["param_set_id"]),
         "actual_params": _params(value["actual_params"]),
         "config_sha256": _digest(value["config_sha256"]),
@@ -473,6 +575,8 @@ def validate_optimized_member_identity(value: object) -> dict[str, object]:
         "contract_proof": CONTRACT_PROOF,
         "economic_identity_sha256": _digest(value["economic_identity_sha256"]),
     }
+    if schema_version == OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2:
+        normalized["qpk_workspace_patch_sha256"] = _digest(value["qpk_workspace_patch_sha256"])
     config_digest = hashlib.sha256(
         _canonical_json(normalized["actual_params"], without_digest=False)
     ).hexdigest()
@@ -488,8 +592,10 @@ __all__ = [
     "CONTRACT_PROOF",
     "EVIDENCE_SCOPE",
     "OPTIMIZED_MEMBER_IDENTITY_SCHEMA",
+    "OPTIMIZED_MEMBER_IDENTITY_SCHEMA_V2",
     "OptimizedMemberIdentityError",
     "build_optimized_member_identity",
+    "build_optimized_member_identity_v2",
     "calculate_optimized_member_identity_sha256",
     "validate_optimized_member_identity",
 ]

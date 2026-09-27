@@ -1,0 +1,135 @@
+{
+  "schema": "qsl.research.post_r9_date_effective_settlement_policy.v1",
+  "policy_id": "post_r9_us_equity_dtc_standard_settlement_v1",
+  "calendar_id": "post_r9_dtc_weekday_excluding_frozen_non_settlement_20230328_20260827_v1",
+  "research_only": true,
+  "development": true,
+  "paper_authorized": false,
+  "shadow_authorized": false,
+  "live_authorized": false,
+  "coverage_start": "2023-03-28",
+  "coverage_end": "2026-08-27",
+  "transition_trade_date": "2024-05-28",
+  "settlement_lag_before_transition": 2,
+  "settlement_lag_on_or_after_transition": 1,
+  "settlement_day_rule": "ordinary weekday minus frozen DTC non-settlement dates; Saturday and Sunday are never settlement days; a date marked exchange_closed is still a settlement day unless it is listed in dtc_non_settlement_dates; T+N counts settlement days after the trade date and is not an XNYS row index",
+  "dtc_non_settlement_dates": [
+    "2023-04-07",
+    "2023-05-29",
+    "2023-06-19",
+    "2023-07-04",
+    "2023-09-04",
+    "2023-10-09",
+    "2023-11-23",
+    "2023-12-25",
+    "2024-01-01",
+    "2024-01-15",
+    "2024-02-19",
+    "2024-03-29",
+    "2024-05-27",
+    "2024-06-19",
+    "2024-07-04",
+    "2024-09-02",
+    "2024-10-14",
+    "2024-11-11",
+    "2024-11-28",
+    "2024-12-25",
+    "2025-01-01",
+    "2025-01-20",
+    "2025-02-17",
+    "2025-04-18",
+    "2025-05-26",
+    "2025-06-19",
+    "2025-07-04",
+    "2025-09-01",
+    "2025-10-13",
+    "2025-11-11",
+    "2025-11-27",
+    "2025-12-25",
+    "2026-01-01",
+    "2026-01-19",
+    "2026-02-16",
+    "2026-04-03",
+    "2026-05-25",
+    "2026-06-19",
+    "2026-07-03",
+    "2026-09-07",
+    "2026-10-12",
+    "2026-11-11",
+    "2026-11-26",
+    "2026-12-25"
+  ],
+  "known_settlement_only_dates": [
+    {
+      "date": "2025-01-09",
+      "exchange_closed": true,
+      "settlement_closed": false,
+      "reason": "Carter National Day of Mourning; equity exchanges closed while DTC settlement remained open"
+    }
+  ],
+  "notes": [
+    "2023-11-10 is Veterans Day and is intentionally absent from dtc_non_settlement_dates because DTC processed settlements that day.",
+    "Dates after 2026-08-27 are frozen with the 2026 anticipated holiday list and are outside this study's required coverage."
+  ],
+  "official_sources": [
+    {
+      "id": "sec_t1_final_transition",
+      "publisher": "SEC",
+      "title": "Release No. 34-96930, Shortening the Securities Transaction Settlement Cycle",
+      "date": "2023-02-15",
+      "url": "https://www.sec.gov/files/rules/final/2023/34-96930.pdf",
+      "used_for": "final transition; T+1 compliance date 2024-05-28 for most US equity and ETF trades"
+    },
+    {
+      "id": "sec_t1_faq",
+      "publisher": "SEC",
+      "title": "SEC T+1 Settlement Cycle FAQ",
+      "url": "https://www.sec.gov/exams/educationhelpguidesfaqs/t1-faq",
+      "used_for": "SEC T+1 FAQ for the May 28, 2024 transition; broker buying power is a separate question"
+    },
+    {
+      "id": "dtcc_2023_anticipated_holidays",
+      "publisher": "DTCC",
+      "title": "DTCC anticipated 2023 holiday schedule for DTC settlement",
+      "url": "https://www.dtcc.com/Globals/PDFs/2022/November/22/17669-22",
+      "used_for": "2023 DTC non-settlement dates; 2023-11-10 stays a settlement day"
+    },
+    {
+      "id": "dtcc_2024_anticipated_holidays",
+      "publisher": "DTCC",
+      "title": "DTCC anticipated 2024 holiday schedule for DTC settlement",
+      "url": "https://www.dtcc.com/Globals/PDFs/2023/December/12/19404-23",
+      "used_for": "2024 DTC non-settlement dates"
+    },
+    {
+      "id": "dtcc_2025_anticipated_holidays",
+      "publisher": "DTCC",
+      "title": "DTCC anticipated 2025 holiday schedule for DTC settlement",
+      "url": "https://www.dtcc.com/Globals/PDFs/2024/October/30/20972-24",
+      "used_for": "2025 DTC non-settlement dates, excluding the Carter settlement-only session"
+    },
+    {
+      "id": "dtcc_2026_anticipated_holidays",
+      "publisher": "DTCC",
+      "title": "DTCC anticipated 2026 holiday schedule for DTC settlement",
+      "url": "https://www.dtcc.com/Globals/PDFs/2025/October/15/23036-25",
+      "used_for": "2026 DTC non-settlement dates in the frozen calendar"
+    },
+    {
+      "id": "carter_2025_01_09_settlement_open",
+      "publisher": "DTCC",
+      "title": "National Day of Mourning for President Carter, January 9, 2025: exchanges closed and DTC settlement open",
+      "date": "2025-01-09",
+      "url": "https://www.dtcc.com/-/media/Files/pdf/2024/12/30/0275.pdf",
+      "used_for": "known settlement-only date; exchange_closed is not settlement_closed"
+    },
+    {
+      "id": "dtcc_2026_07_03_independence_day_observed",
+      "publisher": "DTCC",
+      "title": "July 3, 2026 DTC closure because Independence Day falls on Saturday, July 4, 2026",
+      "date": "2026-07-03",
+      "url": "https://www.dtcc.com/-/media/Files/pdf/2026/6/5/24351-26.pdf",
+      "used_for": "2026-07-03 non-settlement date"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "qsl.research.r7_joint_account_policy.v1",
+  "candidate_id": "r7_tqqq_r6soxl_joint_raw_open_whole_share_development_v1",
+  "research_only": true,
+  "development": true,
+  "paper_authorized": false,
+  "shadow_authorized": false,
+  "live_authorized": false,
+  "signal_members": {
+    "tqqq": "tqqq_qqq_guard_cash_research_v1",
+    "soxl": "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve"
+  },
+  "soxl_input_study_id": "soxl_v7_twelve_basic_split_close_development_v1",
+  "soxl_input_assurance": "single_source_structural_only_no_cross_provider_verification",
+  "soxl_signal_config_sha256": "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1",
+  "data": {
+    "raw_manifest_sha256": "cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182",
+    "r6_manifest_sha256": "86fa48cba3459ad9ff228671cd5b5e574e0e68c1637eaa40d7487c541ff36795",
+    "r6_materialized_file_sha256": "6477644fc07a7202cd484e0d0309ecdb871ef347de844ee31fc2e5e63e36bb38",
+    "tqqq_contract_sha256": "7b603312762262ebb2fe90c86bef2ed0b7914ab26586b0b9db93ee39b4d1e60b",
+    "first_signal": "2023-03-27",
+    "first_trade": "2023-03-28",
+    "last_session": "2024-12-31",
+    "expected_replay_sessions": 444,
+    "soxl_soxx_signal_warmup_sessions": 252,
+    "known_at_status": "retrospective_vendor_observed_2026-09-26_not_strict_pit",
+    "dividend_known_at": "provider_process_date_conservative_research_proxy",
+    "cross_source_unit_diagnostic_max_relative_gap": 0.01
+  },
+  "initial_research_nav_usd": 10000,
+  "cost_bps_scenarios": [5, 10, 15],
+  "paths": {
+    "B0": {"qqqm": 0.50, "tqqq_cap": 0.0, "soxl_cap": 0.0, "outer_boxx": 0.49, "outer_cash": 0.01},
+    "B1": {"qqqm": 0.45, "tqqq_cap": 0.05, "soxl_cap": 0.0, "outer_boxx": 0.49, "outer_cash": 0.01},
+    "B2": {"qqqm": 0.45, "tqqq_cap": 0.0, "soxl_cap": 0.05, "outer_boxx": 0.49, "outer_cash": 0.01},
+    "B3": {"qqqm": 0.45, "tqqq_cap": 0.025, "soxl_cap": 0.025, "outer_boxx": 0.49, "outer_cash": 0.01}
+  },
+  "execution": {
+    "decision_clock": "prior_completed_close_with_visible_state_only",
+    "fill_clock": "next_complete_xnys_session_raw_open",
+    "shares": "whole_shares_floor_for_buys",
+    "cost": "each_executed_side_notional_times_bps_once",
+    "sale_proceeds": "owner_retained_until_two_session_release",
+    "settlement_sessions": 2,
+    "same_open_sale_funds_buy": false,
+    "owner_netting": false,
+    "owner_books": ["outer", "tqqq", "soxl"],
+    "outer_asset_order": ["QQQM", "BOXX"],
+    "soxl_asset_order": ["SOXL", "SOXX", "BOXX"],
+    "same_day_order": ["freeze_prior_close_signals_and_owner_budget_envelopes", "effective_split_and_dividend_entitlement", "release_prior_sales_and_pay_claims", "compute_sell_targets", "sell_to_owner_pending", "sweep_transferable_member_excess_to_outer", "fund_genuine_member_deficits_from_eligible_outer_settled_cash", "buy_outer_qqqm_then_boxx_with_cash_reserve", "buy_tqqq_then_soxl_owner", "mark_close_and_reconcile"],
+    "member_funding": "budget_B=prior_close_account_decision_equity_times_member_cap; deficit=max(0,B-prior_close_owner_decision_equity_including_securities_settled_cash_pending_sales_and_recognized_unpaid_claims_once); transfer_equal_debit_and_credit_of_eligible_settled_cash_only; protect_outer_cash_target; tqqq_then_soxl_shortfall_priority; idle_internal_cash_is_not_excess",
+    "member_over_cap": "member_cap_covers_full_sleeve_including_internal_boxx_reserve_pending_and_recognized_claims; proportionally_clip_signal_asset_targets_to_budget_envelope_when_owner_equity_exceeds_cap; sweep_only_equity_excess_represented_by_transferable_settled_cash; report_passive_drift_and_residual_cap_overage",
+    "soxl_core_equity_basis": "actual_owner_prior_close_decision_equity_with_owner_only_holdings; pending_and_recognized_claims_in_equity_once_but_not_buying_power; no_fictitious_budget_top_up",
+    "soxl_buy_min_notional_usd": 100,
+    "soxl_rebalance_threshold_fraction_of_owner_decision_equity": 0.01,
+    "soxl_small_risk_reducing_sales_allowed": true,
+    "soxl_internal_cash_reserve_fraction": 0.03,
+    "corporate_actions": "raw_share_events_once_per_owner; dividends_accrued_on_ex_date_and_paid_once; process_date_proxy_restricts_decision_use; R6_adjusted_prices_for_signals_only; event_derived_raw_quantity_mapping_for_valuation_and_fills; cross_vendor_price_ratios_are_diagnostics_not_split_factors",
+    "capital_curve": "not_applied"
+  },
+  "run_limit": {"formal_paths": 4, "cost_scenarios": 3, "maximum_formal_runs": 12, "maximum_short_window_checks": 3, "same_input_recovery_per_affected_path": 1},
+  "claims": ["independent_joint_execution_policy", "not_original_v7_p3", "not_original_full_v2", "not_personal_allocation", "not_cross_provider_verified", "not_strict_pit", "not_promotion_or_trading_authority"]
+}

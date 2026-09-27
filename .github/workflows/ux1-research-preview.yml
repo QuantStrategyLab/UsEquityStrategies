@@ -1,0 +1,76 @@
+name: UX1 research preview
+run-name: UX1 preview ${{ inputs.ux1_request_id }}
+
+# Manual research job on the repository default branch. One UX1 executor.
+# Cloud object locations stay in repository variables and are not set here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ux1_request_id:
+        description: "UX1 request UUID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ux1-research-preview
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Install locked research extra
+        run: |
+          set -euo pipefail
+          uv sync --python 3.13 --frozen --extra research --no-editable --no-dev
+
+      - name: Authenticate to Google Cloud
+        if: vars.UX1_INPUT_BUCKET != ''
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Set up Cloud SDK
+        if: vars.UX1_INPUT_BUCKET != ''
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Run UX1 research preview
+        env:
+          UX1_REQUEST_ID: ${{ inputs.ux1_request_id }}
+          UX1_CONSOLE_URL: ${{ vars.UX1_CONSOLE_URL }}
+          UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
+          UX1_RAW_GCS_PREFIX: ${{ vars.UX1_RAW_GCS_PREFIX }}
+          UX1_R6_GCS_PREFIX: ${{ vars.UX1_R6_GCS_PREFIX }}
+          UX1_MATERIALIZED_GCS_URI: ${{ vars.UX1_MATERIALIZED_GCS_URI }}
+          UX1_INPUT_BUCKET: ${{ vars.UX1_INPUT_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_RUN_ATTEMPT}" != "1" ]; then
+            printf '%s\n' UX1_RUN_ATTEMPT_REJECTED
+            exit 2
+          fi
+          uv run --frozen --no-sync --python 3.13 python scripts/run_ux1_async_job.py

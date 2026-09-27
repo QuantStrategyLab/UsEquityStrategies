@@ -1,0 +1,9 @@
+{
+  "version": "synthetic_single_core_sale_v1",
+  "decision_date": "2024-01-03",
+  "sale_date": "2024-01-04",
+  "next_execution_date": "2024-01-05",
+  "sellable_symbol": {"SOXL": "SOXL", "TQQQ": "TQQQ"},
+  "preserved_symbols": {"SOXL": ["SOXX"], "TQQQ": ["BOXX", "QQQM"]},
+  "reason": "Artificial fundraising policy: only the named core ETF may be sold, in whole shares, before any cash transfer; other named existing securities are preserved during this fundraising sale. Their income-layer classification is not proven. Not a user risk policy or Schwab order instruction."
+}

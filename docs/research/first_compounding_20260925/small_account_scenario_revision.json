@@ -1,0 +1,9 @@
+{
+  "decision_date": "2024-01-03",
+  "observed_through": "2024-01-03",
+  "reason": "Artificial change in scenario weights to exercise a funded cash-only member transfer; not an estimate or historical observation.",
+  "scenarios": [
+    {"weight": 0.8, "returns": {"SOXL": 0.12, "TQQQ": -0.04}},
+    {"weight": 0.2, "returns": {"SOXL": -0.08, "TQQQ": 0.10}}
+  ]
+}

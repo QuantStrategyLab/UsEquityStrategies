@@ -1,0 +1,40 @@
+{
+  "schema": "qsl.research.post_r9_capital_policy.v1",
+  "policy_id": "post_r9_active_capital_boundary_v1",
+  "research_only": true,
+  "development": true,
+  "paper_authorized": false,
+  "shadow_authorized": false,
+  "live_authorized": false,
+  "capital_function": "smooth_bounded_capital_risk_ratio",
+  "parameters": {
+    "a0": 10000.0,
+    "lower": 0.01,
+    "upper": 0.05,
+    "curvature": 1.0
+  },
+  "formula": "lower + (upper - lower) / (1 + (W / a0) ^ curvature)",
+  "variants": {
+    "C0": "date_effective_dynamic_constant_upper",
+    "C1": "fixed_r_of_initial_nav",
+    "C2": "r_of_wealth_high_water_before_each_actual_decision"
+  },
+  "wealth_reference": "max(initial_nav, prior_and_current_signal_decision_equity)",
+  "aggregate_member_cap": "current_decision_equity_times_ratio_not_wealth_times_ratio",
+  "initial_books": "dynamic_b0_all_initial_capital_in_outer",
+  "scales_usd": [1000, 10000, 100000],
+  "cost_bps": 10,
+  "sessions": 856,
+  "window": {"start": "2023-03-28", "end": "2026-08-25"},
+  "settlement_policy_id": "post_r9_us_equity_dtc_standard_settlement_v1",
+  "settlement_policy_sha256": "c135c023ee7329ad6103021ffbb79d4cdfea01e903ac331865c157a6a1246853",
+  "reused_m1_10000_c0": {
+    "summary_sha256": "e0e5c2e51836edb246e70cd9ea7f4b64def713928aafd4d6933b403a69f793cc",
+    "dynamic_ledger_sha256": "9ab7b28d0fa9a024c389d49d4eaa3f79adae591cd100d80411f125bf03da832e"
+  },
+  "external_flows_on_formal_paths": "none",
+  "investment_index_is_dollar_wealth": false,
+  "real_contribution_plan_supported": false,
+  "curve_superiority_assumed": false,
+  "permissions": "no_paper_shadow_or_live"
+}
