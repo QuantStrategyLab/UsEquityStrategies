@@ -1,0 +1,38 @@
+name: Research v2 Input Discovery
+
+# Manual read-only inventory. The script fixes the one approved GCS prefix,
+# caps listing, and prints only filtered metadata; no object content is copied.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: research-v2-input-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+      - name: Discover bounded input metadata
+        run: |
+          set -euo pipefail
+          sdk_root="$(gcloud info --format='value(installation.sdk_root)')"
+          PYTHONPATH="${sdk_root}/lib/third_party" python3 scripts/discover_research_v2_inputs.py | tee "$GITHUB_STEP_SUMMARY"
