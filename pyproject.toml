@@ -19,6 +19,9 @@ research = [
   "quant-strategy-plugins @ git+https://github.com/QuantStrategyLab/QuantStrategyPlugins.git@3416da47580be1537183e378f3ca9efacc6f9b8c",
 ]
 
+[project.scripts]
+ux1-preview = "us_equity_strategies.ux1_preview:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
