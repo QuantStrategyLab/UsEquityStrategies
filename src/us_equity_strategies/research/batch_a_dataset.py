@@ -385,11 +385,108 @@ def load_price_snapshot_v2(
     )
 
 
+_RETURN_DEFINITION = "adjusted_close_t_over_previous_close_minus_one"
+_RETURN_LIMITATIONS = (
+    "GENERATION_MATCH_DOES_NOT_PROVE_CLOUD_SOURCE",
+    "NO_QUOTE_CURRENCY_IN_MANIFEST",
+    "CASH_SERIES_NOT_CREATED",
+    "WEIGHTS_NOT_BOUND",
+    "NOT_STRATEGY_RETURN",
+    "NOT_TWR_OR_MWR",
+    "NOT_OOS_OR_EXECUTABLE_EVIDENCE",
+)
+
+
+def _required_identity(dataset_dir: Path, identity_path: str | Path | None) -> Path:
+    if identity_path is None:
+        resolved = dataset_dir / "object_identity.json"
+    else:
+        resolved = Path(identity_path)
+    if not resolved.is_file():
+        _fail("OBJECT_IDENTITY_MISSING")
+    return resolved
+
+
+def _close_to_close_return(close: float, previous: float) -> float:
+    try:
+        ratio = close / previous
+        value = ratio - 1.0
+    except (OverflowError, ZeroDivisionError, ArithmeticError):
+        _fail("ASSET_RETURN_INVALID")
+    if not math.isfinite(value) or value <= -1.0:
+        _fail("ASSET_RETURN_INVALID")
+    return value
+
+
+def extract_adjusted_close_simple_returns(
+    dataset_dir: str | Path,
+    *,
+    relative_artifact: str = "prices.csv",
+    identity_path: str | Path | None = None,
+) -> dict[str, object]:
+    """Extract aligned adjusted-close simple returns from one staged v2 dataset.
+
+    The dataset path is loaded only through :func:`load_price_snapshot_v2`.
+    An ``object_identity.json`` or an explicit identity file must match the
+    manifest generation.  That file check does not prove the object came from
+    cloud storage.  Returns start on the second price date.  No cash series,
+    currency, leverage, or portfolio result is created.
+    """
+
+    root = Path(dataset_dir)
+    resolved_identity = _required_identity(root, identity_path)
+    snapshot = load_price_snapshot_v2(
+        root,
+        relative_artifact=relative_artifact,
+        identity_path=resolved_identity,
+    )
+    if (
+        snapshot.manifest.get("price_field") != "adjusted_close"
+        or snapshot.manifest.get("adjustment") != "all"
+    ):
+        _fail("PRICE_DEFINITION_REJECTED")
+    symbols = snapshot.manifest.get("symbols")
+    if not isinstance(symbols, list) or not symbols:
+        _fail("SYMBOLS_INVALID")
+    grouped: dict[str, list[PriceRow]] = {str(symbol): [] for symbol in symbols}
+    for row in snapshot.rows:
+        if row.symbol not in grouped:
+            _fail("SYMBOL_SET_MISMATCH")
+        grouped[row.symbol].append(row)
+    baseline = tuple(row.as_of for row in grouped[str(symbols[0])])
+    if len(baseline) < 2:
+        _fail("DATES_INCOMPLETE")
+    for symbol in symbols[1:]:
+        if tuple(row.as_of for row in grouped[str(symbol)]) != baseline:
+            _fail("DATES_INCOMPLETE")
+    asset_returns: dict[str, list[dict[str, object]]] = {}
+    for symbol in symbols:
+        rows = grouped[str(symbol)]
+        series: list[dict[str, object]] = []
+        for previous, current in zip(rows, rows[1:]):
+            series.append(
+                {
+                    "date": current.as_of,
+                    "simple_return": _close_to_close_return(current.close, previous.close),
+                }
+            )
+        asset_returns[str(symbol)] = series
+    return {
+        "input_digest": snapshot.input_digest,
+        "return_definition": _RETURN_DEFINITION,
+        "source_observation_dates": list(baseline),
+        "first_price_date": baseline[0],
+        "asset_returns": asset_returns,
+        "limitations": _RETURN_LIMITATIONS,
+    }
+
+
 __all__ = [
     "SCHEMA",
     "BatchADatasetError",
     "COLUMNS",
     "PriceRow",
     "PriceSnapshotV2",
+    "extract_adjusted_close_simple_returns",
     "load_price_snapshot_v2",
 ]
