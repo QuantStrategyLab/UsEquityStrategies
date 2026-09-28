@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from us_equity_strategies.portfolio_risk_budget import (
@@ -7,6 +9,7 @@ from us_equity_strategies.portfolio_risk_budget import (
     PortfolioAssetRiskSpec,
     PortfolioRiskBudgetPolicy,
     assess_portfolio_risk_budget,
+    attribute_fixed_weight_return_risk,
 )
 
 
@@ -293,3 +296,250 @@ def test_risk_reduction_that_lands_on_explicit_cash_cap_stays_reduced() -> None:
         "BOXX": pytest.approx(0.6),
         "QQQM": pytest.approx(0.4),
     }
+
+
+def _dated_returns(
+    series: dict[str, tuple[float, ...]], dates: tuple[str, ...]
+) -> dict[str, list[dict[str, object]]]:
+    return {
+        symbol: [
+            {"date": day, "simple_return": value}
+            for day, value in zip(dates, values, strict=True)
+        ]
+        for symbol, values in series.items()
+    }
+
+
+def _attribute(
+    weights: dict[str, float],
+    series: dict[str, tuple[float, ...]],
+    *,
+    dates: tuple[str, ...] = ("2026-01-02", "2026-01-05"),
+    as_of: str = "2026-01-05",
+    minimum_observations: int = 2,
+) -> dict[str, object]:
+    return attribute_fixed_weight_return_risk(
+        weights=weights,
+        asset_returns=_dated_returns(series, dates),
+        as_of=as_of,
+        quote_currency="USD",
+        minimum_observations=minimum_observations,
+    )
+
+
+def test_perfect_correlation_splits_sample_variance_by_fixed_weights() -> None:
+    result = _attribute(
+        {"BBB": 0.4, "AAA": 0.6},
+        {"AAA": (0.02, -0.02), "BBB": (0.02, -0.02)},
+    )
+
+    assert result["status"] == "COMPUTED"
+    assert result["research_qualified"] is False
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
+    assert result["weights"] == {"AAA": 0.6, "BBB": 0.4}
+    assert result["portfolio_variance"] == pytest.approx(0.0008)
+    assert result["daily_volatility"] == pytest.approx(0.02 * (2 ** 0.5))
+    assert result["variance_contribution"] == {
+        "AAA": pytest.approx(0.00048),
+        "BBB": pytest.approx(0.00032),
+    }
+    assert math_is_close_sum(result)
+    assert result["variance_contribution_share"] == {
+        "AAA": pytest.approx(0.6),
+        "BBB": pytest.approx(0.4),
+    }
+    assert result["correlation"]["AAA"]["BBB"] == pytest.approx(1.0)
+    assert result["units"]["daily_volatility"] == "daily_simple_return"
+    assert "NOT_ANNUALIZED" in result["limitations"]
+
+
+def math_is_close_sum(result: dict[str, object]) -> bool:
+    contribution = result["variance_contribution"]
+    assert isinstance(contribution, dict)
+    return math.fsum(contribution.values()) == pytest.approx(result["portfolio_variance"])
+
+
+def test_offsetting_weights_keep_a_negative_variance_contribution() -> None:
+    result = _attribute(
+        {"AAA": 0.8, "BBB": 0.2},
+        {"AAA": (0.02, -0.02, 0.0), "BBB": (-0.02, 0.02, 0.0)},
+        dates=("2026-01-02", "2026-01-05", "2026-01-06"),
+        as_of="2026-01-06",
+    )
+
+    assert result["variance_contribution"]["BBB"] == pytest.approx(-0.000048)
+    assert result["variance_contribution"]["BBB"] < 0.0
+    assert result["variance_contribution_share"]["BBB"] == pytest.approx(-1.0 / 3.0)
+    assert result["portfolio_variance"] == pytest.approx(0.000144)
+    assert math_is_close_sum(result)
+    assert result["correlation"]["AAA"]["BBB"] == pytest.approx(-1.0)
+
+
+def test_explicit_zero_cash_return_stays_distinct_from_a_nonzero_cash_series() -> None:
+    risky = (0.01, -0.01)
+    flat = _attribute({"AAA": 0.25, "CASH": 0.75}, {"AAA": risky, "CASH": (0.0, 0.0)})
+    paid = _attribute({"AAA": 0.25, "CASH": 0.75}, {"AAA": risky, "CASH": (0.01, -0.02)})
+
+    assert flat["status"] == "COMPUTED"
+    assert flat["correlation"]["CASH"]["CASH"] is None
+    assert flat["correlation"]["AAA"]["CASH"] is None
+    assert flat["correlation"]["AAA"]["AAA"] == pytest.approx(1.0)
+    assert flat["variance_contribution_share"]["AAA"] == pytest.approx(1.0)
+    assert flat["variance_contribution"]["CASH"] == pytest.approx(0.0)
+    assert paid["portfolio_variance"] != pytest.approx(flat["portfolio_variance"])
+    assert paid["variance_contribution"]["CASH"] != pytest.approx(0.0)
+
+
+def test_zero_portfolio_variance_leaves_contribution_shares_undefined() -> None:
+    result = _attribute(
+        {"AAA": 0.5, "BBB": 0.5},
+        {"AAA": (0.02, -0.02), "BBB": (-0.02, 0.02)},
+    )
+
+    assert result["portfolio_variance"] == pytest.approx(0.0)
+    assert result["daily_volatility"] == pytest.approx(0.0)
+    assert result["variance_contribution_share"] == {"AAA": None, "BBB": None}
+    assert result["correlation"]["AAA"]["BBB"] == pytest.approx(-1.0)
+    assert math_is_close_sum(result)
+
+
+def test_weight_order_does_not_change_the_sample_diagnostic() -> None:
+    dates = ("2026-01-02", "2026-01-05", "2026-01-06")
+    series = {"AAA": (0.02, -0.02, 0.0), "BBB": (-0.02, 0.02, 0.0)}
+    forward = _attribute({"AAA": 0.8, "BBB": 0.2}, series, dates=dates, as_of="2026-01-06")
+    reverse = _attribute({"BBB": 0.2, "AAA": 0.8}, series, dates=dates, as_of="2026-01-06")
+
+    assert forward == reverse
+
+
+@pytest.mark.parametrize(
+    ("weights", "series", "kwargs", "reason"),
+    [
+        ({"AAA": True}, {"AAA": (0.01, -0.01)}, {}, "RETURN_RISK_WEIGHTS_INVALID"),
+        ({"AAA": 0.4, "BBB": 0.4}, {"AAA": (0.01, -0.01), "BBB": (0.01, -0.01)}, {}, "RETURN_RISK_WEIGHTS_INVALID"),
+        ({"AAA": float("nan")}, {"AAA": (0.01, -0.01)}, {}, "RETURN_RISK_WEIGHTS_INVALID"),
+        ({"AAA": float("inf")}, {"AAA": (0.01, -0.01)}, {}, "RETURN_RISK_WEIGHTS_INVALID"),
+        ({"AAA": 1.0}, {"BBB": (0.01, -0.01)}, {}, "RETURN_RISK_KEYS_MISMATCH"),
+        ({"AAA": 0.5, "CASH": 0.5}, {"AAA": (0.01, -0.01)}, {}, "RETURN_RISK_KEYS_MISMATCH"),
+        (
+            {"AAA": 1.0},
+            {"AAA": (0.01, float("nan"))},
+            {},
+            "RETURN_RISK_RETURN_INVALID",
+        ),
+        (
+            {"AAA": 1.0},
+            {"AAA": (0.01, float("inf"))},
+            {},
+            "RETURN_RISK_RETURN_INVALID",
+        ),
+        (
+            {"AAA": 1.0},
+            {"AAA": (True, 0.01)},
+            {},
+            "RETURN_RISK_RETURN_INVALID",
+        ),
+        (
+            {"AAA": 1.0},
+            {"AAA": (0.02, 0.01)},
+            {"dates": ("2026-01-06", "2026-01-05")},
+            "RETURN_RISK_DATES_NOT_STRICTLY_INCREASING",
+        ),
+        (
+            {"AAA": 0.5, "BBB": 0.5},
+            {"AAA": (0.01, -0.01), "BBB": (0.01, -0.01)},
+            {"dates": ("2026-01-02", "2026-01-05"), "series_dates": {"BBB": ("2026-01-02", "2026-01-06")}},
+            "RETURN_RISK_DATES_MISMATCH",
+        ),
+        (
+            {"AAA": 1.0},
+            {"AAA": (0.01, -0.01)},
+            {"as_of": "2026-01-04"},
+            "RETURN_RISK_DATE_AFTER_AS_OF",
+        ),
+        ({"AAA": 1.0}, {"AAA": (0.01, -0.01)}, {"minimum_observations": 1}, "RETURN_RISK_MINIMUM_OBSERVATIONS_INVALID"),
+        ({"AAA": 1.0}, {"AAA": (0.01, -0.01)}, {"minimum_observations": 3}, "RETURN_RISK_SAMPLE_TOO_SMALL"),
+    ],
+)
+def test_bad_return_risk_inputs_are_uncomputable_without_statistics(
+    weights: dict[str, float],
+    series: dict[str, tuple[float, ...]],
+    kwargs: dict[str, object],
+    reason: str,
+) -> None:
+    dates = kwargs.get("dates", ("2026-01-02", "2026-01-05"))
+    assert isinstance(dates, tuple)
+    panel = _dated_returns(series, dates)
+    custom_dates = kwargs.get("series_dates")
+    if isinstance(custom_dates, dict):
+        for symbol, symbol_dates in custom_dates.items():
+            panel[symbol] = [
+                {"date": day, "simple_return": series[symbol][index]}
+                for index, day in enumerate(symbol_dates)
+            ]
+    result = attribute_fixed_weight_return_risk(
+        weights=weights,
+        asset_returns=panel,
+        as_of=str(kwargs.get("as_of", "2026-01-05")),
+        quote_currency="USD",
+        minimum_observations=kwargs.get("minimum_observations", 2),
+    )
+
+    assert result["status"] == "UNCOMPUTABLE"
+    assert result["reason_codes"] == (reason,)
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
+    assert "portfolio_variance" not in result
+    assert "variance_contribution" not in result
+    assert "correlation" not in result
+
+
+def test_extreme_unit_weight_correlations_do_not_overflow_or_underflow() -> None:
+    large = _attribute({"AAA": 1.0}, {"AAA": (0.0, 1e100)})
+    small = _attribute({"AAA": 1.0}, {"AAA": (0.0, 1e-100)})
+
+    assert large["status"] == "COMPUTED"
+    assert large["correlation"]["AAA"]["AAA"] == 1.0
+    assert small["status"] == "COMPUTED"
+    assert small["correlation"]["AAA"]["AAA"] == 1.0
+
+
+def _assert_uncomputable_without_statistics(result: dict[str, object]) -> None:
+    assert result["status"] == "UNCOMPUTABLE"
+    assert result["execution_authorized"] is False
+    assert "portfolio_variance" not in result
+    assert "daily_volatility" not in result
+    assert "variance_contribution" not in result
+    assert "variance_contribution_share" not in result
+    assert "correlation" not in result
+
+
+def test_overflowing_finite_weights_or_returns_stay_uncomputable() -> None:
+    weights = _attribute(
+        {"AAA": 1e308, "BBB": 1e308},
+        {"AAA": (0.0, 0.01), "BBB": (0.0, 0.01)},
+    )
+    returns = _attribute({"AAA": 1.0}, {"AAA": (1e308, 1e308)})
+    huge_weight = attribute_fixed_weight_return_risk(
+        weights={"AAA": 10**10000},
+        asset_returns=_dated_returns({"AAA": (0.0, 0.01)}, ("2026-01-02", "2026-01-05")),
+        as_of="2026-01-05",
+        quote_currency="USD",
+        minimum_observations=2,
+    )
+    huge_return = attribute_fixed_weight_return_risk(
+        weights={"AAA": 1.0},
+        asset_returns={
+            "AAA": [
+                {"date": "2026-01-02", "simple_return": 0},
+                {"date": "2026-01-05", "simple_return": 10**10000},
+            ]
+        },
+        as_of="2026-01-05",
+        quote_currency="USD",
+        minimum_observations=2,
+    )
+
+    for result in (weights, returns, huge_weight, huge_return):
+        _assert_uncomputable_without_statistics(result)

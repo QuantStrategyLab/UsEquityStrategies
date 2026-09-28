@@ -10,12 +10,31 @@ submits, stores, or schedules anything.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 
 SCHEMA_VERSION = "qsl.portfolio-risk-budget-research.v1"
 _EPSILON = 1e-12
 _ITERATIONS = 64
+_CURRENCY = re.compile(r"^[A-Z]{3}$")
+_RETURN_RISK_SEMANTICS = "FIXED_WEIGHT_SAME_WINDOW_SAMPLE_DIAGNOSTIC"
+_RETURN_RISK_LIMITATIONS = (
+    "NOT_A_BACKTEST",
+    "NO_IMPLIED_REBALANCE_PATH",
+    "NOT_A_FORECAST_OR_POSITION_RECOMMENDATION",
+    "NOT_ANNUALIZED",
+    "LEVERAGE_FACTOR_NOT_APPLIED",
+    "STATISTIC_IS_NOT_RESEARCH_QUALIFICATION",
+)
+_RETURN_RISK_UNITS = {
+    "portfolio_variance": "sample_variance_of_daily_simple_return",
+    "daily_volatility": "daily_simple_return",
+    "variance_contribution": "sample_variance_of_daily_simple_return",
+    "variance_contribution_share": "fraction_of_sample_portfolio_variance",
+    "correlation": "pearson_sample_correlation",
+}
 
 
 @dataclass(frozen=True)
@@ -349,10 +368,239 @@ def assess_portfolio_risk_budget(
         }
 
 
+def _iso_date(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.isoformat() != value:
+        return None
+    return parsed
+
+
+def _return_risk_uncomputable(reason: str) -> dict[str, object]:
+    return {
+        "status": "UNCOMPUTABLE",
+        "reason_codes": (reason,),
+        "execution_authorized": False,
+        "promotion_authorized": False,
+        "research_qualified": False,
+        "semantics": _RETURN_RISK_SEMANTICS,
+        "limitations": _RETURN_RISK_LIMITATIONS,
+        "units": dict(_RETURN_RISK_UNITS),
+    }
+
+
+def _diagnostic_weights(value: object) -> dict[str, float] | str:
+    if not isinstance(value, Mapping) or not value:
+        return "RETURN_RISK_WEIGHTS_INVALID"
+    result: dict[str, float] = {}
+    for raw_symbol, raw_weight in value.items():
+        try:
+            symbol = _symbol(raw_symbol, "return risk weight symbol")
+        except PortfolioRiskBudgetError:
+            return "RETURN_RISK_WEIGHTS_INVALID"
+        if isinstance(raw_weight, bool) or not isinstance(raw_weight, (int, float)):
+            return "RETURN_RISK_WEIGHTS_INVALID"
+        try:
+            weight = float(raw_weight)
+            if not math.isfinite(weight) or weight < 0.0:
+                return "RETURN_RISK_WEIGHTS_INVALID"
+        except (OverflowError, ValueError, ArithmeticError):
+            return "RETURN_RISK_WEIGHTS_INVALID"
+        result[symbol] = weight
+    try:
+        total = math.fsum(result.values())
+    except (OverflowError, ValueError, ArithmeticError):
+        return "RETURN_RISK_WEIGHTS_INVALID"
+    if not math.isfinite(total) or not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=_EPSILON):
+        return "RETURN_RISK_WEIGHTS_INVALID"
+    return result
+
+
+def _return_observations(value: object) -> tuple[tuple[str, float], ...] | str:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or not value:
+        return "RETURN_RISK_RETURN_INVALID"
+    rows: list[tuple[str, float]] = []
+    previous: date | None = None
+    for item in value:
+        if not isinstance(item, Mapping) or set(item) != {"date", "simple_return"}:
+            return "RETURN_RISK_RETURN_INVALID"
+        parsed = _iso_date(item.get("date"))
+        if parsed is None:
+            return "RETURN_RISK_DATE_INVALID"
+        if previous is not None and parsed <= previous:
+            return "RETURN_RISK_DATES_NOT_STRICTLY_INCREASING"
+        raw_return = item.get("simple_return")
+        if isinstance(raw_return, bool) or not isinstance(raw_return, (int, float)):
+            return "RETURN_RISK_RETURN_INVALID"
+        try:
+            simple_return = float(raw_return)
+            if not math.isfinite(simple_return):
+                return "RETURN_RISK_RETURN_INVALID"
+        except (OverflowError, ValueError, ArithmeticError):
+            return "RETURN_RISK_RETURN_INVALID"
+        previous = parsed
+        rows.append((parsed.isoformat(), simple_return))
+    return tuple(rows)
+
+
+def _sample_correlation(
+    covariance: float, left_variance: float, right_variance: float
+) -> float | None:
+    """Pearson correlation without multiplying the two variances together.
+
+    ``sqrt(left * right)`` overflows for large variances and underflows to zero
+    for tiny ones.  Scaling each standard deviation separately keeps a unit
+    correlation representable.
+    """
+    if not (left_variance > 0.0 and right_variance > 0.0):
+        return None
+    if (
+        not math.isfinite(covariance)
+        or not math.isfinite(left_variance)
+        or not math.isfinite(right_variance)
+    ):
+        raise OverflowError
+    if covariance == left_variance and left_variance == right_variance:
+        return 1.0
+    scale = math.sqrt(left_variance) * math.sqrt(right_variance)
+    if scale == 0.0 or not math.isfinite(scale):
+        raise OverflowError
+    value = covariance / scale
+    if not math.isfinite(value):
+        raise OverflowError
+    return value
+
+
+def attribute_fixed_weight_return_risk(
+    *,
+    weights: Mapping[str, float],
+    asset_returns: Mapping[str, Sequence[Mapping[str, object]]],
+    as_of: str,
+    quote_currency: str,
+    minimum_observations: int,
+) -> dict[str, object]:
+    """Describe fixed-weight sample risk for one explicit same-window return panel.
+
+    This is not a backtest, a rebalanced wealth path, a forecast, or a position
+    recommendation.  Asset simple returns are used as supplied; a leverage
+    factor is not applied again.  Missing, misaligned, non-finite, or
+    under-sized inputs return ``UNCOMPUTABLE`` without statistic values.
+    """
+    as_of_date = _iso_date(as_of)
+    if as_of_date is None:
+        return _return_risk_uncomputable("RETURN_RISK_AS_OF_INVALID")
+    if not isinstance(quote_currency, str) or _CURRENCY.fullmatch(quote_currency) is None:
+        return _return_risk_uncomputable("RETURN_RISK_CURRENCY_INVALID")
+    if (
+        isinstance(minimum_observations, bool)
+        or type(minimum_observations) is not int
+        or minimum_observations < 2
+    ):
+        return _return_risk_uncomputable("RETURN_RISK_MINIMUM_OBSERVATIONS_INVALID")
+    validated = _diagnostic_weights(weights)
+    if isinstance(validated, str):
+        return _return_risk_uncomputable(validated)
+    if not isinstance(asset_returns, Mapping) or set(asset_returns) != set(validated):
+        return _return_risk_uncomputable("RETURN_RISK_KEYS_MISMATCH")
+
+    symbols = tuple(sorted(validated))
+    columns: list[list[float]] = []
+    dates: tuple[str, ...] | None = None
+    for symbol in symbols:
+        observations = _return_observations(asset_returns[symbol])
+        if isinstance(observations, str):
+            return _return_risk_uncomputable(observations)
+        symbol_dates = tuple(item[0] for item in observations)
+        if dates is None:
+            dates = symbol_dates
+        elif symbol_dates != dates:
+            return _return_risk_uncomputable("RETURN_RISK_DATES_MISMATCH")
+        columns.append([item[1] for item in observations])
+    assert dates is not None
+    if any(date.fromisoformat(item) > as_of_date for item in dates):
+        return _return_risk_uncomputable("RETURN_RISK_DATE_AFTER_AS_OF")
+    if len(dates) < minimum_observations:
+        return _return_risk_uncomputable("RETURN_RISK_SAMPLE_TOO_SMALL")
+
+    try:
+        count = len(dates)
+        means = [math.fsum(column) / count for column in columns]
+        covariance: list[list[float]] = []
+        for left in range(len(symbols)):
+            row: list[float] = []
+            for right in range(len(symbols)):
+                product = math.fsum(
+                    (columns[left][index] - means[left]) * (columns[right][index] - means[right])
+                    for index in range(count)
+                )
+                row.append(product / (count - 1))
+            covariance.append(row)
+        if any(not math.isfinite(value) for row in covariance for value in row):
+            return _return_risk_uncomputable("RETURN_RISK_NONFINITE")
+
+        marginal = [
+            math.fsum(
+                covariance[left][right] * validated[symbols[right]]
+                for right in range(len(symbols))
+            )
+            for left in range(len(symbols))
+        ]
+        contribution = {
+            symbol: validated[symbol] * marginal[index] for index, symbol in enumerate(symbols)
+        }
+        portfolio_variance = math.fsum(contribution.values())
+        if not math.isfinite(portfolio_variance) or portfolio_variance < 0.0:
+            return _return_risk_uncomputable("RETURN_RISK_NONFINITE")
+        daily_volatility = math.sqrt(portfolio_variance)
+        if not math.isfinite(daily_volatility):
+            return _return_risk_uncomputable("RETURN_RISK_NONFINITE")
+        shares: dict[str, float | None] = {}
+        for symbol, value in contribution.items():
+            if not math.isfinite(value):
+                return _return_risk_uncomputable("RETURN_RISK_NONFINITE")
+            shares[symbol] = None if portfolio_variance == 0.0 else value / portfolio_variance
+        correlation: dict[str, dict[str, float | None]] = {}
+        for left, left_symbol in enumerate(symbols):
+            correlation[left_symbol] = {}
+            for right, right_symbol in enumerate(symbols):
+                correlation[left_symbol][right_symbol] = _sample_correlation(
+                    covariance[left][right],
+                    covariance[left][left],
+                    covariance[right][right],
+                )
+    except (OverflowError, ZeroDivisionError, ValueError, ArithmeticError):
+        return _return_risk_uncomputable("RETURN_RISK_NONFINITE")
+    return {
+        "status": "COMPUTED",
+        "reason_codes": (),
+        "execution_authorized": False,
+        "promotion_authorized": False,
+        "research_qualified": False,
+        "semantics": _RETURN_RISK_SEMANTICS,
+        "limitations": _RETURN_RISK_LIMITATIONS,
+        "as_of": as_of_date.isoformat(),
+        "quote_currency": quote_currency,
+        "observation_count": count,
+        "dates": list(dates),
+        "weights": {symbol: validated[symbol] for symbol in symbols},
+        "portfolio_variance": portfolio_variance,
+        "daily_volatility": daily_volatility,
+        "variance_contribution": contribution,
+        "variance_contribution_share": shares,
+        "correlation": correlation,
+        "units": dict(_RETURN_RISK_UNITS),
+    }
+
+
 __all__ = [
     "SCHEMA_VERSION",
     "PortfolioAssetRiskSpec",
     "PortfolioRiskBudgetError",
     "PortfolioRiskBudgetPolicy",
     "assess_portfolio_risk_budget",
+    "attribute_fixed_weight_return_risk",
 ]
