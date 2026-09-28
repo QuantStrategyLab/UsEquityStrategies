@@ -1046,13 +1046,17 @@ def _max_drawdown(values: list[float]) -> float:
     return float(max_dd)
 
 
-def _max_underwater_days(equity_curve: Iterable[Mapping[str, object]]) -> int:
+def _max_underwater_days(
+    equity_curve: Iterable[Mapping[str, object]],
+    *,
+    value_key: str = "equity",
+) -> int:
     peak = 0.0
     peak_date: pd.Timestamp | None = None
     max_days = 0
     for row in equity_curve:
         date = pd.Timestamp(row["date"]).normalize()
-        value = float(row["equity"])
+        value = float(row[value_key])
         if value >= peak:
             peak = value
             peak_date = date
@@ -1061,22 +1065,80 @@ def _max_underwater_days(equity_curve: Iterable[Mapping[str, object]]) -> int:
     return max_days
 
 
-def _xirr(cash_flows: Iterable[Mapping[str, object]]) -> float:
-    rows = tuple(cash_flows)
-    if len(rows) < 2:
-        return float("nan")
-    first_date = pd.Timestamp(rows[0]["date"]).normalize()
-    dated_values = tuple(
-        (
-            max(0.0, (pd.Timestamp(row["date"]).normalize() - first_date).days / 365.25),
-            float(row["amount"]),
+def _annotate_investment_risk(rows: list[dict[str, object]]) -> tuple[float, int]:
+    """Drawdown of a contribution-neutral index, leaving the asset curve in place.
+
+    Each session adds the external contribution before it marks equity at that
+    session close. The new cash is therefore in the close mark and does not
+    earn the previous-close to current-close price move. Session return is
+    ``equity_t / (equity_t-1 + contribution_t) - 1``. Two 1000 contributions
+    with price 100 then 50 mark assets at 1000 then 1500: the index falls 25%,
+    not 0% and not the 50% that would apply if the second contribution arrived
+    after the close mark. A later pure contribution earns zero and cannot clear
+    that underwater period.
+    """
+
+    index = 1.0
+    previous_equity = 0.0
+    previous_contributions = 0.0
+    asset_peak = 0.0
+    index_peak = 0.0
+    index_values: list[float] = []
+    for row in rows:
+        equity = float(row["equity"])
+        contributions = float(row["contributions"])
+        external = contributions - previous_contributions
+        base = previous_equity + external
+        if base > 0.0:
+            index *= equity / base
+        asset_peak = max(asset_peak, equity)
+        index_peak = max(index_peak, index)
+        row["investment_index"] = float(index)
+        row["asset_drawdown_pct"] = (
+            0.0 if asset_peak <= 0.0 else float((1.0 - equity / asset_peak) * 100.0)
         )
-        for row in rows
+        row["drawdown_pct"] = (
+            0.0 if index_peak <= 0.0 else float((1.0 - index / index_peak) * 100.0)
+        )
+        index_values.append(float(index))
+        previous_equity = equity
+        previous_contributions = contributions
+    return _max_drawdown(index_values), _max_underwater_days(
+        rows,
+        value_key="investment_index",
     )
-    if not any(amount < 0.0 for _, amount in dated_values) or not any(
-        amount > 0.0 for _, amount in dated_values
+
+
+def _xirr(cash_flows: Iterable[Mapping[str, object]]) -> float:
+    totals: dict[pd.Timestamp, float] = {}
+    for row in cash_flows:
+        amount = float(row["amount"])
+        if not math.isfinite(amount):
+            return float("nan")
+        date = pd.Timestamp(row["date"]).normalize()
+        totals[date] = totals.get(date, 0.0) + amount
+    aggregated = sorted(
+        (date, amount) for date, amount in totals.items() if amount != 0.0
+    )
+    if len(aggregated) < 2:
+        return float("nan")
+    first_date = aggregated[0][0]
+    if int((aggregated[-1][0] - first_date).days) <= 0:
+        return float("nan")
+    if not any(amount < 0.0 for _, amount in aggregated) or not any(
+        amount > 0.0 for _, amount in aggregated
     ):
         return float("nan")
+    if math.isclose(
+        sum(amount for _, amount in aggregated),
+        0.0,
+        rel_tol=0.0,
+        abs_tol=1e-8,
+    ):
+        return 0.0
+    dated_values = tuple(
+        ((date - first_date).days / 365.25, amount) for date, amount in aggregated
+    )
 
     def npv(rate: float) -> float:
         return sum(amount / ((1.0 + rate) ** years) for years, amount in dated_values)
@@ -1199,7 +1261,6 @@ def _run_path(
     shares = 0.0
     invested = 0.0
     contributions = 0.0
-    equity_curve: list[float] = []
     equity_rows: list[dict[str, object]] = []
     cash_flows: list[dict[str, object]] = []
     trades: list[dict[str, object]] = []
@@ -1230,7 +1291,7 @@ def _run_path(
                 metrics: dict[str, object] = {}
             else:
                 assert signal_prices is not None
-                history = signal_prices.loc[signal_prices.index <= date]
+                history = signal_prices.loc[signal_prices.index < date]
                 multiplier, regime, metrics = _candidate_multiplier(candidate, history, as_of=date)
             last_metrics = dict(metrics)
 
@@ -1290,8 +1351,6 @@ def _run_path(
                     )
 
         equity = cash + shares * price
-        equity_curve.append(equity)
-        running_peak = max(equity_curve)
         equity_rows.append(
             {
                 "date": date.date().isoformat(),
@@ -1302,9 +1361,6 @@ def _run_path(
                 "price": price,
                 "invested": float(invested),
                 "contributions": float(contributions),
-                "drawdown_pct": 0.0
-                if running_peak <= 0.0
-                else float((1.0 - equity / running_peak) * 100.0),
             }
         )
 
@@ -1320,6 +1376,7 @@ def _run_path(
             }
         )
     deployment_rate = invested / contributions if contributions > 0.0 else 0.0
+    investment_drawdown, investment_underwater_days = _annotate_investment_risk(equity_rows)
     equity_curve_rows = tuple(equity_rows)
     cash_flow_rows = tuple(cash_flows)
     return DcaResearchResult(
@@ -1329,8 +1386,8 @@ def _run_path(
         shares=float(shares),
         invested=float(invested),
         contributions=float(contributions),
-        max_drawdown=_max_drawdown(equity_curve),
-        max_underwater_days=_max_underwater_days(equity_curve_rows),
+        max_drawdown=investment_drawdown,
+        max_underwater_days=investment_underwater_days,
         money_weighted_return=_xirr(cash_flow_rows),
         trade_count=len(trades),
         skipped_count=len(skips),
@@ -1863,10 +1920,12 @@ def scenario_results_to_robustness_rows(
                 "min_money_weighted_return_pct": _min_metric(
                     values,
                     "money_weighted_return_pct",
+                    missing=float("nan"),
                 ),
                 "median_money_weighted_return_pct": _median_metric(
                     values,
                     "money_weighted_return_pct",
+                    missing=float("nan"),
                 ),
                 "max_average_cash_ratio_pct": _max_metric(
                     values,
@@ -2905,9 +2964,14 @@ def _metric_values(rows: Iterable[Mapping[str, object]], field: str) -> list[flo
     return values
 
 
-def _min_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
+def _min_metric(
+    rows: Iterable[Mapping[str, object]],
+    field: str,
+    *,
+    missing: float = 0.0,
+) -> float:
     values = _metric_values(rows, field)
-    return float(min(values)) if values else 0.0
+    return float(min(values)) if values else missing
 
 
 def _max_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
@@ -2915,10 +2979,15 @@ def _max_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
     return float(max(values)) if values else 0.0
 
 
-def _median_metric(rows: Iterable[Mapping[str, object]], field: str) -> float:
+def _median_metric(
+    rows: Iterable[Mapping[str, object]],
+    field: str,
+    *,
+    missing: float = 0.0,
+) -> float:
     values = sorted(_metric_values(rows, field))
     if not values:
-        return 0.0
+        return missing
     midpoint = len(values) // 2
     if len(values) % 2:
         return float(values[midpoint])
@@ -3254,8 +3323,9 @@ def compare_smart_dca_candidates(
 
     if align_start_after_warmup and candidates:
         warmup = max(candidate.min_history for candidate in candidates)
-        if len(common_index) >= warmup:
-            warmup_start = common_index[warmup - 1]
+        # First simulated session needs this many earlier sessions of signal.
+        if len(common_index) > warmup:
+            warmup_start = common_index[warmup]
             common_index = common_index[common_index >= warmup_start]
         else:
             common_index = common_index[:0]

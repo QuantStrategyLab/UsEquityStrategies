@@ -1,10 +1,16 @@
 import inspect
 import json
+import math
+from dataclasses import replace
 
 import pandas as pd
 
 from us_equity_strategies.backtests.smart_dca_research import (
+    PRESET_CANDIDATES,
     DcaResearchResult,
+    _run_path,
+    _scheduled_execution_dates,
+    _xirr,
     available_candidate_names,
     candidate_set_signal_consumers,
     candidate_set_signal_source_modes,
@@ -1550,3 +1556,303 @@ def test_candidate_universe_is_named_and_bounded() -> None:
         "ibit_btc_precomputed_ahr999_percentile_cycle",
         "ibit_btc_precomputed_ahr999_guarded_cycle",
     )
+
+
+def _contribution_path(
+    prices: list[float],
+    dates: list[str],
+    *,
+    contribution_dates: list[str],
+    execution_dates: list[str],
+    signal_prices: pd.DataFrame | None = None,
+    candidate_name: str | None = None,
+) -> object:
+    index = pd.to_datetime(dates)
+    return _run_path(
+        name="fixed" if candidate_name is None else candidate_name,
+        trade_prices=pd.Series(prices, index=index),
+        signal_prices=signal_prices,
+        contribution_amount_usd=1000.0,
+        candidate=None if candidate_name is None else PRESET_CANDIDATES[candidate_name],
+        min_investment_usd=0.0,
+        contribution_dates=frozenset(pd.to_datetime(contribution_dates)),
+        execution_dates=frozenset(pd.to_datetime(execution_dates)),
+    )
+
+
+def test_contribution_before_close_mark_uses_25_percent_index_drawdown() -> None:
+    fixed = _contribution_path(
+        [100.0, 50.0],
+        ["2024-01-02", "2024-02-01"],
+        contribution_dates=["2024-01-02", "2024-02-01"],
+        execution_dates=["2024-01-02", "2024-02-01"],
+    )
+    smart = _contribution_path(
+        [100.0, 50.0],
+        ["2024-01-02", "2024-02-01"],
+        contribution_dates=["2024-01-02", "2024-02-01"],
+        execution_dates=["2024-01-02", "2024-02-01"],
+        signal_prices=pd.DataFrame(
+            {"QQQ": [100.0, 50.0], "SPY": [100.0, 50.0]},
+            index=pd.to_datetime(["2024-01-02", "2024-02-01"]),
+        ),
+        candidate_name="nasdaq_sp500_price_defensive",
+    )
+
+    assert [row["equity"] for row in fixed.equity_curve] == [1000.0, 1500.0]
+    assert fixed.contributions == 2000.0
+    assert [row["asset_drawdown_pct"] for row in fixed.equity_curve] == [0.0, 0.0]
+    assert [row["drawdown_pct"] for row in fixed.equity_curve] == [0.0, 25.0]
+    assert [row["investment_index"] for row in fixed.equity_curve] == [1.0, 0.75]
+    assert fixed.max_drawdown == 0.25
+    assert fixed.max_underwater_days == 30
+    assert smart.trade_count == 0
+    assert smart.max_drawdown == 0.0
+
+    evaluations = evaluate_candidate_results({"fixed": fixed, "smart": smart})
+    evaluation = evaluations["smart"]
+    assert evaluation.max_drawdown_delta_pct_points == -25.0
+    asset_rank = (
+        evaluation.relative_terminal_value_pct
+        + evaluation.deployment_rate_delta_pct_points * 0.05
+        - max(0.0, evaluation.skipped_buy_ratio - 0.30) * 10.0
+    )
+    assert evaluation.rank_score == asset_rank + 12.5
+
+    tied = evaluate_candidate_results(
+        {"fixed": fixed, "clone": replace(fixed, name="clone")}
+    )["clone"]
+    assert fixed.max_drawdown == 0.25
+    assert tied.max_drawdown_delta_pct_points == 0.0
+    assert tied.rank_score == 0.0
+    assert tied.passed is True
+
+    metrics = results_to_metrics_rows(
+        {"fixed": fixed, "smart": smart},
+        evaluations=evaluations,
+    )
+    fixed_metrics = next(row for row in metrics if row["name"] == "fixed")
+    assert fixed_metrics["max_drawdown_pct"] == 25.0
+    assert fixed_metrics["max_underwater_days"] == 30
+
+
+def test_pure_contribution_does_not_create_profit_or_clear_underwater() -> None:
+    flat = _contribution_path(
+        [100.0, 100.0],
+        ["2024-01-02", "2024-02-01"],
+        contribution_dates=["2024-01-02", "2024-02-01"],
+        execution_dates=["2024-01-02", "2024-02-01"],
+    )
+    assert [row["equity"] for row in flat.equity_curve] == [1000.0, 2000.0]
+    assert flat.max_drawdown == 0.0
+    assert flat.max_underwater_days == 0
+    assert flat.money_weighted_return == 0.0
+
+    held = _contribution_path(
+        [100.0, 50.0, 50.0],
+        ["2024-01-02", "2024-01-03", "2024-02-01"],
+        contribution_dates=["2024-01-02", "2024-02-01"],
+        execution_dates=["2024-01-02", "2024-02-01"],
+    )
+    assert [row["equity"] for row in held.equity_curve] == [1000.0, 500.0, 1500.0]
+    assert [row["investment_index"] for row in held.equity_curve] == [1.0, 0.5, 0.5]
+    assert held.equity_curve[-1]["asset_drawdown_pct"] == 0.0
+    assert held.equity_curve[-1]["drawdown_pct"] == 50.0
+    assert held.max_drawdown == 0.5
+    assert held.max_underwater_days == 30
+
+    price_only = _contribution_path(
+        [100.0, 50.0],
+        ["2024-01-02", "2024-01-03"],
+        contribution_dates=["2024-01-02"],
+        execution_dates=["2024-01-02"],
+    )
+    assert price_only.max_drawdown == 0.5
+    assert price_only.equity_curve[-1]["asset_drawdown_pct"] == 50.0
+    assert price_only.equity_curve[-1]["drawdown_pct"] == 50.0
+
+
+def test_xirr_rejects_same_day_flows_and_keeps_zero_profit_at_zero() -> None:
+    same_day = (
+        {"date": "2024-01-02", "amount": -1000.0},
+        {"date": "2024-01-02", "amount": 1000.0},
+    )
+    assert math.isnan(_xirr(same_day))
+    assert _xirr(same_day) != 4.50005
+    assert math.isnan(_xirr(()))
+    assert math.isnan(_xirr(({"date": "2024-01-02", "amount": -1000.0},)))
+    assert math.isnan(
+        _xirr(
+            (
+                {"date": "2024-01-02", "amount": 0.0},
+                {"date": "2024-02-01", "amount": 0.0},
+            )
+        )
+    )
+    assert _xirr(
+        (
+            {"date": "2024-01-02", "amount": -600.0},
+            {"date": "2024-01-02", "amount": -400.0},
+            {"date": "2024-02-01", "amount": 1000.0},
+        )
+    ) == 0.0
+    assert _xirr(
+        (
+            {"date": "2024-01-02", "amount": -1000.0},
+            {"date": "2024-06-01", "amount": 1000.0},
+        )
+    ) == 0.0
+
+
+def test_default_warmup_one_session_does_not_export_false_annualized_return(tmp_path) -> None:
+    short = pd.bdate_range(end="2025-12-30", periods=252)
+    short_prices = pd.Series(100.0, index=short)
+    short_signals = pd.DataFrame({"QQQ": short_prices, "SPY": short_prices})
+    try:
+        compare_smart_dca_candidates(
+            signal_prices=short_signals,
+            trade_prices=short_prices,
+            candidate_set="nasdaq_sp500_price_defensive",
+        )
+    except ValueError as exc:
+        assert "warmup" in str(exc)
+    else:
+        raise AssertionError("252 sessions have no execution day with a prior signal")
+
+    dates = pd.bdate_range(end="2025-12-30", periods=253)
+    prices = pd.Series(100.0, index=dates)
+    signals = pd.DataFrame({"QQQ": prices, "SPY": prices})
+    one_day = pd.Series([100.0], index=pd.to_datetime(["2025-12-30"]))
+    one_day_signals = pd.DataFrame({"QQQ": [100.0], "SPY": [100.0]}, index=one_day.index)
+    explicit = compare_smart_dca_candidates(
+        signal_prices=one_day_signals,
+        trade_prices=one_day,
+        candidate_set="nasdaq_sp500_price_defensive",
+        align_start_after_warmup=False,
+    )
+    assert math.isnan(explicit["fixed"].money_weighted_return)
+
+    results = compare_smart_dca_candidates(
+        signal_prices=signals,
+        trade_prices=prices,
+        candidate_set="nasdaq_sp500_price_defensive",
+    )
+    assert [row["date"] for row in results["fixed"].equity_curve] == ["2025-12-30"]
+    assert math.isnan(results["fixed"].money_weighted_return)
+    metrics = results_to_metrics_rows(results)
+    assert all(math.isnan(row["money_weighted_return_pct"]) for row in metrics)
+    scenarios = compare_monthly_execution_day_scenarios(
+        signal_prices=signals,
+        trade_prices=prices,
+        execution_days=(1,),
+        candidate_set="nasdaq_sp500_price_defensive",
+    )
+    robustness = scenario_results_to_robustness_rows(scenarios)
+    assert math.isnan(robustness[0]["min_money_weighted_return_pct"])
+    assert math.isnan(robustness[0]["median_money_weighted_return_pct"])
+    artifact_paths = write_scenario_research_artifacts(tmp_path, scenarios)
+    exported = "\n".join(path.read_text(encoding="utf-8") for path in artifact_paths.values())
+    assert "450.005" not in exported
+    exported_metrics = pd.read_csv(tmp_path / "monthly_day_1" / "metrics.csv")
+    assert exported_metrics["money_weighted_return_pct"].isna().all()
+
+
+def test_execution_uses_previous_trading_session_not_same_close() -> None:
+    dates = pd.bdate_range(end="2025-12-30", periods=253)
+    baseline_signals = pd.DataFrame(
+        {"QQQ": pd.Series(100.0, index=dates), "SPY": pd.Series(100.0, index=dates)}
+    )
+    same_day = baseline_signals.copy()
+    same_day.loc[dates[-1], ["QQQ", "SPY"]] = 50.0
+    prior_day = baseline_signals.copy()
+    prior_day.loc[dates[-2], ["QQQ", "SPY"]] = 50.0
+    trades = pd.Series(100.0, index=dates)
+    common = {
+        "trade_prices": trades,
+        "contribution_amount_usd": 1000.0,
+        "min_investment_usd": 0.0,
+        "contribution_dates": frozenset({dates[0], dates[-1]}),
+        "execution_dates": frozenset({dates[-1]}),
+    }
+    baseline = _run_path(
+        name="baseline",
+        signal_prices=baseline_signals,
+        candidate=PRESET_CANDIDATES["nasdaq_sp500_price_defensive"],
+        **common,
+    )
+    perturbed_today = _run_path(
+        name="today",
+        signal_prices=same_day,
+        candidate=PRESET_CANDIDATES["nasdaq_sp500_price_defensive"],
+        **common,
+    )
+    perturbed_prior = _run_path(
+        name="prior",
+        signal_prices=prior_day,
+        candidate=PRESET_CANDIDATES["nasdaq_sp500_price_defensive"],
+        **common,
+    )
+    fixed = _run_path(name="fixed", signal_prices=None, candidate=None, **common)
+
+    assert baseline.trades[-1]["buy_value"] == 1000.0
+    assert baseline.trades[-1]["price"] == 100.0
+    assert perturbed_today.trades[-1]["buy_value"] == 1000.0
+    assert perturbed_today.trades[-1]["price"] == 100.0
+    assert perturbed_prior.trades[-1]["buy_value"] == 1500.0
+    assert perturbed_prior.trades[-1]["price"] == 100.0
+    assert fixed.trades[-1]["buy_value"] == 1000.0
+    assert fixed.trades[-1]["multiplier"] == 1.0
+
+    week = pd.bdate_range("2024-01-01", "2024-01-19")
+    weekly = _scheduled_execution_dates(week, cadence="weekly", monthly_execution_day=15)
+    assert pd.Timestamp("2024-01-01") in weekly
+    assert pd.Timestamp("2024-01-02") not in weekly
+    monthly = _scheduled_execution_dates(week, cadence="monthly", monthly_execution_day=15)
+    assert pd.Timestamp("2024-01-15") in monthly
+    assert pd.Timestamp("2024-01-01") not in monthly
+
+    sessions = pd.to_datetime(["2025-01-03", "2025-01-06"])
+    precomputed = pd.DataFrame({"cape_percentile": [0.99, 0.10]}, index=sessions)
+    monday = compare_smart_dca_candidates(
+        signal_prices=precomputed,
+        trade_prices=pd.Series(100.0, index=sessions),
+        candidate_set="nasdaq_sp500_precomputed_valuation_guard",
+        monthly_contribution_usd=1000.0,
+    )["nasdaq_sp500_precomputed_valuation_guard"]
+    assert monday.trades[0]["date"] == "2025-01-06"
+    assert monday.trades[0]["multiplier"] == 0.75
+    assert monday.trades[0]["buy_value"] == 750.0
+    assert monday.trades[0]["price"] == 100.0
+
+    monday_only = precomputed.copy()
+    monday_only.loc[sessions[1], "cape_percentile"] = 0.99
+    unchanged = compare_smart_dca_candidates(
+        signal_prices=monday_only,
+        trade_prices=pd.Series(100.0, index=sessions),
+        candidate_set="nasdaq_sp500_precomputed_valuation_guard",
+        monthly_contribution_usd=1000.0,
+    )["nasdaq_sp500_precomputed_valuation_guard"]
+    assert unchanged.trades[0]["buy_value"] == 750.0
+
+    friday = precomputed.copy()
+    friday.loc[sessions[0], "cape_percentile"] = 0.10
+    changed = compare_smart_dca_candidates(
+        signal_prices=friday,
+        trade_prices=pd.Series(100.0, index=sessions),
+        candidate_set="nasdaq_sp500_precomputed_valuation_guard",
+        monthly_contribution_usd=1000.0,
+    )["nasdaq_sp500_precomputed_valuation_guard"]
+    assert changed.trades[0]["multiplier"] == 1.0
+    assert changed.trades[0]["buy_value"] == 1000.0
+
+
+def test_path_without_contributions_stays_defined() -> None:
+    idle = _contribution_path(
+        [100.0, 50.0],
+        ["2024-01-02", "2024-01-03"],
+        contribution_dates=[],
+        execution_dates=[],
+    )
+    assert [row["equity"] for row in idle.equity_curve] == [0.0, 0.0]
+    assert idle.max_drawdown == 0.0
+    assert math.isnan(idle.money_weighted_return)
