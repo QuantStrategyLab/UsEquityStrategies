@@ -10,6 +10,7 @@ import pytest
 from us_equity_strategies.research.batch_a_dataset import (
     SCHEMA,
     BatchADatasetError,
+    extract_adjusted_close_simple_returns,
     load_price_snapshot_v2,
 )
 from us_equity_strategies.research.batch_a_member_pack import (
@@ -321,3 +322,104 @@ def test_batch_a_gate_rejects_v1_pack() -> None:
     )
     assert result["status"] == "PARKED"
     assert "FROZEN_MEMBER_PACK_V1_REJECTED" in result["reason_codes"]
+
+
+def _flat_csv(symbol: str, points: tuple[tuple[str, float], ...]) -> bytes:
+    lines = ["symbol,as_of,open,high,low,close,volume"]
+    for as_of, close in points:
+        text = format(close, ".17g")
+        lines.append(",".join((symbol, as_of, text, text, text, text, "1")))
+    return ("\n".join(lines) + "\n").encode()
+
+
+def test_extracts_hand_calculated_adjusted_close_returns(tmp_path: Path) -> None:
+    dates = _dates(3)
+    dataset = _write_dataset(
+        tmp_path, dataset_id="demo-returns", symbols=("SOXX", "SOXL"), dates=dates
+    )
+    extracted = extract_adjusted_close_simple_returns(dataset)
+    loaded = load_price_snapshot_v2(dataset)
+
+    assert extracted["input_digest"] == loaded.input_digest
+    assert extracted["return_definition"] == "adjusted_close_t_over_previous_close_minus_one"
+    assert extracted["first_price_date"] == dates[0]
+    assert extracted["source_observation_dates"] == dates
+    assert "quote_currency" not in extracted
+    assert "GENERATION_MATCH_DOES_NOT_PROVE_CLOUD_SOURCE" in extracted["limitations"]
+    panel = extracted["asset_returns"]
+    assert set(panel) == {"SOXX", "SOXL"}
+    assert [item["date"] for item in panel["SOXX"]] == dates[1:]
+    assert [item["date"] for item in panel["SOXL"]] == dates[1:]
+    assert panel["SOXX"][0]["simple_return"] == pytest.approx(101.0 / 100.0 - 1.0)
+    assert panel["SOXX"][1]["simple_return"] == pytest.approx(102.0 / 101.0 - 1.0)
+    assert panel["SOXL"][0]["simple_return"] == pytest.approx(111.0 / 110.0 - 1.0)
+    assert panel["SOXL"][1]["simple_return"] == pytest.approx(112.0 / 111.0 - 1.0)
+
+
+def test_return_extraction_rejects_identity_generation_and_bytes(tmp_path: Path) -> None:
+    dates = _dates(3)
+    missing = _write_dataset(tmp_path, dataset_id="demo-missing-id", symbols=("SOXL",), dates=dates)
+    (missing / "object_identity.json").unlink()
+    with pytest.raises(BatchADatasetError, match="OBJECT_IDENTITY_MISSING"):
+        extract_adjusted_close_simple_returns(missing)
+
+    mismatched = _write_dataset(
+        tmp_path, dataset_id="demo-return-gen", symbols=("SOXL",), dates=dates, generation="4"
+    )
+    (mismatched / "object_identity.json").write_text(
+        json.dumps({"generation": "5"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(BatchADatasetError, match="GCS_GENERATION_MISMATCH"):
+        extract_adjusted_close_simple_returns(mismatched)
+
+    changed = _write_dataset(tmp_path, dataset_id="demo-return-bytes", symbols=("SOXL",), dates=dates)
+    artifact = (changed / "prices.csv").read_bytes().replace(b"1000", b"1001", 1)
+    (changed / "prices.csv").write_bytes(artifact)
+    with pytest.raises(BatchADatasetError, match="GCS_CONTENT_MISMATCH"):
+        extract_adjusted_close_simple_returns(changed)
+
+    manifest_dataset = _write_dataset(
+        tmp_path, dataset_id="demo-return-manifest", symbols=("SOXL",), dates=dates
+    )
+    manifest_path = manifest_dataset / "prices.csv.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["gcs"]["sha256"] = "1" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(BatchADatasetError, match="GCS_CONTENT_MISMATCH"):
+        extract_adjusted_close_simple_returns(manifest_dataset)
+
+
+def test_return_extraction_rejects_unadjusted_prices(tmp_path: Path) -> None:
+    dates = _dates(3)
+    dataset = _write_dataset(tmp_path, dataset_id="demo-raw-close", symbols=("SOXL",), dates=dates)
+    manifest_path = dataset / "prices.csv.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["price_field"] = "close"
+    manifest["adjustment"] = "none"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(BatchADatasetError, match="PRICE_DEFINITION_REJECTED"):
+        extract_adjusted_close_simple_returns(dataset)
+
+
+@pytest.mark.parametrize(
+    "closes",
+    (
+        (1e-300, 1e308),
+        (1e308, 1e-300),
+    ),
+)
+def test_return_extraction_rejects_extreme_finite_closes(
+    tmp_path: Path, closes: tuple[float, float]
+) -> None:
+    dates = _dates(2)
+    artifact = _flat_csv("SOXL", tuple(zip(dates, closes, strict=True)))
+    dataset = _write_dataset(
+        tmp_path,
+        dataset_id="demo-extreme",
+        symbols=("SOXL",),
+        dates=dates,
+        mutate_bytes=artifact,
+    )
+    with pytest.raises(BatchADatasetError, match="ASSET_RETURN_INVALID"):
+        extract_adjusted_close_simple_returns(dataset)

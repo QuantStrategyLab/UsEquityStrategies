@@ -58,3 +58,13 @@ NaN 或 inf。有限但在求和、转换或乘积中溢出的输入返回 `UNCO
 
 该诊断只由上述纯函数提供。它不写入 `aggregate_combo_evidence` 的结果，
 也不进入成分聚合的 `evidence_digest`。
+
+`extract_adjusted_close_simple_returns` 只从已暂存的 v2 数据集路径抽取资产
+收益。它先调用现有 `load_price_snapshot_v2`，并要求 `object_identity.json`
+或显式身份文件与 manifest generation 一致。这个文件核对不能证明对象确实
+来自云端。只接受 `price_field=adjusted_close` 且 `adjustment=all`。每个
+标的的收益是后一个复权收盘价除以前一个再减 1，从第二个价格日起算，并保留
+第一个价格日。日期沿用快照里已经对齐的序列，不取交集、不补 0、不年化、
+不乘杠杆，也不制造现金收益。来源沿用 loader 生成的 `input_digest`。
+manifest 没有货币字段，因此这里不填写也不默认 USD。货币、现金收益和组合
+权重仍未绑定。这不是策略净值收益、TWR/MWR、OOS，也不是可执行投资证据。
