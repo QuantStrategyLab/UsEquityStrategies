@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import replace
 import math
 
+import pytest
+
 from us_equity_strategies.portfolio_risk_budget import (
     PortfolioAssetRiskSpec,
     PortfolioRiskBudgetPolicy,
 )
 from us_equity_strategies.research.virtual_combo_targets import (
     CorrelationRiskGroup,
+    VirtualComboTargetError,
     build_frozen_strategy_virtual_target,
     build_frozen_virtual_combo_baseline,
     build_virtual_combo_policy,
@@ -180,3 +183,92 @@ def test_turnover_limit_requires_and_consumes_a_frozen_virtual_baseline() -> Non
     assert math.isclose(
         float(with_baseline["summary"]["rebalancing"]["one_way_risk_turnover"]), 0.10
     )
+
+
+def _cash_capped_policy(**risk_overrides: object):
+    risk: dict[str, object] = {
+        "cash_symbol": "BOXX",
+        "max_effective_risk_exposure": 1.0,
+        "max_symbol_weights": {"BOXX": 0.5},
+        "max_underlying_effective_exposure": {"NASDAQ100": 1.0},
+        "max_one_way_risk_turnover": None,
+    }
+    risk.update(risk_overrides)
+    return build_virtual_combo_policy(
+        asset_risk_specs={
+            "BOXX": PortfolioAssetRiskSpec("BOXX", 1.0, "CASH", is_cash=True),
+            "QQQM": PortfolioAssetRiskSpec("QQQM", 1.0, "NASDAQ100"),
+            "TQQQ": PortfolioAssetRiskSpec("TQQQ", 3.0, "NASDAQ100"),
+        },
+        portfolio_risk_budget=PortfolioRiskBudgetPolicy(**risk),
+        max_gross_risk_weight=1.0,
+        max_strategy_weights={"qqqm_core": 1.0, "cash_core": 1.0},
+        correlation_groups=(
+            CorrelationRiskGroup(
+                group_id="nasdaq_cluster",
+                symbols=("QQQM", "TQQQ"),
+                max_effective_exposure=2.0,
+            ),
+        ),
+    )
+
+
+def _sleeve_combo(qqqm_budget: float, cash_budget: float):
+    targets = (
+        build_frozen_strategy_virtual_target(
+            strategy_id="cash_core",
+            source_p1_sha256="b" * 64,
+            target_weights={"BOXX": 1.0},
+        ),
+        build_frozen_strategy_virtual_target(
+            strategy_id="qqqm_core",
+            source_p1_sha256="a" * 64,
+            target_weights={"QQQM": 1.0},
+        ),
+    )
+    return targets, {"qqqm_core": qqqm_budget, "cash_core": cash_budget}
+
+
+def test_legal_cash_cap_below_one_can_build_a_policy() -> None:
+    policy = _cash_capped_policy()
+
+    assert policy.portfolio_risk_budget.max_symbol_weights["BOXX"] == 0.5
+
+
+def test_legal_target_under_explicit_cash_cap_is_approved_without_authority() -> None:
+    targets, budgets = _sleeve_combo(0.6, 0.4)
+    result = construct_virtual_combo_target(
+        strategy_targets=targets,
+        strategy_budget_weights=budgets,
+        policy=_cash_capped_policy(),
+    )
+
+    assert result["status"] == "APPROVE"
+    assert result["execution_authorized"] is False
+    assert result["combo_target_weights"] == {"BOXX": 0.4, "QQQM": 0.6}
+
+
+def test_target_over_explicit_cash_cap_stays_parked_without_authority() -> None:
+    targets, budgets = _sleeve_combo(0.1, 0.9)
+    result = construct_virtual_combo_target(
+        strategy_targets=targets,
+        strategy_budget_weights=budgets,
+        policy=_cash_capped_policy(),
+    )
+
+    assert result["status"] == "PARKED"
+    assert result["execution_authorized"] is False
+    assert result["combo_target_weights"] == {}
+    assert result["reason_codes"] == ("portfolio risk budget rejected virtual combo target",)
+
+
+@pytest.mark.parametrize(
+    "risk_overrides",
+    [
+        {"cash_symbol": "TQQQ"},
+        {"max_symbol_weights": {"BOXX": 1.5}},
+    ],
+)
+def test_malformed_portfolio_risk_budget_is_still_rejected(risk_overrides: dict[str, object]) -> None:
+    with pytest.raises(VirtualComboTargetError, match="invalid portfolio risk budget"):
+        _cash_capped_policy(**risk_overrides)

@@ -197,3 +197,99 @@ def test_research_risk_assessment_is_a_no_order_status_only_contract(
         key in result
         for key in ("broker", "account_id", "order", "orders", "paper_authorized", "shadow_authorized", "live_authorized")
     )
+
+
+def _assert_explicit_symbol_cap_parked(result: dict[str, object]) -> None:
+    assert result["status"] == "PARKED"
+    assert result["execution_authorized"] is False
+    assert result["risk_scalar"] == 0.0
+    assert result["recommended_target_weights"] == {}
+    assert result["metrics"] == {}
+    assert result["reason_codes"] == (
+        "recommended allocation exceeds explicit symbol weight limit",
+    )
+
+
+def test_explicit_cash_cap_parks_when_cash_weight_already_exceeds_limit() -> None:
+    result = assess_portfolio_risk_budget(
+        target_weights={"QQQM": 0.1, "BOXX": 0.9},
+        asset_risk_specs=SPECS,
+        policy=_policy(
+            max_effective_risk_exposure=1.0,
+            max_symbol_weights={"BOXX": 0.5},
+            max_underlying_effective_exposure={},
+        ),
+    )
+
+    _assert_explicit_symbol_cap_parked(result)
+
+
+def test_risk_reduction_that_breaches_explicit_cash_cap_parks() -> None:
+    result = assess_portfolio_risk_budget(
+        target_weights={"QQQM": 0.8, "BOXX": 0.2},
+        asset_risk_specs=SPECS,
+        policy=_policy(
+            max_effective_risk_exposure=0.4,
+            max_symbol_weights={"BOXX": 0.5},
+            max_underlying_effective_exposure={},
+        ),
+    )
+
+    _assert_explicit_symbol_cap_parked(result)
+
+
+def test_explicit_cash_cap_allows_a_target_under_the_limit() -> None:
+    target = {"QQQM": 0.6, "BOXX": 0.4}
+    result = assess_portfolio_risk_budget(
+        target_weights=target,
+        asset_risk_specs=SPECS,
+        policy=_policy(
+            max_effective_risk_exposure=1.0,
+            max_symbol_weights={"BOXX": 0.5},
+            max_underlying_effective_exposure={},
+        ),
+    )
+
+    assert result["status"] == "APPROVE"
+    assert result["execution_authorized"] is False
+    assert result["risk_scalar"] == 1.0
+    assert result["reason_codes"] == ()
+    assert result["recommended_target_weights"] == target
+
+
+def test_explicit_cash_cap_allows_weight_equal_to_the_limit() -> None:
+    target = {"QQQM": 0.5, "BOXX": 0.5}
+    result = assess_portfolio_risk_budget(
+        target_weights=target,
+        asset_risk_specs=SPECS,
+        policy=_policy(
+            max_effective_risk_exposure=1.0,
+            max_symbol_weights={"BOXX": 0.5},
+            max_underlying_effective_exposure={},
+        ),
+    )
+
+    assert result["status"] == "APPROVE"
+    assert result["execution_authorized"] is False
+    assert result["recommended_target_weights"] == target
+
+
+def test_risk_reduction_that_lands_on_explicit_cash_cap_stays_reduced() -> None:
+    result = assess_portfolio_risk_budget(
+        target_weights={"QQQM": 0.8, "BOXX": 0.2},
+        asset_risk_specs=SPECS,
+        policy=_policy(
+            max_effective_risk_exposure=0.4,
+            max_symbol_weights={"BOXX": 0.6},
+            max_underlying_effective_exposure={},
+        ),
+    )
+
+    assert result["status"] == "REDUCE"
+    assert result["execution_authorized"] is False
+    assert result["reason_codes"] == ("PORTFOLIO_RISK_BUDGET_REDUCED",)
+    assert result["risk_scalar"] == pytest.approx(0.5)
+    assert result["recommended_target_weights"] == {
+        "BOXX": pytest.approx(0.6),
+        "QQQM": pytest.approx(0.4),
+    }
