@@ -241,6 +241,22 @@ def _recommended_weights(
     return {symbol: weight for symbol, weight in sorted(result.items()) if weight > _EPSILON}
 
 
+def _require_explicit_symbol_limits(
+    *,
+    weights: Mapping[str, float],
+    policy: PortfolioRiskBudgetPolicy,
+) -> None:
+    """Park when a formed recommendation breaches an explicit symbol cap.
+
+    The risk scalar only reduces non-cash assets.  It must not be raised again
+    to pull weight out of cash, so a cash or other explicit cap that the
+    recommendation still exceeds is a closed failure.
+    """
+    for symbol, limit in policy.max_symbol_weights.items():
+        if weights.get(symbol, 0.0) > limit + _EPSILON:
+            _fail("recommended allocation exceeds explicit symbol weight limit")
+
+
 def _metrics(
     *,
     weights: Mapping[str, float],
@@ -282,6 +298,8 @@ def assess_portfolio_risk_budget(
     research driver can publish a bounded status and avoid retry loops.  A
     valid over-budget target is proportionally reduced only across non-cash
     assets; the removed allocation is directed to the declared cash asset.
+    An explicit symbol cap, including cash, that this recommendation still
+    exceeds is ``PARKED`` instead of raising risk to satisfy it.
     """
     try:
         specs = _asset_specs(asset_risk_specs)
@@ -302,6 +320,7 @@ def assess_portfolio_risk_budget(
             cash_symbol=validated_policy.cash_symbol,
             scalar=scalar,
         )
+        _require_explicit_symbol_limits(weights=recommended, policy=validated_policy)
         metrics = _metrics(weights=recommended, current_weights=current, specs=specs)
         if scalar >= 1.0 - _EPSILON:
             status = "APPROVE"

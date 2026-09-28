@@ -251,3 +251,31 @@ def test_illegal_as_of_or_currency_parks_incomplete() -> None:
     )
     assert bad_currency["status"] == "PARKED"
     assert bad_currency["reason_codes"] == ("COMPONENT_COMPARABILITY_INCOMPLETE",)
+
+
+def test_explicit_cash_cap_breach_parks_without_execution_authority() -> None:
+    specs = {
+        "QQQM": PortfolioAssetRiskSpec("QQQM", 1.0, "NASDAQ100"),
+        "BOXX": PortfolioAssetRiskSpec("BOXX", 1.0, "USD_CASH", is_cash=True),
+    }
+    policy = PortfolioRiskBudgetPolicy(
+        cash_symbol="BOXX",
+        max_effective_risk_exposure=1.0,
+        max_symbol_weights={"BOXX": 0.5},
+        max_underlying_effective_exposure={},
+    )
+    result = aggregate_combo_evidence(
+        combo_candidate_id="combo-2026-08-23",
+        combo_revision="r1",
+        components=[_comparable("QQQM_P3")],
+        target_weights={"QQQM": 0.1, "BOXX": 0.9},
+        asset_risk_specs=specs,
+        policy=policy,
+    )
+
+    assert result["status"] == "PARKED"
+    assert result["execution_authorized"] is False
+    assert result["promotion_authorized"] is False
+    assert result["reason_codes"] == (
+        "recommended allocation exceeds explicit symbol weight limit",
+    )
