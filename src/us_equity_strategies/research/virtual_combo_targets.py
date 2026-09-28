@@ -19,7 +19,10 @@ from typing import Any
 from us_equity_strategies.portfolio_risk_budget import (
     SCHEMA_VERSION as PORTFOLIO_RISK_BUDGET_SCHEMA,
     PortfolioAssetRiskSpec,
+    PortfolioRiskBudgetError,
     PortfolioRiskBudgetPolicy,
+    _asset_specs,
+    _policy as _validate_portfolio_risk_policy,
     assess_portfolio_risk_budget,
 )
 
@@ -316,12 +319,10 @@ def _policy_parts(value: object) -> tuple[
         _fail("invalid maximum gross risk weight")
     limits = _strategy_limits(value.max_strategy_weights)
     groups = _groups(value.correlation_groups, specs=specs)
-    probe = assess_portfolio_risk_budget(
-        target_weights={risk_policy.cash_symbol: 1.0},
-        asset_risk_specs=specs,
-        policy=risk_policy,
-    )
-    if probe["status"] == "PARKED":
+    try:
+        _asset_specs(specs)
+        _validate_portfolio_risk_policy(risk_policy, specs=specs)
+    except PortfolioRiskBudgetError:
         _fail("invalid portfolio risk budget")
     payload: dict[str, object] = {
         "schema_version": VIRTUAL_COMBO_POLICY_SCHEMA,
