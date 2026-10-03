@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from us_equity_strategies.backtests import smart_dca_research_cli
 from us_equity_strategies.backtests.smart_dca_research_cli import main
 
 
@@ -218,6 +219,347 @@ def _write_public_context_source_catalog_manifest(
         encoding="utf-8",
     )
     return source_catalog_manifest
+
+
+@pytest.mark.parametrize("changed_input", ["signal", "trade"])
+def test_smart_dca_research_cli_rejects_input_replaced_during_simulation(
+    tmp_path,
+    capsys,
+    monkeypatch,
+    changed_input: str,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=360, freq="B")
+    prices = pd.Series([100.0 + index * 0.1 for index in range(len(dates))])
+    signal_csv = tmp_path / "signals.csv"
+    trade_csv = tmp_path / "trade.csv"
+    pd.DataFrame({"date": dates.date, "QQQ": prices, "SPY": prices}).to_csv(
+        signal_csv, index=False
+    )
+    pd.DataFrame({"date": dates.date, "close": prices}).to_csv(
+        trade_csv, index=False
+    )
+    changed_path = signal_csv if changed_input == "signal" else trade_csv
+    output_dir = tmp_path / "artifacts"
+    original_compare = smart_dca_research_cli.compare_monthly_execution_day_scenarios
+
+    def compare_then_replace_input(**kwargs):
+        scenarios = original_compare(**kwargs)
+        changed_path.write_bytes(changed_path.read_bytes() + b"\n# replaced\n")
+        return scenarios
+
+    monkeypatch.setattr(
+        smart_dca_research_cli,
+        "compare_monthly_execution_day_scenarios",
+        compare_then_replace_input,
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+        ]
+    )
+
+    assert result == 2
+    assert "changed during research" in capsys.readouterr().err
+    assert not output_dir.exists()
+
+
+def test_smart_dca_research_cli_rejects_input_symlink_retargeted_during_simulation(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=360, freq="B")
+    prices = pd.Series([100.0 + index * 0.1 for index in range(len(dates))])
+    signal_target = tmp_path / "signal-source.csv"
+    signal_link = tmp_path / "signals.csv"
+    trade_csv = tmp_path / "trade.csv"
+    pd.DataFrame({"date": dates.date, "QQQ": prices, "SPY": prices}).to_csv(
+        signal_target, index=False
+    )
+    pd.DataFrame(
+        {"date": dates.date, "QQQ": prices * 1.02, "SPY": prices, "close": prices}
+    ).to_csv(trade_csv, index=False)
+    signal_link.symlink_to(signal_target)
+    output_dir = tmp_path / "artifacts"
+    original_compare = smart_dca_research_cli.compare_monthly_execution_day_scenarios
+
+    def compare_then_retarget_input(**kwargs):
+        scenarios = original_compare(**kwargs)
+        signal_link.unlink()
+        signal_link.symlink_to(trade_csv)
+        return scenarios
+
+    monkeypatch.setattr(
+        smart_dca_research_cli,
+        "compare_monthly_execution_day_scenarios",
+        compare_then_retarget_input,
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_link),
+            "--trade-csv",
+            str(trade_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+        ]
+    )
+
+    assert result == 2
+    assert "changed during research" in capsys.readouterr().err
+    assert not output_dir.exists()
+
+
+def test_smart_dca_research_cli_snapshots_shared_input_and_records_research_basis(
+    tmp_path,
+    capsys,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=360, freq="B")
+    prices = pd.Series([100.0 + index * 0.1 for index in range(len(dates))])
+    shared_csv = tmp_path / "prices.csv"
+    pd.DataFrame(
+        {"date": dates.date, "QQQ": prices, "SPY": prices * 0.95, "close": prices}
+    ).to_csv(shared_csv, index=False)
+    output_dir = tmp_path / "artifacts"
+
+    result = main(
+        [
+            "--signal-csv",
+            str(shared_csv),
+            "--trade-csv",
+            str(shared_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    metadata = summary["metadata"]
+    assert metadata["input_artifacts"]["signal_csv"]["sha256"] == _sha256_file(
+        shared_csv
+    )
+    assert metadata["input_artifacts"]["trade_csv"]["sha256"] == _sha256_file(
+        shared_csv
+    )
+    source_artifacts = metadata["source_artifacts"]
+    assert source_artifacts["smart_dca_research_cli.py"]["sha256"] == hashlib.sha256(
+        Path(smart_dca_research_cli.__file__).read_bytes()
+    ).hexdigest()
+    assert source_artifacts["smart_dca_research.py"]["sha256"] == hashlib.sha256(
+        Path(smart_dca_research_cli.smart_dca_research_module.__file__).read_bytes()
+    ).hexdigest()
+    assert all("path" not in record for record in source_artifacts.values())
+    assert metadata["research_config"]["return_basis"] == "before_transaction_costs"
+    assert metadata["research_config"]["transaction_costs_modeled"] is False
+    assert metadata["research_config"]["contribution_timing_policy"] == (
+        "contribution_before_same_date_execution_at_selected_trade_price"
+    )
+
+
+def test_smart_dca_research_cli_preserves_symlink_parent_resolution(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=360, freq="B")
+    actual_prices = pd.Series([100.0 + index * 0.1 for index in range(len(dates))])
+    decoy_prices = actual_prices * 3.0
+    actual_dir = tmp_path / "actual"
+    (actual_dir / "child").mkdir(parents=True)
+    actual_signal_csv = actual_dir / "prices.csv"
+    decoy_signal_csv = tmp_path / "prices.csv"
+    signal_link = tmp_path / "link"
+    trade_csv = tmp_path / "trade.csv"
+    pd.DataFrame(
+        {"date": dates.date, "QQQ": actual_prices, "SPY": actual_prices}
+    ).to_csv(actual_signal_csv, index=False)
+    pd.DataFrame(
+        {"date": dates.date, "QQQ": decoy_prices, "SPY": decoy_prices}
+    ).to_csv(decoy_signal_csv, index=False)
+    pd.DataFrame({"date": dates.date, "close": actual_prices}).to_csv(
+        trade_csv, index=False
+    )
+    signal_link.symlink_to(actual_dir / "child", target_is_directory=True)
+    requested_signal_csv = signal_link / ".." / "prices.csv"
+    output_dir = tmp_path / "artifacts"
+    original_compare = smart_dca_research_cli.compare_monthly_execution_day_scenarios
+    observed_signal_prices: list[float] = []
+
+    def compare_and_capture_signal(**kwargs):
+        observed_signal_prices.append(float(kwargs["signal_prices"]["QQQ"].iloc[0]))
+        return original_compare(**kwargs)
+
+    monkeypatch.setattr(
+        smart_dca_research_cli,
+        "compare_monthly_execution_day_scenarios",
+        compare_and_capture_signal,
+    )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(requested_signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert observed_signal_prices[0] == actual_prices.iloc[0]
+    assert summary["metadata"]["input_artifacts"]["signal_csv"]["sha256"] == (
+        _sha256_file(actual_signal_csv)
+    )
+    assert summary["metadata"]["input_artifacts"]["signal_csv"]["sha256"] != (
+        _sha256_file(decoy_signal_csv)
+    )
+
+
+def test_smart_dca_research_cli_manifest_hash_matches_parsed_manifest_bytes(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    dates = pd.date_range("2024-01-02", periods=360, freq="B")
+    prices = pd.Series([100.0 + index * 0.1 for index in range(len(dates))])
+    signal_csv = tmp_path / "signals.csv"
+    trade_csv = tmp_path / "trade.csv"
+    manifest_path = tmp_path / "signal.manifest.json"
+    pd.DataFrame({"date": dates.date, "QQQ": prices, "SPY": prices}).to_csv(
+        signal_csv, index=False
+    )
+    pd.DataFrame({"date": dates.date, "close": prices}).to_csv(
+        trade_csv, index=False
+    )
+    _write_research_manifest(
+        manifest_path,
+        csv_path=signal_csv,
+        artifact_type=smart_dca_research_cli.NASDAQ_SP500_PRICE_PROXY_ARTIFACT_TYPE,
+        transform=smart_dca_research_cli.NASDAQ_SP500_PRICE_PROXY_TRANSFORM,
+        as_of=dates[-1].date().isoformat(),
+        columns=["date", "QQQ", "SPY"],
+        first_date=dates[0].date().isoformat(),
+        last_date=dates[-1].date().isoformat(),
+        row_count=len(dates),
+    )
+    parsed_manifest_bytes = manifest_path.read_bytes()
+    replacement_bytes = parsed_manifest_bytes + b" "
+    output_dir = tmp_path / "artifacts"
+
+    if hasattr(smart_dca_research_cli, "_read_manifest_snapshot"):
+        original_snapshot_reader = smart_dca_research_cli._read_manifest_snapshot
+
+        def read_snapshot_then_replace(path: Path):
+            result = original_snapshot_reader(path)
+            if path == manifest_path:
+                path.write_bytes(replacement_bytes)
+            return result
+
+        monkeypatch.setattr(
+            smart_dca_research_cli,
+            "_read_manifest_snapshot",
+            read_snapshot_then_replace,
+        )
+    else:
+        original_manifest_reader = smart_dca_research_cli._read_manifest
+
+        def read_manifest_then_replace(path: Path):
+            result = original_manifest_reader(path)
+            if path == manifest_path:
+                path.write_bytes(replacement_bytes)
+            return result
+
+        monkeypatch.setattr(
+            smart_dca_research_cli, "_read_manifest", read_manifest_then_replace
+        )
+
+    result = main(
+        [
+            "--signal-csv",
+            str(signal_csv),
+            "--trade-csv",
+            str(trade_csv),
+            "--price-manifest",
+            str(manifest_path),
+            "--output-dir",
+            str(output_dir),
+            "--candidate-set",
+            "nasdaq_sp500_price",
+        ]
+    )
+
+    assert result == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert manifest_path.read_bytes() == replacement_bytes
+    manifest_record = summary["metadata"]["input_artifacts"]["price_manifest"]
+    assert manifest_record["sha256"] == hashlib.sha256(
+        parsed_manifest_bytes
+    ).hexdigest()
+    assert manifest_record["size_bytes"] == len(parsed_manifest_bytes)
+
+
+def test_signal_quality_report_hash_matches_parsed_report_bytes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    report_path = tmp_path / "quality-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "us_equity_context_availability_report.v1",
+                "artifact_type": "us_equity_context_availability_report",
+                "quality_status": "pass",
+                "failure_reasons": [],
+                "warning_reasons": [],
+                "as_of": "2025-12-31",
+            }
+        ),
+        encoding="utf-8",
+    )
+    parsed_report_bytes = report_path.read_bytes()
+    replacement_bytes = parsed_report_bytes + b" "
+    original_snapshot_reader = smart_dca_research_cli._read_manifest_snapshot
+
+    def read_snapshot_then_replace(path: Path):
+        result = original_snapshot_reader(path)
+        if path == report_path:
+            path.write_bytes(replacement_bytes)
+        return result
+
+    monkeypatch.setattr(
+        smart_dca_research_cli,
+        "_read_manifest_snapshot",
+        read_snapshot_then_replace,
+    )
+
+    record = smart_dca_research_cli._signal_quality_report_record(
+        report_path,
+        expected_artifact_type="us_equity_context_research_csv",
+        signal_manifest=None,
+    )
+
+    assert report_path.read_bytes() == replacement_bytes
+    assert record["quality_status"] == "pass"
+    assert record["sha256"] == hashlib.sha256(parsed_report_bytes).hexdigest()
+    assert record["size_bytes"] == len(parsed_report_bytes)
 
 
 def test_smart_dca_research_cli_writes_scenario_artifacts(tmp_path, capsys) -> None:
