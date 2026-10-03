@@ -4,11 +4,14 @@ import argparse
 import csv
 from collections.abc import Mapping, Sequence
 import hashlib
+import io
 import json
 from pathlib import Path
 import sys
 
 import pandas as pd
+
+from . import smart_dca_research as smart_dca_research_module
 
 from us_equity_strategies.signals import (
     SignalBundleContractError,
@@ -68,15 +71,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        input_snapshots = _read_input_snapshots(
+            (args.signal_csv, args.trade_csv)
+        )
+        source_artifacts = _source_artifact_records()
         signal_prices = _load_signal_frame(
             args.signal_csv,
             date_column=args.date_column,
             signal_columns=_parse_column_list(args.signal_columns),
+            csv_bytes=_input_snapshot(input_snapshots, args.signal_csv),
         )
         trade_prices = _load_trade_series(
             args.trade_csv,
             date_column=args.date_column,
             trade_column=args.trade_column,
+            csv_bytes=_input_snapshot(input_snapshots, args.trade_csv),
         )
         output_dir = Path(args.output_dir)
         execution_days = _parse_execution_days(args.execution_days)
@@ -140,7 +149,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             start_dates=start_dates,
             cadences=cadences,
             sample_windows=sample_windows,
+            input_snapshots=input_snapshots,
+            source_artifacts=source_artifacts,
         )
+        _validate_input_snapshots_unchanged(input_snapshots)
         artifact_paths = write_scenario_research_artifacts(
             output_dir,
             scenarios,
@@ -434,6 +446,8 @@ def _research_metadata(
     start_dates: tuple[pd.Timestamp, ...] | None,
     cadences: tuple[str, ...],
     sample_windows: tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...] | None,
+    input_snapshots: Mapping[Path, bytes],
+    source_artifacts: Mapping[str, dict[str, str]],
 ) -> dict[str, object]:
     return {
         "research_config": {
@@ -461,19 +475,30 @@ def _research_metadata(
             "align_start_after_warmup": not args.no_align_start_after_warmup,
             "min_investment_usd": args.min_investment_usd,
             "min_review_scenarios": args.min_review_scenarios,
+            "return_basis": "before_transaction_costs",
+            "transaction_costs_modeled": False,
+            "contribution_timing_policy": (
+                "contribution_before_same_date_execution_at_selected_trade_price"
+            ),
             "require_runtime_consumer_coverage": (
                 args.require_runtime_consumer_coverage
             ),
         },
         "input_artifacts": {
-            "signal_csv": _file_record(args.signal_csv),
-            "trade_csv": _file_record(args.trade_csv),
+            "signal_csv": _snapshot_file_record(
+                args.signal_csv, _input_snapshot(input_snapshots, args.signal_csv)
+            ),
+            "trade_csv": _snapshot_file_record(
+                args.trade_csv, _input_snapshot(input_snapshots, args.trade_csv)
+            ),
             **_optional_manifest_records(
                 args,
                 start_dates=start_dates,
                 sample_windows=sample_windows,
+                input_snapshots=input_snapshots,
             ),
         },
+        "source_artifacts": dict(source_artifacts),
     }
 
 
@@ -483,6 +508,7 @@ def _optional_manifest_records(
     start_dates: tuple[pd.Timestamp, ...] | None = None,
     sample_windows: tuple[tuple[str, pd.Timestamp | None, pd.Timestamp | None], ...]
     | None = None,
+    input_snapshots: Mapping[Path, bytes],
 ) -> dict[str, dict[str, object]]:
     records: dict[str, dict[str, object]] = {}
     signal_manifest_expectations = _signal_manifest_expectations(args.candidate_set)
@@ -505,6 +531,7 @@ def _optional_manifest_records(
         records["signal_manifest"] = _manifest_record(
             args.signal_manifest,
             linked_csv_path=args.signal_csv,
+            linked_csv_bytes=_input_snapshot(input_snapshots, args.signal_csv),
             role="signal",
             date_column=args.date_column,
             expected_artifact_type=signal_manifest_expectations["artifact_type"],
@@ -525,6 +552,7 @@ def _optional_manifest_records(
         records["price_manifest"] = _manifest_record(
             args.price_manifest,
             linked_csv_path=args.signal_csv,
+            linked_csv_bytes=_input_snapshot(input_snapshots, args.signal_csv),
             role="price",
             date_column=args.date_column,
             expected_artifact_type=price_manifest_expectations["artifact_type"],
@@ -542,6 +570,7 @@ def _optional_manifest_records(
         records["trade_manifest"] = _manifest_record(
             args.trade_manifest,
             linked_csv_path=args.trade_csv,
+            linked_csv_bytes=_input_snapshot(input_snapshots, args.trade_csv),
             role="trade",
             date_column=args.date_column,
             expected_artifact_type=None,
@@ -704,6 +733,7 @@ def _manifest_record(
     path: Path,
     *,
     linked_csv_path: Path,
+    linked_csv_bytes: bytes,
     role: str,
     date_column: str,
     expected_artifact_type: str | None,
@@ -712,11 +742,13 @@ def _manifest_record(
     signal_contract_validation_window: tuple[pd.Timestamp | None, pd.Timestamp | None]
     = (None, None),
 ) -> dict[str, object]:
-    manifest = _read_manifest(path)
+    manifest, manifest_file_record = _read_manifest_snapshot(path)
     _validate_no_sensitive_manifest_fields(manifest, path=f"{role}_manifest")
-    linked_csv_sha256 = _sha256_file(linked_csv_path)
-    linked_csv_size_bytes = linked_csv_path.stat().st_size
-    linked_csv_shape = _csv_shape_record(linked_csv_path, date_column=date_column)
+    linked_csv_sha256 = _sha256_bytes(linked_csv_bytes)
+    linked_csv_size_bytes = len(linked_csv_bytes)
+    linked_csv_shape = _csv_shape_record(
+        linked_csv_path, date_column=date_column, csv_bytes=linked_csv_bytes
+    )
     schema_version = str(manifest.get("schema_version", "")).strip()
     if not schema_version:
         raise ValueError(f"{role} manifest schema_version is required")
@@ -759,6 +791,7 @@ def _manifest_record(
     if role in {"signal", "price"}:
         signal_contract_record = _validate_signal_research_csv_contract(
             linked_csv_path,
+            linked_csv_bytes=linked_csv_bytes,
             manifest=manifest,
             linked_csv_shape=linked_csv_shape,
             date_column=date_column,
@@ -777,7 +810,7 @@ def _manifest_record(
     )
 
     return {
-        **_file_record(path),
+        **manifest_file_record,
         "schema_version": schema_version,
         "artifact_type": str(manifest.get("artifact_type", "")),
         "transform": str(manifest.get("transform", "")),
@@ -808,9 +841,8 @@ def _signal_quality_report_record(
     expected_artifact_type: str | None,
     signal_manifest: dict[str, object] | None,
 ) -> dict[str, object]:
-    report = _read_manifest(path)
+    report, file_record = _read_manifest_snapshot(path)
     _validate_no_sensitive_manifest_fields(report, path="signal_quality_report")
-    file_record = _file_record(path)
     schema_version = str(report.get("schema_version", "")).strip()
     artifact_type = str(report.get("artifact_type", "")).strip()
     if expected_artifact_type != "us_equity_context_research_csv":
@@ -1849,6 +1881,7 @@ def _validate_research_export_manifest(
 def _validate_signal_research_csv_contract(
     path: Path,
     *,
+    linked_csv_bytes: bytes,
     manifest: dict[str, object],
     linked_csv_shape: dict[str, object],
     date_column: str,
@@ -1863,7 +1896,7 @@ def _validate_signal_research_csv_contract(
     }:
         return {}
 
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(io.BytesIO(linked_csv_bytes))
     if date_column not in frame.columns:
         raise ValueError(f"signal CSV missing date column {date_column!r}: {path}")
     dates = pd.to_datetime(frame[date_column], errors="coerce", utc=True)
@@ -2063,8 +2096,10 @@ def _finite_numeric_column(
     return values.astype(float)
 
 
-def _csv_shape_record(path: Path, *, date_column: str) -> dict[str, object]:
-    with path.open(newline="", encoding="utf-8") as file_obj:
+def _csv_shape_record(
+    path: Path, *, date_column: str, csv_bytes: bytes
+) -> dict[str, object]:
+    with io.TextIOWrapper(io.BytesIO(csv_bytes), encoding="utf-8", newline="") as file_obj:
         reader = csv.reader(file_obj)
         try:
             header = tuple(next(reader))
@@ -2099,6 +2134,16 @@ def _read_manifest(path: Path) -> dict[str, object]:
     return payload
 
 
+def _read_manifest_snapshot(
+    path: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    contents = path.read_bytes()
+    payload = json.loads(contents)
+    if not isinstance(payload, dict):
+        raise ValueError(f"manifest JSON root must be an object: {path}")
+    return payload, _snapshot_file_record(path, contents)
+
+
 def _validate_no_sensitive_manifest_fields(value: object, *, path: str) -> None:
     if isinstance(value, dict):
         for raw_key, item in value.items():
@@ -2117,6 +2162,52 @@ def _file_record(path: Path) -> dict[str, object]:
         "sha256": _sha256_file(path),
         "size_bytes": path.stat().st_size,
     }
+
+
+def _snapshot_file_record(path: Path, contents: bytes) -> dict[str, object]:
+    return {
+        "path": str(path),
+        "sha256": _sha256_bytes(contents),
+        "size_bytes": len(contents),
+    }
+
+
+def _read_input_snapshots(paths: Sequence[Path]) -> dict[Path, bytes]:
+    snapshots: dict[Path, bytes] = {}
+    canonical_contents: dict[Path, bytes] = {}
+    for path in paths:
+        argument_path = path if path.is_absolute() else Path.cwd() / path
+        if argument_path not in snapshots:
+            canonical_path = argument_path.resolve(strict=True)
+            if canonical_path not in canonical_contents:
+                canonical_contents[canonical_path] = canonical_path.read_bytes()
+            snapshots[argument_path] = canonical_contents[canonical_path]
+    return snapshots
+
+
+def _input_snapshot(snapshots: Mapping[Path, bytes], path: Path) -> bytes:
+    argument_path = path if path.is_absolute() else Path.cwd() / path
+    return snapshots[argument_path]
+
+
+def _validate_input_snapshots_unchanged(snapshots: Mapping[Path, bytes]) -> None:
+    for path, expected_contents in snapshots.items():
+        if path.read_bytes() != expected_contents:
+            raise ValueError(f"research input changed during research: {path}")
+
+
+def _source_artifact_records() -> dict[str, dict[str, str]]:
+    research_path = Path(smart_dca_research_module.__file__)
+    return {
+        "smart_dca_research_cli.py": {
+            "sha256": _sha256_bytes(Path(__file__).read_bytes())
+        },
+        "smart_dca_research.py": {"sha256": _sha256_bytes(research_path.read_bytes())},
+    }
+
+
+def _sha256_bytes(contents: bytes) -> str:
+    return hashlib.sha256(contents).hexdigest()
 
 
 def _sha256_file(path: Path) -> str:
@@ -2202,8 +2293,11 @@ def _load_signal_frame(
     *,
     date_column: str,
     signal_columns: tuple[str, ...] | None,
+    csv_bytes: bytes,
 ) -> pd.DataFrame:
-    frame = _read_csv_with_date_index(path, date_column=date_column)
+    frame = _read_csv_with_date_index(
+        path, date_column=date_column, csv_bytes=csv_bytes
+    )
     columns = signal_columns or tuple(frame.columns)
     _require_columns(frame, columns, role="signal")
     result = frame.loc[:, list(columns)].apply(pd.to_numeric, errors="coerce")
@@ -2218,8 +2312,11 @@ def _load_trade_series(
     *,
     date_column: str,
     trade_column: str | None,
+    csv_bytes: bytes,
 ) -> pd.Series:
-    frame = _read_csv_with_date_index(path, date_column=date_column)
+    frame = _read_csv_with_date_index(
+        path, date_column=date_column, csv_bytes=csv_bytes
+    )
     column = trade_column or _default_trade_column(frame)
     _require_columns(frame, (column,), role="trade")
     result = pd.to_numeric(frame[column], errors="coerce").dropna()
@@ -2229,8 +2326,10 @@ def _load_trade_series(
     return result
 
 
-def _read_csv_with_date_index(path: Path, *, date_column: str) -> pd.DataFrame:
-    frame = pd.read_csv(path)
+def _read_csv_with_date_index(
+    path: Path, *, date_column: str, csv_bytes: bytes
+) -> pd.DataFrame:
+    frame = pd.read_csv(io.BytesIO(csv_bytes))
     if date_column not in frame.columns:
         raise ValueError(f"CSV missing date column {date_column!r}: {path}")
     index = pd.to_datetime(frame[date_column], errors="coerce", utc=True)
