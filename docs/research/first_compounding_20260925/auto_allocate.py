@@ -42,10 +42,19 @@ def select_finite_executable_action(*, scenario_wealth_usd: dict[str, list[float
     if len(sizes) != 1 or 0 in sizes:
         raise ValueError("paired scenario count differs between actions")
     scores = {}
+    log_nav = math.log(nav)
     for name, values in scenario_wealth_usd.items():
         outcomes = [_number(value, f"scenario_wealth_usd.{name}", minimum=0.01)
                     for value in values]
-        scores[name] = math.fsum(math.log(value / nav) for value in outcomes) / len(outcomes)
+        log_growth = []
+        for value in outcomes:
+            relative_wealth = value / nav
+            # Keep the frozen calculation for ordinary ratios, but avoid an
+            # infinite score when finite wealth and NAV overflow division.
+            log_growth.append(math.log(relative_wealth)
+                              if math.isfinite(relative_wealth) and relative_wealth > 0.0
+                              else math.log(value) - log_nav)
+        scores[name] = math.fsum(log_growth) / len(outcomes)
     top = max(scores.values())
     if scores[previous_action] >= top - tolerance:
         selected = previous_action
