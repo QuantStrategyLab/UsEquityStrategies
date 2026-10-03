@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import sys
 from pathlib import Path
 
@@ -30,6 +31,52 @@ def test_finite_score_prefers_previous_within_frozen_tolerance() -> None:
     with pytest.raises(ValueError, match="paired scenario"):
         scorer(scenario_wealth_usd={"B0": [100.0], "B1": [100.0, 101.0]},
                nav_usd=100.0, previous_action="B0", tie_log_tolerance=1e-8)
+
+
+def test_finite_score_does_not_overflow_for_finite_wealth_and_nav() -> None:
+    scorer = _modules()["auto_allocate"].select_finite_executable_action
+    selection = scorer(
+        scenario_wealth_usd={"cash": [0.01, 0.01], "candidate": [1e308, 1e308]},
+        nav_usd=0.01, previous_action="cash", tie_log_tolerance=0.0,
+    )
+    expected = math.log(1e308) - math.log(0.01)
+    assert all(math.isfinite(score) for score in selection["scores"].values())
+    assert selection["estimated_mean_log_growth"] == pytest.approx(expected)
+    assert selection["selected_action"] == "candidate"
+
+
+def test_finite_score_distinguishes_equal_mean_with_different_tail_risk() -> None:
+    scorer = _modules()["auto_allocate"].select_finite_executable_action
+    selection = scorer(
+        scenario_wealth_usd={"tail": [150.0, 50.0], "cash": [100.0, 100.0]},
+        nav_usd=100.0, previous_action="tail", tie_log_tolerance=0.0,
+    )
+    assert selection["scores"]["tail"] == pytest.approx(math.log(0.75) / 2.0)
+    assert selection["scores"]["cash"] == 0.0
+    assert selection["selected_action"] == "cash"
+
+
+def test_finite_score_duplicate_paths_do_not_create_an_advantage() -> None:
+    scorer = _modules()["auto_allocate"].select_finite_executable_action
+    selection = scorer(
+        scenario_wealth_usd={"original": [110.0, 90.0], "duplicate": [110.0, 90.0]},
+        nav_usd=100.0, previous_action="original", tie_log_tolerance=0.0,
+    )
+    assert selection["scores"]["original"] == selection["scores"]["duplicate"]
+    assert selection["selected_action"] == "original"
+    repeated = scorer(
+        scenario_wealth_usd={"original": [110.0, 90.0] * 2, "duplicate": [110.0, 90.0] * 2},
+        nav_usd=100.0, previous_action="original", tie_log_tolerance=0.0,
+    )
+    assert repeated["scores"] == selection["scores"]
+
+
+@pytest.mark.parametrize("wealth", [0.0, -1.0, float("inf"), float("nan"), True])
+def test_finite_score_rejects_ruin_and_invalid_wealth(wealth) -> None:
+    scorer = _modules()["auto_allocate"].select_finite_executable_action
+    with pytest.raises(ValueError):
+        scorer(scenario_wealth_usd={"cash": [100.0], "invalid": [wealth]},
+               nav_usd=100.0, previous_action="cash", tie_log_tolerance=0.0)
 
 
 def test_split_normalizes_old_price_and_dividend_without_changing_current_shares() -> None:
