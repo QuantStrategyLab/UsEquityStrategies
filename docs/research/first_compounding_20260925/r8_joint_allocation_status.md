@@ -73,3 +73,37 @@ v2 三会话短窗通过，私有摘要 SHA-256 `55cd5ccaa2b7e6a6eeae6e359bb7f14
 `optimality_scope` 只表示可行 B0–B3 中的评分最优。旧窗口累计收益、年化和回撤不是这份新草案的绩效。高级字段出现显式非空值时返回 `unsupported_scope` 并保留原值；字段为 null 并不表示原完整 v2 的对应开关处于关闭。原完整 v2 不会被映射成这条简化 R8，也不会被静默停用。直接测试覆盖适配合同，不代替一次实际私有输入计算。
 
 普通安装复用现有 `research` extra，以及锁定的 QuantPlatformKit `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62` 和 QuantStrategyPlugins `3416da47580be1537183e378f3ca9efacc6f9b8c`。在干净的 Python 3.11 虚拟环境中于本仓库执行 `uv sync --python 3.11 --frozen --extra research --no-editable`，或 `python -m pip install '.[research]'`。安装后的可执行文件是该环境 `bin` 目录中的 `ux1-preview`（入口 `us_equity_strategies.ux1_preview:main`）。从仓库外调用时不设置 `PYTHONPATH`：标准输入一份 `qsl.ux1.preview_request.v1`，标准输出一份 `qsl.ux1.preview_result.v1`。三个输入根仍只由操作员环境提供。安装包里的 `us_equity_strategies/ux1_bundle` 只包含这条预览实际导入的既有研究模块和同目录政策文件。
+
+## 独立验证接续设计（2026-10-03；尚未冻结或运行）
+
+本段承接系统审计 REPORT §10.82 的独立验证设计任务，仅讨论现有 R8 四动作分配规则的后续研究。它不替代原完整 TQQQ/SOXL v2，不改变旧 R7/R8/R9 政策、历史结果、UX1 的 C2 预览或任何运行中的策略，也不属于 R17 中期三臂研究。已有 R7/R8 与 R9 延伸都是已见 development；六月定投输入是另一条研究线，缺失不阻止本设计。
+
+### 固定比较与待冻结材料
+
+以 `r8_joint_allocation_policy.v2.json` 的四动作、60 配对完整情景、一步可执行终值净对数评分、均匀权重与 tie 规则为待验证规则；不根据已见 B2 表现另选策略，不追加期权或资本曲线。旧候选包含 2023 年的固定日期和两日 B0 启动，因此新窗口须有独立研究身份及显式的开始/预热合同，不能修改旧 policy 后继续沿用旧身份。
+
+| 项目 | 接续约定 | 运行前仍需冻结或核验 |
+| --- | --- | --- |
+| 源码与运行版本 | 复用 R8 `_selector`、R7 `_replay` 的实际账户逻辑及既有编排器；本轮 UES 基线为 `f893cfc9e199d2356ae3f1e802a881506e4855b8` | 实际 runner/adapter 源码、lockfile、安装依赖及 Python 版本；当前 UES 的 QPK pin 是 `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62`，不能借其他平台采用新版推定本仓已采用 |
+| 比较对象与费用 | 动态 R8 与固定 B0 同输入、同费用作主比较；B1/B2/B3 只作预定次比较。主费用 10 bps，5/15 bps 为敏感性；各档重新选动作，不假定不同费率持仓相同 | 明确费率是假设还是执行场景证据，按每次真实执行的一侧只计一次；实际成本不合格时保留带标签的开发比较，不输出合格净成本结论 |
+| 账户与时点 | 同一起始研究资本 10000 USD、无外部流、整股、owner 归属、原准备金/最低金额/5% 增强补资限制；按此前已知收盘信息决策、下一完整会话 raw open 执行 | 选择并绑定统一的初始 owner 状态、起始配置和结算合同；新窗口不得静默混入 post-R9 日期生效结算/C2。若选择连续运行，则分别核对各路径完整 checkpoint 和前缀，不能拼接或重置其持仓/应收/待结算 |
+| 输入 | 准确获准云端引用与对象版本、manifest/消费文件身份、覆盖范围、可用时间、许可和保留依据；信号复权与 raw 执行单位、公司行为只计一次 | 原 raw、R6、materialized 及所需账本引用当前未核实。新窗口输入独立固定，不用今日名单/修订数据冒充过去已知，不猜 URI、不重新扫描旧前缀；真实数据只在批准云端处理 |
+| 窗口 | 所有比较使用同一完整会话集合；先冻结训练/验证/最终 OOS 的实际日期、用途和预热区间，再读取留出结果 | 证明 OOS 未参与选参；优先核有此证据的既有历史窗口。没有则另定前向窗口，不能仅因晚于 2026-08-25 就称未触碰，也不能强制等待前向一年作为其他独立工作的前置 |
+| 初始预热 | 动态决策前有 60 个所需公司行为均已知的配对完整情景，成员信号满足各自预热；预热不进入 OOS 收益 | 明确新窗口首次动态决策和首次成交日，以及不足情景时的固定启动或停车规则；旧两日 B0 只适用于旧日期，不复制为任意窗口的自动豁免 |
+
+当前 R8 `analyze` 返回 `(summary, ledgers)`、`run` 返回自定义 `COMPLETE` 字典；R9 延伸/资本入口同样只生成研究摘要和账本，尚无 `BacktestOrchestrator.run_promotion` 或 evidence validator 接入。最小适配是在既有编排器下提供 `PromotionBacktestRunner` 的 `run_purged_fold` / `run_locked_oos`，由真实冻结输入重算并返回 `BacktestResult`；不能包装旧 development 摘要为真实 fold。`runner_kind="real"` 是接口要求，标签本身不证明数据或执行真实。所需风险指标、benchmark、成本压力和 artifact 仍须从实际输出生成，现有自定义 summary 不足以闭合证据包。
+
+正式晋级按实际锁定的 `QuantPlatformKit/docs/strategy_promotion_risk_standard.zh-CN.md` 及 validator：本轮已从 QPK `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62` 的 Git blob 核对 `BacktestOrchestrator.run_promotion`、`validate_evidence_package` dispatcher 和 v2/v3 校验源码，不只按临时目录名称推定版本。晋级 purged walk-forward 至少三个有序 folds、正数 purge/embargo，以及锁定、独立且未参与选参的至少 12 个日历月 OOS。具体 folds、purge/embargo 和 OOS 起止尚未冻结；须按真实标签跨度与信息边界确定，不把 60 情景预热直接当作 purge 参数。开发重算不因这些晋级前置而一律停止，但不能改标晋级。
+
+### 判定与最小执行顺序
+
+主比较沿用 R9 的 `252 × mean(配对日 log-return_R8 − log-return_B0)`，基于费用后、资金流中性的实际账户日收益；同时报告净累计收益、回撤比例/金额/恢复、换手/费用、实际持仓暴露及资金短缺。用同一研究时点、会话和费用配对，不把一步情景评分当作实现收益或长期最优。若沿用 R9 的条件 bootstrap，保持 20 会话块、2000 次、原固定 seed `20260926`，只解释为该观测序列的敏感性。区间跨零或点估计不正时，不声称动态规则净增长优势；正结果也不自动通过晋级。所有预定比较和失败 fold 保留，不看结果再改主比较、阈值或窗口。
+
+晋级的 Sharpe/回撤/成本等质量阈值须在读取 OOS 结果前依据本候选适用目标明确冻结，并由对应 human acceptance 绑定；现有机器 validator 不替人判断数值质量。本段不借 SPY/BOXX profile 的风险数值作 R8 采用授权，不虚填 win rate/profit factor/IC 等缺指标，也不将基准相关性冒充预测 IC。R8 的一步情景评分不自动构成预测目标；IC 是否有定义须核固定 producer，不能由调用方临时填 N/A 绕过锁定 validator。
+
+执行顺序为：
+
+1. 取得准确输入引用及许可，确认覆盖、时间语义和预热；选定并冻结新研究身份、窗口、起始状态、成本与验收定义。缺项仅停受影响的真实研究，不影响账户主线。
+2. 在既有 `BacktestOrchestrator` 下接最小 runner，复用 R7/R8 账户逻辑。先以 synthetic 核输入绑定、时间隔离、现金/份额/费用及固定动作一致性，再在获准云端用 development 短窗做守恒核验；不提前查看 OOS 成绩或据其调参。
+3. 旧结果默认只读复用；确需同冻结输入复算时先明确适用的有界运行范围，保留旧输出和已消费的运行/恢复限制，不因新批次重置旧限制。新验证的运行范围和失败停止条件须在读取结果前冻结，并与旧 development 分别标识。不因数学补丁否定未受影响的正常数值结果。缺数据或账务错误是 `INCONCLUSIVE`，完整比较不占优是有效负结果。
+4. 只对真实、完整、按版本绑定的输出调用实际 pinned validator；缺风险/成本/回测/artifact 或人工接受保持未通过。合格研究也不授予 paper/shadow/live，本批不采集、迁移、调度、部署或交易。
