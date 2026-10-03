@@ -107,3 +107,11 @@ v2 三会话短窗通过，私有摘要 SHA-256 `55cd5ccaa2b7e6a6eeae6e359bb7f14
 2. 在既有 `BacktestOrchestrator` 下接最小 runner，复用 R7/R8 账户逻辑。先以 synthetic 核输入绑定、时间隔离、现金/份额/费用及固定动作一致性，再在获准云端用 development 短窗做守恒核验；不提前查看 OOS 成绩或据其调参。
 3. 旧结果默认只读复用；确需同冻结输入复算时先明确适用的有界运行范围，保留旧输出和已消费的运行/恢复限制，不因新批次重置旧限制。新验证的运行范围和失败停止条件须在读取结果前冻结，并与旧 development 分别标识。不因数学补丁否定未受影响的正常数值结果。缺数据或账务错误是 `INCONCLUSIVE`，完整比较不占优是有效负结果。
 4. 只对真实、完整、按版本绑定的输出调用实际 pinned validator；缺风险/成本/回测/artifact 或人工接受保持未通过。合格研究也不授予 paper/shadow/live，本批不采集、迁移、调度、部署或交易。
+
+## R8 有界 PromotionBacktestRunner 工程实现（2026-10-03；仅 synthetic 验收）
+
+新增 `r8_promotion_runner.py` 实现 QPK `PromotionBacktestRunner` 两个方法，直接重放 R7 账户账本，并在请求窗口上调用锁定 QPK 的 `compute_window_metrics` 生成 `BacktestResult`。支持现有 B0/B1/B2/B3 固定路径及 R8 60 情景动态选择；R8 保留 2023-03-27、03-28 两个 B0 启动信号，并在已知 60 个配对情景后才运行选择器。策略参数固定为空映射，初始研究净值保持 10,000 USD。每个策略/完整 `PromotionCostModel` 独立保存 R7 的份额、现金、待结算卖款、应收、前值、前动作和全局行号状态；purged/test 间的会话继续推进经济账本，但仅目标测试日期的收益进入该 fold 指标。Locked OOS 仅在显式调用 `run_locked_oos` 时产生。
+
+该实现用 R7 的显式结束日把当前行、公司行为和 indicators 截断在请求 end；逐行验证本窗口所需 raw open/close 为正且有限，并要求 caller 提供的 XNYS session 日期与输入 rows 完全对应。日收益首项以目标窗前一 session 收盘账户净值为分母，QPK 指标含初始净值的回撤计算；固定 B0 使用相同窗口和费用作为 benchmark。成本只接受现有合计 5/10/15 bps 情景、非负有限 commission/slippage 且 `market_impact_bps=0`，其字段按 caller 输入原样记录，不把费率解释成已测真实成本。Sharpe、Sortino、Calmar 等未定义值保留为 `None`，`win_rate` 不作为正收益日比例伪造交易胜率；QPK orchestrator 会拒绝缺失的必需 Sharpe。
+
+`runner_kind="real"` 只表示每次调用实际计算 R7/R8 账本并返回 QPK 类型，不代表输入许可、历史版本、可用时间、PIT、成本来源、日历真实性或晋级资格。构造器接收已准备好的内存 rows/actions/indicators/contract、research identity、源码 revision、输入绑定摘要及显式 session dates；本批只用 synthetic fixture 验证，未加载或重算私有/历史资料。日历标签也只是调用者输入，synthetic 日期没有真实交易日历资格。实际研究的输入准入、窗口、purge/embargo、费用来源与 OOS 独立性仍未冻结；因此本工程不生成实际研究结论、晋级证据或任何交易授权。

@@ -541,6 +541,7 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             policy: dict, *, path_name: str, cost_bps: int,
             short_sessions: int | None = None, action_selector=None,
             candidate_id: str | None = None,
+            replay_end_session: str | None = None,
             continuation_last_session: str | None = None,
             continuation_from_session: str | None = None,
             continuation_checkpoint: dict | None = None,
@@ -585,10 +586,19 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
         loop_start = boundary_index + 1
     elif continuation_from_session is not None:
         raise ValueError("R7_CONTINUATION_CHECKPOINT_MISSING")
+    if replay_end_session is not None and (short_sessions is not None
+                                           or continuation_last_session is not None):
+        raise ValueError("R7_BOUNDED_END_WINDOW_CONFLICT")
     if short_sessions is not None and (continuation_last_session is not None
                                        or continuation_checkpoint is not None):
         raise ValueError("R7_CONTINUATION_SHORT_WINDOW_CONFLICT")
-    if continuation_last_session is None:
+    if replay_end_session is not None:
+        if replay_end_session not in by_date:
+            raise ValueError("R7_BOUNDED_END_MISSING")
+        end = by_date[replay_end_session] + 1
+        if end <= loop_start:
+            raise ValueError("R7_BOUNDED_END_WINDOW_INVALID")
+    elif continuation_last_session is None:
         end = len(rows) if short_sessions is None else start + short_sessions
     else:
         end_by_date = {row["date"]: index for index, row in enumerate(rows)}
@@ -786,9 +796,10 @@ def _replay(rows: list[dict], actions: dict, indicators: dict, contract: dict,
             ledger[-1]["settlement_cash_releases"] = released_records
         prior_nav = nav
         previous_action = selected
-    if short_sessions is None and continuation_last_session is None and continuation_checkpoint is None and (
+    if (short_sessions is None and replay_end_session is None
+            and continuation_last_session is None and continuation_checkpoint is None and (
             len(ledger) != policy["data"]["expected_replay_sessions"]
-                                   or ledger[-1]["date"] != policy["data"]["last_session"]):
+                                   or ledger[-1]["date"] != policy["data"]["last_session"])):
         raise ValueError("R7_FORMAL_WINDOW_CHANGED")
     if checkpoint_out is not None:
         if not ledger:
