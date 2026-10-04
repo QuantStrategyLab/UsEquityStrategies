@@ -248,3 +248,70 @@ missing predecessor and competing successors. Adoption remains blocked on:
 
 Do not patch the pure core with a `previous_target` float or add a plugin
 `allow_buy`/AI approval flag to bridge these missing contracts.
+
+### Implemented no-rearm prerequisite (isolated, not adopted)
+
+`research.tqqq_plugin_release_retention` now implements only the independently
+testable **retention** half of this candidate, through
+`build_tqqq_plugin_retention_transition`. The actual core still has no
+holdings-independent, strategy-owned alpha-observation/epoch decision contract.
+Its `entry`/`hold` labels cannot be substituted for that contract. The helper
+accepts **no intent**, manual-refresh flag, AI verdict, or positive buy
+allowance. It is not the complete release rule, an alpha issuer, an executable
+research replay, or an execution adapter. The strict false-to-true rule's
+economics remain unvalidated.
+
+The pure helper consumes a complete frozen effective-session quantity snapshot
+and the existing parsed QPK identity/transition. The caller must calculate the
+core proposal first and separately supply nominal, effective and account
+total-exposure cap quantities in the same verified basis. The helper intersects those
+caps; it does not collapse their meanings into one scalar. It floors to the
+declared quantity step and never normalizes residual cash back into TQQQ.
+Already-funded holdings remain part of total exposure when free cash is zero.
+This no-buy prerequisite has no free-cash sizing gate: cash divided by price
+is not a total-exposure cap or a liquidation instruction. A future fresh-intent
+adapter must enforce incremental cash affordability, costs and reservations
+separately before any purchase.
+For an existing chain, its ceiling is at most the split-adjusted prior ceiling,
+the current capped proposal, and settled shares plus remaining pending
+buys/reservations. Pending sells do not create headroom. Confirmed sales or
+cancellations ratchet down. Outstanding orders above the result remain counted
+and set `reconciliation_required`; the helper does not cancel or liquidate them.
+
+The distinct `tqqq_plugin_release_retention.v1` state is explicitly
+`no_rearm_only`. A caller-validated initialization receipt is mandatory for a
+root: flat genesis starts at zero; migration retains at most current capped,
+reconciled outstanding exposure. Neither allows a buy. An absent chain after
+initialization must not be reset with another receipt. The helper cannot
+detect erased storage or independently validate receipt authenticity, snapshot
+completeness, market calendars, availability timestamps, or corporate actions.
+The referenced local snapshot bundle must contain that evidence, including
+attributed orders/reservations, confirmed fill/cancel status, prices/NAV, all
+cap requested/observed/effective times and the decision-time cutoff. Assertions
+and hashes supplied by a caller are not evidence validation.
+
+Quantities use bounded canonical decimal strings (0 through 10^18, at most
+18 decimal places). A verified split changes the prior ceiling and reconciled
+positions/orders in the same basis; the helper rejects basis mismatches,
+duplicate events and unsupported fractional settlement. It retains at most
+32 distinct post-initialization split digests and fails closed at that limit;
+it never truncates history or silently starts a new chain. Pre-migration action
+history must be reconciled in the explicit migration evidence.
+
+No second store or command schema is introduced. The caller must load and
+append with QPK's existing `StrategyRiskStateStore`. Identical same-session
+input returns the exact parsed stored result, before quantity recalculation or
+split application; changed holdings, caps or snapshot digest conflict. A stale
+session, foreign identity, malformed strategy state or mutated transition fails
+closed. Store tests cover missing predecessors and competing successors. This
+is still one daily transition; later intraday fills require reconciliation,
+not an invented date or a second calculation. A stored state receipt does not
+prove downstream command idempotency or authorize an order.
+
+`tests/test_tqqq_plugin_release_retention.py` exercises the real source helper
+with artificial inputs and the actual pinned local QPK store. The earlier
+test-only full-policy oracle remains unchanged. Default core, replay, catalog,
+entrypoints and dependency pins are unchanged, and no runtime consumes this
+module. A future fresh-intent path needs its own reviewed alpha decision
+contract, initialization/missing-chain lifecycle, prospective/OOS economics,
+and separately authorized snapshot and execution integration.
