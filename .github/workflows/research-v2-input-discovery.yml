@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [discovery, exact_manifest_metadata]
+        options: [discovery, exact_manifest_metadata, runtime_parser_probe]
         default: discovery
       manifest_object:
         description: Exact mode canonical manifest object under the fixed input prefix
@@ -39,8 +39,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  runtime_parser_probe:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.mode == 'runtime_parser_probe'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up existing Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+      - name: Inspect parser import ordering without cloud access
+        run: |
+          set -euo pipefail
+          sdk_root="$(gcloud info --format='value(installation.sdk_root)')"
+          QSL_DISCOVERY_SDK_PATH="${sdk_root}/lib/third_party" timeout --signal=TERM --kill-after=5s 90s \
+            python3 scripts/discover_research_v2_inputs.py --runtime-parser-probe | tee "$GITHUB_STEP_SUMMARY"
+
   discover:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.mode != 'runtime_parser_probe'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -73,10 +91,10 @@ jobs:
           sdk_root="$(gcloud info --format='value(installation.sdk_root)')"
           mode="$(python3 -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["inputs"].get("mode", "discovery"))')"
           if [ "$mode" = discovery ]; then
-            PYTHONPATH="${sdk_root}/lib/third_party" python3 scripts/discover_research_v2_inputs.py --workflow-inputs | tee "$GITHUB_STEP_SUMMARY"
+            QSL_DISCOVERY_SDK_PATH="${sdk_root}/lib/third_party" python3 scripts/discover_research_v2_inputs.py --workflow-inputs | tee "$GITHUB_STEP_SUMMARY"
           else
             # A socket idle timeout cannot bound slow-dribble streaming or auth.
             # The outer deadline bounds the entire exact-mode process, with kill grace.
-            PYTHONPATH="${sdk_root}/lib/third_party" timeout --signal=TERM --kill-after=5s 180s \
+            QSL_DISCOVERY_SDK_PATH="${sdk_root}/lib/third_party" timeout --signal=TERM --kill-after=5s 180s \
               python3 scripts/discover_research_v2_inputs.py --workflow-inputs | tee "$GITHUB_STEP_SUMMARY"
           fi
