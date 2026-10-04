@@ -40,6 +40,13 @@ WINDOW_SPECS = (
     ("F3_VALIDATION", 542, 583), ("F3_EMBARGO", 584, 584), ("F3_TEST", 585, 626),
     ("FINAL_HOLDOUT", 627, 752),
 )
+_RUN_FAILURE_CODES = frozenset({
+    "PLUGIN_CONTROL_NOT_ABSENT", "INPUT_IDENTITY_MISMATCH", "INPUT_IDENTITY_INVALID",
+    "INPUT_SCHEMA_INVALID", "INPUT_VALUES_INVALID", "INPUT_CANONICAL_BYTES_MISMATCH",
+    "INPUT_ARTIFACT_SHA256_MISMATCH", "SIMULATION_CONTRACT_INVALID", "SIMULATION_EQUITY_INVALID",
+    "WINDOW_BOUNDARY_INVALID", "PARETO_METRICS_INVALID", "MONTE_CARLO_INPUT_INVALID",
+    "ELIGIBILITY_INPUT_INVALID", "SMA200_ZERO_PARITY_FAILED",
+})
 
 
 class OptimizationError(ValueError):
@@ -319,28 +326,81 @@ def _eligibility(wfa_returns: Sequence[float], final_c2_5: float, final_stress: 
     return ("FAIL", tuple(failures)) if failures else ("PASS", ())
 
 
-def _invalid(code: str) -> dict[str, Any]:
+def _trial_manifest() -> dict[str, Any]:
+    """Describe only this invocation's twelve fixed simulation slots.
+
+    A succeeded slot means its simulation returned, not that subsequent
+    evaluation, persistence or qualification succeeded.  This is neither a
+    durable journal nor evidence of previous invocations or unseen holdouts.
+    """
+    return {
+        "schema": "qsl.research.tqqq_trial_manifest.v1",
+        "scope": "THIS_INVOCATION_SIMULATIONS_ONLY",
+        "input_validation_stage": "CANONICAL_ARTIFACT_NOT_VERIFIED",
+        "input_linkage": None,
+        "attempts": [
+            {
+                "window_days": window,
+                "scenario_id": scenario.scenario_id,
+                "commission_bps": scenario.commission_bps,
+                "slippage_bps": scenario.slippage_bps,
+                "status": "not_started",
+                "reason_code": None,
+            }
+            for window in CANDIDATE_WINDOWS for scenario in SCENARIOS
+        ],
+    }
+
+
+def _run_failure_code(error: Exception) -> str:
+    """Never copy arbitrary exception text into returned/persisted evidence."""
+    if isinstance(error, OptimizationError) and len(error.args) == 1:
+        code = error.args[0]
+        if type(code) is str and code in _RUN_FAILURE_CODES:
+            return code
+    return "OPTIMIZATION_FAILED"
+
+
+def _invalid(code: str, *, trial_manifest: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "schema": SCHEMA, "evidence_valid": False, "failure_codes": [code], "outcome": "NO_IMPROVEMENT",
         "research_recommendation": None, "research_only": True, "live_adoption_authorized": False,
         "size_zero_required": True, "plugin_control": dict(PLUGIN_CONTROL),
+        "trial_manifest": _trial_manifest() if trial_manifest is None else trial_manifest,
     }
 
 
 def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGIN_CONTROL, expected_input_digest: str = EXPECTED_INPUT_DIGEST) -> dict[str, Any]:
     """Evaluate the three frozen candidates; this result has no adoption authority."""
-    if plugin_control != PLUGIN_CONTROL:
-        return _invalid("PLUGIN_CONTROL_NOT_ABSENT")
-    if expected_input_digest != EXPECTED_INPUT_DIGEST:
-        return _invalid("INPUT_IDENTITY_MISMATCH")
+    manifest = _trial_manifest()
+    active_attempt: dict[str, Any] | None = None
     try:
+        if plugin_control != PLUGIN_CONTROL:
+            return _invalid("PLUGIN_CONTROL_NOT_ABSENT", trial_manifest=manifest)
+        if expected_input_digest != EXPECTED_INPUT_DIGEST:
+            return _invalid("INPUT_IDENTITY_MISMATCH", trial_manifest=manifest)
         _typed_rows(source, expected_input_digest)
         assert type(source) is OfflineInput
         _verify_immutable_input(source)
-        simulations = {
-            window: {scenario.scenario_id: simulate_candidate(source, window, scenario) for scenario in SCENARIOS}
-            for window in CANDIDATE_WINDOWS
+        # The composite digest is accepted against a literal, not recomputed.
+        # Only canonical artifact bytes/hash are independently checked here.
+        manifest["input_validation_stage"] = "CANONICAL_ARTIFACT_VERIFIED"
+        manifest["input_linkage"] = {
+            "accepted_input_digest": EXPECTED_INPUT_DIGEST,
+            "input_digest_semantics": "MATCHES_EXPECTED_LITERAL_ONLY",
+            "verified_canonical_artifact_sha256": hashlib.sha256(source.canonical_bytes).hexdigest(),
+            "verified_canonical_artifact_bytes": len(source.canonical_bytes),
         }
+        simulations: dict[int, dict[str, tuple[DailyPoint, ...]]] = {}
+        attempt_index = 0
+        for window in CANDIDATE_WINDOWS:
+            simulations[window] = {}
+            for scenario in SCENARIOS:
+                active_attempt = manifest["attempts"][attempt_index]
+                simulations[window][scenario.scenario_id] = simulate_candidate(source, window, scenario)
+                active_attempt["status"] = "succeeded"
+                active_attempt = None
+                attempt_index += 1
         baseline = run_typed_baseline(source)
         zero = simulations[BASELINE_WINDOW_DAYS]["ZERO"]
         if any(actual.end_equity.hex() != expected.equity.hex() for actual, expected in zip(zero, baseline.equity_curve, strict=True)):
@@ -375,9 +435,13 @@ def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGI
             "locked_fold_candidates": locked, "final_candidate": final_candidate,
             "r3_eligibility_status": eligibility, "mc_terminal_loss_probability_c2_5": loss_probability,
             "metrics": {name: {str(window): values for window, values in entries.items()} for name, entries in metrics.items()},
+            "trial_manifest": manifest,
         }
-    except OptimizationError as exc:
-        return _invalid(str(exc))
+    except Exception as exc:
+        if active_attempt is not None:
+            active_attempt["status"] = "failed"
+            active_attempt["reason_code"] = "CANDIDATE_SIMULATION_FAILED"
+        return _invalid(_run_failure_code(exc), trial_manifest=manifest)
 
 
 def _paths(root: str | Path) -> PersistedPaths:
@@ -406,6 +470,13 @@ def _write_set_once(contents: dict[Path, bytes]) -> None:
 
 
 def persist_result(result: dict[str, Any], output_root: str | Path, *, source_commit: str) -> PersistedPaths:
+    """Persist integrity-bound result bytes without attesting their execution.
+
+    Readback CSV/manifest/typed-digest fields are expected contract pins, even
+    for an early rejection.  They do not assert actual input verification;
+    a new result's optional trial_manifest.input_linkage reports those checks.
+    Neither manifest bytes nor source_revision are verified by this writer.
+    """
     if type(result) is not dict or len(source_commit) != 40 or any(char not in "0123456789abcdef" for char in source_commit):
         _fail("PERSIST_INPUT_INVALID")
     paths = _paths(output_root)
@@ -424,6 +495,7 @@ def persist_result(result: dict[str, Any], output_root: str | Path, *, source_co
 
 
 def load_persisted_result(output_root: str | Path) -> dict[str, Any]:
+    """Read old/new v1 result bytes unchanged; never invent missing accounting."""
     paths = _paths(output_root)
     try:
         bundle = paths.bundle.read_bytes()

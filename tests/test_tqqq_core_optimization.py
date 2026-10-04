@@ -276,3 +276,201 @@ def test_forbidden_input_and_plugin_or_identity_mismatch_fail_closed() -> None:
     assert run_tqqq_core_optimization(replace(source, input_digest="b" * 64))["evidence_valid"] is False
     assert run_tqqq_core_optimization(source, plugin_control={"state": "PRESENT"})["evidence_valid"] is False
     assert run_tqqq_core_optimization(source, expected_input_digest="b" * 64)["evidence_valid"] is False
+
+
+def _assert_trial_manifest(result, source=None):
+    manifest = result["trial_manifest"]
+    assert set(manifest) == {"schema", "scope", "input_validation_stage", "input_linkage", "attempts"}
+    assert manifest["schema"] == "qsl.research.tqqq_trial_manifest.v1"
+    assert manifest["scope"] == "THIS_INVOCATION_SIMULATIONS_ONLY"
+    if source is None:
+        assert manifest["input_validation_stage"] == "CANONICAL_ARTIFACT_NOT_VERIFIED"
+        assert manifest["input_linkage"] is None
+    else:
+        assert manifest["input_validation_stage"] == "CANONICAL_ARTIFACT_VERIFIED"
+        assert manifest["input_linkage"] == {
+            "accepted_input_digest": source.input_digest,
+            "input_digest_semantics": "MATCHES_EXPECTED_LITERAL_ONLY",
+            "verified_canonical_artifact_sha256": hashlib.sha256(source.canonical_bytes).hexdigest(),
+            "verified_canonical_artifact_bytes": len(source.canonical_bytes),
+        }
+    expected = [(window, scenario) for window in CANDIDATE_WINDOWS for scenario in SCENARIOS]
+    assert len(manifest["attempts"]) == len(expected) == 12
+    for attempt, (window, scenario) in zip(manifest["attempts"], expected, strict=True):
+        assert set(attempt) == {"window_days", "scenario_id", "commission_bps", "slippage_bps", "status", "reason_code"}
+        assert (attempt["window_days"], attempt["scenario_id"]) == (window, scenario.scenario_id)
+        assert (attempt["commission_bps"], attempt["slippage_bps"]) == (scenario.commission_bps, scenario.slippage_bps)
+        assert attempt["status"] in {"not_started", "succeeded", "failed"}
+        assert attempt["reason_code"] == (
+            "CANDIDATE_SIMULATION_FAILED" if attempt["status"] == "failed" else None
+        )
+    return manifest
+
+
+def _result_with_simulation_failure(failure_index, exception):
+    source = _source()
+    original = optimization.simulate_candidate
+    calls = []
+
+    def fail_one_call(input_source, window, scenario):
+        index = len(calls)
+        calls.append((window, scenario.scenario_id))
+        if index == failure_index:
+            raise exception
+        return original(input_source, window, scenario)
+
+    with _synthetic_artifact_identity(source), patch.object(
+        optimization, "simulate_candidate", side_effect=fail_one_call,
+    ):
+        result = run_tqqq_core_optimization(source)
+    return source, result, calls
+
+
+@pytest.mark.parametrize("failure_index", range(12))
+def test_every_simulation_failure_preserves_only_this_invocation_attempts(failure_index):
+    source, result, calls = _result_with_simulation_failure(
+        failure_index, optimization.OptimizationError("SIMULATION_EQUITY_INVALID"),
+    )
+    manifest = _assert_trial_manifest(result, source)
+    assert [item["status"] for item in manifest["attempts"]] == (
+        ["succeeded"] * failure_index + ["failed"] + ["not_started"] * (11 - failure_index)
+    )
+    assert len(calls) == failure_index + 1
+    assert result["failure_codes"] == ["SIMULATION_EQUITY_INVALID"]
+    assert result["evidence_valid"] is False
+    assert result["research_recommendation"] is None
+    assert result["live_adoption_authorized"] is False
+    assert result["size_zero_required"] is True
+    assert "metrics" not in result
+
+
+@pytest.mark.parametrize("exception_type", [RuntimeError, optimization.OptimizationError])
+def test_unexpected_exception_text_is_sanitized_in_return_and_persistence(tmp_path, exception_type):
+    private_marker = "SYNTHETIC_PRIVATE_PROVIDER_DETAIL"
+    source, result, calls = _result_with_simulation_failure(4, exception_type(private_marker))
+    manifest = _assert_trial_manifest(result, source)
+    assert [item["status"] for item in manifest["attempts"]] == ["succeeded"] * 4 + ["failed"] + ["not_started"] * 7
+    assert len(calls) == 5
+    assert result["failure_codes"] == ["OPTIMIZATION_FAILED"]
+    assert private_marker not in json.dumps(result)
+    with _synthetic_artifact_identity(source):
+        paths = persist_result(result, tmp_path, source_commit="c" * 40)
+        assert load_persisted_result(tmp_path)["trial_manifest"] == manifest
+    assert all(private_marker.encode() not in path.read_bytes() for path in (paths.bundle, paths.sidecar, paths.readback))
+
+
+@pytest.mark.parametrize("rejection", ["plugin", "expected_digest", "source_type", "asserted_digest", "canonical_bytes", "artifact_hash"])
+def test_early_rejection_has_no_actual_input_linkage_or_started_simulations(rejection):
+    source = _source()
+    kwargs = {}
+    if rejection == "plugin":
+        kwargs["plugin_control"] = {"state": "PRESENT"}
+    elif rejection == "expected_digest":
+        kwargs["expected_input_digest"] = "b" * 64
+    elif rejection == "source_type":
+        source = None
+    elif rejection == "asserted_digest":
+        source = replace(source, input_digest="b" * 64)
+    elif rejection == "canonical_bytes":
+        source = replace(source, canonical_bytes=b"different canonical rows\n")
+    with patch.object(optimization, "simulate_candidate") as simulator:
+        result = run_tqqq_core_optimization(source, **kwargs)
+    manifest = _assert_trial_manifest(result)
+    assert [item["status"] for item in manifest["attempts"]] == ["not_started"] * 12
+    assert result["evidence_valid"] is False
+    assert result["research_recommendation"] is None
+    simulator.assert_not_called()
+
+
+@pytest.mark.parametrize(("helper", "exception", "failure_code"), [
+    ("run_typed_baseline", RuntimeError("SYNTHETIC_PRIVATE_BASELINE_DETAIL"), "OPTIMIZATION_FAILED"),
+    ("_window_metrics", optimization.OptimizationError("WINDOW_BOUNDARY_INVALID"), "WINDOW_BOUNDARY_INVALID"),
+    ("_terminal_loss_probability", optimization.OptimizationError("MONTE_CARLO_INPUT_INVALID"), "MONTE_CARLO_INPUT_INVALID"),
+    ("_five_metric_winner", RuntimeError("SYNTHETIC_PRIVATE_SELECTION_DETAIL"), "OPTIMIZATION_FAILED"),
+])
+def test_postprocessing_failure_keeps_successful_simulations_without_qualification(helper, exception, failure_code):
+    source = _source()
+    with _synthetic_artifact_identity(source), patch.object(optimization, helper, side_effect=exception):
+        result = run_tqqq_core_optimization(source)
+    manifest = _assert_trial_manifest(result, source)
+    assert [item["status"] for item in manifest["attempts"]] == ["succeeded"] * 12
+    assert result["evidence_valid"] is False
+    assert result["failure_codes"] == [failure_code]
+    assert result["research_recommendation"] is None
+    assert result["live_adoption_authorized"] is False
+    assert "SYNTHETIC_PRIVATE" not in json.dumps(result)
+
+
+def test_manifest_is_deterministic_and_independent_between_invocations():
+    source, first, _ = _result_with_simulation_failure(3, RuntimeError("synthetic failure"))
+    _, second, _ = _result_with_simulation_failure(3, RuntimeError("synthetic failure"))
+    assert first == second
+    assert first["trial_manifest"] is not second["trial_manifest"]
+    assert first["trial_manifest"]["attempts"] is not second["trial_manifest"]["attempts"]
+    first["trial_manifest"]["attempts"][0]["reason_code"] = "synthetic mutation"
+    first["trial_manifest"]["input_linkage"]["accepted_input_digest"] = "synthetic mutation"
+    _assert_trial_manifest(second, source)
+
+
+def test_success_manifest_does_not_change_any_legacy_result_field_or_claim_source_revision():
+    source = replace(_source(), source_revision="SYNTHETIC_UNVERIFIED_SOURCE_REVISION")
+    with _synthetic_artifact_identity(source):
+        result = run_tqqq_core_optimization(source)
+    manifest = _assert_trial_manifest(result, source)
+    assert [item["status"] for item in manifest["attempts"]] == ["succeeded"] * 12
+    assert source.source_revision not in json.dumps(result)
+    legacy_projection = {key: value for key, value in result.items() if key != "trial_manifest"}
+    # Frozen from the reviewed pre-patch source and this same synthetic fixture.
+    raw = optimization._canonical_bytes(optimization._wire(legacy_projection))
+    assert hashlib.sha256(raw).hexdigest() == "5fa3152c416f0631045cfa448d7bb5ec2758b8edda781752b9a05331d8f6c89c"
+
+
+def test_early_rejection_readback_pins_are_expected_identity_not_verified_input(tmp_path):
+    result = run_tqqq_core_optimization(None)
+    _assert_trial_manifest(result)
+    paths = persist_result(result, tmp_path, source_commit="c" * 40)
+    restored = load_persisted_result(tmp_path)
+    _assert_trial_manifest(restored)
+    readback = json.loads(paths.readback.read_bytes())
+    assert readback["csv_sha256"] == optimization.EXPECTED_ARTIFACT_SHA256
+    assert readback["manifest_sha256"] == optimization.EXPECTED_MANIFEST_SHA256
+    assert readback["typed_digest"] == optimization.EXPECTED_INPUT_DIGEST
+    assert restored["trial_manifest"]["input_linkage"] is None
+
+
+def test_legacy_v1_persistence_remains_readable_and_cannot_be_overwritten_by_new_metadata(tmp_path):
+    source = _source()
+    with _synthetic_artifact_identity(source):
+        current = run_tqqq_core_optimization(source)
+        _assert_trial_manifest(current, source)
+        legacy = {key: value for key, value in current.items() if key != "trial_manifest"}
+        paths = persist_result(legacy, tmp_path, source_commit="c" * 40)
+        original = {path: path.read_bytes() for path in (paths.bundle, paths.sidecar, paths.readback)}
+        restored = load_persisted_result(tmp_path)
+        assert "trial_manifest" not in restored
+        assert restored == optimization._wire(legacy)
+        with pytest.raises(optimization.OptimizationError, match="EXISTING_DIFFERENT_BYTES"):
+            persist_result(current, tmp_path, source_commit="c" * 40)
+    assert all(path.read_bytes() == raw for path, raw in original.items())
+
+
+def test_trial_manifest_metadata_is_bound_by_existing_persistence_digests(tmp_path):
+    source, result, _ = _result_with_simulation_failure(2, RuntimeError("synthetic failure"))
+    with _synthetic_artifact_identity(source):
+        paths = persist_result(result, tmp_path, source_commit="c" * 40)
+        parsed = json.loads(paths.bundle.read_bytes())
+        parsed["trial_manifest"]["attempts"][2]["status"] = "succeeded"
+        tampered = optimization._canonical_bytes(parsed)
+        paths.bundle.write_bytes(tampered)
+        paths.sidecar.write_text(hashlib.sha256(tampered).hexdigest() + "\n")
+        with pytest.raises(optimization.OptimizationError, match="READBACK_MISMATCH"):
+            load_persisted_result(tmp_path)
+
+
+@pytest.mark.parametrize("exception_type", [KeyboardInterrupt, SystemExit])
+def test_process_control_exceptions_are_not_converted_to_completed_accounting(exception_type):
+    source = _source()
+    with _synthetic_artifact_identity(source), patch.object(
+        optimization, "simulate_candidate", side_effect=exception_type("synthetic interruption"),
+    ), pytest.raises(exception_type):
+        run_tqqq_core_optimization(source)
