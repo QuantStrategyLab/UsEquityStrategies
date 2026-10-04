@@ -71,31 +71,78 @@ class DualDriveCoreDecision:
     volatility_redirected_ratio: float | None
 
 
-def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecision:
+@dataclass(frozen=True, slots=True)
+class DualDrivePrePluginDecision:
+    above_ma200: bool
+    slope_ok: bool
+    trend_risk_active: bool
+    pullback_risk_on: bool
+
+
+def decide_tqqq_preplugin_risk_on(
+    *,
+    prior_risk_active: bool,
+    qqq_price: float,
+    ma200: float,
+    latest_ma20: float | None,
+    ma20_slope: float | None,
+    pullback_rebound: float | None,
+    pullback_rebound_threshold: float,
+    require_ma20_slope: bool,
+    allow_pullback: bool,
+) -> DualDrivePrePluginDecision:
+    """Reuse the existing pre-plugin predicate without allocation or risk caps.
+
+    The current core supplies its actual holdings-derived prior state. This
+    helper does not establish an alpha epoch, validate observations/continuity,
+    issue an intent, or persist a strategy-owned latch. Legacy truthiness and
+    comparison behavior are deliberately retained without new input coercion.
+    Overall pre-plugin eligibility is trend_risk_active OR pullback_risk_on;
+    the independent pullback branch may be true while the trend latch is false.
+    """
     pullback_rebound_ok = (
-        value.pullback_rebound_threshold <= 0.0
+        pullback_rebound_threshold <= 0.0
         or (
-            value.pullback_rebound is not None
-            and value.pullback_rebound > value.pullback_rebound_threshold
+            pullback_rebound is not None
+            and pullback_rebound > pullback_rebound_threshold
         )
     )
-    above_ma200 = value.qqq_price > value.ma200
-    positive_ma20_slope = value.ma20_slope is not None and value.ma20_slope > 0.0
-    slope_ok = positive_ma20_slope if value.require_ma20_slope else True
-    current_risk_active = value.current_tqqq_quantity > 0 or value.current_unlevered_quantity > 0
-    risk_active = current_risk_active
-    if current_risk_active and not above_ma200:
+    above_ma200 = qqq_price > ma200
+    positive_ma20_slope = ma20_slope is not None and ma20_slope > 0.0
+    slope_ok = positive_ma20_slope if require_ma20_slope else True
+    risk_active = prior_risk_active
+    if prior_risk_active and not above_ma200:
         risk_active = False
-    elif not current_risk_active and above_ma200 and slope_ok:
+    elif not prior_risk_active and above_ma200 and slope_ok:
         risk_active = True
     pullback_risk_on = (
-        value.allow_pullback
+        allow_pullback
         and not above_ma200
-        and value.latest_ma20 is not None
-        and value.qqq_price > value.latest_ma20
+        and latest_ma20 is not None
+        and qqq_price > latest_ma20
         and positive_ma20_slope
         and pullback_rebound_ok
     )
+    return DualDrivePrePluginDecision(above_ma200, slope_ok, risk_active, pullback_risk_on)
+
+
+def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecision:
+    current_risk_active = value.current_tqqq_quantity > 0 or value.current_unlevered_quantity > 0
+    preplugin = decide_tqqq_preplugin_risk_on(
+        prior_risk_active=current_risk_active,
+        qqq_price=value.qqq_price,
+        ma200=value.ma200,
+        latest_ma20=value.latest_ma20,
+        ma20_slope=value.ma20_slope,
+        pullback_rebound=value.pullback_rebound,
+        pullback_rebound_threshold=value.pullback_rebound_threshold,
+        require_ma20_slope=value.require_ma20_slope,
+        allow_pullback=value.allow_pullback,
+    )
+    above_ma200 = preplugin.above_ma200
+    slope_ok = preplugin.slope_ok
+    risk_active = preplugin.trend_risk_active
+    pullback_risk_on = preplugin.pullback_risk_on
 
     reserved = value.initial_reserved
     target_unlevered_value = 0.0
