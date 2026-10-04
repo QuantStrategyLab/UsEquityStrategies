@@ -1,9 +1,34 @@
 name: Research v2 Input Discovery
 
-# Manual read-only inventory. The script fixes the one approved GCS prefix,
-# caps listing, and prints only filtered metadata; no object content is copied.
+# Manual inventory remains the default. Exact mode reads one reviewed manifest
+# revision in memory, never its referenced inputs; scope is bound before auth.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [discovery, exact_manifest_metadata]
+        default: discovery
+      manifest_object:
+        description: Exact mode canonical manifest object under the fixed input prefix
+        type: string
+        default: ''
+      generation:
+        description: Exact mode explicit archived generation
+        type: string
+        default: ''
+      manifest_sha256:
+        description: Exact mode reviewed lowercase manifest SHA256
+        type: string
+        default: ''
+      max_manifest_bytes:
+        description: Exact mode explicit byte limit, at most 1048576
+        type: string
+        default: ''
+      config_sha256:
+        description: Exact mode reviewed canonical run-config SHA256 including identity
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -18,10 +43,19 @@ jobs:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Validate exact read configuration
+        run: |
+          set -euo pipefail
+          python3 scripts/discover_research_v2_inputs.py --workflow-inputs --preflight
       - name: Authenticate to Google Cloud
+        id: gcp-auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -32,7 +66,17 @@ jobs:
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
       - name: Discover bounded input metadata
+        env:
+          EXACT_AUTH_CREDENTIALS_FILE: ${{ steps.gcp-auth.outputs.credentials_file_path }}
         run: |
           set -euo pipefail
           sdk_root="$(gcloud info --format='value(installation.sdk_root)')"
-          PYTHONPATH="${sdk_root}/lib/third_party" python3 scripts/discover_research_v2_inputs.py | tee "$GITHUB_STEP_SUMMARY"
+          mode="$(python3 -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["inputs"].get("mode", "discovery"))')"
+          if [ "$mode" = discovery ]; then
+            PYTHONPATH="${sdk_root}/lib/third_party" python3 scripts/discover_research_v2_inputs.py --workflow-inputs | tee "$GITHUB_STEP_SUMMARY"
+          else
+            # A socket idle timeout cannot bound slow-dribble streaming or auth.
+            # The outer deadline bounds the entire exact-mode process, with kill grace.
+            PYTHONPATH="${sdk_root}/lib/third_party" timeout --signal=TERM --kill-after=5s 180s \
+              python3 scripts/discover_research_v2_inputs.py --workflow-inputs | tee "$GITHUB_STEP_SUMMARY"
+          fi
