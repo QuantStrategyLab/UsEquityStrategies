@@ -786,3 +786,204 @@ def test_constructed_exception_status_revalidated_at_receipt(monkeypatch, capsys
     assert json.loads(output) == {"status": "PARKED", "reason_code": "EXACT_HTTP_FAILED",
                                  "execution_authorized": False, "no_order": True}
     assert "private" not in output
+
+
+def fake_sdk(tmp_path):
+    sdk = tmp_path / "sdk" / "lib" / "third_party"
+    sdk.mkdir(parents=True)
+    (sdk / "argparse.py").write_text(
+        "class ArgumentParser:\n"
+        "    def __init__(self, *, add_help=False):\n        pass\n"
+    )
+    modules = {
+        "google/__init__.py": "",
+        "google/auth/__init__.py": "SDK_ORIGIN = True\n",
+        "google/auth/identity_pool.py": "",
+        "google/auth/transport/__init__.py": "",
+        "google/auth/transport/requests.py": "",
+        "requests/__init__.py": "SDK_ORIGIN = True\n",
+        "requests/adapters.py": "",
+        "urllib3/__init__.py": "",
+    }
+    for relative, content in modules.items():
+        path = sdk / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    return sdk
+
+
+def test_auth_free_probe_reproduces_shadow_and_repairs_stdlib_first(monkeypatch, tmp_path, capsys):
+    sdk = fake_sdk(tmp_path)
+    monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", str(sdk))
+    # No data/auth configuration may be read in the probe.
+    monkeypatch.setattr(discovery, "_validated_identity", lambda: pytest.fail("PRIVATE_CONFIG_READ"))
+    monkeypatch.setattr(discovery, "_exact_session", lambda _: pytest.fail("AUTH_CALLED"))
+    monkeypatch.setattr(discovery, "discover", lambda _: pytest.fail("OBJECT_CALL"))
+    assert discovery.main(["--runtime-parser-probe"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "status": "RUNTIME_PARSER_PROBE", "legacy_parser_initialized": False,
+        "legacy_argparse_stdlib": False, "legacy_exception_class": "TypeError",
+        "repaired_parser_initialized": True, "repaired_argparse_stdlib": True,
+        "repaired_exception_class": None, "repaired_sdk_library_origins": True,
+        "auth_requested": False, "object_requested": False,
+        "execution_authorized": False, "no_order": True,
+    }
+    assert str(sdk) not in json.dumps(result)
+
+
+def test_bootstrap_stdlib_then_sdk_then_fallback(monkeypatch, tmp_path):
+    import sys
+    import sysconfig
+
+    sdk = fake_sdk(tmp_path)
+    fallback = tmp_path / "fallback-site-packages"
+    fallback.mkdir()
+    monkeypatch.setattr(sys, "path", [str(fallback), *sys.path])
+    monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", str(sdk))
+    discovery._bootstrap_sdk_runtime()
+    assert sys.path.index(sysconfig.get_path("stdlib")) < sys.path.index(str(sdk)) < sys.path.index(str(fallback))
+
+
+def test_preloaded_fallback_auth_is_rejected_before_credentials(monkeypatch, tmp_path):
+    import sys
+    from types import ModuleType
+
+    sdk = fake_sdk(tmp_path)
+    monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", str(sdk))
+    old = ModuleType("google.auth")
+    old.__file__ = str(tmp_path / "fallback-site-packages/google/auth/__init__.py")
+    monkeypatch.setitem(sys.modules, "google.auth", old)
+    with pytest.raises(ValueError, match="SDK_LIBRARY_ORIGIN_FAILED"):
+        discovery._ensure_sdk_libraries()
+
+
+def test_pre_mode_exception_is_fixed_phase_not_discovery(monkeypatch, capsys):
+    def broken(_args):
+        raise TypeError("private-contact https://private.example/manifest.json")
+
+    monkeypatch.setattr(discovery, "_arguments", broken)
+    assert discovery.main(exact_argv()) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "status": "PARKED", "reason_code": "ARGUMENT_RUNTIME_FAILED",
+        "failure_phase": "argument_validation", "error_class": "TypeError",
+        "execution_authorized": False, "no_order": True,
+    }
+    assert "scope" not in result
+    assert "private" not in json.dumps(result)
+
+
+def test_runtime_probe_workflow_has_no_auth_project_identity_or_oidc():
+    import re
+
+    workflow = (Path(discovery.__file__).parents[1] / ".github/workflows/research-v2-input-discovery.yml").read_text()
+    assert "options: [discovery, exact_manifest_metadata, runtime_parser_probe]" in workflow
+    job = re.search(r"  runtime_parser_probe:\n(.*?)(?=\n  discover:)", workflow, re.S).group(1)
+    assert "permissions:\n      contents: read" in job
+    assert "env:" not in job
+    assert "inputs.mode == 'runtime_parser_probe'" in job
+    for forbidden in ("Authenticate", "google-github-actions/auth", "project_id", "GCP_", "manifest-object", "--workflow-inputs", "id-token"):
+        assert forbidden not in job
+    assert "--runtime-parser-probe" in job
+    assert "PYTHONPATH=" not in job
+    assert "QSL_DISCOVERY_SDK_PATH=" in job
+    assert "inputs.mode != 'runtime_parser_probe'" in workflow
+
+
+@pytest.mark.parametrize("path", ["relative", "/nonexistent/sdk/third_party"])
+def test_bad_sdk_path_fails_with_fixed_runtime_phase(monkeypatch, capsys, path):
+    monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", path)
+    monkeypatch.setattr(discovery, "_exact_session", lambda _: pytest.fail("AUTH_CALLED"))
+    assert discovery.main(exact_argv()) == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "PARKED", "reason_code": "SDK_PATH_INVALID", "failure_phase": "runtime_bootstrap",
+        "error_class": "ValueError", "execution_authorized": False, "no_order": True,
+    }
+
+
+def test_nonstdlib_argparse_origin_is_rejected_without_reload(monkeypatch, tmp_path, capsys):
+    sdk = fake_sdk(tmp_path)
+    monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", str(sdk))
+    monkeypatch.setattr(discovery.argparse, "__file__", str(sdk / "argparse.py"))
+    assert discovery.main(exact_argv()) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["reason_code"] == "SDK_STDLIB_ORIGIN_FAILED"
+    assert result["failure_phase"] == "runtime_bootstrap"
+    assert "scope" not in result
+    assert str(sdk) not in json.dumps(result)
+
+
+def test_sdk_import_failure_reports_phase_without_auth(monkeypatch, capsys):
+    def missing():
+        raise ModuleNotFoundError("private-provider https://private.example")
+
+    monkeypatch.setattr(discovery, "_ensure_sdk_libraries", missing)
+    monkeypatch.setattr(discovery, "_exact_session", lambda _: pytest.fail("AUTH_CALLED"))
+    assert discovery.main(exact_argv()) == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "PARKED", "reason_code": "SDK_RUNTIME_FAILED", "failure_phase": "sdk_libraries",
+        "error_class": "ModuleNotFoundError", "execution_authorized": False, "no_order": True,
+    }
+
+
+def test_sdk_origin_failure_precedes_private_credential_read(monkeypatch):
+    def wrong():
+        raise ValueError("SDK_LIBRARY_ORIGIN_FAILED")
+
+    monkeypatch.setattr(discovery, "_ensure_sdk_libraries", wrong)
+    monkeypatch.setattr(discovery, "_bound_wif_info", lambda: pytest.fail("CREDENTIAL_FILE_READ"))
+    with pytest.raises(ValueError, match="SDK_LIBRARY_ORIGIN_FAILED"):
+        with discovery._exact_session(exact_config()):
+            pytest.fail("AUTH_CALLED")
+
+
+def test_probe_repaired_sdk_precedes_competing_fallback_packages(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    sdk = fake_sdk(tmp_path)
+    fallback = tmp_path / "old-global-site-packages"
+    for relative in ("google/__init__.py", "google/auth/__init__.py", "requests/__init__.py"):
+        path = fallback / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("raise RuntimeError('fallback library must not load')\n")
+    code = '''
+import importlib.util,json,sys
+spec=importlib.util.spec_from_file_location('bootstrap_test',sys.argv[1]);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+sys.path.insert(0,sys.argv[2]);module._bootstrap_sdk_runtime();module._ensure_sdk_libraries()
+import google.auth,requests
+print(json.dumps({'sdk_auth':google.auth.SDK_ORIGIN,'sdk_requests':requests.SDK_ORIGIN}))
+'''
+    env = dict(__import__("os").environ, QSL_DISCOVERY_SDK_PATH=str(sdk))
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run([sys.executable, "-c", code, discovery.__file__, str(fallback)],
+                            env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {"sdk_auth": True, "sdk_requests": True}
+
+
+def test_reader_workflow_replaces_sdk_first_pythonpath():
+    workflow = (Path(discovery.__file__).parents[1] / ".github/workflows/research-v2-input-discovery.yml").read_text()
+    assert 'PYTHONPATH="${sdk_root}/lib/third_party"' not in workflow
+    assert workflow.count('QSL_DISCOVERY_SDK_PATH="${sdk_root}/lib/third_party"') == 3
+    assert 'timeout --signal=TERM --kill-after=5s 180s' in workflow
+
+
+def test_cached_older_credential_base_is_rejected(monkeypatch, tmp_path):
+    import sys
+    from types import ModuleType
+
+    sdk = fake_sdk(tmp_path)
+    monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", str(sdk))
+    required = ("google.auth", "google.auth.identity_pool", "google.auth.transport.requests",
+                "requests", "requests.adapters", "urllib3")
+    for name in required:
+        module = ModuleType(name)
+        module.__file__ = str(sdk / name.replace(".", "/") / "__init__.py")
+        monkeypatch.setitem(sys.modules, name, module)
+    old = ModuleType("google.auth.credentials")
+    old.__file__ = str(tmp_path / "older-global-auth/credentials.py")
+    monkeypatch.setitem(sys.modules, "google.auth.credentials", old)
+    with pytest.raises(ValueError, match="SDK_LIBRARY_ORIGIN_FAILED"):
+        discovery._ensure_sdk_libraries()

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib
+import subprocess
+import sysconfig
+from pathlib import Path
 import hashlib
 import os
 import re
@@ -128,6 +132,133 @@ EXACT_REASONS = {
 class _RedactedParser(argparse.ArgumentParser):
     def error(self, message):
         raise ValueError("EXACT_INPUT_INVALID")
+
+
+SDK_PATH_ENV = "QSL_DISCOVERY_SDK_PATH"
+RUNTIME_REASONS = {"SDK_PATH_INVALID", "SDK_STDLIB_ORIGIN_FAILED", "SDK_LIBRARY_ORIGIN_FAILED"}
+SAFE_ERROR_CLASSES = {"TypeError", "ValueError", "KeyError", "OSError", "PermissionError",
+                      "TimeoutError", "ImportError", "ModuleNotFoundError", "AttributeError", "RuntimeError"}
+
+
+def _sdk_directory():
+    value = os.environ.get(SDK_PATH_ENV)
+    if value is None:
+        return None
+    path = Path(value)
+    if not path.is_absolute() or not path.is_dir():
+        raise ValueError("SDK_PATH_INVALID")
+    return path.resolve()
+
+
+def _argparse_is_stdlib():
+    origin = getattr(argparse, "__file__", None)
+    roots = {Path(sysconfig.get_path(name)).resolve() for name in ("stdlib", "platstdlib")}
+    return origin is not None and any(Path(origin).resolve() == root / "argparse.py" for root in roots)
+
+
+def _bootstrap_sdk_runtime():
+    """Keep stdlib before SDK, and the exact SDK before fallback site-packages.
+
+    The workflow must start without an SDK-first PYTHONPATH. Reject a preloaded
+    non-stdlib parser rather than weaken its strict option parsing or reload it.
+    """
+    sdk = _sdk_directory()
+    if sdk is None:
+        return
+    if not _argparse_is_stdlib():
+        raise ValueError("SDK_STDLIB_ORIGIN_FAILED")
+    roots = [sysconfig.get_path(name) for name in ("stdlib", "platstdlib")]
+    dynamic = sysconfig.get_config_var("DESTSHARED")
+    if dynamic:
+        roots.append(dynamic)
+    zip_name = f"python{sys.version_info.major}{sys.version_info.minor}.zip"
+    parents = {Path(path).resolve().parent for path in roots[:2]}
+    roots.extend(path for path in sys.path
+                 if Path(path).name == zip_name and Path(path).resolve().parent in parents)
+    standard = list(dict.fromkeys(str(Path(path).resolve()) for path in roots))
+    remaining = [path for path in sys.path if str(Path(path).resolve()) not in {*standard, str(sdk)}]
+    sys.path[:] = [*standard, str(sdk), *remaining]
+
+
+def _ensure_sdk_libraries():
+    # No identity fallback, module reload, credential construction or hook change.
+    # Existing standalone callers without the workflow SDK retain their behavior.
+    sdk = _sdk_directory()
+    if sdk is None:
+        return
+    required = ("google.auth", "google.auth.identity_pool", "google.auth.transport.requests",
+                "requests", "requests.adapters", "urllib3")
+    for name in required:
+        module = importlib.import_module(name)
+        origin = getattr(module, "__file__", None)
+        if origin is None or not Path(origin).resolve().is_relative_to(sdk):
+            raise ValueError("SDK_LIBRARY_ORIGIN_FAILED")
+    # Cached submodules can otherwise retain older credential/Session base classes
+    # even when the top-level package came from the SDK. Exclude stdlib aliases.
+    modules = [module for name, module in tuple(sys.modules.items())
+               if name in required or name.startswith(("google.auth.", "google.oauth2.",
+                                                       "requests.", "urllib3."))
+               and not name.startswith(("requests.packages", "urllib3.packages"))]
+    for module in modules:
+        origin = getattr(module, "__file__", None)
+        if origin is None or not Path(origin).resolve().is_relative_to(sdk):
+            raise ValueError("SDK_LIBRARY_ORIGIN_FAILED")
+
+
+def _runtime_parser_probe():
+    """Compare both import orders in isolated processes without reading inputs/auth.
+
+    Reuse the actual parser, not copied parsing rules. Capture all child output;
+    return only fixed booleans/classes, never paths or exception messages.
+    """
+    sdk = _sdk_directory()
+    if sdk is None:
+        raise ValueError("SDK_PATH_INVALID")
+    code = """
+import importlib.util,json,sys
+spec=importlib.util.spec_from_file_location('discovery_probe',sys.argv[1])
+module=importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+    standard=module._argparse_is_stdlib()
+    if sys.argv[2]=='repaired':
+        module._bootstrap_sdk_runtime()
+        module._ensure_sdk_libraries()
+    module._arguments([])
+    result={'initialized':True,'stdlib':standard,'error_class':None,'sdk_origins':sys.argv[2]=='repaired'}
+except Exception as exc:
+    name=type(exc).__name__
+    result={'initialized':False,'stdlib':locals().get('standard',False),'error_class':name if name in {'TypeError','ValueError','ImportError','ModuleNotFoundError','AttributeError','RuntimeError'} else 'RuntimeError','sdk_origins':False}
+print(json.dumps(result,sort_keys=True))
+"""
+    results = {}
+    for kind in ("legacy", "repaired"):
+        env = os.environ.copy()
+        env[SDK_PATH_ENV] = str(sdk)
+        if kind == "legacy":
+            env["PYTHONPATH"] = str(sdk)
+        else:
+            env.pop("PYTHONPATH", None)
+        result = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve()), kind],
+                                env=env, capture_output=True, text=True, timeout=30)
+        if result.returncode or len(result.stdout) > 4096:
+            raise ValueError("SDK_PATH_INVALID")
+        item = json.loads(result.stdout)
+        if (set(item) != {"initialized", "stdlib", "error_class", "sdk_origins"}
+                or any(type(item[key]) is not bool for key in ("initialized", "stdlib", "sdk_origins"))
+                or item["error_class"] not in SAFE_ERROR_CLASSES | {None}):
+            raise ValueError("SDK_PATH_INVALID")
+        results[kind] = item
+    return {"status": "RUNTIME_PARSER_PROBE",
+            "legacy_parser_initialized": results["legacy"]["initialized"],
+            "legacy_argparse_stdlib": results["legacy"]["stdlib"],
+            "legacy_exception_class": results["legacy"]["error_class"],
+            "repaired_parser_initialized": results["repaired"]["initialized"],
+            "repaired_argparse_stdlib": results["repaired"]["stdlib"],
+            "repaired_exception_class": results["repaired"]["error_class"],
+            "repaired_sdk_library_origins": results["repaired"]["sdk_origins"],
+            "auth_requested": False, "object_requested": False,
+            "execution_authorized": False, "no_order": True}
 
 
 def _identity_matches(name, value):
@@ -396,6 +527,7 @@ def _exact_session(config):
     # Parsing/identity binding precedes any auth request. Avoid google.auth.default
     # and load_credentials_from_file: the latter can discover the project remotely.
     _validate_config(config)
+    _ensure_sdk_libraries()
     info = _bound_wif_info()
     from google.auth import identity_pool
     from google.auth.transport.requests import AuthorizedSession, Request as AuthRequest
@@ -431,19 +563,33 @@ def _exact_session(config):
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    mode = "discovery"
+    mode = "unresolved"
+    phase = "runtime_bootstrap"
     try:
+        if argv == ["--runtime-parser-probe"]:
+            payload = _runtime_parser_probe()
+            print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+            return 0
+        _bootstrap_sdk_runtime()
+        phase = "argument_validation"
         args, config = _arguments([] if argv is None else argv)
         mode = args.mode
+        phase = "execution"
         if args.preflight:
             payload = {"status": "EXACT_PREFLIGHT_VALIDATED" if config else "DISCOVERY_PREFLIGHT_VALIDATED",
                        "mode": mode, "execution_authorized": False, "no_order": True}
             if config:
                 payload["run_config_sha256"] = _config_digest(config)
         elif mode == "exact_manifest_metadata":
+            phase = "sdk_libraries"
+            _ensure_sdk_libraries()
+            phase = "execution"
             with _exact_session(config) as session:
                 payload = read_exact_manifest(config, session)
         else:
+            phase = "sdk_libraries"
+            _ensure_sdk_libraries()
+            phase = "execution"
             import google.auth
 
             credentials, _ = google.auth.default(scopes=[READ_ONLY_SCOPE])
@@ -452,15 +598,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         known = {"LIST_FORMAT_UNRECOGNIZED", "LIST_PERMISSION_DENIED", "LIST_HTTP_FAILED",
                  "LIST_TRANSPORT_FAILED", "OUT_OF_SCOPE_OBJECT", "PAGE_BUDGET_OR_FORMAT_INVALID",
-                 "PAGE_TOKEN_INVALID"} | EXACT_REASONS
+                 "PAGE_TOKEN_INVALID"} | EXACT_REASONS | RUNTIME_REASONS
         reason = str(exc) if isinstance(exc, ValueError) and str(exc) in known else (
+            "SDK_RUNTIME_FAILED" if phase in {"runtime_bootstrap", "sdk_libraries"} else
+            "ARGUMENT_RUNTIME_FAILED" if phase == "argument_validation" else
             "EXACT_READ_FAILED" if mode == "exact_manifest_metadata" else "LIST_FAILED")
         payload = {"status": "PARKED", "reason_code": reason,
                    "execution_authorized": False, "no_order": True}
+        if (reason in RUNTIME_REASONS or reason in {"SDK_RUNTIME_FAILED", "ARGUMENT_RUNTIME_FAILED"}):
+            payload["failure_phase"] = "sdk_library_origin" if reason == "SDK_LIBRARY_ORIGIN_FAILED" else phase
+            name = type(exc).__name__
+            payload["error_class"] = name if name in SAFE_ERROR_CLASSES else "RuntimeError"
         if (mode == "exact_manifest_metadata" and isinstance(exc, _ExactHttpFailure)
                 and type(exc.http_status) is int and 100 <= exc.http_status <= 599):
             payload["http_status"] = exc.http_status
-        if mode == "discovery" and not reason.startswith("EXACT_"):
+        if mode == "discovery" and not reason.startswith("EXACT_") and reason not in RUNTIME_REASONS:
             payload["scope"] = PREFIX
         code = 2
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
