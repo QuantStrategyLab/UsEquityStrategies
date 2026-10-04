@@ -682,3 +682,107 @@ def test_credential_binding_rechecks_same_identity_hashes(monkeypatch, tmp_path,
     monkeypatch.setenv(name, "different-in-process-identity")
     with pytest.raises(ValueError, match="EXACT_IDENTITY_INVALID"):
         discovery._bound_wif_info()
+
+
+@pytest.mark.parametrize("status", [100, 301, 401, 403, 404, 429, 500, 599])
+@pytest.mark.parametrize("phase", [0, 1])
+def test_exact_http_status_receipt_contains_only_fixed_numeric_diagnostic(monkeypatch, capsys, status, phase):
+    from contextlib import contextmanager
+
+    responses = [Response(metadata())] * phase + [Response(
+        b"private-contact https://private.example/prices.csv", status=status,
+        headers={"Location": "https://private.example", "Authorization": "never-output"})]
+    session = Session(responses)
+
+    @contextmanager
+    def fake_session(_config):
+        yield session
+
+    monkeypatch.setattr(discovery, "_exact_session", fake_session)
+    assert discovery.main(exact_argv()) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "status": "PARKED", "reason_code": "EXACT_HTTP_FAILED", "http_status": status,
+        "execution_authorized": False, "no_order": True,
+    }
+    assert len(session.calls) == phase + 1
+    assert all(response.closed for response in responses)
+    assert "private" not in output
+    assert "never-output" not in output
+    assert "https://" not in output
+
+
+@pytest.mark.parametrize("status", [True, False, None, "401 private", 401.0, 99, 600])
+def test_malformed_http_status_omitted_without_echo(monkeypatch, capsys, status):
+    from contextlib import contextmanager
+
+    session = Session([Response(b"private-body", status=status)])
+
+    @contextmanager
+    def fake_session(_config):
+        yield session
+
+    monkeypatch.setattr(discovery, "_exact_session", fake_session)
+    assert discovery.main(exact_argv()) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result == {"status": "PARKED", "reason_code": "EXACT_HTTP_FAILED",
+                      "execution_authorized": False, "no_order": True}
+    assert len(session.calls) == 1
+
+
+def test_exact_http_200_success_receipt_remains_unchanged(monkeypatch, capsys):
+    from contextlib import contextmanager
+
+    config = exact_config()
+    session = Session([Response(metadata()), Response(MANIFEST)])
+
+    @contextmanager
+    def fake_session(_config):
+        yield session
+
+    monkeypatch.setattr(discovery, "_exact_session", fake_session)
+    assert discovery.main(exact_argv()) == 0
+    output = capsys.readouterr().out.strip()
+    result = json.loads(output)
+    # Frozen from authenticated PR550 source SHA256 c5d160ab, not this implementation.
+    assert hashlib.sha256(output.encode()).hexdigest() == '5550b6aee9f55f7f5b8a0a225aea15a3930629fb4554c75baee7f3e24ab9f7d4'
+    assert "http_status" not in result
+    assert len(session.calls) == 2
+
+
+def test_default_discovery_http_failure_output_remains_unchanged(monkeypatch, capsys):
+    import sys
+    from types import ModuleType
+
+    auth = ModuleType("google.auth")
+    auth.default = lambda *, scopes: (object(), "ignored")
+    google = ModuleType("google")
+    google.auth = auth
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.auth", auth)
+
+    def unavailable(_c, _t, _l):
+        raise ValueError("LIST_HTTP_FAILED")
+
+    monkeypatch.setattr(discovery, "_list_page", unavailable)
+    assert discovery.main([]) == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "PARKED", "reason_code": "LIST_HTTP_FAILED", "scope": discovery.PREFIX,
+        "execution_authorized": False, "no_order": True,
+    }
+
+
+@pytest.mark.parametrize("status", [True, False, None, "private-modified", 401.0, 99, 600])
+def test_constructed_exception_status_revalidated_at_receipt(monkeypatch, capsys, status):
+    error = discovery._ExactHttpFailure(401)
+    error.http_status = status
+
+    def fail(_config):
+        raise error
+
+    monkeypatch.setattr(discovery, "_exact_session", fail)
+    assert discovery.main(exact_argv()) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output) == {"status": "PARKED", "reason_code": "EXACT_HTTP_FAILED",
+                                 "execution_authorized": False, "no_order": True}
+    assert "private" not in output
