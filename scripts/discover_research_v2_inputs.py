@@ -260,6 +260,14 @@ def _json_object(body):
         raise ValueError("EXACT_JSON_INVALID") from None
 
 
+class _ExactHttpFailure(ValueError):
+    """Safe diagnostic only; never retain a response body, URL or headers."""
+
+    def __init__(self, status):
+        super().__init__("EXACT_HTTP_FAILED")
+        self.http_status = status if type(status) is int and 100 <= status <= 599 else None
+
+
 def _get_bytes(session, url, params, limit):
     """One GET, with bounded decoded bytes; caller MUST impose a process deadline.
 
@@ -271,7 +279,7 @@ def _get_bytes(session, url, params, limit):
         response = session.get(url, params=params, stream=True, allow_redirects=False,
                                timeout=45, headers={"Accept-Encoding": "identity"})
         if response.status_code != 200:
-            raise ValueError("EXACT_HTTP_FAILED")
+            raise _ExactHttpFailure(response.status_code)
         if response.headers.get("Content-Encoding", "identity").lower() != "identity":
             raise ValueError("EXACT_ENCODING_INVALID")
         body = bytearray()
@@ -449,6 +457,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "EXACT_READ_FAILED" if mode == "exact_manifest_metadata" else "LIST_FAILED")
         payload = {"status": "PARKED", "reason_code": reason,
                    "execution_authorized": False, "no_order": True}
+        if (mode == "exact_manifest_metadata" and isinstance(exc, _ExactHttpFailure)
+                and type(exc.http_status) is int and 100 <= exc.http_status <= 599):
+            payload["http_status"] = exc.http_status
         if mode == "discovery" and not reason.startswith("EXACT_"):
             payload["scope"] = PREFIX
         code = 2
