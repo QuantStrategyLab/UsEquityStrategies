@@ -315,3 +315,107 @@ entrypoints and dependency pins are unchanged, and no runtime consumes this
 module. A future fresh-intent path needs its own reviewed alpha decision
 contract, initialization/missing-chain lifecycle, prospective/OOS economics,
 and separately authorized snapshot and execution integration.
+
+
+## Bounded TQQQ synthetic contract acceptance (2026-10-05)
+
+This addition is **test-only specification acceptance**, not a `src` feature,
+R1 observation validator, complete R3 closure, or runtime adoption. The used
+caller is `_run_toy_cycle` in `tests/test_tqqq_plugin_release_contract_spec.py`.
+It calls the real `decide_tqqq_preplugin_risk_on`, projects an issued version
+into the existing test-only quantity oracle, then appends one combined record
+through the real pinned QPK **local** `StrategyRiskStateStore`. No second store,
+provider, broker, command, scheduler or model path is added. The immutable
+retention-v1 and ordinary strategy callers remain unchanged.
+
+The synthetic fixture configuration binds UES source revision
+`416356b4816390a674e8af7a4aba2e9f17d2d474` and the actual predicate-containing
+source-file SHA-256
+`d57745b0de59291a08293f9f07ba60152d5362b1f323d4b7cc088973930e110c`.
+Its configuration digest covers that binding, the separate-latch policy,
+unknown-history bootstrap, toy-input domain and one-effective-session expiry.
+The issued version binds candidate/revision/config, full frozen fixture input,
+prior false/current true observation digests, increasing sequence, epoch,
+signal/effective/expiry and maximum quantity. This is content consistency with
+a fixed source file, not evidence of deployed code or genuine data provenance.
+
+### Separate logical state and conservative bootstrap
+
+Persist `trend_latch`, overall `eligibility` and `armed` separately. Only
+`trend_latch` is passed as the predicate's next `prior_risk_active`; overall
+eligibility is `trend_risk_active OR pullback_risk_on`. A below-MA200 pullback
+can be eligible while the trend latch is false. Feeding that overall true
+back into the trend prior would incorrectly hold at an above-MA200 observation
+whose entry slope is nonpositive. The added counterexample exercises this
+actual predicate, rather than repeating its formula in another implementation.
+
+Unknown genesis stays unarmed with unknown trend/eligibility, including when
+both possible prior states imply a currently forced-true observation. It does
+not invent an earlier false. Only an observation independently false under
+both possible trend priors arms the fixture. A later valid false-to-true edge
+increments the issued sequence once; holding true, risk-only liquidation,
+changed NAV, AI agreement, permission relaxation and cooldown completion do
+not. An edge observed while blocked advances the issued watermark without
+positive allowance, and cannot be repackaged when the block disappears.
+
+### Risk state meanings and actual coverage
+
+Keep `policy_mode` separate from `release_state`; a reduced cap can coexist
+with waiting for a fresh intent. The specification uses:
+
+- `normal`: new risk is permitted and the retained/accepted target is within
+  the normal policy; this does not itself issue another version
+- `reduced`: a genuine new version is accepted within an already-reduced
+  proposal; independent existing capital/risk/order gates still apply
+- `blocked`: policy disallows new risk or the supplied synthetic cooldown is
+  active; new allowance is zero
+- `await_fresh_intent`: risk permission is available but the ratcheted ceiling
+  cannot be enlarged using the old version; no elapsed time or NAV change exits
+  this state without a valid new edge
+
+The fixture receives cooldown/risk observations as **synthetic assumptions**.
+It does not compute or verify breaker triggers, session-count progression,
+stale-data detection, available-at evidence or external risk resolution. For
+future R3 adoption, triggers and repeated triggers must enter/reset a frozen
+session-based block; absent/stale inputs block new risk and cannot decrement a
+cooldown or advance alpha history. Cooldown completion only removes its block.
+Exact loss measure, trigger threshold, observation cadence, missing-session
+recovery and execution constraints remain to be frozen for a real candidate.
+The old cooldown helper's permissive absent predecessor is not adopted here.
+
+The consumer returns a newly increasing result only after append succeeds.
+An append exception exposes no returned positive result. An identical restart
+returns the exact stored transition and `already_appended`; changed frozen
+input in that effective session rejects. Receipt replay is not downstream
+order or reservation exactly-once delivery. Explicit initialization is required;
+missing initialized history must not be repaired with a new genesis. QPK alone
+cannot detect erased history if a caller dishonestly resubmits an initialization
+receipt, so an independently validated lifecycle remains a real-adoption gap.
+
+The new cases cover separate latches, unknown forced true, independent false
+then one true edge, risk/cooldown/NAV/AI non-edges, blocked-edge watermark,
+append failure, exact receipt restart, same-session conflict, expired/foreign
+scope or revision/config, and missing initialization. Existing tests retain
+quantity, split, pending-order, capital and lower-cap specifications unchanged.
+No new economic result or expected-session completeness claim follows.
+
+### Inputs and SOXL still require independent contracts
+
+The new inputs are explicitly **toy indicators** and an illustrative short
+ordered fixture schedule. Neither a `complete=true` declaration nor a parsed
+hash establishes actual causal observations. No actual raw-prefix derivation,
+venue calendar/half-day completeness, source availability, rights, historical
+PIT, cutoff or interruption reconciliation validator was implemented. The
+private guard/cash candidate's 257-bar warmup belongs to its own feature
+contract; the pure TQQQ predicate has no universal warmup count. Real issuer
+use remains blocked on the existing R1/source-evidence prerequisites.
+
+SOXL is not wired to this TQQQ predicate or fixture. Ordinary SOXL's tiered
+SOXX buffer rule uses `price > entry_line` for full and `price > mid_line OR
+(current_blend_active AND price > exit_line)` for mid, with physical SOXL
+holdings supplying the current active condition. Frozen SOXL SMA-v1 research
+uses `close >= SMA`, while its RSI2 trend filter uses `close > SMA` and a
+separate held/RSI target rule. Those equality boundaries and logical-state
+owners require their own reviewed source/config/observation contract. This
+addition leaves SOXL-v1, RSI2, legacy runtime and all existing research numbers
+unchanged, and provides no synthetic unified SOXL adapter.

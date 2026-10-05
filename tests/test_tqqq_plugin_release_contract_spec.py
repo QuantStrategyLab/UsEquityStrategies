@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+from pathlib import Path
 import socket
 import subprocess
 import tempfile
@@ -27,12 +29,13 @@ from quant_platform_kit.common.strategy_risk_state import (
 from us_equity_strategies.strategies.tqqq_dual_drive_core import (
     DualDriveCoreInput,
     decide_tqqq_dual_drive,
+    decide_tqqq_preplugin_risk_on,
 )
 
 
 _CANDIDATE = "tqqq_qqq_guard_cash_release_intent_research_v1"
-_REVISION = "cc05a78da902c3762a5766291213580cb458e698"
-_CONFIG = "a" * 64
+_REVISION = "416356b4816390a674e8af7a4aba2e9f17d2d474"
+_PREDICATE_SHA256 = "d57745b0de59291a08293f9f07ba60152d5362b1f323d4b7cc088973930e110c"
 _SCHEMA = "tqqq_plugin_release_state.spec.v1"
 
 
@@ -40,6 +43,18 @@ def _digest(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
     ).hexdigest()
+
+
+# A content-bound fixture policy, not an installed/deployed source identity.
+_CONFIG = _digest({
+    "candidate": _CANDIDATE, "source_revision": _REVISION,
+    "predicate_source_sha256": _PREDICATE_SHA256,
+    "policy": "synthetic.separate_trend_latch.independent_false_bootstrap.v2",
+    "expiry": "one_effective_session", "inputs": "toy_indicator_observations_only",
+    "predicate": {"ma200": 100, "require_ma20_slope": True, "allow_pullback": True,
+                  "pullback_rebound": .2, "pullback_rebound_threshold": .1},
+    "max_quantity": "45",
+})
 
 
 def _quantity(value: object) -> Decimal:
@@ -502,6 +517,246 @@ class TqqqReleaseSpecificationTests(unittest.TestCase):
                 identity=_identity("another_candidate"), effective_session="2026-10-02",
                 input_sha256="e" * 64, state={"ceiling_quantity": "45"}, previous_transition=_transition(),
             )
+
+
+_TOY_SCHEMA = "tqqq_plugin_release_state.synthetic.v2"
+# An explicit illustrative fixture schedule, not a validated venue calendar.
+_TOY_DAYS = ("2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02")
+
+
+@dataclass(frozen=True)
+class _ToyObservation:
+    signal_session: str
+    effective_session: str
+    expires_session: str
+    price: float
+    ma20: float
+    slope: float
+    account_scope: str = "synthetic"
+    source_revision: str = _REVISION
+    predicate_sha256: str = _PREDICATE_SHA256
+    config_sha256: str = _CONFIG
+
+
+def _toy_observation(day, *, price, ma20, slope):
+    return _ToyObservation(_TOY_DAYS[day], _TOY_DAYS[day + 1], _TOY_DAYS[day + 1], price, ma20, slope)
+
+
+def _toy_alpha(prior, observation, input_sha256):
+    """Test-only issuer over toy indicators; no warmup/calendar/PIT validator."""
+    if (observation.account_scope, observation.source_revision, observation.predicate_sha256,
+            observation.config_sha256) != ("synthetic", _REVISION, _PREDICATE_SHA256, _CONFIG):
+        raise ValueError("FOREIGN_OBSERVATION_SCOPE_OR_SOURCE")
+    source = Path(__file__).resolve().parents[1] / "src/us_equity_strategies/strategies/tqqq_dual_drive_core.py"
+    if hashlib.sha256(source.read_bytes()).hexdigest() != _PREDICATE_SHA256:
+        raise ValueError("FROZEN_PREDICATE_SOURCE_CHANGED")
+    for session in (observation.signal_session, observation.effective_session, observation.expires_session):
+        _session(session)
+    if not observation.signal_session < observation.effective_session == observation.expires_session:
+        raise ValueError("EXPIRED_OR_UNSUPPORTED_TOY_SESSION")
+    if any(type(value) not in (int, float) or not math.isfinite(value) for value in (
+        observation.price, observation.ma20, observation.slope,
+    )) or observation.price <= 0 or observation.ma20 <= 0:
+        raise ValueError("INVALID_TOY_INDICATORS")
+    observation_digest = _digest(asdict(observation))
+    alpha = dict(prior) if prior is not None else {
+        "trend_latch": None, "eligibility": None, "armed": False,
+        "sequence": 0, "epoch": None, "last_false_observation_sha256": None,
+    }
+    def predicate(trend):
+        return decide_tqqq_preplugin_risk_on(
+            prior_risk_active=trend, qqq_price=observation.price, ma200=100,
+            latest_ma20=observation.ma20, ma20_slope=observation.slope,
+            pullback_rebound=.2, pullback_rebound_threshold=.1,
+            require_ma20_slope=True, allow_pullback=True,
+        )
+    if alpha["trend_latch"] is None:
+        alternatives = (predicate(False), predicate(True))
+        if all(not (value.trend_risk_active or value.pullback_risk_on) for value in alternatives):
+            alpha.update(trend_latch=False, eligibility=False, armed=True,
+                         last_false_observation_sha256=observation_digest)
+        # Forced true and ambiguous history both stay unarmed/unknown.
+        return alpha, None
+    result = predicate(alpha["trend_latch"])
+    eligibility = result.trend_risk_active or result.pullback_risk_on
+    edge = alpha["armed"] and alpha["eligibility"] is False and eligibility
+    if not eligibility:
+        alpha["last_false_observation_sha256"] = observation_digest
+    intent = None
+    if edge:
+        alpha["sequence"] += 1
+        alpha["epoch"] = _digest({
+            "identity": _identity().to_dict(), "sequence": alpha["sequence"],
+            "false": alpha["last_false_observation_sha256"], "true": observation_digest,
+        })
+        intent = _Intent(
+            sequence=alpha["sequence"], alpha_epoch=alpha["epoch"],
+            input_sha256=input_sha256, signal_session=observation.signal_session,
+            effective_session=observation.effective_session, expires_session=observation.expires_session,
+        )
+    alpha.update(trend_latch=result.trend_risk_active, eligibility=eligibility)
+    return alpha, intent
+
+
+def _run_toy_cycle(store, observation, *, initialize=False, settled="0", nav="1000",
+                   policy_mode="normal", cooldown_active=False, ai_audit="absent"):
+    """The used fixture consumer; returns only after the real local QPK append.
+
+    No src caller imports this function. Indicators, caps, reconciliation and
+    cooldown observations are synthetic assumptions, never actual authority.
+    """
+    if store.local_dir is None or store.cloud_prefix_uri is not None:
+        raise ValueError("ONLY_LOCAL_SYNTHETIC_STORE")
+    if policy_mode not in {"normal", "reduced", "blocked"} or type(cooldown_active) is not bool:
+        raise ValueError("INVALID_TOY_RISK_MODE")
+    frame = _Frame(signal_session=observation.signal_session, effective_session=observation.effective_session,
+                   settled_quantity=Decimal(settled), nav=Decimal(nav), ai_audit=ai_audit,
+                   restricted=policy_mode != "normal", new_risk_permitted=policy_mode != "blocked" and not cooldown_active)
+    frozen_input = {"observation": asdict(observation), "frame": _deterministic_input(frame),
+                    "policy_mode": policy_mode, "cooldown_active": cooldown_active, "initialize": initialize}
+    chain = store.load_chain(_identity())
+    previous = chain[-1] if chain else None
+    frozen_input["predecessor_sha256"] = (previous.previous_transition_sha256
+        if previous is not None and previous.effective_session == frame.effective_session
+        else previous.transition_sha256 if previous is not None else None)
+    input_sha256 = _digest(frozen_input)
+    if previous is not None and previous.effective_session == frame.effective_session:
+        if previous.input_sha256 != input_sha256:
+            raise ValueError("FROZEN_INPUT_CONFLICT")
+        return store.append(previous)
+    if previous is not None:
+        if previous.state.get("schema_version") != _TOY_SCHEMA:
+            raise ValueError("WRONG_SYNTHETIC_STATE_SCHEMA")
+        release = dict(previous.state["release"])
+        release["ceiling"] = Decimal(release["ceiling"])
+        prior_release = _State(**release)
+        prior_alpha = previous.state["alpha"]
+    else:
+        prior_release, prior_alpha = None, None
+    alpha, issued = _toy_alpha(prior_alpha, observation, input_sha256)
+    frame = replace(frame, strategy_input_sha256=input_sha256)
+    # An edge seen while blocked is recorded in the issued watermark, but its
+    # version cannot be repackaged as a new edge when permission returns.
+    accepted = issued if frame.new_risk_permitted else None
+    release, target, allowance = _reference_decision(
+        prior_release, frame, accepted, genesis_receipt="d" * 64 if initialize else None,
+    )
+    blocked = not frame.new_risk_permitted
+    release_state = ("blocked" if blocked else policy_mode if accepted is not None
+                     or target == frame.proposed_quantity else "await_fresh_intent")
+    release_wire = asdict(release)
+    release_wire["ceiling"] = str(release.ceiling)
+    transition = build_strategy_risk_state_transition(
+        identity=_identity(), effective_session=frame.effective_session, input_sha256=input_sha256,
+        state={"schema_version": _TOY_SCHEMA, "alpha": alpha, "release": release_wire,
+               "policy_mode": policy_mode, "release_state": release_state,
+               "issued_intent": asdict(issued) | {"max_quantity": str(issued.max_quantity)} if issued else None,
+               "target_quantity": str(target), "new_buy_allowance": str(allowance)},
+        previous_transition=previous,
+    )
+    return store.append(transition)
+
+
+class TqqqProspectiveSyntheticSpecificationTests(unittest.TestCase):
+    """Toy indicator observations only: these tests do not implement R1."""
+
+    def _cycle(self, store, day, *, price=99, ma20=100, slope=0, **changes):
+        observation = _toy_observation(day, price=price, ma20=ma20, slope=slope)
+        return _run_toy_cycle(store, observation, **changes)
+
+    def test_pullback_overall_is_not_the_next_trend_prior(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            first = self._cycle(store, 0, price=99, ma20=98, slope=1, initialize=True)
+            self.assertIsNone(first.transition.state["alpha"]["trend_latch"])
+            self.assertEqual(first.transition.state["new_buy_allowance"], "0")
+            # Bootstrap from an independent false, then observe a pullback.
+            self._cycle(store, 1)
+            pullback = self._cycle(store, 2, price=99, ma20=98, slope=1)
+            self.assertFalse(pullback.transition.state["alpha"]["trend_latch"])
+            self.assertTrue(pullback.transition.state["alpha"]["eligibility"])
+            after = self._cycle(store, 3, price=101, slope=0)
+            self.assertFalse(after.transition.state["alpha"]["trend_latch"])
+            self.assertFalse(after.transition.state["alpha"]["eligibility"])
+            self.assertEqual(after.transition.state["alpha"]["sequence"], 1)
+
+    def test_unknown_forced_true_cannot_issue_until_independent_false_then_true(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            true = self._cycle(store, 0, price=101, slope=1, initialize=True)
+            self.assertIsNone(true.transition.state["alpha"]["eligibility"])
+            self.assertFalse(true.transition.state["alpha"]["armed"])
+            self.assertEqual(true.transition.state["alpha"]["sequence"], 0)
+            self._cycle(store, 1)
+            entered = self._cycle(store, 2, price=101, slope=1)
+            self.assertEqual(entered.transition.state["alpha"]["sequence"], 1)
+            self.assertEqual(entered.transition.state["new_buy_allowance"], "45")
+            held = self._cycle(store, 3, price=101, slope=0, settled="45")
+            self.assertEqual(held.transition.state["alpha"]["sequence"], 1)
+            self.assertEqual(held.transition.state["new_buy_allowance"], "0")
+
+    def test_risk_liquidation_permission_cooldown_and_nav_do_not_create_epoch(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            self._cycle(store, 0, initialize=True)
+            entered = self._cycle(store, 1, price=101, slope=1)
+            epoch = entered.transition.state["alpha"]["epoch"]
+            blocked = self._cycle(store, 2, price=101, slope=0, settled="0", policy_mode="blocked", cooldown_active=True)
+            self.assertEqual(blocked.transition.state["release_state"], "blocked")
+            restored = self._cycle(store, 3, price=101, slope=0, nav="2000", ai_audit="agree")
+            self.assertEqual(restored.transition.state["release_state"], "await_fresh_intent")
+            self.assertEqual(restored.transition.state["alpha"]["epoch"], epoch)
+            self.assertEqual(restored.transition.state["alpha"]["sequence"], 1)
+            self.assertEqual(restored.transition.state["new_buy_allowance"], "0")
+
+    def test_edge_seen_while_blocked_is_not_repackaged_when_unblocked(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            self._cycle(store, 0, initialize=True)
+            blocked = self._cycle(store, 1, price=101, slope=1, policy_mode="blocked")
+            self.assertEqual(blocked.transition.state["alpha"]["sequence"], 1)
+            self.assertEqual(blocked.transition.state["new_buy_allowance"], "0")
+            restored = self._cycle(store, 2, price=101, slope=1)
+            self.assertEqual(restored.transition.state["alpha"]["sequence"], 1)
+            self.assertEqual(restored.transition.state["new_buy_allowance"], "0")
+
+    def test_append_failure_exposes_no_positive_result_and_restart_replays_receipt(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            self._cycle(store, 0, initialize=True)
+            with patch.object(StrategyRiskStateStore, "append", side_effect=OSError("SYNTHETIC_WRITE_FAILURE")):
+                with self.assertRaisesRegex(OSError, "SYNTHETIC_WRITE_FAILURE"):
+                    self._cycle(store, 1, price=101, slope=1)
+            self.assertEqual(len(store.load_chain(_identity())), 1)
+            appended = self._cycle(store, 1, price=101, slope=1)
+            restarted = self._cycle(StrategyRiskStateStore(local_dir=root), 1, price=101, slope=1)
+            self.assertEqual(restarted.status.value, "already_appended")
+            self.assertEqual(restarted.transition, appended.transition)
+            self.assertEqual(len(store.load_chain(_identity())), 2)
+            with self.assertRaisesRegex(ValueError, "FROZEN_INPUT_CONFLICT"):
+                self._cycle(store, 1, price=101, slope=1, nav="1001")
+
+    def test_expired_and_wrong_scope_observations_are_rejected_before_append(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            self._cycle(store, 0, initialize=True)
+            observation = _toy_observation(1, price=101, ma20=100, slope=1)
+            for invalid in (
+                replace(observation, expires_session="2026-09-28"),
+                replace(observation, account_scope="foreign"),
+                replace(observation, source_revision="0" * 40),
+                replace(observation, config_sha256="0" * 64),
+            ):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    _run_toy_cycle(store, invalid)
+            self.assertEqual(len(store.load_chain(_identity())), 1)
+
+    def test_uninitialized_missing_chain_does_not_recover_as_genesis(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            with self.assertRaisesRegex(ValueError, "MISSING_INITIALIZATION"):
+                self._cycle(store, 1, price=101, slope=1)
+            self.assertEqual(store.load_chain(_identity()), ())
 
 
 if __name__ == "__main__":
