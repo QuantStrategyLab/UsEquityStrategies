@@ -66,6 +66,12 @@ WINDOWS = {
     "F3_TEST": (585, 626),
     "FINAL_HOLDOUT": (627, 752),
 }
+_RUN_FAILURE_CODES = frozenset({
+    "PLUGIN_CONTROL_NOT_ABSENT", "INPUT_IDENTITY_INVALID", "INPUT_SCHEMA_INVALID",
+    "INPUT_VALUES_INVALID", "INPUT_CANONICAL_BYTES_MISMATCH", "SIMULATION_CONTRACT_INVALID",
+    "SIMULATION_EQUITY_INVALID", "WINDOW_BOUNDARY_INVALID", "VALIDATION_METRICS_INVALID",
+    "MONTE_CARLO_INPUT_INVALID", "ELIGIBILITY_INPUT_INVALID", "SMA200_ZERO_PARITY_FAILED",
+})
 
 
 class OptimizationError(ValueError):
@@ -401,21 +407,79 @@ def _eligibility(wfa_returns: Sequence[float], final_c2_5: float, final_stress: 
     return ("FAIL", tuple(failures)) if failures else ("PASS", ())
 
 
-def _invalid(code: str) -> dict[str, Any]:
+def _trial_manifest() -> dict[str, Any]:
+    """Describe only this invocation's sixteen fixed SMA simulation slots.
+
+    Success means the simulation returned, not qualification or persistence.
+    This is not a durable journal or evidence of earlier invocations.  Input
+    linkage records the existing rows/canonical-bytes check, not independent
+    manifest/readback validation or recomputation of the composite digest.
+    """
+    return {
+        "schema": "qsl.research.soxl_trial_manifest.v1",
+        "scope": "THIS_INVOCATION_SIMULATIONS_ONLY",
+        "input_validation_stage": "ROWS_CANONICAL_BYTES_NOT_CHECKED",
+        "input_linkage": None,
+        "attempts": [
+            {
+                "window_days": window,
+                "scenario_id": scenario.scenario_id,
+                "commission_bps": scenario.commission_bps,
+                "slippage_bps": scenario.slippage_bps,
+                "status": "not_started",
+                "reason_code": None,
+            }
+            for window in CANDIDATE_WINDOWS for scenario in SCENARIOS
+        ],
+    }
+
+
+def _run_failure_code(error: Exception) -> str:
+    """Never copy arbitrary exception text into returned/persisted evidence."""
+    if isinstance(error, OptimizationError) and len(error.args) == 1:
+        code = error.args[0]
+        if type(code) is str and code in _RUN_FAILURE_CODES:
+            return code
+    return "OPTIMIZATION_FAILED"
+
+
+def _invalid(code: str, *, trial_manifest: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "schema": SCHEMA, "evidence_valid": False, "failure_codes": [code], "outcome": "NO_IMPROVEMENT",
         "research_recommendation": None, "research_only": True, "live_adoption_authorized": False,
         "size_zero_required": True, "plugin_control": dict(PLUGIN_CONTROL),
+        "trial_manifest": _trial_manifest() if trial_manifest is None else trial_manifest,
     }
 
 
 def run_soxl_core_optimization(source: object, *, plugin_control: object = PLUGIN_CONTROL) -> dict[str, Any]:
     """Evaluate four frozen candidates; no outcome authorizes live adoption."""
-    if plugin_control != PLUGIN_CONTROL:
-        return _invalid("PLUGIN_CONTROL_NOT_ABSENT")
+    manifest = _trial_manifest()
+    active_attempt: dict[str, Any] | None = None
     try:
+        if plugin_control != PLUGIN_CONTROL:
+            return _invalid("PLUGIN_CONTROL_NOT_ABSENT", trial_manifest=manifest)
         _typed_rows(source)
-        simulations = {window: {scenario.scenario_id: simulate_candidate(source, window, scenario) for scenario in SCENARIOS} for window in CANDIDATE_WINDOWS}
+        assert type(source) is OfflineInput
+        # _typed_rows matches reconstructed row bytes, but checks only the
+        # composite digest's format, not its identity against an artifact.
+        manifest["input_validation_stage"] = "ROWS_CANONICAL_BYTES_MATCH"
+        manifest["input_linkage"] = {
+            "accepted_input_digest": source.input_digest,
+            "input_digest_semantics": "FORMAT_CHECK_ONLY_NOT_RECOMPUTED",
+            "matched_rows_canonical_bytes_sha256": hashlib.sha256(source.canonical_bytes).hexdigest(),
+            "matched_rows_canonical_bytes": len(source.canonical_bytes),
+        }
+        simulations: dict[int, dict[str, tuple[DailyPoint, ...]]] = {}
+        attempt_index = 0
+        for window in CANDIDATE_WINDOWS:
+            simulations[window] = {}
+            for scenario in SCENARIOS:
+                active_attempt = manifest["attempts"][attempt_index]
+                simulations[window][scenario.scenario_id] = simulate_candidate(source, window, scenario)
+                active_attempt["status"] = "succeeded"
+                active_attempt = None
+                attempt_index += 1
         baseline = run_typed_baseline(source)
         zero = simulations[BASELINE_WINDOW_DAYS]["ZERO"]
         if [(item.date, item.end_equity.hex(), item.cash.hex(), item.quantity.hex()) for item in zero] != [(item.date, item.equity.hex(), item.cash.hex(), item.soxl_quantity.hex()) for item in baseline.equity_curve]:
@@ -458,9 +522,13 @@ def run_soxl_core_optimization(source: object, *, plugin_control: object = PLUGI
             "validation_metrics_c2_5": {str(window): metrics for window, metrics in validation.items()},
             "locked_winner": selected, "post_lock_metrics": post_lock,
             "r3_eligibility_status": eligibility, "mc_terminal_loss_probability_c2_5": loss_probability,
+            "trial_manifest": manifest,
         }
-    except OptimizationError as exc:
-        return _invalid(str(exc))
+    except Exception as exc:
+        if active_attempt is not None:
+            active_attempt["status"] = "failed"
+            active_attempt["reason_code"] = "CANDIDATE_SIMULATION_FAILED"
+        return _invalid(_run_failure_code(exc), trial_manifest=manifest)
 
 
 def _volatility_window_metrics(points: Sequence[DailyPoint], raw_start: int, raw_end: int) -> dict[str, float | int | None | str]:
