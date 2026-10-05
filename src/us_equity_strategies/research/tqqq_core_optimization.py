@@ -212,7 +212,7 @@ def simulate_candidate(source: OfflineInput, window_days: int, scenario: CostSce
     return tuple(points)
 
 
-def _window_metrics(points: Sequence[DailyPoint], window_days: int, raw_start: int, raw_end: int) -> dict[str, float | int]:
+def _window_metrics(points: Sequence[DailyPoint], window_days: int, raw_start: int, raw_end: int) -> dict[str, Any]:
     selected = points[raw_start - window_days:raw_end - window_days + 1]
     if len(selected) != raw_end - raw_start + 1:
         _fail("WINDOW_BOUNDARY_INVALID")
@@ -230,6 +230,15 @@ def _window_metrics(points: Sequence[DailyPoint], window_days: int, raw_start: i
         "observation_count": len(selected), "cumulative_return": end_equity / start_equity - 1.0,
         "max_drawdown": min(drawdowns), "annualized_volatility": math.sqrt(variance) * math.sqrt(252.0),
         "expected_shortfall_95": math.fsum(sorted(returns)[:tail_count]) / tail_count,
+        "expected_shortfall_95_evidence": {
+            "method": "EMPIRICAL_MEAN_OF_LOWEST_CEIL_N_TIMES_0_05_DAILY_RETURNS",
+            "sign_convention": "SIGNED_DAILY_RETURN_LOWER_IS_WORSE_NOT_POSITIVE_LOSS",
+            "observation_count": len(returns),
+            "nominal_tail_fraction": 0.05,
+            "tail_observation_count": tail_count,
+            "effective_tail_fraction": tail_count / len(returns),
+            "qualification": "FINITE_HISTORY_EMPIRICAL_TAIL_NOT_A_POPULATION_RISK_GUARANTEE",
+        },
         "trade_count": sum(point.transition for point in selected),
         "total_cost": math.fsum(point.commission_paid + point.slippage_impact_vs_open for point in selected),
     }
@@ -309,6 +318,22 @@ def _terminal_loss_probability(returns: Sequence[float]) -> float:
                 equity *= 1.0 + returns[(start + offset) % MC_PATH_LENGTH]
         losses += equity < 1.0
     return losses / MC_TRIALS
+
+
+def _terminal_loss_probability_evidence(returns: Sequence[float]) -> dict[str, Any]:
+    """Describe a completed bootstrap; block starts are not HMAC draw counts."""
+    blocks_per_path = math.ceil(MC_PATH_LENGTH / MC_BLOCK_LENGTH)
+    return {
+        "method": "CIRCULAR_MOVING_BLOCK_BOOTSTRAP",
+        "source_history_observation_count": len(returns),
+        "completed_bootstrap_path_count": MC_TRIALS,
+        "path_length": MC_PATH_LENGTH,
+        "block_length": MC_BLOCK_LENGTH,
+        "blocks_per_path": blocks_per_path,
+        "sampled_block_start_count": MC_TRIALS * blocks_per_path,
+        "resampled_return_step_count": MC_TRIALS * MC_PATH_LENGTH,
+        "qualification": "RESAMPLED_PATHS_DO_NOT_ADD_INDEPENDENT_HISTORICAL_OBSERVATIONS",
+    }
 
 
 def _eligibility(wfa_returns: Sequence[float], final_c2_5: float, final_stress: float, loss_probability: float) -> tuple[str, tuple[str, ...]]:
@@ -434,6 +459,7 @@ def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGI
             "candidates": list(CANDIDATE_WINDOWS), "baseline_window_days": BASELINE_WINDOW_DAYS,
             "locked_fold_candidates": locked, "final_candidate": final_candidate,
             "r3_eligibility_status": eligibility, "mc_terminal_loss_probability_c2_5": loss_probability,
+            "mc_terminal_loss_probability_c2_5_evidence": _terminal_loss_probability_evidence(final_returns),
             "metrics": {name: {str(window): values for window, values in entries.items()} for name, entries in metrics.items()},
             "trial_manifest": manifest,
         }

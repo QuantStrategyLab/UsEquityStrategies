@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 import hashlib
 import json
+import math
 from unittest.mock import patch
 
 import pytest
@@ -64,6 +65,109 @@ def _synthetic_artifact_identity(source: OfflineInput):
     """Bind only this test's synthetic bytes; restore the real artifact pin."""
     with patch.object(optimization, "EXPECTED_ARTIFACT_SHA256", hashlib.sha256(source.canonical_bytes).hexdigest()):
         yield
+
+
+def _without_risk_evidence(result):
+    legacy = {
+        key: value for key, value in result.items()
+        if key != "mc_terminal_loss_probability_c2_5_evidence"
+    }
+    if "metrics" in legacy:
+        legacy["metrics"] = {
+            name: {
+                window: {
+                    key: value for key, value in metrics.items()
+                    if key != "expected_shortfall_95_evidence"
+                }
+                for window, metrics in candidates.items()
+            }
+            for name, candidates in legacy["metrics"].items()
+        }
+    return legacy
+
+
+@pytest.mark.parametrize(("count", "tail_count"), ((42, 3), (126, 7)))
+def test_empirical_es_discloses_actual_ceiling_tail_and_signed_return_method(count, tail_count):
+    returns = tuple((index - count // 2) / 10_000.0 for index in reversed(range(count)))
+    equity = 100_000.0
+    points = []
+    for index, daily_return in enumerate(returns):
+        start = equity
+        equity *= 1.0 + daily_return
+        points.append(optimization.DailyPoint(
+            str(index), start, equity, equity, 0.0, daily_return, False, 0.0, 0.0, 0.0,
+        ))
+    metrics = optimization._window_metrics(points, 200, 200, 200 + count - 1)
+    assert metrics["expected_shortfall_95"] == math.fsum(sorted(returns)[:tail_count]) / tail_count
+    assert metrics["observation_count"] == count
+    assert metrics["expected_shortfall_95_evidence"] == {
+        "method": "EMPIRICAL_MEAN_OF_LOWEST_CEIL_N_TIMES_0_05_DAILY_RETURNS",
+        "sign_convention": "SIGNED_DAILY_RETURN_LOWER_IS_WORSE_NOT_POSITIVE_LOSS",
+        "observation_count": count,
+        "nominal_tail_fraction": 0.05,
+        "tail_observation_count": tail_count,
+        "effective_tail_fraction": tail_count / count,
+        "qualification": "FINITE_HISTORY_EMPIRICAL_TAIL_NOT_A_POPULATION_RISK_GUARANTEE",
+    }
+    assert metrics["expected_shortfall_95_evidence"]["effective_tail_fraction"] > 0.05
+
+
+def test_empirical_es_keeps_positive_tail_returns_positive():
+    points = [
+        optimization.DailyPoint(str(index), 100_000.0, 101_000.0, 101_000.0, 0.0,
+                                0.01, False, 0.0, 0.0, 0.0)
+        for index in range(42)
+    ]
+    metrics = optimization._window_metrics(points, 200, 200, 241)
+    assert metrics["expected_shortfall_95"] == 0.01
+    assert metrics["expected_shortfall_95_evidence"]["tail_observation_count"] == 3
+
+
+def test_mc_evidence_counts_paths_block_starts_and_return_steps_from_actual_inputs(monkeypatch):
+    monkeypatch.setattr(optimization, "MC_TRIALS", 3)
+    monkeypatch.setattr(optimization, "MC_PATH_LENGTH", 7)
+    monkeypatch.setattr(optimization, "MC_BLOCK_LENGTH", 3)
+    returns = (0.01,) * 7
+    with patch.object(optimization, "_sample_index", return_value=6) as sample_index:
+        assert optimization._terminal_loss_probability(returns) == 0.0
+    assert sample_index.call_count == 9
+    assert [call.args for call in sample_index.call_args_list] == [
+        ("INDEPENDENT:TQQQ", trial, block, len(returns))
+        for trial in range(3) for block in range(3)
+    ]
+    assert optimization._terminal_loss_probability_evidence(returns) == {
+        "method": "CIRCULAR_MOVING_BLOCK_BOOTSTRAP",
+        "source_history_observation_count": 7,
+        "completed_bootstrap_path_count": 3,
+        "path_length": 7,
+        "block_length": 3,
+        "blocks_per_path": 3,
+        "sampled_block_start_count": sample_index.call_count,
+        "resampled_return_step_count": 21,
+        "qualification": "RESAMPLED_PATHS_DO_NOT_ADD_INDEPENDENT_HISTORICAL_OBSERVATIONS",
+    }
+
+
+def test_success_risk_evidence_reports_finite_holdout_history_separately_from_simulation_counts():
+    source = _source()
+    with _synthetic_artifact_identity(source):
+        result = run_tqqq_core_optimization(source)
+    assert result["evidence_valid"] is True
+    evidence = result["mc_terminal_loss_probability_c2_5_evidence"]
+    assert evidence["source_history_observation_count"] == 126
+    assert evidence["completed_bootstrap_path_count"] == 10_000
+    assert evidence["path_length"] == 126
+    assert evidence["block_length"] == 12
+    assert evidence["blocks_per_path"] == 11
+    assert evidence["sampled_block_start_count"] == 110_000
+    assert evidence["resampled_return_step_count"] == 1_260_000
+    for name, candidates in result["metrics"].items():
+        count, tail_count = (126, 7) if name == "FINAL_HOLDOUT" else (42, 3)
+        for metrics in candidates.values():
+            es = metrics["expected_shortfall_95_evidence"]
+            assert es["observation_count"] == count
+            assert es["tail_observation_count"] == tail_count
+            assert es["effective_tail_fraction"] == tail_count / count
 
 
 def test_frozen_candidates_plugin_and_windows() -> None:
@@ -256,8 +360,10 @@ def test_persistence_is_canonical_atomic_idempotent_and_strict(tmp_path) -> None
         assert restored["mc_terminal_loss_probability_c2_5"] == result["mc_terminal_loss_probability_c2_5"].hex()
         for name, candidates in result["metrics"].items():
             for window, metrics in candidates.items():
-                for metric, value in metrics.items():
-                    assert restored["metrics"][name][window][metric] == (value.hex() if type(value) is float else value)
+                assert restored["metrics"][name][window] == optimization._wire(metrics)
+        assert restored["mc_terminal_loss_probability_c2_5_evidence"] == optimization._wire(
+            result["mc_terminal_loss_probability_c2_5_evidence"],
+        )
         assert json.loads(paths.readback.read_bytes())["csv_sha256"] == hashlib.sha256(source.canonical_bytes).hexdigest()
         assert persist_result(result, tmp_path, source_commit="c" * 40).bundle.read_bytes() == bundle
         paths.bundle.write_bytes(b"different")
@@ -342,6 +448,7 @@ def test_every_simulation_failure_preserves_only_this_invocation_attempts(failur
     assert result["live_adoption_authorized"] is False
     assert result["size_zero_required"] is True
     assert "metrics" not in result
+    assert "mc_terminal_loss_probability_c2_5_evidence" not in result
 
 
 @pytest.mark.parametrize("exception_type", [RuntimeError, optimization.OptimizationError])
@@ -399,6 +506,7 @@ def test_postprocessing_failure_keeps_successful_simulations_without_qualificati
     assert result["research_recommendation"] is None
     assert result["live_adoption_authorized"] is False
     assert "SYNTHETIC_PRIVATE" not in json.dumps(result)
+    assert "mc_terminal_loss_probability_c2_5_evidence" not in result
 
 
 def test_manifest_is_deterministic_and_independent_between_invocations():
@@ -419,7 +527,10 @@ def test_success_manifest_does_not_change_any_legacy_result_field_or_claim_sourc
     manifest = _assert_trial_manifest(result, source)
     assert [item["status"] for item in manifest["attempts"]] == ["succeeded"] * 12
     assert source.source_revision not in json.dumps(result)
-    legacy_projection = {key: value for key, value in result.items() if key != "trial_manifest"}
+    legacy_projection = {
+        key: value for key, value in _without_risk_evidence(result).items()
+        if key != "trial_manifest"
+    }
     # Frozen from the reviewed pre-patch source and this same synthetic fixture.
     raw = optimization._canonical_bytes(optimization._wire(legacy_projection))
     assert hashlib.sha256(raw).hexdigest() == "5fa3152c416f0631045cfa448d7bb5ec2758b8edda781752b9a05331d8f6c89c"
@@ -438,20 +549,46 @@ def test_early_rejection_readback_pins_are_expected_identity_not_verified_input(
     assert restored["trial_manifest"]["input_linkage"] is None
 
 
-def test_legacy_v1_persistence_remains_readable_and_cannot_be_overwritten_by_new_metadata(tmp_path):
+@pytest.mark.parametrize("include_trial_manifest", (False, True))
+def test_legacy_v1_persistence_remains_readable_and_cannot_be_overwritten_by_new_metadata(tmp_path, include_trial_manifest):
     source = _source()
     with _synthetic_artifact_identity(source):
         current = run_tqqq_core_optimization(source)
         _assert_trial_manifest(current, source)
-        legacy = {key: value for key, value in current.items() if key != "trial_manifest"}
+        legacy = _without_risk_evidence(current)
+        if not include_trial_manifest:
+            legacy.pop("trial_manifest")
         paths = persist_result(legacy, tmp_path, source_commit="c" * 40)
         original = {path: path.read_bytes() for path in (paths.bundle, paths.sidecar, paths.readback)}
         restored = load_persisted_result(tmp_path)
-        assert "trial_manifest" not in restored
+        assert ("trial_manifest" in restored) is include_trial_manifest
+        assert "mc_terminal_loss_probability_c2_5_evidence" not in restored
+        assert all(
+            "expected_shortfall_95_evidence" not in metrics
+            for candidates in restored["metrics"].values() for metrics in candidates.values()
+        )
         assert restored == optimization._wire(legacy)
         with pytest.raises(optimization.OptimizationError, match="EXISTING_DIFFERENT_BYTES"):
             persist_result(current, tmp_path, source_commit="c" * 40)
     assert all(path.read_bytes() == raw for path, raw in original.items())
+
+
+@pytest.mark.parametrize("target", ("expected_shortfall", "monte_carlo"))
+def test_risk_evidence_metadata_is_bound_by_existing_persistence_digests(tmp_path, target):
+    source = _source()
+    with _synthetic_artifact_identity(source):
+        result = run_tqqq_core_optimization(source)
+        paths = persist_result(result, tmp_path, source_commit="c" * 40)
+        parsed = json.loads(paths.bundle.read_bytes())
+        if target == "expected_shortfall":
+            parsed["metrics"]["F1_VALIDATION"]["200"]["expected_shortfall_95_evidence"]["tail_observation_count"] = 2
+        else:
+            parsed["mc_terminal_loss_probability_c2_5_evidence"]["source_history_observation_count"] = 10_000
+        tampered = optimization._canonical_bytes(parsed)
+        paths.bundle.write_bytes(tampered)
+        paths.sidecar.write_text(hashlib.sha256(tampered).hexdigest() + "\n")
+        with pytest.raises(optimization.OptimizationError, match="READBACK_MISMATCH"):
+            load_persisted_result(tmp_path)
 
 
 def test_trial_manifest_metadata_is_bound_by_existing_persistence_digests(tmp_path):
