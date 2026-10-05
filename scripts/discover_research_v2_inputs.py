@@ -430,11 +430,63 @@ def _get_bytes(session, url, params, limit):
             response.close()
 
 
+# Field shapes from the existing batch_a_dataset._parse_manifest contract and
+# docs/research/batch_a_v2_contracts.zh-CN.md. This is not a new rights contract.
+SEMANTIC_SCHEMA = "qsl.research.price_snapshot.v2"
+SEMANTIC_CLAIM_FIELDS = (
+    ("calendar", ("calendar", "timezone")),
+    ("source", ("provider", "feed", "source_revision", "retrieved_at")),
+    ("license", ("license_retention",)),
+)
+
+
+def project_manifest_semantics(manifest: dict | None) -> dict[str, object]:
+    """Return only fixed statuses for allowlisted top-level claim shapes.
+
+    Recognition applies to the schema discriminator, not the complete manifest.
+    Unknown layouts are unassessed rather than evidence that claims are absent.
+    Even recognized strings are declarations: no authority, historical PIT,
+    referenced-member access or execution permission is established here.
+    """
+    result = {
+        "projection_version": "qsl.research.manifest_semantics.v1",
+        "assessment_scope": "allowlisted_top_level_claim_shapes_only",
+        "legacy_fields_policy": "unchanged_literals_not_absence_evidence",
+        "manifest_schema_validated": False,
+        "schema_discriminator_status": "unassessed",
+        "calendar_claim_status": "unassessed",
+        "source_claim_status": "unassessed",
+        "license_claim_status": "unassessed",
+        # price_snapshot.v2 has retrieved_at, not per-observation known-at.
+        "historical_available_at_claim_status": "unassessed",
+    }
+    if manifest is None:
+        return result
+    if "schema" not in manifest:
+        result["schema_discriminator_status"] = "absent"
+        return result
+    if manifest["schema"] != SEMANTIC_SCHEMA:
+        result["schema_discriminator_status"] = "present_unverified"
+        return result
+    result["schema_discriminator_status"] = "structurally_valid"
+    for claim, fields in SEMANTIC_CLAIM_FIELDS:
+        present = [field for field in fields if field in manifest]
+        status = "absent" if not present else "present_unverified"
+        if (len(present) == len(fields)
+                and all(isinstance(manifest[field], str) and manifest[field]
+                        and not any(ord(char) < 0x20 for char in manifest[field])
+                        for field in fields)):
+            status = "structurally_valid"
+        result[f"{claim}_claim_status"] = status
+    return result
+
+
 def read_exact_manifest(config, session):
     """Read only one reviewed manifest revision; session must disable storage replay.
 
-    No manifest format has yet been authenticated. Therefore all schema/claim
-    statuses stay unknown/false, even if arbitrary manifest text asserts them.
+    Existing schema/claim fields remain their compatibility literals. The
+    additive assessment distinguishes unchecked layouts from absent fields;
+    shape recognition never establishes rights, calendar authority or PIT.
     No referenced object, raw manifest, path or provider/contact value is emitted.
     """
     _validate_config(config)
@@ -454,7 +506,7 @@ def read_exact_manifest(config, session):
         raise ValueError("EXACT_SIZE_MISMATCH")
     if hashlib.sha256(body).hexdigest() != config["manifest_sha256"]:
         raise ValueError("EXACT_HASH_MISMATCH")
-    _json_object(body)  # Validate only after complete length and hash match.
+    manifest = _json_object(body)  # Assess only after complete length/hash match.
     return {
         "status": "MANIFEST_METADATA_VERIFIED", "mode": "exact_manifest_metadata",
         "run_config_sha256": _config_digest(config),
@@ -465,6 +517,7 @@ def read_exact_manifest(config, session):
         "recognized_license_claim_present": False, "metadata_read_only": True,
         "execution_authorized": False, "no_order": True, "dataset_license_verified": False,
         "calendar_authority_verified": False, "historical_available_at_verified": False,
+        "manifest_semantics": project_manifest_semantics(manifest),
     }
 
 

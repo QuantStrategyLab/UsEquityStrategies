@@ -193,7 +193,11 @@ def test_exact_success_same_generation_two_gets_redacted():
         assert kwargs["headers"] == {"Accept-Encoding": "identity"}
     assert session.calls[0][1]["params"]["fields"] == "name,generation,size,contentType,updated"
     assert session.calls[1][1]["params"]["alt"] == "media"
-    assert result == {
+    semantics = result["manifest_semantics"]
+    assert semantics["schema_discriminator_status"] == "present_unverified"
+    assert semantics["calendar_claim_status"] == "unassessed"
+    assert semantics["legacy_fields_policy"] == "unchanged_literals_not_absence_evidence"
+    assert {key: value for key, value in result.items() if key != "manifest_semantics"} == {
         "status": "MANIFEST_METADATA_VERIFIED", "mode": "exact_manifest_metadata",
         "run_config_sha256": config_digest(config), "requested_generation": "123456789",
         "matched_generation": "123456789", "manifest_sha256": config["manifest_sha256"],
@@ -744,8 +748,11 @@ def test_exact_http_200_success_receipt_remains_unchanged(monkeypatch, capsys):
     assert discovery.main(exact_argv()) == 0
     output = capsys.readouterr().out.strip()
     result = json.loads(output)
-    # Frozen from authenticated PR550 source SHA256 c5d160ab, not this implementation.
-    assert hashlib.sha256(output.encode()).hexdigest() == '5550b6aee9f55f7f5b8a0a225aea15a3930629fb4554c75baee7f3e24ab9f7d4'
+    # Additive assessment changes the full receipt, but the old key/value
+    # projection stays frozen from authenticated PR550 source SHA256 c5d160ab.
+    old_receipt = {key: value for key, value in result.items() if key != "manifest_semantics"}
+    old_output = json.dumps(old_receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert hashlib.sha256(old_output.encode()).hexdigest() == '5550b6aee9f55f7f5b8a0a225aea15a3930629fb4554c75baee7f3e24ab9f7d4'
     assert "http_status" not in result
     assert len(session.calls) == 2
 
@@ -987,3 +994,149 @@ def test_cached_older_credential_base_is_rejected(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "google.auth.credentials", old)
     with pytest.raises(ValueError, match="SDK_LIBRARY_ORIGIN_FAILED"):
         discovery._ensure_sdk_libraries()
+
+
+def semantic_manifest(**changes):
+    # Only the already documented price-snapshot-v2 claim field shapes are
+    # recognized. These synthetic strings are declarations, never authority.
+    manifest = {
+        "schema": "qsl.research.price_snapshot.v2",
+        "calendar": "synthetic-calendar", "timezone": "synthetic-timezone",
+        "provider": "private-provider", "feed": "private-feed",
+        "source_revision": "private-revision", "retrieved_at": "private-time",
+        "license_retention": "private-license-claim",
+    }
+    manifest.update(changes)
+    return manifest
+
+
+def test_semantics_unassessed_is_not_absent():
+    result = discovery.project_manifest_semantics(None)
+    assert result["schema_discriminator_status"] == "unassessed"
+    assert result["calendar_claim_status"] == "unassessed"
+    assert result["source_claim_status"] == "unassessed"
+    assert result["license_claim_status"] == "unassessed"
+    assert result["historical_available_at_claim_status"] == "unassessed"
+
+
+@pytest.mark.parametrize("schema,status", [
+    (None, "absent"), ("unreviewed", "present_unverified"),
+    ("qsl.research.price_snapshot.v1", "present_unverified"),
+    ("qsl.research.price_snapshot.v2 suffix", "present_unverified"),
+    (True, "present_unverified"), ({"name": "qsl.research.price_snapshot.v2"}, "present_unverified"),
+])
+def test_unknown_schema_does_not_assess_claim_absence(schema, status):
+    manifest = semantic_manifest()
+    if schema is None:
+        del manifest["schema"]
+    else:
+        manifest["schema"] = schema
+    result = discovery.project_manifest_semantics(manifest)
+    assert result["schema_discriminator_status"] == status
+    assert result["calendar_claim_status"] == "unassessed"
+    assert result["source_claim_status"] == "unassessed"
+    assert result["license_claim_status"] == "unassessed"
+
+
+@pytest.mark.parametrize("claim,fields", [
+    ("calendar", ("calendar", "timezone")),
+    ("source", ("provider", "feed", "source_revision", "retrieved_at")),
+    ("license", ("license_retention",)),
+])
+def test_known_schema_claims_distinguish_absent_partial_and_shape(claim, fields):
+    manifest = semantic_manifest()
+    result = discovery.project_manifest_semantics(manifest)
+    assert result[f"{claim}_claim_status"] == "structurally_valid"
+    for field in fields:
+        del manifest[field]
+    assert discovery.project_manifest_semantics(manifest)[f"{claim}_claim_status"] == "absent"
+    manifest[fields[0]] = None
+    assert discovery.project_manifest_semantics(manifest)[f"{claim}_claim_status"] == "present_unverified"
+
+
+@pytest.mark.parametrize("field,claim", [
+    ("calendar", "calendar"), ("timezone", "calendar"),
+    ("provider", "source"), ("feed", "source"),
+    ("source_revision", "source"), ("retrieved_at", "source"),
+    ("license_retention", "license"),
+])
+@pytest.mark.parametrize("value", [None, True, 1, [], {}, "", "private\ntext"])
+def test_claim_shape_rejects_null_boolean_number_container_empty_and_control(field, claim, value):
+    result = discovery.project_manifest_semantics(semantic_manifest(**{field: value}))
+    assert result[f"{claim}_claim_status"] == "present_unverified"
+
+
+def test_semantic_projection_cannot_authorize_or_reveal_claims():
+    manifest = semantic_manifest(
+        calendar_authority_verified=True, dataset_license_verified=True,
+        historical_available_at_verified=True,
+        available_at="private-historical-time",
+        members=[{"path": "private-member.csv", "url": "https://private.example"}],
+        nested={"calendar": "private-nested-calendar"},
+    )
+    body = json.dumps(manifest).encode()
+    config = exact_config(manifest_sha256=hashlib.sha256(body).hexdigest(), max_manifest_bytes=len(body))
+    responses = [Response(metadata(size=str(len(body)))), Response(body)]
+    session = Session(responses)
+    result = discovery.read_exact_manifest(config, session)
+    projection = result["manifest_semantics"]
+    assert projection["schema_discriminator_status"] == "structurally_valid"
+    assert projection["calendar_claim_status"] == "structurally_valid"
+    assert projection["source_claim_status"] == "structurally_valid"
+    assert projection["license_claim_status"] == "structurally_valid"
+    assert projection["historical_available_at_claim_status"] == "unassessed"
+    assert projection["manifest_schema_validated"] is False
+    # Compatibility literals remain bool; the explicit assessment above is
+    # the sole evidence of what was checked and which field shapes were found.
+    assert result["recognized_calendar_claim_present"] is False
+    assert result["recognized_source_claim_present"] is False
+    assert result["recognized_license_claim_present"] is False
+    for field in ("calendar_authority_verified", "dataset_license_verified",
+                  "historical_available_at_verified", "execution_authorized"):
+        assert result[field] is False
+    assert result["no_order"] is True
+    assert len(session.calls) == 2
+    assert all(response.closed for response in responses)
+    assert "private" not in json.dumps(result)
+
+
+def test_nested_or_similarly_named_claims_are_not_recognized():
+    manifest = {"schema": "qsl.research.price_snapshot.v2",
+                "calendar_authority": "private-claim", "license": "private-claim",
+                "source": {"provider": "private-provider"},
+                "nested": semantic_manifest()}
+    result = discovery.project_manifest_semantics(manifest)
+    assert result["calendar_claim_status"] == "absent"
+    assert result["source_claim_status"] == "absent"
+    assert result["license_claim_status"] == "absent"
+    assert "private" not in json.dumps(result)
+
+
+def test_null_schema_is_present_but_unverified():
+    result = discovery.project_manifest_semantics({"schema": None})
+    assert result["schema_discriminator_status"] == "present_unverified"
+    assert result["calendar_claim_status"] == "unassessed"
+
+
+@pytest.mark.parametrize("claim,field", [("calendar", "timezone"), ("source", "feed")])
+def test_partially_present_string_claim_is_not_valid_shape(claim, field):
+    manifest = semantic_manifest()
+    del manifest[field]
+    assert discovery.project_manifest_semantics(manifest)[f"{claim}_claim_status"] == "present_unverified"
+
+
+@pytest.mark.parametrize("failure", ["hash", "size", "duplicate_json"])
+def test_semantics_never_assessed_before_complete_integrity_and_json_validation(monkeypatch, failure):
+    body = json.dumps(semantic_manifest()).encode()
+    if failure == "duplicate_json":
+        body = b'{"schema":"qsl.research.price_snapshot.v2","schema":"private"}'
+    config = exact_config(manifest_sha256=hashlib.sha256(body).hexdigest(), max_manifest_bytes=len(body) + 1)
+    size = len(body)
+    if failure == "hash":
+        config["manifest_sha256"] = "0" * 64
+    elif failure == "size":
+        size += 1
+    monkeypatch.setattr(discovery, "project_manifest_semantics", lambda _: pytest.fail("EARLY_ASSESSMENT"))
+    with pytest.raises(ValueError, match={"hash": "EXACT_HASH_MISMATCH", "size": "EXACT_SIZE_MISMATCH",
+                                         "duplicate_json": "EXACT_JSON_INVALID"}[failure]):
+        discovery.read_exact_manifest(config, Session([Response(metadata(size=str(size))), Response(body)]))
