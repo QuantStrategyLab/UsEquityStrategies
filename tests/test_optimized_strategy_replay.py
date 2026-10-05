@@ -3698,6 +3698,227 @@ def test_store_failure_does_not_report_success() -> None:
         assert store.load_research_trial("us_equity", "soxl_soxx_trend_income", "fixture-soxl-store") is None
 
 
+@pytest.mark.parametrize("terminal_status", ("succeeded", "rejected", "failed", "aborted"))
+def test_journal_terminal_replay_never_evaluates_again(tmp_path, monkeypatch, terminal_status):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+    from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialStatus
+
+    store = PerformanceStore(local_root=tmp_path)
+    request = _soxl_request()
+    trial_id = "terminal-once"
+    if terminal_status == "succeeded":
+        expected = module.persist_optimized_strategy_trial(request, store, trial_id=trial_id)
+    else:
+        started = module._started_trial(request, trial_id)
+        store.save_research_trial(started)
+        expected = module._terminal(started, ResearchTrialStatus(terminal_status), "fixture_terminal")
+        store.save_research_trial(expected)
+    before = {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*.json")}
+    def forbidden(_request):
+        pytest.fail("a terminal identity must not be evaluated again")
+    monkeypatch.setattr(module, "replay_optimized_strategy", forbidden)
+    returned = module.persist_optimized_strategy_trial(request, store, trial_id=trial_id)
+    assert returned == expected
+    assert before == {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*.json")}
+
+
+def test_journal_existing_started_remains_incomplete_without_automatic_replay(tmp_path, monkeypatch):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    request = _soxl_request()
+    store = PerformanceStore(local_root=tmp_path)
+    started = module._started_trial(request, "interrupted-process")
+    store.save_research_trial(started)
+    monkeypatch.setattr(module, "replay_optimized_strategy", lambda _: pytest.fail("unknown prior attempt must not rerun"))
+    assert module.persist_optimized_strategy_trial(request, store, trial_id=started.trial_id) == started
+    assert len(list(tmp_path.rglob("*.json"))) == 1
+
+
+def test_journal_start_is_readable_before_evaluation(tmp_path, monkeypatch):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    original = module.replay_optimized_strategy
+    def evaluate(request):
+        started = store.load_research_trial("us_equity", request.identity.strategy_profile, "start-first")
+        assert started is not None and started.status.value == "started"
+        assert started.run_id is None
+        return original(request)
+    monkeypatch.setattr(module, "replay_optimized_strategy", evaluate)
+    returned = module.persist_optimized_strategy_trial(_soxl_request(), store, trial_id="start-first")
+    assert returned.status.value == "succeeded"
+
+
+@pytest.mark.parametrize("exception_type", (KeyboardInterrupt, SystemExit))
+@pytest.mark.parametrize("boundary", ("replay", "ledger", "params", "result_write", "ledger_write", "terminal_write"))
+def test_journal_process_interruption_is_aborted_and_reraised(tmp_path, monkeypatch, exception_type, boundary):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    interrupt = exception_type("fixture interruption")
+    def interrupted(*args, **kwargs):
+        raise interrupt
+    targets = {"replay": "replay_optimized_strategy", "ledger": "_research_ledger", "params": "_executed_params"}
+    if boundary in targets:
+        monkeypatch.setattr(module, targets[boundary], interrupted)
+    elif boundary == "terminal_write":
+        original = PerformanceStore.save_research_trial
+        def terminal_write(self, record):
+            if record.status.value == "succeeded":
+                raise interrupt
+            return original(self, record)
+        monkeypatch.setattr(PerformanceStore, "save_research_trial", terminal_write)
+    else:
+        monkeypatch.setattr(PerformanceStore, "save_backtest_result" if boundary == "result_write" else "save_research_ledger", interrupted)
+    with pytest.raises(exception_type) as raised:
+        module.persist_optimized_strategy_trial(_soxl_request(), store, trial_id="cancelled")
+    assert raised.value is interrupt
+    terminal = store.load_research_trial("us_equity", "soxl_soxx_trend_income", "cancelled")
+    assert terminal is not None and terminal.status.value == "aborted"
+    assert terminal.reason_code == "trial_interrupted"
+    assert terminal.run_id is None and terminal.param_version is None and terminal.actual_params is None
+
+
+@pytest.mark.parametrize("boundary", ("save_backtest_result", "save_research_ledger", "save_research_trial"))
+def test_journal_persistence_exception_is_failed_and_original_is_reraised(tmp_path, monkeypatch, boundary):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    error = OSError("fixture private error detail")
+    original = getattr(PerformanceStore, boundary)
+    def write(self, record):
+        if boundary != "save_research_trial" or record.status.value == "succeeded":
+            raise error
+        return original(self, record)
+    monkeypatch.setattr(PerformanceStore, boundary, write)
+    with pytest.raises(OSError) as raised:
+        module.persist_optimized_strategy_trial(_soxl_request(), store, trial_id="write-failed")
+    assert raised.value is error
+    terminal = store.load_research_trial("us_equity", "soxl_soxx_trend_income", "write-failed")
+    assert terminal is not None and terminal.status.value == "failed"
+    assert terminal.reason_code == "persistence_failed"
+    assert terminal.run_id is None and terminal.actual_params is None
+    assert all("fixture private error detail" not in path.read_text() for path in tmp_path.rglob("*.json"))
+
+
+@pytest.mark.parametrize("error", (RuntimeError("fixture failure"), KeyboardInterrupt(), SystemExit(7)))
+def test_journal_failed_terminal_write_retains_started_and_original_error(tmp_path, monkeypatch, error):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    original = PerformanceStore.save_research_trial
+    def unavailable_terminal(self, record):
+        if record.status.value != "started":
+            raise OSError("fixture terminal unavailable")
+        return original(self, record)
+    def evaluate(_request):
+        raise error
+    monkeypatch.setattr(PerformanceStore, "save_research_trial", unavailable_terminal)
+    monkeypatch.setattr(module, "replay_optimized_strategy", evaluate)
+    with pytest.raises(type(error)) as raised:
+        module.persist_optimized_strategy_trial(_soxl_request(), store, trial_id="unavailable-terminal")
+    assert raised.value is error
+    assert "research_terminal_write_failed" in error.__notes__
+    loaded = store.load_research_trial("us_equity", "soxl_soxx_trend_income", "unavailable-terminal")
+    assert loaded is not None and loaded.status.value == "started"
+    assert not list(tmp_path.rglob("terminal.json"))
+
+
+@pytest.mark.parametrize("original_type", (RuntimeError, KeyboardInterrupt, SystemExit))
+@pytest.mark.parametrize("secondary_type", (KeyboardInterrupt, SystemExit))
+@pytest.mark.parametrize("boundary", ("terminal_write", "terminal_readback"))
+def test_journal_secondary_recording_interrupt_preserves_original_error(
+    tmp_path, monkeypatch, original_type, secondary_type, boundary,
+):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    original_error = original_type("fixture original error")
+    secondary_error = secondary_type("fixture secondary recording interruption")
+    original_save = PerformanceStore.save_research_trial
+    original_load = PerformanceStore.load_research_trial
+    def save(self, record):
+        if boundary == "terminal_write" and record.status.value != "started":
+            raise secondary_error
+        return original_save(self, record)
+    def load(self, *args, **kwargs):
+        record = original_load(self, *args, **kwargs)
+        if boundary == "terminal_readback" and record is not None and record.status.value != "started":
+            raise secondary_error
+        return record
+    def evaluate(_request):
+        raise original_error
+    monkeypatch.setattr(PerformanceStore, "save_research_trial", save)
+    monkeypatch.setattr(PerformanceStore, "load_research_trial", load)
+    monkeypatch.setattr(module, "replay_optimized_strategy", evaluate)
+    with pytest.raises(BaseException) as raised:
+        module.persist_optimized_strategy_trial(_soxl_request(), store, trial_id="secondary-interruption")
+    assert raised.value is original_error
+    assert original_error.__notes__ == ["research_terminal_write_failed"]
+    loaded = original_load(store, "us_equity", "soxl_soxx_trend_income", "secondary-interruption")
+    expected_status = ("failed" if original_type is RuntimeError else "aborted")
+    if boundary == "terminal_write":
+        expected_status = "started"
+    assert loaded is not None and loaded.status.value == expected_status
+    assert loaded.run_id is None and loaded.actual_params is None
+
+
+def test_journal_success_with_missing_ledger_cannot_replay_or_claim_success(tmp_path, monkeypatch):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    request = _soxl_request()
+    module.persist_optimized_strategy_trial(request, store, trial_id="missing-ledger")
+    _research_path(tmp_path, request.identity.strategy_profile, "missing-ledger", "ledger").unlink()
+    assert store.load_research_trial("us_equity", request.identity.strategy_profile, "missing-ledger") is None
+    monkeypatch.setattr(module, "replay_optimized_strategy", lambda _: pytest.fail("unverified terminal must not re-evaluate"))
+    with pytest.raises(OptimizedStrategyReplayError, match="RESEARCH_TRIAL_READBACK_INVALID"):
+        module.persist_optimized_strategy_trial(request, store, trial_id="missing-ledger")
+
+
+def test_journal_changed_identity_conflicts_before_evaluation(tmp_path, monkeypatch):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    request = _soxl_request()
+    module.persist_optimized_strategy_trial(request, store, trial_id="same-id")
+    monkeypatch.setattr(module, "replay_optimized_strategy", lambda _: pytest.fail("conflicting identity must not evaluate"))
+    with pytest.raises(ValueError, match="research_trial_conflict"):
+        module.persist_optimized_strategy_trial(replace(request, initial_cash=request.initial_cash + 1), store, trial_id="same-id")
+
+
+@pytest.mark.parametrize("evidence_use", ("holdout", "market", "unknown"))
+def test_journal_nonfixture_or_holdout_request_is_rejected_without_fake_success(tmp_path, evidence_use):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    request = replace(_soxl_request(), evidence_use=evidence_use)
+    returned = module.persist_optimized_strategy_trial(request, store, trial_id="unsupported-real-or-holdout")
+    assert returned.status.value == "rejected" and returned.reason_code == "real_entry_pit_required"
+    assert returned.actual_params is None and returned.run_id is None
+    assert {path.name for path in tmp_path.rglob("*.json")} == {"started.json", "terminal.json"}
+
+
+@pytest.mark.parametrize("rejected", (False, True))
+def test_journal_silent_terminal_write_cannot_claim_a_completed_record(tmp_path, monkeypatch, rejected):
+    from us_equity_strategies.research import optimized_strategy_replay as module
+
+    store = PerformanceStore(local_root=tmp_path)
+    original = PerformanceStore.save_research_trial
+    def omitted_terminal(self, record):
+        if record.status.value == "started":
+            return original(self, record)
+    monkeypatch.setattr(PerformanceStore, "save_research_trial", omitted_terminal)
+    request = _soxl_request()
+    if rejected:
+        request = replace(request, evidence_use="holdout")
+    with pytest.raises(OptimizedStrategyReplayError, match="RESEARCH_TRIAL_READBACK_INVALID") as raised:
+        module.persist_optimized_strategy_trial(request, store, trial_id="silent-terminal")
+    assert "research_terminal_write_failed" in raised.value.__notes__
+    loaded = store.load_research_trial("us_equity", request.identity.strategy_profile, "silent-terminal")
+    assert loaded is not None and loaded.status.value == "started"
+
+
 def test_input_id_changes_with_prices_or_indicators() -> None:
     from us_equity_strategies.research.optimized_strategy_replay import (
         _input_id,
