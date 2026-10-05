@@ -2723,29 +2723,61 @@ def _executed_params(replay: OptimizedStrategyReplay) -> dict[str, Any]:
     return parsed
 
 
+def _record_failed_trial(
+    store: PerformanceStore,
+    started: ResearchTrialRecord,
+    status: ResearchTrialStatus,
+    reason: str,
+    error: BaseException,
+) -> None:
+    """Best-effort terminal recording never replaces the triggering error."""
+    try:
+        terminal = _terminal(started, status, reason)
+        store.save_research_trial(terminal)
+        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != terminal:
+            raise ValueError("research_terminal_readback_invalid")
+    except BaseException:
+        # Only the best-effort recorder is protected; the caller rethrows the
+        # original error, including cancellation, rather than a second signal.
+        error.add_note("research_terminal_write_failed")
+
+
 def persist_optimized_strategy_trial(
     request: ReplayRequest,
     store: PerformanceStore,
     *,
     trial_id: str,
 ) -> ResearchTrialRecord:
-    """Save one fixture trial. Rejection stores only a terminal reason code."""
+    """Save one fixture trial, preserving terminal and incomplete identities.
+
+    Existing STARTED is incomplete and requires a new trial ID for a new
+    attempt. This is single-caller replay protection, not a worker claim lock.
+    """
 
     if not isinstance(store, PerformanceStore):
         _fail("MISSING_FIELD:performance_store")
     started_record = _started_trial(request, trial_id)
+    previous = store.load_research_trial(started_record.domain, started_record.strategy_profile, trial_id)
+    # The existing immutable create checks the entire identity even on replay.
     store.save_research_trial(started_record)
+    readback = store.load_research_trial(started_record.domain, started_record.strategy_profile, trial_id)
+    if readback is None:
+        _fail("RESEARCH_TRIAL_READBACK_INVALID")
+    if previous is not None or readback.status is not ResearchTrialStatus.STARTED:
+        return readback
+    stage = "replay"
     try:
-        replay = replay_optimized_strategy(request)
-    except OptimizedStrategyReplayError as exc:
-        status = ResearchTrialStatus.FAILED if exc.code == "DECISION_INVALID" else ResearchTrialStatus.REJECTED
-        terminal = _terminal(started_record, status, _safe_reason(exc.code))
-        store.save_research_trial(terminal)
-        return terminal
-    except Exception:
-        store.save_research_trial(_terminal(started_record, ResearchTrialStatus.FAILED, "replay_failed"))
-        raise
-    try:
+        try:
+            replay = replay_optimized_strategy(request)
+        except OptimizedStrategyReplayError as exc:
+            status = ResearchTrialStatus.FAILED if exc.code == "DECISION_INVALID" else ResearchTrialStatus.REJECTED
+            terminal = _terminal(started_record, status, _safe_reason(exc.code))
+            stage = "persistence"
+            store.save_research_trial(terminal)
+            if store.load_research_trial(started_record.domain, started_record.strategy_profile, trial_id) != terminal:
+                _fail("RESEARCH_TRIAL_READBACK_INVALID")
+            return terminal
+        stage = "ledger"
         ledger = _research_ledger(replay, started_record)
         terminal = _terminal(
             started_record,
@@ -2755,13 +2787,20 @@ def persist_optimized_strategy_trial(
             run_id=str(replay.backtest.run_id),
             param_version=replay.backtest.param_version,
         )
-    except (OptimizedStrategyReplayError, ValueError):
-        store.save_research_trial(_terminal(started_record, ResearchTrialStatus.FAILED, "ledger_rejected"))
+        stage = "persistence"
+        store.save_backtest_result(replay.backtest)
+        store.save_research_ledger(ledger)
+        store.save_research_trial(terminal)
+        if store.load_research_trial(started_record.domain, started_record.strategy_profile, trial_id) != terminal:
+            _fail("RESEARCH_TRIAL_READBACK_INVALID")
+        return terminal
+    except (KeyboardInterrupt, SystemExit) as exc:
+        _record_failed_trial(store, started_record, ResearchTrialStatus.ABORTED, "trial_interrupted", exc)
         raise
-    store.save_backtest_result(replay.backtest)
-    store.save_research_ledger(ledger)
-    store.save_research_trial(terminal)
-    return terminal
+    except Exception as exc:
+        reason = {"replay": "replay_failed", "ledger": "ledger_rejected", "persistence": "persistence_failed"}[stage]
+        _record_failed_trial(store, started_record, ResearchTrialStatus.FAILED, reason, exc)
+        raise
 
 
 __all__ = [

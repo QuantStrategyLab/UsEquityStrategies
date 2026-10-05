@@ -165,6 +165,20 @@ fixture trial 生产与 QPK ledger 读回已存在，但其证据仍是 `synthet
 
 `produce_local_member_fixture(path, store, trial_id=...)` 只接受无 cloud bucket 的 QPK `PerformanceStore`，调用既有 builder、replay 和 QPK 研究账本写入路径。结果始终是 `synthetic=true` 的 `fixture`；身份声明随返回值交给调用方，不靠改标记晋级。该 adapter 会校验并转发可选的 `state_inputs`、`income_cashflow`、`external_cashflow`、`ledger_events`、`option_market_inputs` 和 `whole_share_execution` 字段给 `ReplayRequest`；replay 测试覆盖其中的 synthetic 事件、资金流、期权与整股机制。它们不填补历史 PIT 行情/期权链、真实成本、真实外部资金来源、现金合同或完整候选参数。研究可明确声明无外部资金流；仅真实发生外部流的研究路径需要相应流水来源证据。没有合格输入时不运行真实成员历史，也不输出真实仓位或净收益。
 
+### 9.1 既有 fixture trial 的中断、失败和重放
+
+`persist_optimized_strategy_trial` 已是上述 caller 的存储入口，不是本轮新接通的真实市场研究。它在 evaluation 前创建并读回 `STARTED`，继续复用 UES 固定 QPK 依赖的 `ResearchTrialRecord` / `ResearchDailyLedger` / `PerformanceStore`。`SUCCEEDED` 仍须有匹配的真实计算结果和逐日账本，并读回相同终态；这里的结果、账本和 trial 仍全部是 synthetic fixture。
+
+- 同 `trial_id`、同完整身份的已有终态直接读回，不再次 evaluation，也不覆盖历史。价格、配置、来源、窗口或成本身份变化与旧 ID 冲突，新的实际 attempt 必须使用新 ID
+- 已有 `STARTED` 没有可核终态时保持 incomplete，直接返回该状态，不自动重跑、不推定失败或成功。硬杀进程、断电或存储故障可能留下这种状态；新 attempt 另用新 ID，旧记录保留
+- evaluation 的既有显式拒绝继续保存 `REJECTED`；决策构造失败保存 `FAILED`。账本构造异常、结果/账本/终态持久化异常分别保存 `ledger_rejected` 或 `persistence_failed`，并重新抛出原异常，不将失败变成正常研究结果
+- `KeyboardInterrupt` / `SystemExit` 在 evaluation、账本构造或后续写出阶段记录 `ABORTED`、`trial_interrupted`，随后重新抛出原取消异常。终态写入或读回失败则在原异常添加固定 `research_terminal_write_failed` 提示，不谎称取消已记录；以实际读回为准，可能仅有 `STARTED`
+- 若 `STARTED` 本身写入或读回失败，不进入 evaluation。已有成功终态缺少匹配 ledger/result 时不能返回成功，也不能借重放静默补齐证据
+
+这是单 caller 的顺序重放保护，不是跨进程 worker claim、并发 exactly-once、断电恢复或云端采用证明。它不回填旧 attempt，不推导独立试验总数。
+
+此路径只接受 `evidence_use="fixture"` 且 `promotion_eligible=false`。`holdout`、真实市场或未知 evidence class 的请求仍拒绝；该拒绝不是 holdout 已打开或已查看的日志。现有 TQQQ/SOXL optimizer 的完整尝试、跨家族历史与 holdout access 尚未接入这条 trial 链，不能把本补丁称为完整 R2 或真实研究资格闭合。真实 caller 桥须另有合格 R1 输入、R4 账本、冻结候选/成本及获准 holdout 协议；本轮不创建新日志 schema、不改 SOXL v1 冻结数值或资格出口。
+
 ## 10. 批次 4B 准确来源
 
 本批只核对仓库内已经写明的来源，并分开登记：完整原优化候选参数、生产版本、manifest 默认、收入层局部研究选择、V7/SMA 基线。完整候选参数仍然缺失，因此本批不按该候选回放，也不把另外三类接成原优化历史。生产版本未知只阻止把结果称为生产等价，不阻止调用方提交完整参数后的独立研究。
