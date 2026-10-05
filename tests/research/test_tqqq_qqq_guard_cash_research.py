@@ -2,10 +2,50 @@
 
 from __future__ import annotations
 
+import pytest
 import pandas as pd
 
 from us_equity_strategies.research import tqqq_qqq_guard_cash_research as candidate
 from us_equity_strategies.research.tqqq_qqq_guard_cash_research import _decision, _simulate
+
+
+def _raw_bars() -> tuple[list[dict], list[dict]]:
+    # Synthetic session used only to exercise numeric OHLCV validation.
+    qqq = [{"t": "2023-01-03T00:00:00Z", "o": 100, "h": 102,
+            "l": 99, "c": 101, "v": 1000}]
+    tqqq = [{"t": "2023-01-03T00:00:00Z", "o": 50.0, "h": 52.0,
+             "l": 49.0, "c": 51.0, "v": 2000.0}]
+    return qqq, tqqq
+
+
+@pytest.mark.parametrize("leg", ["qqq", "tqqq"])
+@pytest.mark.parametrize("field", ["o", "h", "l", "c"])
+@pytest.mark.parametrize("value", [True, False, None, 10**400, float("nan"), float("inf"), float("-inf"), "100", 0, -1])
+def test_validated_bars_rejects_invalid_prices_with_price_error(leg: str, field: str, value: object) -> None:
+    qqq, tqqq = _raw_bars()
+    (qqq if leg == "qqq" else tqqq)[0][field] = value
+
+    with pytest.raises(ValueError, match="^RAW_PRICE_INVALID$"):
+        candidate._validated_bars(qqq, tqqq)
+
+
+@pytest.mark.parametrize("leg", ["qqq", "tqqq"])
+@pytest.mark.parametrize("value", [True, False, None, 10**400, float("nan"), float("inf"), float("-inf"), "100", 0, -1])
+def test_validated_bars_rejects_invalid_volumes_with_ohlcv_error(leg: str, value: object) -> None:
+    qqq, tqqq = _raw_bars()
+    (qqq if leg == "qqq" else tqqq)[0]["v"] = value
+
+    with pytest.raises(ValueError, match="^RAW_OHLCV_INVALID$"):
+        candidate._validated_bars(qqq, tqqq)
+
+
+def test_validated_bars_preserves_valid_finite_positive_numeric_bars() -> None:
+    qqq, tqqq = _raw_bars()
+
+    assert candidate._validated_bars(qqq, tqqq) == [{
+        "date": "2023-01-03", "qqq_close": 101.0,
+        "tqqq_open": 50.0, "tqqq_close": 51.0,
+    }]
 
 
 def _contract() -> dict:

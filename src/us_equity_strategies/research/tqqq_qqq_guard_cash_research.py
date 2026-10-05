@@ -69,6 +69,15 @@ def _verified_bundle(root: Path) -> tuple[dict, list[dict], list[dict], dict]:
     return contract, qqq["bars"], tqqq["bars"], actions["corporate_actions"]
 
 
+def _is_positive_finite_number(value: object) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value > 0
+    except OverflowError:
+        return False
+
+
 def _validated_bars(qqq: list[dict], tqqq: list[dict]) -> list[dict]:
     if len(qqq) != len(tqqq):
         raise ValueError("COMMON_DAILY_COVERAGE_MISMATCH")
@@ -80,12 +89,12 @@ def _validated_bars(qqq: list[dict], tqqq: list[dict]) -> list[dict]:
             raise ValueError("MISSING_DUPLICATE_OR_MISALIGNED_SESSION")
         date.fromisoformat(day)
         prices = (q["o"], q["h"], q["l"], q["c"], t["o"], t["h"], t["l"], t["c"])
-        if any(not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0 for x in prices):
+        if any(not _is_positive_finite_number(x) for x in prices):
             raise ValueError("RAW_PRICE_INVALID")
         if (q["h"] < max(q["o"], q["c"], q["l"]) or q["l"] > min(q["o"], q["c"])
                 or t["h"] < max(t["o"], t["c"], t["l"]) or t["l"] > min(t["o"], t["c"])
-                or not isinstance(q["v"], (int, float)) or not isinstance(t["v"], (int, float))
-                or q["v"] <= 0 or t["v"] <= 0):
+                or not _is_positive_finite_number(q["v"])
+                or not _is_positive_finite_number(t["v"])):
             raise ValueError("RAW_OHLCV_INVALID")
         result.append({"date": day, "qqq_close": float(q["c"]),
                        "tqqq_open": float(t["o"]), "tqqq_close": float(t["c"])})
