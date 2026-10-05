@@ -88,6 +88,29 @@ def _persist(result: dict, root: Path, repo: Path, commit: str, blobs: dict[str,
     return persist_result(result, root, source_commit=commit, source_blobs=blobs, repo_root=repo)
 
 
+def _legacy_static_result_projection(result):
+    """Restore only qualification fields to compare the frozen v1 numeric bytes.
+
+    This is a test-only historical projection, never a qualification adapter.
+    The old full-result digests remain fixed rather than accepting new metrics.
+    """
+    projected = {key: value for key, value in result.items() if key not in {
+        "selection_qualification", "retrospective_metric_eligibility_status",
+        "retrospective_characterization_thresholds_passed",
+    }}
+    found = result["retrospective_characterization_thresholds_passed"]
+    projected["failure_codes"] = [code for code in result["failure_codes"]
+                                  if code != "CANDIDATE_SELECTION_NOT_CAUSAL_WALK_FORWARD"]
+    projected["outcome"] = "CHARACTERIZATION_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT"
+    if result["schema"] == optimization.SCHEMA:
+        projected["r3_eligibility_status"] = result["retrospective_metric_eligibility_status"]
+        projected["research_recommendation"] = {"sma_window_days": result["locked_winner"]} if found else None
+    else:
+        projected["evidence_gates"] = {**result["evidence_gates"], "no_lookahead": True}
+        projected["research_recommendation"] = {"candidate_id": result["locked_winner"]} if found else None
+    return projected
+
+
 def test_frozen_candidates_timing_parity_and_plugin_contract() -> None:
     source = _source()
     assert CANDIDATE_WINDOWS == (140, 160, 180, 200)
@@ -470,13 +493,13 @@ def test_sma_manifest_is_deterministic_and_independent_between_invocations(monke
     _assert_trial_manifest(second, source)
 
 
-def test_success_sma_manifest_preserves_legacy_result_and_labels_only_checked_linkage():
+def test_success_sma_manifest_preserves_frozen_numeric_projection_and_checked_linkage():
     source = replace(_source(), source_revision="SYNTHETIC_UNVERIFIED_SOURCE_REVISION")
     result = run_soxl_core_optimization(source)
     manifest = _assert_trial_manifest(result, source)
     assert [item["status"] for item in manifest["attempts"]] == ["succeeded"] * 16
     assert source.source_revision not in json.dumps(result)
-    legacy_projection = {key: value for key, value in result.items() if key != "trial_manifest"}
+    legacy_projection = {key: value for key, value in _legacy_static_result_projection(result).items() if key != "trial_manifest"}
     # Frozen from the reviewed pre-patch tree and this same synthetic fixture.
     raw = optimization._canonical_bytes(optimization._wire(legacy_projection))
     assert hashlib.sha256(raw).hexdigest() == "1e09a2a83f93fd806855aedd298a359a00736f6935f2b7be68a3902ef8582e23"
@@ -496,7 +519,7 @@ def test_legacy_sma_bundle_is_readable_and_new_metadata_cannot_overwrite_it(tmp_
     source = _source()
     current = run_soxl_core_optimization(source)
     _assert_trial_manifest(current, source)
-    legacy = {key: value for key, value in current.items() if key != "trial_manifest"}
+    legacy = {key: value for key, value in _legacy_static_result_projection(current).items() if key != "trial_manifest"}
     repo, head, blobs = _provenance_repo(tmp_path)
     output = tmp_path / "out"
     paths = _persist(legacy, output, repo, head, blobs)
@@ -540,10 +563,11 @@ def test_sma_process_control_exceptions_are_not_converted_to_completed_accountin
     (optimization.run_soxl_volatility_scaling, "8f172dfc65114b40f2f8a45dbf8ffc4ea5bdc066c898f986d80effa9ae86037c"),
     (optimization.run_soxl_rsi2_mean_reversion, "720aa1de98a93381db39753966bbbcdca509660bf18ccc43808329cd23c87960"),
 ])
-def test_other_soxl_variants_keep_exact_existing_result_projection(runner, expected_digest):
+def test_other_soxl_variants_preserve_frozen_numeric_or_exact_rsi2_result_projection(runner, expected_digest):
     result = runner(_source())
     assert "trial_manifest" not in result
-    assert hashlib.sha256(optimization._canonical_bytes(optimization._wire(result))).hexdigest() == expected_digest
+    projected = _legacy_static_result_projection(result) if runner is optimization.run_soxl_volatility_scaling else result
+    assert hashlib.sha256(optimization._canonical_bytes(optimization._wire(projected))).hexdigest() == expected_digest
 
 
 @pytest.mark.parametrize("runner", [optimization.run_soxl_volatility_scaling, optimization.run_soxl_rsi2_mean_reversion])
@@ -554,3 +578,129 @@ def test_other_soxl_variants_keep_existing_ordinary_exception_behavior(monkeypat
     monkeypatch.setattr(optimization, "_typed_rows", fail)
     with pytest.raises(RuntimeError, match="synthetic interruption"):
         runner(_source())
+
+
+@pytest.mark.parametrize("runner", [run_soxl_core_optimization, run_soxl_volatility_scaling])
+def test_static_validation_selection_discloses_noncausal_early_tests(monkeypatch, runner):
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda _: 0.0)
+    result = runner(_source())
+    qualification = result["selection_qualification"]
+    assert qualification["evaluation_scope"] == "RETROSPECTIVE_VALIDATION_SELECTED_TESTS"
+    assert qualification["price_signal_lagged_close_only"] is True
+    assert qualification["selection_validation_windows"] == ["F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION"]
+    assert qualification["latest_selection_data_index"] == 583
+    assert qualification["candidate_selection_causal"] is False
+    assert qualification["strict_causal_walk_forward_eligible"] is False
+    assert qualification["test_windows"] == {
+        "F1_TEST": {"start_index": 413, "end_index": 454, "selection_data_precedes_test": False},
+        "F2_TEST": {"start_index": 499, "end_index": 540, "selection_data_precedes_test": False},
+        "F3_TEST": {"start_index": 585, "end_index": 626, "selection_data_precedes_test": True},
+    }
+    assert qualification["holdout_prior_exposure"] == "UNASSESSED"
+    assert "CANDIDATE_SELECTION_NOT_CAUSAL_WALK_FORWARD" in result["failure_codes"]
+    assert result["research_recommendation"] is None
+    assert result["outcome"] == "NO_IMPROVEMENT"
+
+
+def test_later_validation_can_change_the_unchanged_static_sma_winner():
+    baseline = {"sharpe": 1.0, "cumulative_return": 0.2, "max_drawdown": -0.1}
+    validation = {window: [dict(baseline) for _ in range(3)] for window in CANDIDATE_WINDOWS}
+    validation[140] = [{**baseline, "sharpe": 0.0}, {**baseline, "sharpe": 2.0}, {**baseline, "sharpe": 2.0}]
+    assert _select_winner(validation) == 140
+    first_two = [dict(item) for item in validation[140][:2]]
+    validation[140][2] = {**baseline, "sharpe": -2.0}
+    assert validation[140][:2] == first_two
+    assert _select_winner(validation) == 200
+
+
+def test_later_validation_can_change_the_unchanged_static_volatility_winner():
+    baseline = {"max_drawdown": -0.2, "expected_shortfall_95": -0.02, "annualized_volatility": 0.3, "cagr": 0.1, "turnover": 1.0}
+    validation = {candidate: [dict(baseline) for _ in range(3)] for candidate in VOLATILITY_SCALING_CANDIDATES}
+    validation["REL_VOL_SQRT_20"] = [{**baseline, "max_drawdown": drawdown} for drawdown in (-0.3, -0.1, -0.1)]
+    assert _select_volatility_scaling_winner(validation) == "REL_VOL_SQRT_20"
+    first_two = [dict(item) for item in validation["REL_VOL_SQRT_20"][:2]]
+    validation["REL_VOL_SQRT_20"][2] = {**baseline, "max_drawdown": -0.4}
+    assert validation["REL_VOL_SQRT_20"][:2] == first_two
+    assert _select_volatility_scaling_winner(validation) == "UNSCALED_SMA200"
+
+
+@pytest.mark.parametrize("variant", ["sma", "volatility"])
+def test_static_selection_cannot_pass_legacy_qualification_even_when_all_numeric_thresholds_pass(monkeypatch, variant):
+    selected_by_points = {}
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda _: 0.0)
+    monkeypatch.setattr(optimization, "_eligibility", lambda *_: ("PASS", ()))
+    if variant == "sma":
+        simulate = optimization.simulate_candidate
+        metrics = optimization._window_metrics
+
+        def record(source, candidate, scenario):
+            points = simulate(source, candidate, scenario)
+            selected_by_points[id(points)] = candidate == 140
+            return points
+
+        def favorable(points, start, end):
+            selected = selected_by_points[id(points)]
+            return {**metrics(points, start, end), "sharpe": 2.0 if selected else 1.0,
+                    "cumulative_return": 0.4 if selected else 0.1, "max_drawdown": -0.1 if selected else -0.2}
+
+        monkeypatch.setattr(optimization, "simulate_candidate", record)
+        monkeypatch.setattr(optimization, "_window_metrics", favorable)
+        result = run_soxl_core_optimization(_source())
+        assert result["locked_winner"] == 140
+        assert result["retrospective_metric_eligibility_status"] == "PASS"
+        assert result["r3_eligibility_status"] == "FAIL"
+    else:
+        simulate = optimization.simulate_volatility_scaling_candidate
+        metrics = optimization._volatility_metrics_with_soxx
+
+        def record(source, candidate, scenario):
+            points = simulate(source, candidate, scenario)
+            selected_by_points[id(points)] = candidate == "REL_VOL_SQRT_20"
+            return points
+
+        def favorable(points, soxx, start, end):
+            selected = selected_by_points[id(points)]
+            return {**metrics(points, soxx, start, end), "cumulative_return": 0.4 if selected else 0.1,
+                    "max_drawdown": -0.1 if selected else -0.2, "expected_shortfall_95": -0.01 if selected else -0.02,
+                    "annualized_volatility": 0.2 if selected else 0.3, "cagr": 0.2 if selected else 0.1, "turnover": 1.0}
+
+        monkeypatch.setattr(optimization, "simulate_volatility_scaling_candidate", record)
+        monkeypatch.setattr(optimization, "_volatility_metrics_with_soxx", favorable)
+        result = run_soxl_volatility_scaling(_source())
+        assert result["locked_winner"] == "REL_VOL_SQRT_20"
+        assert result["evidence_gates"]["no_lookahead"] is False
+        assert all(value for key, value in result["evidence_gates"].items() if key != "no_lookahead")
+    assert result["retrospective_characterization_thresholds_passed"] is True
+    assert result["research_recommendation"] is None
+    assert result["outcome"] == "NO_IMPROVEMENT"
+
+
+@pytest.mark.parametrize("variant", ["sma", "volatility"])
+def test_lagged_price_simulation_prefix_is_distinct_from_static_selection_causality(variant):
+    original = _source()
+    cutoff = (date(2023, 7, 14) + timedelta(days=500)).isoformat()
+    rows = [replace(row, open=row.open * 1.7, high=row.high * 1.7, low=row.low * 1.7, close=row.close * 1.7)
+            if row.as_of >= cutoff else row for row in original.rows]
+    changed = replace(original, rows=tuple(rows), canonical_bytes=_canonical(rows))
+    if variant == "sma":
+        before = simulate_candidate(original, 140, SCENARIOS[2])
+        after = simulate_candidate(changed, 140, SCENARIOS[2])
+    else:
+        before = simulate_volatility_scaling_candidate(original, "REL_VOL_SQRT_20", SCENARIOS[2])
+        after = simulate_volatility_scaling_candidate(changed, "REL_VOL_SQRT_20", SCENARIOS[2])
+    assert before[:500 - BASELINE_WINDOW_DAYS] == after[:500 - BASELINE_WINDOW_DAYS]
+
+
+def test_legacy_volatility_bundle_is_integrity_readable_and_cannot_be_requalified_in_place(tmp_path, monkeypatch):
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda _: 0.0)
+    current = run_soxl_volatility_scaling(_source())
+    legacy = _legacy_static_result_projection(current)
+    assert legacy["evidence_gates"]["no_lookahead"] is True
+    repo, head, blobs = _provenance_repo(tmp_path)
+    output = tmp_path / "out"
+    paths = persist_volatility_scaling_result(legacy, output, source_commit=head, source_blobs=blobs, repo_root=repo)
+    original = {path: path.read_bytes() for path in (paths.bundle, paths.sidecar, paths.readback)}
+    assert load_persisted_volatility_scaling_result(output) == optimization._wire(legacy)
+    with pytest.raises(OptimizationError, match="EXISTING_DIFFERENT_BYTES"):
+        persist_volatility_scaling_result(current, output, source_commit=head, source_blobs=blobs, repo_root=repo)
+    assert all(path.read_bytes() == raw for path, raw in original.items())

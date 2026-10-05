@@ -1,4 +1,4 @@
-"""Fixed, offline-only SOXL SMA sensitivity evidence with checkout-bound provenance."""
+"""Fixed offline SOXL studies; static SMA/volatility selection is retrospective."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -66,6 +66,7 @@ WINDOWS = {
     "F3_TEST": (585, 626),
     "FINAL_HOLDOUT": (627, 752),
 }
+_STATIC_SELECTION_FAILURE = "CANDIDATE_SELECTION_NOT_CAUSAL_WALK_FORWARD"
 _RUN_FAILURE_CODES = frozenset({
     "PLUGIN_CONTROL_NOT_ABSENT", "INPUT_IDENTITY_INVALID", "INPUT_SCHEMA_INVALID",
     "INPUT_VALUES_INVALID", "INPUT_CANONICAL_BYTES_MISMATCH", "SIMULATION_CONTRACT_INVALID",
@@ -407,6 +408,33 @@ def _eligibility(wfa_returns: Sequence[float], final_c2_5: float, final_stress: 
     return ("FAIL", tuple(failures)) if failures else ("PASS", ())
 
 
+def _static_selection_qualification() -> dict[str, Any]:
+    """Separate lagged price signals from this v1 selector's chronology.
+
+    The one winner uses all validations and is then applied to earlier tests.
+    These indices describe the frozen protocol, not historical availability,
+    input provenance, or evidence that the holdout was previously unseen.
+    """
+    validation_names = ("F1_VALIDATION", "F2_VALIDATION", "F3_VALIDATION")
+    latest_index = max(WINDOWS[name][1] for name in validation_names)
+    tests = {
+        name: {"start_index": WINDOWS[name][0], "end_index": WINDOWS[name][1],
+               "selection_data_precedes_test": latest_index < WINDOWS[name][0]}
+        for name in ("F1_TEST", "F2_TEST", "F3_TEST")
+    }
+    causal = all(window["selection_data_precedes_test"] for window in tests.values())
+    return {
+        "evaluation_scope": "RETROSPECTIVE_VALIDATION_SELECTED_TESTS",
+        "price_signal_lagged_close_only": True,
+        "selection_validation_windows": list(validation_names),
+        "latest_selection_data_index": latest_index,
+        "test_windows": tests,
+        "candidate_selection_causal": causal,
+        "strict_causal_walk_forward_eligible": causal,
+        "holdout_prior_exposure": "UNASSESSED",
+    }
+
+
 def _trial_manifest() -> dict[str, Any]:
     """Describe only this invocation's sixteen fixed SMA simulation slots.
 
@@ -453,7 +481,7 @@ def _invalid(code: str, *, trial_manifest: dict[str, Any] | None = None) -> dict
 
 
 def run_soxl_core_optimization(source: object, *, plugin_control: object = PLUGIN_CONTROL) -> dict[str, Any]:
-    """Evaluate four frozen candidates; no outcome authorizes live adoption."""
+    """Keep frozen static diagnostics; reject causal walk-forward qualification."""
     manifest = _trial_manifest()
     active_attempt: dict[str, Any] | None = None
     try:
@@ -506,14 +534,18 @@ def run_soxl_core_optimization(source: object, *, plugin_control: object = PLUGI
         selected_validation = validation[selected]
         baseline_validation = validation[BASELINE_WINDOW_DAYS]
         better_validation = _median([item["sharpe"] for item in selected_validation]) > _median([item["sharpe"] for item in baseline_validation])
-        found = (
+        retrospective_found = (
             selected != BASELINE_WINDOW_DAYS and better_validation and eligibility == "PASS"
             and float(final_c2["cumulative_return"]) > float(baseline_final_c2["cumulative_return"])
             and abs(float(final_c2["max_drawdown"])) <= abs(float(baseline_final_c2["max_drawdown"]))
             and float(final_stress["cumulative_return"]) > 0.0
         )
+        qualification = _static_selection_qualification()
+        selection_causal = qualification["strict_causal_walk_forward_eligible"]
+        found = retrospective_found and selection_causal
+        qualification_failures = () if selection_causal else (_STATIC_SELECTION_FAILURE,)
         return {
-            "schema": SCHEMA, "evidence_valid": True, "failure_codes": list(failures),
+            "schema": SCHEMA, "evidence_valid": True, "failure_codes": list((*failures, *qualification_failures)),
             "outcome": "CHARACTERIZATION_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT",
             "research_recommendation": {"sma_window_days": selected} if found else None,
             "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
@@ -521,7 +553,10 @@ def run_soxl_core_optimization(source: object, *, plugin_control: object = PLUGI
             "candidates": list(CANDIDATE_WINDOWS), "baseline_window_days": BASELINE_WINDOW_DAYS,
             "validation_metrics_c2_5": {str(window): metrics for window, metrics in validation.items()},
             "locked_winner": selected, "post_lock_metrics": post_lock,
-            "r3_eligibility_status": eligibility, "mc_terminal_loss_probability_c2_5": loss_probability,
+            "r3_eligibility_status": eligibility if selection_causal else "FAIL", "mc_terminal_loss_probability_c2_5": loss_probability,
+            "selection_qualification": qualification,
+            "retrospective_metric_eligibility_status": eligibility,
+            "retrospective_characterization_thresholds_passed": retrospective_found,
             "trial_manifest": manifest,
         }
     except Exception as exc:
@@ -614,7 +649,7 @@ def _invalid_volatility_scaling(code: str) -> dict[str, Any]:
 
 
 def run_soxl_volatility_scaling(source: object, *, plugin_control: object = VOLATILITY_SCALING_PLUGIN_CONTROL) -> dict[str, Any]:
-    """Evaluate the closed, research-only lagged relative-volatility overlay."""
+    """Keep lagged-price static diagnostics; reject causal WFA qualification."""
     if plugin_control != VOLATILITY_SCALING_PLUGIN_CONTROL:
         return _invalid_volatility_scaling("PLUGIN_CONTROL_NOT_ABSENT_DISABLED")
     try:
@@ -653,6 +688,7 @@ def run_soxl_volatility_scaling(source: object, *, plugin_control: object = VOLA
         final_returns = tuple(point.daily_return for point in simulations[locked_winner]["C2_5"][WINDOWS["FINAL_HOLDOUT"][0] - BASELINE_WINDOW_DAYS:])
         loss_probability = _terminal_loss_probability(final_returns)
         eligibility, cost_failures = _eligibility(tuple(float(item["cumulative_return"]) for item in wfa_candidate), float(final_c2["cumulative_return"]), float(final_stress["cumulative_return"]), loss_probability)
+        qualification = _static_selection_qualification()
         gates = {
             "validation_medians_strictly_improve_drawdown_and_es95": _all_strictly_better(selected_validation, baseline_validation),
             "wfa_tests_at_least_two_strictly_improve_drawdown_and_es95": sum(
@@ -662,12 +698,14 @@ def run_soxl_volatility_scaling(source: object, *, plugin_control: object = VOLA
             "final_c2_5_strictly_improves_drawdown_and_es95": abs(float(final_c2["max_drawdown"])) < abs(float(baseline_final_c2["max_drawdown"])) and float(final_c2["expected_shortfall_95"]) > float(baseline_final_c2["expected_shortfall_95"]),
             "cost_robustness": eligibility == "PASS",
             "final_stress_strictly_improves_drawdown_and_es95": abs(float(final_stress["max_drawdown"])) < abs(float(baseline_final_stress["max_drawdown"])) and float(final_stress["expected_shortfall_95"]) > float(baseline_final_stress["expected_shortfall_95"]),
-            "no_lookahead": True,
+            "no_lookahead": qualification["strict_causal_walk_forward_eligible"],
         }
+        retrospective_found = locked_winner != "UNSCALED_SMA200" and all(value for key, value in gates.items() if key != "no_lookahead")
         found = locked_winner != "UNSCALED_SMA200" and all(gates.values())
+        qualification_failures = () if gates["no_lookahead"] else (_STATIC_SELECTION_FAILURE,)
         holdout_soxx_drawdown = _soxx_drawdown(soxx, *WINDOWS["FINAL_HOLDOUT"])
         return {
-            "schema": VOLATILITY_SCALING_SCHEMA, "evidence_valid": True, "failure_codes": list(cost_failures),
+            "schema": VOLATILITY_SCALING_SCHEMA, "evidence_valid": True, "failure_codes": list((*cost_failures, *qualification_failures)),
             "outcome": "CHARACTERIZATION_CANDIDATE_FOUND" if found else "NO_IMPROVEMENT",
             "research_recommendation": {"candidate_id": locked_winner} if found else None,
             "research_only": True, "live_adoption_authorized": False, "size_zero_required": True,
@@ -676,6 +714,8 @@ def run_soxl_volatility_scaling(source: object, *, plugin_control: object = VOLA
             "lookback_rule": {"sessions": 20, "lagged_close_only": True, "risk_off_multiplier": 0.0, "multiplier_bounds": [0.0, 1.0]},
             "validation_metrics_c2_5": validation, "locked_winner": locked_winner, "post_lock_metrics": post_lock,
             "evidence_gates": gates,
+            "selection_qualification": qualification,
+            "retrospective_characterization_thresholds_passed": retrospective_found,
             "soxx_drawdown_comparison": {"final_holdout_max_drawdown": holdout_soxx_drawdown, "matches_or_beats_soxx_drawdown": abs(float(final_c2["max_drawdown"])) <= abs(holdout_soxx_drawdown)},
         }
     except OptimizationError as exc:
