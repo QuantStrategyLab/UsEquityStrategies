@@ -12,10 +12,15 @@ import hashlib
 import json
 import math
 from collections import defaultdict
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+
+from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialRecord, ResearchTrialStatus
+from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+from us_equity_strategies.research.tqqq_guard_cash_trial_ledger import build_guard_cash_trial_ledger
 
 from quant_strategy_plugins.benchmark_drawdown_guard import build_benchmark_drawdown_guard_signal
 from quant_strategy_plugins.market_regime_control_plugin import build_market_regime_control_signal
@@ -322,45 +327,221 @@ def _simulate(rows: list[dict], actions: dict, contract: dict, *, cost_bps: int,
     return _metrics(ledger, float(contract["portfolio"]["research_initial_usd"])), ledger
 
 
-def run_private(root: Path) -> dict:
-    contract, qqq, tqqq, actions = _verified_bundle(root)
+def _canonical_digest(value: object) -> str:
+    data = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return hashlib.sha256(data).hexdigest()
+
+
+def _load_synthetic_fixture(path: Path) -> tuple[dict, list[dict], list[dict], dict, str]:
+    """Read explicit source inputs only; fixture labels never establish qualification."""
+    try:
+        if not isinstance(path, Path) or path.is_symlink() or not path.is_file():
+            raise ValueError()
+        raw = path.read_bytes()
+        payload = json.loads(raw)
+        if (type(payload) is not dict
+                or set(payload) != {"synthetic", "contract", "qqq", "tqqq", "actions"}
+                or payload["synthetic"] is not True):
+            raise ValueError()
+        contract = payload["contract"]
+        if (type(contract) is not dict
+                or set(contract) != {"candidate_id", "core", "qqq_guard", "portfolio", "window", "limitations"}
+                or type(contract["limitations"]) is not list
+                or any(type(item) is not str for item in contract["limitations"])
+                or contract.get("candidate_id") != CANDIDATE
+                or contract["core"]["first_signal_min_qqq_bars"] != 257
+                or type(contract["core"]["first_signal_min_qqq_bars"]) is not int
+                or contract["window"]["first_signal_rule"] != "index 256 after 257 complete common bars"
+                or not _is_positive_finite_number(contract["portfolio"]["research_initial_usd"])
+                or type(payload["qqq"]) is not list or type(payload["tqqq"]) is not list
+                or type(payload["actions"]) is not dict):
+            raise ValueError()
+        costs = contract["portfolio"]["cost_bps"]
+        short = contract["window"]["short_window_sessions"]
+        if (type(costs) is not list or not costs or len(set(costs)) != len(costs)
+                or any(type(cost) is not int or cost < 0 or not _is_positive_finite_number(cost + 1) for cost in costs)
+                or type(short) is not int or short <= 0):
+            raise ValueError()
+        _canonical_digest(payload)  # Reject all non-finite/non-JSON source values.
+        return contract, payload["qqq"], payload["tqqq"], payload["actions"], hashlib.sha256(raw).hexdigest()
+    except (OSError, KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("SYNTHETIC_FIXTURE_INVALID") from exc
+
+
+def _record_trial_failure(store: PerformanceStore, started: ResearchTrialRecord,
+                          status: ResearchTrialStatus, reason: str,
+                          error: BaseException, *, terminal_attempted: bool) -> None:
+    """Best effort only; never replace an exception or an existing immutable terminal."""
+    try:
+        if terminal_attempted:
+            current = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
+            if current is None or current.status is not ResearchTrialStatus.STARTED:
+                error.add_note("research_terminal_state_unverified" if current is None else "research_terminal_already_recorded")
+                return
+        terminal = replace(started, status=status, reason_code=reason, run_id=None, param_version=None)
+        store.save_research_trial(terminal)
+        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != terminal:
+            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+    except BaseException:
+        error.add_note("research_terminal_write_failed")
+
+
+def _journal_scenario(rows: list[dict], actions: dict, frozen_params: str,
+                      started: ResearchTrialRecord, store: PerformanceStore,
+                      computed_at: str) -> tuple[ResearchTrialRecord, dict | None, list[dict] | None]:
+    """Called only by the input-owning entrypoint, with no external output arguments.
+
+    This is single-caller replay protection, not a distributed claim lock. The
+    immutable JSON snapshot supplies STARTED, simulation and typed adaptation.
+    """
+    previous = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
+    # A start write that raises may already have committed. Preserve uncertainty:
+    # no evaluation or compensating terminal; a later read can report incomplete.
+    store.save_research_trial(started)
+    stage = "start_readback"
+    terminal_attempted = False
+    try:
+        readback = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
+        if readback is None:
+            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        if previous is not None or readback.status is not ResearchTrialStatus.STARTED:
+            return readback, None, None
+        if readback != started:
+            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        params = json.loads(frozen_params)
+        if readback.actual_params != params:
+            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        stage = "simulation"
+        metrics, daily_rows = _simulate(
+            rows, actions, params["contract"], cost_bps=params["cost_bps"],
+            use_guard=params["use_guard"], sessions=params["sessions"], budget_selector=None)
+        if params != json.loads(frozen_params) or readback.actual_params != json.loads(frozen_params):
+            raise ValueError("SIMULATOR_PARAMS_CHANGED")
+        stage = "ledger"
+        result, ledger = build_guard_cash_trial_ledger(
+            rows=rows, actions=actions, contract=params["contract"], metrics=metrics,
+            daily_rows=daily_rows, started=readback, run_id=started.trial_id,
+            param_version=1, computed_at=computed_at)
+        terminal = replace(readback, status=ResearchTrialStatus.SUCCEEDED, reason_code="",
+                           run_id=result.run_id, param_version=result.param_version)
+        stage = "persistence"
+        store.save_backtest_result(result)
+        store.save_research_ledger(ledger)
+        terminal_attempted = True
+        store.save_research_trial(terminal)
+        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id,
+                                     run_id=result.run_id, param_version=result.param_version) != terminal:
+            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        return terminal, metrics, daily_rows
+    except (KeyboardInterrupt, SystemExit) as exc:
+        _record_trial_failure(store, started, ResearchTrialStatus.ABORTED, "trial_interrupted", exc,
+                              terminal_attempted=terminal_attempted)
+        raise
+    except Exception as exc:
+        rejected = isinstance(exc, ValueError) and stage in {"simulation", "ledger"}
+        status = ResearchTrialStatus.REJECTED if rejected else ResearchTrialStatus.FAILED
+        reason = {"start_readback": "journal_readback_failed", "simulation": "simulation_rejected" if rejected else "simulation_failed",
+                  "ledger": "ledger_rejected" if rejected else "ledger_failed", "persistence": "persistence_failed"}[stage]
+        _record_trial_failure(store, started, status, reason, exc, terminal_attempted=terminal_attempted)
+        raise
+
+
+def run_private(root: Path, *, synthetic_fixture: Path | None = None,
+                store: PerformanceStore | None = None, trial_namespace: str | None = None) -> dict:
+    """Keep the legacy call shape, refusing unqualified real runs before any read.
+
+    Explicit local synthetic source files exercise the same trusted caller and
+    journal, always synthetic and unqualified. No caller-provided output or
+    qualification flag is accepted. A new namespace is required for a new attempt.
+    Exports are presentation only; the validated QPK journal is authoritative.
+    source_revision fingerprints this module only, not the full dependency graph.
+    """
+    if synthetic_fixture is None:
+        raise ValueError("REAL_RESEARCH_DATA_UNQUALIFIED")
+    if (not isinstance(store, PerformanceStore) or store.cloud_bucket
+            or not isinstance(store.local_root, Path) or store.local_root.is_symlink()):
+        raise ValueError("LOCAL_RESEARCH_STORE_REQUIRED")
+    if (type(trial_namespace) is not str or not trial_namespace or len(trial_namespace) > 300
+            or any(char.isspace() or ord(char) < 32 for char in trial_namespace)):
+        raise ValueError("TRIAL_NAMESPACE_INVALID")
+    if not isinstance(root, Path) or root.is_symlink() or (root.exists() and not root.is_dir()):
+        raise ValueError("PRIVATE_ROOT_INVALID")
+    contract, qqq, tqqq, actions, source_digest = _load_synthetic_fixture(synthetic_fixture)
     rows = _validated_bars(qqq, tqqq)
-    if rows[0]["date"] != "2022-01-03" or rows[-1]["date"] != "2024-12-31":
-        raise ValueError("FROZEN_COVERAGE_CHANGED")
-    scenarios = {}
+    start = contract["core"]["first_signal_min_qqq_bars"]
+    if len(rows) - start < contract["window"]["short_window_sessions"]:
+        raise ValueError("INSUFFICIENT_REPLAY_WINDOW")
+    store.local_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    store.local_root.chmod(0o700)
+    implementation = {
+        "research_adapter": _sha256(Path(__file__)),
+        "ues_core": _sha256(Path(decide_tqqq_dual_drive.__code__.co_filename)),
+        "ues_indicators": _sha256(Path(_resolve_volatility_delever_thresholds.__code__.co_filename)),
+        "qsp_guard": _sha256(Path(build_benchmark_drawdown_guard_signal.__code__.co_filename)),
+        "qsp_arbiter": _sha256(Path(build_market_regime_control_signal.__code__.co_filename)),
+    }
+    input_digest = _canonical_digest({"rows": rows, "actions": actions, "contract": contract})
+    now = datetime.now(timezone.utc).isoformat()
+    initial = float(contract["portfolio"]["research_initial_usd"])
+    report = {"candidate_id": CANDIDATE, "research_only": True, "synthetic": True,
+              "data_qualified": False, "execution_authorized": False, "promotion_authorized": False,
+              "no_order": True, "status": "succeeded",
+              "contract_sha256": _canonical_digest(contract), "implementation_sha256": implementation,
+              "source_manifest_sha256": None, "input_sha256": {"synthetic_fixture": source_digest},
+              "data_coverage": {"first_bar": rows[0]["date"], "last_bar": rows[-1]["date"],
+                                "common_bars": len(rows), "first_signal": rows[start - 1]["date"],
+                                "first_trade": rows[start]["date"]},
+              "cash_only": {"start": rows[start]["date"], "end": rows[-1]["date"],
+                            "sessions": len(rows) - start, "start_nav_usd": initial,
+                            "end_nav_usd": initial, "total_return": 0.0},
+              "scenarios": {}, "computed_at": now,
+              "limitations": contract.get("limitations", []) + ["SYNTHETIC_CALLER_ONLY_NOT_DATA_QUALIFICATION"],
+              "journal": {"trial_namespace": trial_namespace, "trial_ids": [], "statuses": {}}}
+    fresh_daily = {}
+    reused = False
     for cost in contract["portfolio"]["cost_bps"]:
         for guarded, label in ((True, "dynamic_guard_cash"), (False, "fixed_core_cash")):
             for short, window in ((True, "short"), (False, "full")):
-                result, ledger = _simulate(rows, actions, contract, cost_bps=cost,
-                                           use_guard=guarded,
-                                           sessions=contract["window"]["short_window_sessions"] if short else None)
                 key = f"{label}_{cost}bps_{window}"
-                scenarios[key] = result
-                path = root / f"private_daily_{key}.json"
-                path.write_text(json.dumps(ledger, separators=(",", ":")) + "\n")
-                path.chmod(0o600)
-    initial = float(contract["portfolio"]["research_initial_usd"])
-    first = rows[contract["core"]["first_signal_min_qqq_bars"]]["date"]
-    last = rows[-1]["date"]
-    report = {"candidate_id": CANDIDATE, "research_only": True,
-              "contract_sha256": _sha256(root / CONTRACT_NAME),
-              "implementation_sha256": {
-                  "research_adapter": _sha256(Path(__file__)),
-                  "ues_core": _sha256(Path(decide_tqqq_dual_drive.__code__.co_filename)),
-                  "ues_indicators": _sha256(Path(_resolve_volatility_delever_thresholds.__code__.co_filename)),
-                  "qsp_guard": _sha256(Path(build_benchmark_drawdown_guard_signal.__code__.co_filename)),
-                  "qsp_arbiter": _sha256(Path(build_market_regime_control_signal.__code__.co_filename)),
-              },
-              "source_manifest_sha256": contract["source_manifest_sha256"],
-              "input_sha256": {item["name"]: item["sha256"] for item in contract["inputs"]},
-              "data_coverage": {"first_bar": rows[0]["date"], "last_bar": last,
-                                "common_bars": len(rows), "first_signal": rows[contract["core"]["first_signal_min_qqq_bars"] - 1]["date"],
-                                "first_trade": first},
-              "cash_only": {"start": first, "end": last, "sessions": len(rows) - contract["core"]["first_signal_min_qqq_bars"],
-                            "start_nav_usd": initial, "end_nav_usd": initial, "total_return": 0.0},
-              "scenarios": scenarios,
-              "computed_at": datetime.now(timezone.utc).isoformat(),
-              "limitations": contract["limitations"]}
+                params = {"scenario_id": key, "cost_bps": cost, "use_guard": guarded,
+                          "sessions": contract["window"]["short_window_sessions"] if short else None,
+                          "contract": contract, "budget_selector": None}
+                frozen_params = json.dumps(params, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                started = ResearchTrialRecord(
+                    trial_id=f"{trial_namespace}:{key}", domain="us_equity", strategy_profile=CANDIDATE,
+                    status=ResearchTrialStatus.STARTED, candidate_config_id="sha256:" + _canonical_digest(contract),
+                    actual_params=json.loads(frozen_params), param_set_id=key,
+                    source_revision="sha256:" + implementation["research_adapter"], input_id="sha256:" + input_digest,
+                    window_start=date.fromisoformat(rows[start - 1]["date"]),
+                    window_end=date.fromisoformat(rows[start + params["sessions"] - 1]["date"] if short else rows[-1]["date"]),
+                    calendar_id="XNYS", periods_per_year=252.0, cost_source="synthetic_declared_bps",
+                    cost_inputs={"cost_bps": float(cost)}, reason_code="", synthetic=True,
+                    run_id=None, param_version=None,
+                    research_identity={"guard_cash_input_sha256": input_digest,
+                        "actions_source_id": f"sha256:{source_digest}:synthetic_fixture:TQQQ_actions",
+                        "external_cashflow_scope": "closed_research_no_external_flows"})
+                terminal, metrics, daily = _journal_scenario(rows, actions, frozen_params, started, store, now)
+                report["journal"]["trial_ids"].append(terminal.trial_id)
+                report["journal"]["statuses"][key] = terminal.status.value
+                if metrics is None:
+                    reused = True
+                    report["scenarios"][key] = {"status": terminal.status.value, "trial_id": terminal.trial_id,
+                                                "run_id": terminal.run_id, "param_version": terminal.param_version}
+                else:
+                    report["scenarios"][key] = metrics
+                    fresh_daily[key] = daily
+                if terminal.status is not ResearchTrialStatus.SUCCEEDED:
+                    report["status"] = "incomplete" if terminal.status is ResearchTrialStatus.STARTED else terminal.status.value
+                    return report
+    if reused:
+        report["status"] = "stored"
+        return report
+    # Export failures must not rewrite already-validated immutable SUCCEEDED trials.
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for key, daily in fresh_daily.items():
+        path = root / f"private_daily_{key}.json"
+        path.write_text(json.dumps(daily, separators=(",", ":")) + "\n")
+        path.chmod(0o600)
     path = root / "research_summary.v1.json"
     path.write_text(json.dumps(report, indent=2) + "\n")
     path.chmod(0o600)
@@ -370,12 +551,22 @@ def run_private(root: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--private-root", type=Path, required=True)
+    parser.add_argument("--synthetic-fixture", type=Path)
+    parser.add_argument("--journal-root", type=Path)
+    parser.add_argument("--trial-namespace")
     args = parser.parse_args()
-    report = run_private(args.private_root)
-    print(json.dumps({"candidate_id": report["candidate_id"],
-                      "contract_sha256": report["contract_sha256"],
-                      "coverage": report["data_coverage"],
-                      "private_summary": str(args.private_root / "research_summary.v1.json")}, indent=2))
+    store = PerformanceStore(local_root=args.journal_root, cloud_bucket="") if args.journal_root else None
+    report = run_private(args.private_root, synthetic_fixture=args.synthetic_fixture,
+                         store=store, trial_namespace=args.trial_namespace)
+    print(json.dumps({"candidate_id": report["candidate_id"], "status": report["status"],
+                      "synthetic": report["synthetic"], "contract_sha256": report["contract_sha256"],
+                      "coverage": report["data_coverage"], "journal": report["journal"],
+                      "private_summary": str(args.private_root / "research_summary.v1.json")
+                          if report["status"] == "succeeded" else None}, indent=2))
+    statuses = report["journal"]["statuses"]
+    if (report["status"] not in {"succeeded", "stored"}
+            or not statuses or any(status != "succeeded" for status in statuses.values())):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
