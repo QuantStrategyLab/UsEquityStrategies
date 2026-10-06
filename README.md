@@ -1,13 +1,6 @@
 # UsEquityStrategies
 
-
-## QSL architecture role
-
-- **Layer**: `strategy-lib`.
-- **Responsibility**: US equity strategy implementation package.
-- **Owns**: runtime-enabled US strategy code, manifests, execution metadata.
-- **Consumes**: QuantPlatformKit and validated US snapshot artifacts.
-- **Must not**: own broker credentials or deployment settings.
+UsEquityStrategies is the strategy-lib behind QuantStrategyLab's US equity trading: it holds the strategy implementations, manifests, and runtime metadata that platform repositories load through strategy loaders. It consumes QuantPlatformKit and validated snapshot artifacts from `UsEquitySnapshotPipelines`, but it does not hold broker credentials, submit orders, or own deployment settings — that lives in the platform repositories (CharlesSchwabPlatform, InteractiveBrokersPlatform, LongBridgePlatform, FirstradePlatform).
 
 [Chinese README](README.zh-CN.md)
 
@@ -61,6 +54,14 @@ Research-only profiles may stay in code for reproducibility and future review, b
 Execution platforms consume this package through strategy loaders and runtime metadata. Current downstream platforms: CharlesSchwabPlatform, InteractiveBrokersPlatform, LongBridgePlatform, and FirstradePlatform.
 
 Use the platform repositories for broker credentials, dry-run/live switches, order submission, and deployment settings.
+
+## QSL architecture role
+
+- **Layer**: `strategy-lib`.
+- **Responsibility**: US equity strategy implementation package.
+- **Owns**: runtime-enabled US strategy code, manifests, execution metadata.
+- **Consumes**: QuantPlatformKit and validated US snapshot artifacts.
+- **Must not**: own broker credentials or deployment settings.
 
 ## Evidence and live enablement
 
