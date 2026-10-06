@@ -4232,3 +4232,702 @@ def test_replay_buy_reads_commission_and_adverse_fill_back_from_ledger() -> None
     assert loaded.days[0].daily_return == point.daily_return
     assert dict(loaded.cost_inputs) == dict(replay.backtest.cost_inputs)
     assert loaded.days[0].cash == pytest.approx(loaded.initial_cash + loaded.days[0].trade_net_cashflow - loaded.days[0].fees)
+
+
+# Explicit frozen session calendar fixtures. These tests make no network calls.
+def _session_fixture(profile="SOXL", *, days=None, half_day=False):
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    days = days or (date(2026, 9, 3), date(2026, 9, 4), date(2026, 9, 8))
+
+    def close(day, hour=16):
+        return (
+            datetime(
+                day.year, day.month, day.day, hour, tzinfo=ZoneInfo("America/New_York")
+            )
+            .astimezone(UTC)
+            .strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        )
+
+    closes = {
+        day: close(day, 13 if half_day and day == days[0] else 16) for day in days
+    }
+    manifest = (
+        soxl_soxx_trend_income_manifest
+        if profile == "SOXL"
+        else tqqq_growth_income_manifest
+    )
+    config = _config(manifest)
+    symbols = tuple(config["managed_symbols"])
+    indicators = (
+        {day: deepcopy(_soxl_request().derived_indicators[SIGNAL]) for day in days[:-1]}
+        if profile == "SOXL"
+        else None
+    )
+    sources = (
+        {
+            day: {
+                symbol: {
+                    metric: {
+                        "source_id": "synthetic-indicator",
+                        "available_at": closes[day],
+                        "derivation": "synthetic_fixture_literal.v1",
+                        "source_bars": [],
+                    }
+                    for metric in metrics
+                }
+                for symbol, metrics in payload.items()
+            }
+            for day, payload in (indicators or {}).items()
+        }
+        if indicators
+        else None
+    )
+    benchmark = ()
+    if profile == "TQQQ":
+        history = _business_days_ending(days[0], 600) + days[1:]
+        benchmark = tuple(
+            DatedBar(
+                day,
+                "QQQ",
+                100.0,
+                100.0,
+                100.0,
+                100.0,
+                "synthetic-benchmark",
+                closes.get(day, close(day)),
+            )
+            for day in history
+        )
+    request = ReplayRequest(
+        identity=_identity(manifest.profile),
+        runtime_config=config,
+        calendar=days,
+        initial_cash=100_000.0,
+        initial_quantities={symbol: 0.0 for symbol in symbols},
+        prices=tuple(
+            DatedBar(
+                day, symbol, 100.0, 100.0, 100.0, 100.0, "synthetic-price", closes[day]
+            )
+            for day in days
+            for symbol in symbols
+        ),
+        execution=ExecutionAssumptions(1, "next_trading_day", "open", "close"),
+        cost_model=PromotionCostModel("SYNTHETIC_10BPS", 10.0, 0.0, 0.0),
+        computed_at=closes[days[-1]],
+        evidence_use="fixture",
+        promotion_eligible=False,
+        calendar_id="synthetic-calendar",
+        periods_per_year=252.0,
+        derived_indicators=indicators,
+        indicator_sources=sources,
+        benchmark_bars=benchmark,
+        state_inputs=tuple(
+            {
+                "signal_date": day.isoformat(),
+                "decision_at": closes[day],
+                "available_at": closes[day],
+                "state": {},
+                "value_sources": {},
+            }
+            for day in days[:-1]
+        ),
+    )
+    timing = {
+        "source": "synthetic frozen test calendar",
+        "calendar_id": request.calendar_id,
+        "calendar_version": "fixture-v1",
+        "timezone": "America/New_York",
+        "coverage_start": days[0].isoformat(),
+        "coverage_end": days[-1].isoformat(),
+        "calendar": {
+            "id": request.calendar_id,
+            "version": "fixture-v1",
+            "available_at": "2026-01-01T00:00:00.000000Z",
+            "sessions": [
+                {"date": day.isoformat(), "close_at": closes[day], "complete": True}
+                for day in days
+            ],
+        },
+        "fixture_only": True,
+        "historical_pit_verified": False,
+        "real_entry": False,
+        "promotion_eligible": False,
+        "live_executable": False,
+    }
+    return request, _session_digest(timing)
+
+
+def _session_digest(timing):
+    timing = deepcopy(timing)
+    timing.pop("sha256", None)
+    timing["sha256"] = hashlib.sha256(_canonical(timing)).hexdigest()
+    return timing
+
+
+def _run_session_fixture(request, timing):
+    from us_equity_strategies.research.optimized_strategy_replay import (
+        replay_synthetic_session_fixture,
+    )
+
+    return replay_synthetic_session_fixture(request, session_timing=timing)
+
+
+@pytest.mark.parametrize("profile", ("SOXL", "TQQQ"))
+def test_explicit_session_holiday_keeps_old_mismatch_and_original_checker(
+    profile, monkeypatch
+):
+    import us_equity_strategies.research.optimized_strategy_replay as module
+
+    request, timing = _session_fixture(profile)
+    with pytest.raises(OptimizedStrategyReplayError, match="TIMING_MISMATCH"):
+        replay_optimized_strategy(request)
+    original, observed = module._check_timing, []
+
+    def check(decision, signal, effective):
+        original(decision, signal, effective)
+        observed.append((signal, effective, deepcopy(decision.diagnostics)))
+
+    monkeypatch.setattr(module, "_check_timing", check)
+    actual = _run_session_fixture(request, timing)
+    assert [(signal, effective) for signal, effective, _ in observed] == list(
+        zip(request.calendar[:-1], request.calendar[1:])
+    )
+    assert observed[-1][2]["effective_date"] == "2026-09-08"
+    assert (
+        observed[-1][2]["execution_calendar_source"]
+        == "synthetic_frozen_session_calendar"
+    )
+    assert actual.backtest.params["session_timing"] == timing
+    assert actual.backtest.params["historical_pit_verified"] is False
+    assert actual.backtest.params["real_entry"] is False
+    assert actual.backtest.params["fixture_only"] is True
+    assert actual.backtest.params["promotion_eligible"] is False
+    assert actual.live_executable is False
+
+
+@pytest.mark.parametrize("profile", ("SOXL", "TQQQ"))
+def test_explicit_session_ordinary_economics_and_default_builder_are_unchanged(
+    profile, monkeypatch
+):
+    import us_equity_strategies.research.optimized_strategy_replay as module
+
+    request, timing = _session_fixture(
+        profile, days=(date(2026, 9, 2), date(2026, 9, 3), date(2026, 9, 4))
+    )
+    original = deepcopy((request, timing))
+    old = replay_optimized_strategy(request)
+    actual = _run_session_fixture(request, timing)
+    assert old.points == actual.points
+    assert old.decision_targets == actual.decision_targets
+    for field in (
+        "sharpe_ratio",
+        "calmar_ratio",
+        "max_drawdown",
+        "cagr",
+        "volatility",
+        "total_return",
+        "observation_count",
+        "cost_inputs",
+    ):
+        assert getattr(old.backtest, field) == getattr(actual.backtest, field)
+    assert (
+        old.backtest.params["effective_runtime_config"]
+        == actual.backtest.params["effective_runtime_config"]
+    )
+    assert "session_timing" not in old.backtest.params
+    assert old.backtest.run_id != actual.backtest.run_id
+    assert (request, timing) == original
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        "missing",
+        "extra",
+        "duplicate",
+        "unordered",
+        "successor",
+        "id",
+        "version",
+        "range",
+        "hash",
+        "timezone",
+        "unknown",
+        "naive",
+        "ny_date",
+        "dst",
+        "half_day",
+        "incomplete",
+        "mutable_version",
+        "blank_source",
+    ),
+)
+def test_explicit_session_rejects_bad_frozen_declaration(change):
+    request, timing = _session_fixture()
+    rows = timing["calendar"]["sessions"]
+    if change == "missing":
+        rows.pop(1)
+    elif change == "extra":
+        rows.insert(
+            2,
+            {
+                "date": "2026-09-07",
+                "close_at": "2026-09-07T20:00:00.000000Z",
+                "complete": True,
+            },
+        )
+    elif change == "duplicate":
+        rows.insert(1, deepcopy(rows[0]))
+    elif change == "unordered":
+        rows.reverse()
+    elif change == "successor":
+        rows.pop()
+    elif change == "id":
+        timing["calendar"]["id"] = "other"
+    elif change == "version":
+        timing["calendar"]["version"] = "other-v1"
+    elif change == "range":
+        timing["coverage_start"] = "2026-09-04"
+    elif change == "timezone":
+        timing["timezone"] = "UTC"
+    elif change == "unknown":
+        timing["unknown"] = True
+    elif change == "naive":
+        rows[0]["close_at"] = "2026-09-03T20:00:00"
+    elif change == "ny_date":
+        rows[0]["close_at"] = "2026-09-04T20:00:00.000000Z"
+    elif change == "dst":
+        rows[0]["close_at"] = "2026-09-03T21:00:00.000000Z"
+    elif change == "half_day":
+        rows[0]["close_at"] = "2026-09-03T18:00:00.000000Z"
+    elif change == "incomplete":
+        rows[1]["complete"] = False
+    elif change == "mutable_version":
+        timing["calendar_version"] = timing["calendar"]["version"] = "latest"
+    elif change == "blank_source":
+        timing["source"] = ""
+    timing = _session_digest(timing)
+    if change == "hash":
+        timing["sha256"] = "0" * 64
+    with pytest.raises(OptimizedStrategyReplayError):
+        _run_session_fixture(request, timing)
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        "decision_missing",
+        "decision_early",
+        "calendar_late",
+        "bar_late",
+        "state_late",
+        "indicator_late",
+        "bar_no_source",
+        "indicator_no_source",
+    ),
+)
+def test_explicit_session_rejects_unavailable_signal_inputs(change):
+    request, timing = _session_fixture()
+    if change == "decision_missing":
+        request = replace(request, state_inputs=None)
+    elif change == "decision_early":
+        request.state_inputs[0]["decision_at"] = "2026-09-03T19:59:00Z"
+        request.state_inputs[0]["available_at"] = "2026-09-03T19:58:00Z"
+    elif change == "calendar_late":
+        timing["calendar"]["available_at"] = "2026-09-03T20:01:00.000000Z"
+    elif change == "bar_late":
+        request = replace(
+            request,
+            prices=(
+                replace(request.prices[0], available_at="2026-09-03T20:01:00Z"),
+                *request.prices[1:],
+            ),
+        )
+    elif change == "state_late":
+        request.state_inputs[0]["state"]["fixture"] = "known"
+        request.state_inputs[0]["value_sources"]["fixture"] = {
+            "source_id": "synthetic",
+            "available_at": "2026-09-03T20:01:00Z",
+        }
+    elif change == "indicator_late":
+        request.indicator_sources[request.calendar[0]]["soxl"]["price"][
+            "available_at"
+        ] = "2026-09-03T20:01:00Z"
+    elif change == "bar_no_source":
+        request = replace(
+            request,
+            prices=(replace(request.prices[0], source_id=None), *request.prices[1:]),
+        )
+    elif change == "indicator_no_source":
+        request = replace(request, indicator_sources=None)
+    with pytest.raises(OptimizedStrategyReplayError):
+        _run_session_fixture(request, _session_digest(timing))
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "historical_pit_verified",
+        "real_entry",
+        "promotion_eligible",
+        "live_executable",
+        "fixture_only",
+    ),
+)
+def test_explicit_session_rejects_real_or_promoted_claims(claim):
+    request, timing = _session_fixture()
+    timing[claim] = claim != "fixture_only"
+    with pytest.raises(OptimizedStrategyReplayError, match="REAL_ENTRY_PIT_REQUIRED"):
+        _run_session_fixture(request, _session_digest(timing))
+
+
+def test_explicit_session_identity_half_day_and_final_bar_visibility():
+    request, timing = _session_fixture(half_day=True)
+    actual = _run_session_fixture(request, timing)
+    changed = deepcopy(timing)
+    changed["source"] = "another synthetic source"
+    assert (
+        _run_session_fixture(request, _session_digest(changed)).backtest.run_id
+        != actual.backtest.run_id
+    )
+    # The terminal close is after the preceding signal, as expected for next-open fills.
+    assert request.prices[-1].available_at > request.state_inputs[-1]["decision_at"]
+    assert actual.points[-1].session == request.calendar[-1]
+
+
+def test_explicit_session_refuses_non_fixture_request():
+    request, timing = _session_fixture()
+    with pytest.raises(OptimizedStrategyReplayError, match="REAL_ENTRY_PIT_REQUIRED"):
+        _run_session_fixture(replace(request, evidence_use="market"), timing)
+
+
+@pytest.mark.parametrize(
+    "field", ("source", "calendar_version", "calendar_available_at", "close_at")
+)
+def test_explicit_session_evidence_identity_changes_run_identity(field):
+    request, timing = _session_fixture()
+    baseline = _run_session_fixture(request, timing)
+    if field == "source":
+        timing["source"] = "different synthetic source"
+    elif field == "calendar_version":
+        timing["calendar_version"] = timing["calendar"]["version"] = "fixture-v2"
+    elif field == "calendar_available_at":
+        timing["calendar"]["available_at"] = "2026-01-02T00:00:00.000000Z"
+    elif field == "close_at":
+        timing["calendar"]["sessions"][0]["close_at"] = "2026-09-03T17:00:00.000000Z"
+    changed = _run_session_fixture(request, _session_digest(timing))
+    assert changed.backtest.run_id != baseline.backtest.run_id
+    assert changed.points == baseline.points
+
+
+def test_explicit_session_digest_normalizes_timestamp_spellings():
+    request, timing = _session_fixture()
+    original = _run_session_fixture(request, timing)
+    timing["calendar"]["available_at"] = "2026-01-01T00:00:00+00:00"
+    timing["calendar"]["sessions"][0]["close_at"] = "2026-09-03T20:00:00Z"
+    # Keep the independently computed canonical digest: equivalent wire spelling.
+    equivalent = _run_session_fixture(request, timing)
+    assert equivalent.backtest.run_id == original.backtest.run_id
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        "missing",
+        "extra",
+        "duplicate",
+        "unordered",
+        "wrong_id",
+        "missing_decision_field",
+        "ny_decision_date",
+        "bar_state_source",
+    ),
+)
+def test_explicit_session_rejects_bad_replay_projection_or_decision(change):
+    request, timing = _session_fixture()
+    if change == "missing":
+        request = replace(request, calendar=(request.calendar[0], request.calendar[-1]))
+    elif change == "extra":
+        request = replace(
+            request,
+            calendar=(*request.calendar[:2], date(2026, 9, 7), request.calendar[-1]),
+        )
+    elif change == "duplicate":
+        request = replace(request, calendar=(request.calendar[0], *request.calendar))
+    elif change == "unordered":
+        request = replace(request, calendar=tuple(reversed(request.calendar)))
+    elif change == "wrong_id":
+        request = replace(request, calendar_id="wrong-calendar")
+    elif change == "missing_decision_field":
+        request.state_inputs[0].pop("decision_at")
+    elif change == "ny_decision_date":
+        request.state_inputs[0]["decision_at"] = "2026-09-03T02:00:00Z"
+        request.state_inputs[0]["available_at"] = "2026-09-03T01:00:00Z"
+    elif change == "bar_state_source":
+        request.state_inputs[0].pop("value_sources")
+    with pytest.raises(OptimizedStrategyReplayError):
+        _run_session_fixture(request, timing)
+
+
+@pytest.mark.parametrize("profile", ("SOXL", "TQQQ"))
+def test_explicit_session_terminal_close_is_post_execution_valuation(profile):
+    request, timing = _session_fixture(profile)
+    terminal = request.calendar[-1]
+    # Whole daily OHLC is available only after the final open fill, even after
+    # 21:00. There is no final signal decision and no synthetic 21:00 fallback.
+    request = replace(
+        request,
+        prices=tuple(
+            replace(bar, available_at=f"{terminal.isoformat()}T22:00:00Z")
+            if bar.session == terminal
+            else bar
+            for bar in request.prices
+        ),
+    )
+    request = replace(request, computed_at=f"{terminal.isoformat()}T22:00:00Z")
+    result = _run_session_fixture(request, timing)
+    assert result.points[-1].session == terminal
+    assert result.backtest.params["fill_price_field"] == "open"
+
+
+def test_explicit_session_tqqq_benchmark_late_at_first_consumer_is_rejected():
+    request, timing = _session_fixture("TQQQ")
+    request = replace(
+        request,
+        benchmark_bars=(
+            replace(request.benchmark_bars[0], available_at="2026-09-03T20:01:00Z"),
+            *request.benchmark_bars[1:],
+        ),
+    )
+    with pytest.raises(
+        OptimizedStrategyReplayError, match="INPUT_NOT_AVAILABLE_AT_DECISION:bar"
+    ):
+        _run_session_fixture(request, timing)
+
+
+def test_explicit_session_original_checker_still_rejects_wrong_builder_result(
+    monkeypatch,
+):
+    import us_equity_strategies.research.optimized_strategy_replay as module
+
+    request, timing = _session_fixture()
+    manifest, builder = module._PROFILES[request.identity.strategy_profile]
+
+    def incorrect(context, *, research_session_successor):
+        decision = builder(
+            context, research_session_successor=research_session_successor
+        )
+        decision.diagnostics["effective_date"] = context.as_of
+        return decision
+
+    monkeypatch.setitem(
+        module._PROFILES, request.identity.strategy_profile, (manifest, incorrect)
+    )
+    with pytest.raises(OptimizedStrategyReplayError, match="TIMING_MISMATCH"):
+        _run_session_fixture(request, timing)
+
+
+def test_explicit_session_caller_declaration_cannot_authenticate_joint_omission():
+    request, timing = _session_fixture()
+    omitted = request.calendar[1]
+    request = replace(
+        request,
+        calendar=(request.calendar[0], request.calendar[-1]),
+        prices=tuple(bar for bar in request.prices if bar.session != omitted),
+        derived_indicators={
+            day: row
+            for day, row in request.derived_indicators.items()
+            if day != omitted
+        },
+        indicator_sources={
+            day: row for day, row in request.indicator_sources.items() if day != omitted
+        },
+        state_inputs=tuple(
+            row
+            for row in request.state_inputs
+            if row["signal_date"] != omitted.isoformat()
+        ),
+    )
+    timing["calendar"]["sessions"].pop(1)
+    result = _run_session_fixture(request, _session_digest(timing))
+    # This deliberately self-consistent false declaration is not independently
+    # certifiable. Never label it actual calendar coverage or historical PIT.
+    assert result.backtest.params["historical_pit_verified"] is False
+    assert result.backtest.params["real_entry"] is False
+    assert result.backtest.params["fixture_only"] is True
+    assert result.backtest.params["promotion_eligible"] is False
+    assert result.live_executable is False
+
+
+def test_explicit_session_research_parameter_does_not_enter_runtime_config_or_compute(
+    monkeypatch,
+):
+    import inspect
+    import us_equity_strategies.entrypoints as entrypoints
+
+    request, timing = _session_fixture()
+    config = dict(request.runtime_config, research_session_successor="2026-09-08")
+    with pytest.raises(
+        OptimizedStrategyReplayError, match="UNKNOWN_FIELD:research_session_successor"
+    ):
+        _run_session_fixture(replace(request, runtime_config=config), timing)
+    # Production public wrappers retain their original signatures and never
+    # pass the new keyword to either private builder.
+    for name in (
+        "compute_tqqq_growth_income_decision",
+        "evaluate_soxl_soxx_trend_income",
+    ):
+        function = getattr(entrypoints, name)
+        assert (
+            "research_session_successor" not in inspect.signature(function).parameters
+        )
+        assert "research_session_successor" not in inspect.getsource(function)
+
+    observed = []
+    marker = object()
+
+    def builder(context, **kwargs):
+        observed.append(kwargs)
+        return marker
+
+    monkeypatch.setattr(entrypoints, "_build_tqqq_growth_income_decision", builder)
+    monkeypatch.setattr(entrypoints, "_build_soxl_soxx_trend_income_decision", builder)
+    monkeypatch.setattr(
+        entrypoints, "apply_risk_gate", lambda decision, **kwargs: decision
+    )
+    monkeypatch.setattr(
+        entrypoints, "record_strategy_decision", lambda *args, **kwargs: None
+    )
+    assert entrypoints.compute_tqqq_growth_income_decision(None) is marker
+    assert entrypoints.evaluate_soxl_soxx_trend_income(None) is marker
+    assert observed == [{}, {}]
+
+
+@pytest.mark.parametrize("profile", ("SOXL", "TQQQ"))
+@pytest.mark.parametrize("half_day", (False, True))
+def test_explicit_session_winter_and_half_day_close_use_new_york_clock(
+    profile, half_day
+):
+    request, timing = _session_fixture(
+        profile, days=(date(2026, 11, 27), date(2026, 11, 30)), half_day=half_day
+    )
+    expected = "18:00:00" if half_day else "21:00:00"
+    assert expected in timing["calendar"]["sessions"][0]["close_at"]
+    assert (
+        _run_session_fixture(request, timing).points[-1].session == request.calendar[-1]
+    )
+    timing["calendar"]["sessions"][0]["close_at"] = "2026-11-27T20:00:00.000000Z"
+    with pytest.raises(OptimizedStrategyReplayError, match="SESSION_TIMING_CLOSE"):
+        _run_session_fixture(request, _session_digest(timing))
+
+
+@pytest.mark.parametrize("profile", ("SOXL", "TQQQ"))
+def test_explicit_session_cannot_finish_before_terminal_price_arrives(profile):
+    request, timing = _session_fixture(profile)
+    terminal = request.calendar[-1]
+    request = replace(
+        request,
+        prices=tuple(
+            replace(bar, available_at=f"{terminal.isoformat()}T22:00:00Z")
+            if bar.session == terminal
+            else bar
+            for bar in request.prices
+        ),
+    )
+    with pytest.raises(
+        OptimizedStrategyReplayError, match="INPUT_NOT_AVAILABLE_AT_COMPUTATION:bar"
+    ):
+        _run_session_fixture(request, timing)
+
+
+@pytest.mark.parametrize(
+    "computed_at",
+    (
+        "2026-09-03T19:00:00Z",
+        "2026-09-08T19:59:00Z",
+        "2026-09-08T20:00:00",
+    ),
+)
+def test_explicit_session_completion_must_follow_decisions_and_terminal_close(
+    computed_at,
+):
+    request, timing = _session_fixture()
+    with pytest.raises(OptimizedStrategyReplayError):
+        _run_session_fixture(replace(request, computed_at=computed_at), timing)
+
+
+def test_explicit_session_completion_does_not_require_unused_future_calendar_close():
+    request, timing = _session_fixture()
+    timing["calendar"]["sessions"].append(
+        {
+            "date": "2030-09-03",
+            "close_at": "2030-09-03T20:00:00.000000Z",
+            "complete": True,
+        }
+    )
+    assert (
+        _run_session_fixture(request, _session_digest(timing)).points[-1].session
+        == request.calendar[-1]
+    )
+
+
+def test_explicit_session_completion_does_not_consume_terminal_benchmark_row():
+    request, timing = _session_fixture("TQQQ")
+    request = replace(
+        request,
+        benchmark_bars=tuple(
+            replace(bar, available_at="2030-09-03T20:00:00Z")
+            if bar.session == request.calendar[-1]
+            else bar
+            for bar in request.benchmark_bars
+        ),
+    )
+    assert (
+        _run_session_fixture(request, timing).points[-1].session == request.calendar[-1]
+    )
+
+
+def test_explicit_session_completion_time_is_bound_to_run_identity():
+    request, timing = _session_fixture()
+    first = _run_session_fixture(request, timing)
+    later = _run_session_fixture(
+        replace(request, computed_at="2026-09-08T22:00:00Z"), timing
+    )
+    assert first.points == later.points
+    assert first.backtest.run_id != later.backtest.run_id
+
+
+@pytest.mark.parametrize("completion_hour", (21, 22))
+def test_explicit_session_option_valuation_decision_cannot_follow_completion(
+    tmp_path, completion_hour
+):
+    path = tmp_path / "explicit-session-options.json"
+    fixture = _tqqq_option_fixture_file(
+        path,
+        initial_cash=100_000.0,
+        positions_by_day=((), (), ()),
+    )
+    source = fixture["input"]
+    terminal = source["calendar"][-1]
+    source["computed_at"] = f"{terminal}T{completion_hour}:00:00Z"
+    source["option_market_inputs"][-1]["decision_at"] = f"{terminal}T22:00:00Z"
+    fixture["identity"] = _build_tqqq_v2_identity(source)
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    _, request = load_local_member_fixture(path)
+    _, timing = _session_fixture(days=request.calendar)
+    timing["calendar_id"] = timing["calendar"]["id"] = request.calendar_id
+    timing["calendar"]["available_at"] = "2023-01-01T00:00:00.000000Z"
+    timing = _session_digest(timing)
+    if completion_hour == 21:
+        with pytest.raises(
+            OptimizedStrategyReplayError,
+            match="INPUT_NOT_AVAILABLE_AT_COMPUTATION:options",
+        ):
+            _run_session_fixture(request, timing)
+    else:
+        assert (
+            _run_session_fixture(request, timing).points[-1].session
+            == request.calendar[-1]
+        )

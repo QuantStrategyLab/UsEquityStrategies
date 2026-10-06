@@ -34,6 +34,9 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 )
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
+from us_equity_strategies.backtest.session_asof_contract import (
+    SessionClose, SessionContractError, US_MARKET_ZONE,
+)
 from us_equity_strategies.entrypoints import (
     _research_only_market_regime_context,
     _build_soxl_soxx_trend_income_decision,
@@ -856,8 +859,135 @@ def _checked_research_identity(request: ReplayRequest) -> dict[str, Any] | None:
         _fail("RESEARCH_IDENTITY_INVALID")
 
 
+def _validated_session_timing(
+    request: ReplayRequest, value: object,
+) -> dict[str, Any]:
+    """Check caller consistency, never authenticate an official calendar/PIT source."""
+
+    expected = {
+        "source", "calendar_id", "calendar_version", "timezone", "coverage_start",
+        "coverage_end", "calendar", "sha256", "fixture_only", "historical_pit_verified",
+        "real_entry", "promotion_eligible", "live_executable",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        _fail("SESSION_TIMING_SHAPE")
+    if (value["fixture_only"] is not True or any(value[key] is not False for key in (
+            "historical_pit_verified", "real_entry", "promotion_eligible", "live_executable"))):
+        _fail("REAL_ENTRY_PIT_REQUIRED")
+    if type(request) is not ReplayRequest:
+        _fail("MISSING_FIELD:identity")
+    if request.evidence_use != "fixture":
+        _fail("REAL_ENTRY_PIT_REQUIRED")
+    replay_dates = _calendar(request.calendar)
+    source = _text(value["source"], "SESSION_TIMING_SOURCE")
+    calendar_id = _text(value["calendar_id"], "SESSION_TIMING_ID")
+    version = _text(value["calendar_version"], "SESSION_TIMING_VERSION")
+    if re.search(r"(?:^|[^a-z])(latest|current|head|main|master)(?:$|[^a-z])", version.lower()):
+        _fail("SESSION_TIMING_VERSION")
+    if value["timezone"] != "America/New_York":
+        _fail("SESSION_TIMING_TIMEZONE")
+    def wire_date(raw: object) -> date:
+        if type(raw) is not str:
+            _fail("SESSION_TIMING_DATE")
+        try:
+            parsed = date.fromisoformat(raw)
+        except ValueError:
+            _fail("SESSION_TIMING_DATE")
+        if parsed.isoformat() != raw:
+            _fail("SESSION_TIMING_DATE")
+        return parsed
+    start, end = wire_date(value["coverage_start"]), wire_date(value["coverage_end"])
+    if start != replay_dates[0] or end != replay_dates[-1]:
+        _fail("SESSION_TIMING_COVERAGE")
+    calendar = value["calendar"]
+    if not isinstance(calendar, Mapping) or set(calendar) != {"id", "version", "available_at", "sessions"}:
+        _fail("SESSION_TIMING_SHAPE")
+    if calendar["id"] != calendar_id or calendar_id != request.calendar_id:
+        _fail("SESSION_TIMING_ID")
+    if calendar["version"] != version:
+        _fail("SESSION_TIMING_VERSION")
+    available_at = _utc_timestamp(calendar["available_at"], "SESSION_TIMING_AVAILABLE_AT")
+    raw_rows = calendar["sessions"]
+    if type(raw_rows) not in (list, tuple) or not raw_rows:
+        _fail("SESSION_TIMING_SESSIONS")
+    rows, closes, selected = [], {}, []
+    previous = None
+    for row in raw_rows:
+        if not isinstance(row, Mapping) or set(row) != {"date", "close_at", "complete"}:
+            _fail("SESSION_TIMING_SHAPE")
+        day = wire_date(row["date"])
+        if previous is not None and day <= previous:
+            _fail("SESSION_TIMING_ORDER")
+        previous = day
+        if type(row["complete"]) is not bool:
+            _fail("SESSION_TIMING_COMPLETE")
+        close = _utc_timestamp(row["close_at"], "SESSION_TIMING_CLOSE")
+        close_wire = close.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        try:
+            session = SessionClose(day, close_wire)
+        except SessionContractError:
+            _fail("SESSION_TIMING_CLOSE")
+        rows.append({"date": day.isoformat(), "close_at": close_wire, "complete": row["complete"]})
+        if start <= day <= end:
+            if row["complete"] is not True:
+                _fail("SESSION_TIMING_COMPLETE")
+            selected.append(day)
+            closes[day] = session.close_datetime
+    if tuple(selected) != replay_dates:
+        _fail("SESSION_TIMING_PROJECTION")
+    completed_at = _utc_timestamp(request.computed_at, "SESSION_TIMING_COMPUTED_AT")
+    states = _validated_state_inputs(request.state_inputs, replay_dates[:-1])
+    if states is None:
+        _fail("SESSION_TIMING_DECISION_REQUIRED")
+    for row in states:
+        signal = wire_date(row["signal_date"])
+        decision_at = _utc_timestamp(row["decision_at"], "SESSION_TIMING_DECISION")
+        if decision_at > completed_at:
+            _fail("SESSION_TIMING_COMPUTED_BEFORE_DECISION")
+        if decision_at.astimezone(US_MARKET_ZONE).date() != signal:
+            _fail("SESSION_TIMING_DECISION_DATE")
+        if available_at > decision_at:
+            _fail("SESSION_TIMING_NOT_AVAILABLE")
+        if closes[signal] > decision_at:
+            _fail("SESSION_TIMING_NOT_CLOSED")
+    # Only the replay interval is valued. Future source calendar arrangements
+    # outside that interval need not have closed when the fixture is computed.
+    if closes[replay_dates[-1]] > completed_at:
+        _fail("SESSION_TIMING_COMPUTED_BEFORE_VALUATION")
+    normalized = {
+        **dict(value), "source": source, "calendar_id": calendar_id,
+        "calendar_version": version,
+        "calendar": {"id": calendar_id, "version": version,
+                     "available_at": available_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                     "sessions": rows},
+    }
+    digest = normalized.pop("sha256")
+    if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        _fail("SESSION_TIMING_DIGEST")
+    if digest != _member_identity_digest(normalized):
+        _fail("SESSION_TIMING_DIGEST")
+    return {**normalized, "sha256": digest}
+
+
+def replay_synthetic_session_fixture(
+    request: ReplayRequest, *, session_timing: Mapping[str, Any],
+) -> OptimizedStrategyReplay:
+    """Opt-in frozen-session fixture; declarations never establish historical PIT."""
+
+    timing = _validated_session_timing(request, session_timing)
+    return _replay_optimized_strategy(request, session_timing=timing)
+
+
 def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay:
-    """Replay explicit inputs through the pre-risk-gate strategy builders."""
+    """Replay explicit inputs through the unchanged business-day timing path."""
+
+    return _replay_optimized_strategy(request)
+
+
+def _replay_optimized_strategy(
+    request: ReplayRequest, *, session_timing: Mapping[str, Any] | None = None,
+) -> OptimizedStrategyReplay:
+    """Shared economic loop; timing is constructed by the original builders."""
 
     if type(request) is not ReplayRequest or type(request.identity) is not ReplayIdentity:
         _fail("MISSING_FIELD:identity")
@@ -878,9 +1008,18 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
     calendar = _calendar(request.calendar)
     signals = calendar[:-1]
     state_inputs = _validated_state_inputs(request.state_inputs, signals)
-    _validate_member_input_provenance(request, calendar)
+    _validate_member_input_provenance(
+        request, calendar, explicit_session_timing=session_timing is not None,
+    )
     allow_research_options = _research_option_config_enabled(request, research_identity)
     option_rows = _validated_option_market_inputs(request, calendar, state_inputs) if allow_research_options else None
+    if session_timing is not None and option_rows is not None:
+        completed_at = _utc_timestamp(request.computed_at, "SESSION_TIMING_COMPUTED_AT")
+        # The existing option validator already bounds each quote, position,
+        # indicator and management source by its row's explicit decision_at.
+        if any(_utc_timestamp(row["decision_at"], "OPTION_INPUT_INVALID") > completed_at
+               for row in request.option_market_inputs):
+            _fail("INPUT_NOT_AVAILABLE_AT_COMPUTATION:options")
     if not allow_research_options and request.option_market_inputs is not None:
         _fail("UNSIMULATED_OPTION_OVERLAY")
     states_by_date = (
@@ -1617,7 +1756,10 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
             )
             if allow_research_market_regime:
                 context = _research_only_market_regime_context(context)
-            decision = builder(context)
+            decision = (
+                builder(context) if session_timing is None
+                else builder(context, research_session_successor=effective)
+            )
         except OptimizedStrategyReplayError:
             raise
         except Exception as exc:
@@ -1693,6 +1835,11 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
             "nav_mark_field": execution.nav_mark_field,
         },
     }
+    if session_timing is not None:
+        run_identity["session_timing"] = session_timing
+        run_identity["computed_at"] = _utc_timestamp(
+            computed_at, "SESSION_TIMING_COMPUTED_AT",
+        ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     if research_identity is not None:
         run_identity["research_identity"] = research_identity
     backtest = BacktestResult(
@@ -1706,6 +1853,8 @@ def replay_optimized_strategy(request: ReplayRequest) -> OptimizedStrategyReplay
             "promotion_eligible": False,
             "live_executable": False,
             "risk_gate_applied": False,
+            **({"session_timing": session_timing, "historical_pit_verified": False,
+                "real_entry": False} if session_timing is not None else {}),
             "decision_builder": builder_name,
             "calendar_id": calendar_id,
             "periods_per_year": periods_per_year,
@@ -1979,16 +2128,22 @@ def _validate_tqqq_research_market_regime_states(
             _fail("RESEARCH_MARKET_REGIME_ARTIFACT_INVALID")
 
 
-def _validate_member_input_provenance(request: ReplayRequest, calendar: tuple[date, ...]) -> None:
+def _validate_member_input_provenance(
+    request: ReplayRequest, calendar: tuple[date, ...], *, explicit_session_timing: bool = False,
+) -> None:
     # Member fixtures without per-day state use this explicit synthetic decision time;
     # it is not evidence of historical point-in-time availability.
     synthetic_fixture_decision_hour_utc = 21
-    strict_member_input = request.research_identity is not None
+    strict_member_input = request.research_identity is not None or explicit_session_timing
+    completed_at = (
+        _utc_timestamp(request.computed_at, "SESSION_TIMING_COMPUTED_AT")
+        if explicit_session_timing else None
+    )
     decisions = {
         day: datetime.fromisoformat(
             f"{day.isoformat()}T{synthetic_fixture_decision_hour_utc:02d}:00:00+00:00"
         )
-        for day in calendar
+        for day in (() if explicit_session_timing else calendar)
     }
     if request.state_inputs is not None:
         for row in request.state_inputs:
@@ -2003,6 +2158,10 @@ def _validate_member_input_provenance(request: ReplayRequest, calendar: tuple[da
             if type(bar.source_id) is not str or not bar.source_id.strip() or type(bar.available_at) is not str:
                 _fail("INPUT_PROVENANCE_REQUIRED:bar")
             available_at = _utc_timestamp(bar.available_at, "INVALID_FIELD:bar.available_at")
+            if completed_at is not None and available_at > completed_at:
+                _fail("INPUT_NOT_AVAILABLE_AT_COMPUTATION:bar")
+            # The final daily bar is retrospective fill/valuation data. On the
+            # explicit path only signal-day consumers impose decision deadlines.
             if bar.session in decisions and available_at > decisions[bar.session]:
                 _fail("INPUT_NOT_AVAILABLE_AT_DECISION:bar")
         for bar in request.benchmark_bars:
@@ -2814,4 +2973,5 @@ __all__ = [
     "ReplayRequest",
     "persist_optimized_strategy_trial",
     "replay_optimized_strategy",
+    "replay_synthetic_session_fixture",
 ]
