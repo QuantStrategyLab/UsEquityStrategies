@@ -12,7 +12,6 @@ import hashlib
 import json
 import math
 from collections import defaultdict
-from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -21,6 +20,7 @@ import pandas as pd
 from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialRecord, ResearchTrialStatus
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from us_equity_strategies.research.tqqq_guard_cash_trial_ledger import build_guard_cash_trial_ledger
+from us_equity_strategies.research import tqqq_trial_journal
 
 from quant_strategy_plugins.benchmark_drawdown_guard import build_benchmark_drawdown_guard_signal
 from quant_strategy_plugins.market_regime_control_plugin import build_market_regime_control_signal
@@ -368,82 +368,24 @@ def _load_synthetic_fixture(path: Path) -> tuple[dict, list[dict], list[dict], d
         raise ValueError("SYNTHETIC_FIXTURE_INVALID") from exc
 
 
-def _record_trial_failure(store: PerformanceStore, started: ResearchTrialRecord,
-                          status: ResearchTrialStatus, reason: str,
-                          error: BaseException, *, terminal_attempted: bool) -> None:
-    """Best effort only; never replace an exception or an existing immutable terminal."""
-    try:
-        if terminal_attempted:
-            current = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
-            if current is None or current.status is not ResearchTrialStatus.STARTED:
-                error.add_note("research_terminal_state_unverified" if current is None else "research_terminal_already_recorded")
-                return
-        terminal = replace(started, status=status, reason_code=reason, run_id=None, param_version=None)
-        store.save_research_trial(terminal)
-        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != terminal:
-            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
-    except BaseException:
-        error.add_note("research_terminal_write_failed")
-
-
 def _journal_scenario(rows: list[dict], actions: dict, frozen_params: str,
                       started: ResearchTrialRecord, store: PerformanceStore,
                       computed_at: str) -> tuple[ResearchTrialRecord, dict | None, list[dict] | None]:
-    """Called only by the input-owning entrypoint, with no external output arguments.
-
-    This is single-caller replay protection, not a distributed claim lock. The
-    immutable JSON snapshot supplies STARTED, simulation and typed adaptation.
-    """
-    previous = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
-    # A start write that raises may already have committed. Preserve uncertainty:
-    # no evaluation or compensating terminal; a later read can report incomplete.
-    store.save_research_trial(started)
-    stage = "start_readback"
-    terminal_attempted = False
-    try:
-        readback = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
-        if readback is None:
-            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
-        if previous is not None or readback.status is not ResearchTrialStatus.STARTED:
-            return readback, None, None
-        if readback != started:
-            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
-        params = json.loads(frozen_params)
-        if readback.actual_params != params:
-            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
-        stage = "simulation"
-        metrics, daily_rows = _simulate(
+    """Bind this input-owning caller to the shared single-caller transaction."""
+    def simulate(params):
+        return _simulate(
             rows, actions, params["contract"], cost_bps=params["cost_bps"],
             use_guard=params["use_guard"], sessions=params["sessions"], budget_selector=None)
-        if params != json.loads(frozen_params) or readback.actual_params != json.loads(frozen_params):
-            raise ValueError("SIMULATOR_PARAMS_CHANGED")
-        stage = "ledger"
-        result, ledger = build_guard_cash_trial_ledger(
+
+    def adapt(readback, params, output):
+        metrics, daily_rows = output
+        return build_guard_cash_trial_ledger(
             rows=rows, actions=actions, contract=params["contract"], metrics=metrics,
             daily_rows=daily_rows, started=readback, run_id=started.trial_id,
             param_version=1, computed_at=computed_at)
-        terminal = replace(readback, status=ResearchTrialStatus.SUCCEEDED, reason_code="",
-                           run_id=result.run_id, param_version=result.param_version)
-        stage = "persistence"
-        store.save_backtest_result(result)
-        store.save_research_ledger(ledger)
-        terminal_attempted = True
-        store.save_research_trial(terminal)
-        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id,
-                                     run_id=result.run_id, param_version=result.param_version) != terminal:
-            raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
-        return terminal, metrics, daily_rows
-    except (KeyboardInterrupt, SystemExit) as exc:
-        _record_trial_failure(store, started, ResearchTrialStatus.ABORTED, "trial_interrupted", exc,
-                              terminal_attempted=terminal_attempted)
-        raise
-    except Exception as exc:
-        rejected = isinstance(exc, ValueError) and stage in {"simulation", "ledger"}
-        status = ResearchTrialStatus.REJECTED if rejected else ResearchTrialStatus.FAILED
-        reason = {"start_readback": "journal_readback_failed", "simulation": "simulation_rejected" if rejected else "simulation_failed",
-                  "ledger": "ledger_rejected" if rejected else "ledger_failed", "persistence": "persistence_failed"}[stage]
-        _record_trial_failure(store, started, status, reason, exc, terminal_attempted=terminal_attempted)
-        raise
+
+    terminal, output = tqqq_trial_journal._journal_trial(started, store, frozen_params, simulate, adapt)
+    return (terminal, None, None) if output is None else (terminal, *output)
 
 
 def run_private(root: Path, *, synthetic_fixture: Path | None = None,
@@ -454,7 +396,8 @@ def run_private(root: Path, *, synthetic_fixture: Path | None = None,
     journal, always synthetic and unqualified. No caller-provided output or
     qualification flag is accepted. A new namespace is required for a new attempt.
     Exports are presentation only; the validated QPK journal is authoritative.
-    source_revision fingerprints this module only, not the full dependency graph.
+    source_revision fingerprints this module and the shared journal transaction,
+    not the full dependency graph.
     """
     if synthetic_fixture is None:
         raise ValueError("REAL_RESEARCH_DATA_UNQUALIFIED")
@@ -475,6 +418,7 @@ def run_private(root: Path, *, synthetic_fixture: Path | None = None,
     store.local_root.chmod(0o700)
     implementation = {
         "research_adapter": _sha256(Path(__file__)),
+        "trial_journal": _sha256(Path(tqqq_trial_journal.__file__)),
         "ues_core": _sha256(Path(decide_tqqq_dual_drive.__code__.co_filename)),
         "ues_indicators": _sha256(Path(_resolve_volatility_delever_thresholds.__code__.co_filename)),
         "qsp_guard": _sha256(Path(build_benchmark_drawdown_guard_signal.__code__.co_filename)),
@@ -511,7 +455,8 @@ def run_private(root: Path, *, synthetic_fixture: Path | None = None,
                     trial_id=f"{trial_namespace}:{key}", domain="us_equity", strategy_profile=CANDIDATE,
                     status=ResearchTrialStatus.STARTED, candidate_config_id="sha256:" + _canonical_digest(contract),
                     actual_params=json.loads(frozen_params), param_set_id=key,
-                    source_revision="sha256:" + implementation["research_adapter"], input_id="sha256:" + input_digest,
+                    source_revision="sha256:" + _canonical_digest({key: implementation[key] for key in
+                        ("research_adapter", "trial_journal")}), input_id="sha256:" + input_digest,
                     window_start=date.fromisoformat(rows[start - 1]["date"]),
                     window_end=date.fromisoformat(rows[start + params["sessions"] - 1]["date"] if short else rows[-1]["date"]),
                     calendar_id="XNYS", periods_per_year=252.0, cost_source="synthetic_declared_bps",
