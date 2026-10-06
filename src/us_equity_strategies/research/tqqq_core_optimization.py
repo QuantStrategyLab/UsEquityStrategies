@@ -397,6 +397,13 @@ def _invalid(code: str, *, trial_manifest: dict[str, Any] | None = None) -> dict
 
 def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGIN_CONTROL, expected_input_digest: str = EXPECTED_INPUT_DIGEST) -> dict[str, Any]:
     """Evaluate the three frozen candidates; this result has no adoption authority."""
+    return _run_tqqq_core_optimization(source, plugin_control=plugin_control,
+        expected_input_digest=expected_input_digest, simulate=simulate_candidate)
+
+
+def _run_tqqq_core_optimization(source: object, *, plugin_control: object,
+                                expected_input_digest: str, simulate) -> dict[str, Any]:
+    """Shared evaluation body; simulation wiring is internal to the two TQQQ callers."""
     manifest = _trial_manifest()
     active_attempt: dict[str, Any] | None = None
     try:
@@ -422,7 +429,7 @@ def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGI
             simulations[window] = {}
             for scenario in SCENARIOS:
                 active_attempt = manifest["attempts"][attempt_index]
-                simulations[window][scenario.scenario_id] = simulate_candidate(source, window, scenario)
+                simulations[window][scenario.scenario_id] = simulate(source, window, scenario)
                 active_attempt["status"] = "succeeded"
                 active_attempt = None
                 attempt_index += 1
