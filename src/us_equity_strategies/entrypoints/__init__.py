@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import date
 
 from quant_platform_kit.position_sizing import risk_budgeted_target_weights
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity, RiskGateResult
@@ -191,14 +192,32 @@ def _merge_notification_contexts(
 def _attach_execution_timing(
     diagnostics: dict[str, object],
     ctx: StrategyContext,
+    *,
+    research_session_successor: date | None = None,
 ) -> dict[str, object]:
     signal_delay = ctx.runtime_config.get("signal_effective_after_trading_days")
-    timing = build_execution_timing_metadata(
-        signal_date=ctx.as_of,
-        signal_effective_after_trading_days=(
-            int(signal_delay) if signal_delay is not None else None
-        ),
-    )
+    if research_session_successor is None:
+        timing = build_execution_timing_metadata(
+            signal_date=ctx.as_of,
+            signal_effective_after_trading_days=(
+                int(signal_delay) if signal_delay is not None else None
+            ),
+        )
+    else:
+        # Only the explicit fixture replay supplies a validated session successor.
+        # Construct timing here, before the decision exists; never rewrite it later.
+        signal_date = date.fromisoformat(ctx.as_of)
+        if (type(research_session_successor) is not date
+                or research_session_successor <= signal_date
+                or type(signal_delay) is not int or signal_delay != 1):
+            raise ValueError("invalid research session timing")
+        timing = {
+            "signal_date": signal_date.isoformat(),
+            "effective_date": research_session_successor.isoformat(),
+            "signal_effective_after_trading_days": 1,
+            "execution_timing_contract": "next_trading_day",
+            "execution_calendar_source": "synthetic_frozen_session_calendar",
+        }
     raw_annotations = diagnostics.get("execution_annotations")
     annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
     annotations.update(timing)
@@ -366,7 +385,9 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
-def _build_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision:
+def _build_tqqq_growth_income_decision(
+    ctx: StrategyContext, *, research_session_successor: date | None = None,
+) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
     managed_symbols = _config_managed_symbols(config)
@@ -625,7 +646,9 @@ def _build_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision
         },
     }
     _attach_notification_context(diagnostics, notification_context)
-    _attach_execution_timing(diagnostics, ctx)
+    _attach_execution_timing(
+        diagnostics, ctx, research_session_successor=research_session_successor,
+    )
     decision = StrategyDecision(
         positions=target_values_to_positions(plan["target_values"]),
         diagnostics=diagnostics,
@@ -899,7 +922,9 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
     }
 
 
-def _build_soxl_soxx_trend_income_decision(ctx: StrategyContext) -> StrategyDecision:
+def _build_soxl_soxx_trend_income_decision(
+    ctx: StrategyContext, *, research_session_successor: date | None = None,
+) -> StrategyDecision:
     config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
     strategy_symbols = tuple(str(symbol) for symbol in config.pop("managed_symbols", ()))
@@ -1138,7 +1163,9 @@ def _build_soxl_soxx_trend_income_decision(ctx: StrategyContext) -> StrategyDeci
         },
     }
     _attach_notification_context(diagnostics, notification_context)
-    _attach_execution_timing(diagnostics, ctx)
+    _attach_execution_timing(
+        diagnostics, ctx, research_session_successor=research_session_successor,
+    )
     decision = StrategyDecision(
         positions=target_values_to_positions(plan["targets"]),
         diagnostics=diagnostics,
