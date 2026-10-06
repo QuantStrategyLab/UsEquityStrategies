@@ -1,13 +1,6 @@
 # UsEquityStrategies
 
-
-## QSL 架构角色
-
-- **层级**：`策略库`。
-- **职责**：美股策略实现包。
-- **事实源/归属**：runtime-enabled 美股策略代码、manifests、execution metadata。
-- **消费对象**：QuantPlatformKit 和已验证 US snapshot artifacts。
-- **禁止事项**：持有券商凭据或部署设置。
+UsEquityStrategies 是 QuantStrategyLab 美股交易背后的策略库：保存策略实现、manifest 和运行元数据，供执行平台仓库通过 strategy loader 加载。它消费 QuantPlatformKit 和 `UsEquitySnapshotPipelines` 产出的已验证 snapshot artifact，但不持有券商凭据、不直接提交订单、也不拥有部署设置——这些留在执行平台仓库（CharlesSchwabPlatform、InteractiveBrokersPlatform、LongBridgePlatform、FirstradePlatform）。
 
 [English README](README.md)
 
@@ -61,6 +54,14 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 执行平台通过 strategy loader 和 runtime metadata 消费本策略包。当前下游平台：CharlesSchwabPlatform、InteractiveBrokersPlatform、LongBridgePlatform 和 FirstradePlatform。
 
 券商凭据、dry-run/live 开关、订单提交和部署配置都应放在执行平台仓库里，而不是放在策略仓库里。
+
+## QSL 架构角色
+
+- **层级**：`策略库`。
+- **职责**：美股策略实现包。
+- **事实源/归属**：runtime-enabled 美股策略代码、manifests、execution metadata。
+- **消费对象**：QuantPlatformKit 和已验证 US snapshot artifacts。
+- **禁止事项**：持有券商凭据或部署设置。
 
 ## 策略证据和 live enablement
 
