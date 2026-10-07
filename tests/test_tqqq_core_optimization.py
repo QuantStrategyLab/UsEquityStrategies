@@ -611,3 +611,169 @@ def test_process_control_exceptions_are_not_converted_to_completed_accounting(ex
         optimization, "simulate_candidate", side_effect=exception_type("synthetic interruption"),
     ), pytest.raises(exception_type):
         run_tqqq_core_optimization(source)
+
+
+def _metric_source(*, cash_only=False, flat=False):
+    """Closed synthetic buy/hold path: -10%, zero, +5%, then zeros."""
+    rows = []
+    close = 50.0
+    for index in range(753):
+        day = (date(2023, 7, 14) + timedelta(days=index)).isoformat()
+        qqq = 1000.0 - index if cash_only else 100.0
+        opening = close
+        if not flat:
+            close *= {370: 0.9, 372: 1.05}.get(index, 1.0)
+        rows.extend((InputRow("QQQ", day, qqq, qqq, qqq, qqq, 1.0),
+                     InputRow("TQQQ", day, opening, max(opening, close),
+                              min(opening, close), close, 1.0)))
+    return OfflineInput(tuple(rows), _canonical_bytes(rows),
+                        optimization.EXPECTED_INPUT_DIGEST, "c" * 40)
+
+
+def _metric_options(**overrides):
+    return {"include_synthetic_metrics": True, "synthetic": True,
+            "annual_risk_free_rate": 0.02,
+            "annual_minimum_acceptable_return": 0.03, **overrides}
+
+
+def test_optimizer_actual_opt_in_reports_every_path_without_resimulation_or_selection_change(monkeypatch):
+    source = _source()
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda returns: 0.0)
+    with _synthetic_artifact_identity(source):
+        original = run_tqqq_core_optimization(source)
+        calls = []
+        def counted(src, window, scenario):
+            calls.append((window, scenario.scenario_id))
+            return simulate_candidate(src, window, scenario)
+        monkeypatch.setattr(optimization, "simulate_candidate", counted)
+        current = run_tqqq_core_optimization(source, **_metric_options())
+    report = current.pop("synthetic_metric_report")
+    assert current == original
+    assert calls == [(window, scenario.scenario_id)
+                     for window in CANDIDATE_WINDOWS for scenario in SCENARIOS]
+    assert report["status"] == "COMPUTED"
+    assert report["selection_uses_report"] is False
+    assert report["source_attempts"] == original["trial_manifest"]["attempts"]
+    assert report["synthetic"] and not report["data_qualified"]
+    expected_windows = {name for name, _, _ in WINDOW_SPECS if "EMBARGO" not in name} | {"FULL_PATH"}
+    for candidate in CANDIDATE_WINDOWS:
+        assert set(report["windows"][str(candidate)]) == {s.scenario_id for s in SCENARIOS}
+        for scenario in SCENARIOS:
+            reports = report["windows"][str(candidate)][scenario.scenario_id]
+            assert set(reports) == expected_windows
+            full = reports["FULL_PATH"]
+            assert full["observation_count"] == 753 - candidate
+            for name, start, end in WINDOW_SPECS:
+                if "EMBARGO" in name:
+                    continue
+                row = reports[name]
+                assert row["observation_count"] == end - start + 1
+                contract = row["evaluation_contract"]
+                assert contract["version"] == "synthetic_account_metrics_v1"
+                assert contract["periods_per_year"] == 252
+                assert contract["volatility_ddof"] == 1
+                assert contract["rf"]["annual_simple_decimal"] == 0.02
+                assert contract["mar"]["annual_simple_decimal"] == 0.03
+                assert contract["initial_nav_in_drawdown"] is True
+                assert contract["cost"]["net_nav_costs_deducted_again"] is False
+                # Same original NAV path and session slice, irrespective of the
+                # legacy risk-ratio definition or parameter selection.
+                if scenario.scenario_id == "C2_5":
+                    legacy = original["metrics"][name][str(candidate)]
+                    assert row["metrics"]["cumulative_return"] == pytest.approx(legacy["cumulative_return"])
+                    assert row["metrics"]["max_drawdown"] == pytest.approx(legacy["max_drawdown"])
+    json.dumps(report, allow_nan=False)
+
+
+def test_optimizer_report_hand_calculated_loss_initial_nav_cost_and_distinct_rf_mar(monkeypatch):
+    source = _metric_source()
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda returns: 0.0)
+    with _synthetic_artifact_identity(source):
+        current = run_tqqq_core_optimization(source, **_metric_options())
+    reports = current["synthetic_metric_report"]["windows"]["200"]
+    row = reports["ZERO"]["F1_VALIDATION"]
+    returns = [-0.1, 0.0, 0.05] + [0.0] * 39
+    mean = math.fsum(returns) / 42
+    std = math.sqrt(math.fsum((r - mean) ** 2 for r in returns) / 41)
+    rms = math.sqrt(math.fsum(min(r - 0.03 / 252, 0.0) ** 2 for r in returns) / 42)
+    metrics = row["metrics"]
+    assert metrics["cumulative_return"] == pytest.approx(-0.055)
+    assert metrics["cagr"] == pytest.approx(0.945 ** 6 - 1)
+    assert metrics["max_drawdown"] == pytest.approx(-0.1)
+    assert metrics["annualized_volatility"] == pytest.approx(std * math.sqrt(252))
+    assert metrics["sharpe"] == pytest.approx((mean - 0.02 / 252) / std * math.sqrt(252))
+    assert metrics["sortino"] == pytest.approx((mean - 0.03 / 252) / rms * math.sqrt(252))
+    net_full = reports["C2_5"]["FULL_PATH"]["metrics"]
+    # Adverse-fill slippage plus commission was charged on the entry only.
+    # The metric consumes that net NAV once, not a second fee subtraction.
+    assert net_full["cumulative_return"] == pytest.approx(0.945 / (1.0005 * 1.0002) - 1)
+    assert net_full["max_drawdown"] == pytest.approx(0.9 / (1.0005 * 1.0002) - 1)
+
+
+@pytest.mark.parametrize("cash_only", [True, False])
+def test_optimizer_report_keeps_cash_zeros_and_constant_ratios_undefined(monkeypatch, cash_only):
+    source = _metric_source(cash_only=cash_only, flat=True)
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda returns: 0.0)
+    with _synthetic_artifact_identity(source):
+        report = run_tqqq_core_optimization(source, **_metric_options())["synthetic_metric_report"]
+    row = report["windows"]["200"]["ZERO"]["FULL_PATH"]
+    assert row["observation_count"] == 553
+    assert row["metrics"]["cumulative_return"] == 0.0
+    assert row["metrics"]["max_drawdown"] == 0.0
+    assert row["metrics"]["annualized_volatility"] == 0.0
+    assert row["metrics"]["sharpe"] is row["metrics"]["sortino"] is None
+    assert row["metric_status"]["sharpe"] == "CONSTANT_RETURN_SAMPLE"
+    assert row["metric_status"]["sortino"] == "CONSTANT_RETURN_SAMPLE"
+    assert row["metrics"]["dsr"] is row["metrics"]["pbo"] is None
+    if cash_only:
+        for cost_reports in report["windows"]["200"].values():
+            assert cost_reports["FULL_PATH"]["metrics"]["cumulative_return"] == 0.0
+
+
+@pytest.mark.parametrize("overrides,reason", [
+    ({"synthetic": False}, "REAL_RESEARCH_DATA_UNQUALIFIED"),
+    ({"annual_risk_free_rate": None}, "RESEARCH_RATE_INVALID"),
+    ({"annual_minimum_acceptable_return": float("nan")}, "RESEARCH_RATE_INVALID"),
+    ({"annual_risk_free_rate": float("inf")}, "RESEARCH_RATE_INVALID"),
+    ({"annual_risk_free_rate": True}, "RESEARCH_RATE_INVALID"),
+    ({"include_synthetic_metrics": 1}, "RESEARCH_METRIC_OPT_IN_INVALID"),
+    ({"include_synthetic_metrics": False}, "RESEARCH_METRIC_OPT_IN_REQUIRED"),
+])
+def test_optimizer_report_invalid_opt_in_rejected_before_simulation(monkeypatch, overrides, reason):
+    monkeypatch.setattr(optimization, "simulate_candidate", lambda *a: pytest.fail("unexpected simulation"))
+    with pytest.raises(ValueError, match=reason):
+        run_tqqq_core_optimization(_source(), **_metric_options(**overrides))
+
+
+def test_optimizer_report_keeps_failed_and_unattempted_source_slots(monkeypatch):
+    source = _source()
+    calls = []
+    def failing(src, window, scenario):
+        calls.append((window, scenario.scenario_id))
+        if len(calls) == 2:
+            raise ValueError("synthetic failure")
+        return simulate_candidate(src, window, scenario)
+    monkeypatch.setattr(optimization, "simulate_candidate", failing)
+    with _synthetic_artifact_identity(source):
+        result = run_tqqq_core_optimization(source, **_metric_options())
+    report = result["synthetic_metric_report"]
+    assert result["evidence_valid"] is False
+    assert report["status"] == "NOT_COMPUTED"
+    assert report["windows"] == {}
+    assert [a["status"] for a in report["source_attempts"]] == ["succeeded", "failed"] + ["not_started"] * 10
+
+
+def test_optimizer_report_accounting_failure_retains_frozen_evaluation(monkeypatch):
+    source = _source()
+    monkeypatch.setattr(optimization, "_terminal_loss_probability", lambda returns: 0.0)
+    with _synthetic_artifact_identity(source):
+        original = run_tqqq_core_optimization(source)
+        def invalid(*args):
+            raise ValueError("synthetic accounting mismatch")
+        monkeypatch.setattr(optimization, "_synthetic_candidate_metric_reports", invalid)
+        result = run_tqqq_core_optimization(source, **_metric_options())
+    report = result.pop("synthetic_metric_report")
+    assert result == original
+    assert report["status"] == "FAILED"
+    assert report["reason_code"] == "METRIC_REPORT_ACCOUNTING_INVALID"
+    assert report["windows"] == {}

@@ -59,3 +59,72 @@
 ## 边界
 
 目标可以是全现金，或只留一条风险腿。风险缩放比例为 0 时，缩放后的两本账把全部金额放进现金。正费率但没有调仓日、费用承担成员为空、成员不是风险腿、权重不闭合、收益与日期对不齐，都直接拒绝，不补一笔默认费用。几个 ULP 以内的负现金残差不是实质借款；再往下的资金缺口仍然拒绝。
+
+## 独立的固定预算三账报告
+
+`c3_fixed_budget_baseline_comparison.report_self_financing_combo_baselines`
+接受至少两组已声明的固定预算及其上述三本实际 `ResearchDailyLedger`。
+它只比较这些固定配置，不选权重、不估计 Kelly、不运行真实行情回测。
+原 `compare_fixed_member_budget_baselines` 的每日固定权重、ddof=0、自然日
+CAGR 和可选 pre-trade notional 费用近似保持原义，不被新报告替换。
+
+所有参数均显式提供：
+
+```python
+report_self_financing_combo_baselines(
+    *, baselines, soxl_net_returns, tqqq_net_returns,
+    initial_session_date, session_dates, initial_capital, as_of,
+    asset_risk_specs, risk_policy,
+    annual_risk_free_rate, annual_minimum_acceptable_return,
+)
+```
+
+每个 `baselines` 项包含 `baseline_id`、`target_weights`、`risk_scalar`、
+`rebalance_indices`、`combo_fee_bps`、`fee_bearing_members` 和 `ledgers`。
+ID 必须唯一且按序提供，`ledgers` 必须完整包含原始、缩放、缩放付费三账。
+`target_weights` 明确包含 SOXL、TQQQ、CASH，包括权重为 0 的成员。
+共同参数声明两条成员净收益、初始本金和完整的预期 session 序列。
+合成回归沿用既有 50/50、60/40 固定预算例，并覆盖全现金和单腿边界。
+
+消费者调用现有小账本构造器复算这些声明，只用于逐本核对传入的 typed
+账是否与声明完全一致；它没有另建资金引擎。缺账、缺 session、非有限收益、
+未来或迟到/重复日期、改费用/调仓/权重后仍传旧账，均拒绝整个报告。
+`as_of` 是调用方声明的上界，所有 session 都不能晚于它。不输出“只剩成功
+基线”的子集，不修补输入，也不重新选择配置。这些检查验证合成算术和声明
+一致性；它们不认证实际生成配置、数据许可、真实缺失交易日、publication
+或 available_at。真实共同根和 PIT 仍需独立输入证据。
+
+静态风险诊断复用 `assess_portfolio_risk_budget`。输入的风险缩放比例必须
+与其在调用方原预算下的建议一致；推荐的现金/风险权重也与现有缩放函数
+对照。报告同时保留原始账作为对照和两本风险缩放账，不修改预算或引擎。
+风险政策的现金标的仅作该诊断的符号映射，不会把合成零收益 CASH 改成
+BOXX 或其他标的的真实价格历史。诊断约束初始/调仓目标，未宣称持续约束
+漂移后的风险敞口；没有新 allocator、每日免费调仓或实盘资金授权。
+
+新报告的 schema 为 `qsl.c3-self-financing-baseline-metric-report.v1`。
+每组 `books` 记录三账的初始/终止 NAV、初始/终止现金、实际组合费用和
+独立 `metric_report`，并保留固定目标、缩放目标、调仓/费用声明及风险诊断。
+组合收益来自每本共同账户的净 NAV，不能相加单策略指标。成员费用已在输入
+净收益中，组合实际费用已在账本净 NAV 中；报告均不二扣，现金收益也不
+额外计提。输入和三账保持只读；相同声明重算报告可复现，不创建存储状态。
+
+## Declared-session 指标合同
+
+上述每本账调用
+`tqqq_core_trial_journal.compute_declared_session_research_metrics`，只接受
+`synthetic=True`、`calendar_id="synthetic_declared_sessions"`、252 年化基数
+及无外部现金流的账户。新合同版本是
+`synthetic_declared_session_account_metrics_v1`，明确把 252 步/年标为合成
+年化假设。它保留原 calendar 标签，不认证交易所日历或真实年度历史。
+原 `compute_synthetic_research_metrics` 仍只接受 synthetic XNYS/252，并
+保留 `synthetic_account_metrics_v1` 的逐字段输出和拒绝边界；新入口也拒绝
+XNYS 或真实数据，二者不能互相改标签混用。
+
+两入口复用同一已有算术：signed simple account net returns、包含零收益步、
+初始 NAV 参与 MDD 而不多算一条收益、sample ddof=1 波动与 Sharpe、全样本
+MAR shortfall RMS 的 Sortino。rf 和 MAR 分别是显式年简单小数，除以 252
+得到步长率，CAGR 使用 252/N。常量、短样本或零分母用 None 和具体原因，
+不补 0；亏损保留负号。DSR/PBO 为 `NOT_COMPUTED`，有效独立样本为
+`NOT_ESTIMATED`：这些单路径和固定预算比较没有完整 trial 集合及真实依赖/
+多重试验假设。报告始终 research/synthetic、report-only、非晋级、不可实盘
+或配仓。真实净成本 OOS、联合风险资格与成员资格不由合成测试授予。

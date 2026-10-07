@@ -20,6 +20,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from us_equity_strategies.portfolio_risk_budget import (
@@ -566,6 +567,125 @@ def evaluate_batch_a_existing_member_baselines(
         )
 
 
+def report_historical_batch_a_baselines(
+    *, frozen_member_pack: Mapping[str, object], soxl_snapshot, tqqq_snapshot,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+) -> dict:
+    """Opt-in source-bound historical control, retaining the old comparison.
+
+    Snapshot bytes are admitted by the original v2 loader in the active CLI;
+    re-materializing binds every return to the supplied pack. No input is
+    reclassified as synthetic, and no license/PIT/OOS qualification is granted.
+    Only original declared budgets/policy and the fixed fee-assumption grid run.
+    """
+    from .batch_a_dataset import PriceSnapshotV2
+    from .batch_a_member_pack import materialize_batch_a_member_pack
+    from .c3_capital_path import scale_member_budgets_to_cash
+    from .c3_self_financing_combo_ledger import build_historical_self_financing_ledger
+    from .tqqq_core_trial_journal import compute_historical_research_metrics
+
+    if not all(isinstance(item, PriceSnapshotV2) for item in (soxl_snapshot, tqqq_snapshot)):
+        raise ValueError("HISTORICAL_SNAPSHOTS_REQUIRED")
+    if any(type(rate) not in (int, float) or not math.isfinite(rate) for rate in (
+            annual_risk_free_rate, annual_minimum_acceptable_return)):
+        raise ValueError("RESEARCH_RATE_INVALID")
+    pack = validate_batch_a_member_pack(frozen_member_pack)
+    rebound = materialize_batch_a_member_pack(soxl_snapshot=soxl_snapshot, tqqq_snapshot=tqqq_snapshot)
+    if rebound["pack_digest"] != pack["pack_digest"]:
+        raise ValueError("HISTORICAL_PACK_SOURCE_MISMATCH")
+    if any(snapshot.manifest["calendar"] != "XNYS" or snapshot.manifest["timezone"] != "America/New_York"
+           for snapshot in (soxl_snapshot, tqqq_snapshot)):
+        raise ValueError("HISTORICAL_SESSION_BASIS_INVALID")
+    legacy = evaluate_batch_a_existing_member_baselines(frozen_member_pack=pack)
+    if legacy["status"] != "READY_RESEARCH_ONLY":
+        raise ValueError("HISTORICAL_SOURCE_COMPARISON_PARKED")
+    members = {member["member_id"]: member for member in pack["members"]}
+    sessions = tuple(date.fromisoformat(item) for item in members["cash_sleeve"]["dates"])
+    raw_dates = tuple(sorted({date.fromisoformat(row.as_of) for row in soxl_snapshot.rows}))
+    if raw_dates != tuple(sorted({date.fromisoformat(row.as_of) for row in tqqq_snapshot.rows})):
+        raise ValueError("HISTORICAL_SOURCE_SESSIONS_MISMATCH")
+    first = raw_dates.index(sessions[0])
+    if first == 0:
+        raise ValueError("HISTORICAL_INITIAL_SESSION_MISSING")
+    initial_session = raw_dates[first - 1]
+    month_ends = tuple(i for i, day in enumerate(sessions) if i == len(sessions) - 1
+                       or (day.year, day.month) != (sessions[i + 1].year, sessions[i + 1].month))
+    source_binding = {
+        "schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": pack["pack_digest"],
+        "snapshots": [{"member_id": member_id, "input_digest": snapshot.input_digest,
+                       "dataset_id": snapshot.dataset_id,
+                       "manifest_canonical_sha256": _digest_payload(snapshot.manifest),
+                       "price_sha256": snapshot.manifest["gcs"]["sha256"],
+                       "generation": snapshot.manifest["gcs"]["generation"],
+                       "bytes": snapshot.manifest["gcs"]["bytes"]}
+                      for member_id, snapshot in (("soxl_core", soxl_snapshot), ("tqqq_core", tqqq_snapshot))],
+        "price_bytes_verified_by_cli": True, "pack_recomputed_from_snapshots": True,
+        "calendar_claim": "XNYS", "independent_calendar_authority_verified": False,
+        "historical_available_at_verified": False, "dataset_license_verified": False,
+        "implementation_sha256": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                                  for name in ("c3_batch_a_existing_member_baseline.py",
+                                               "c3_self_financing_combo_ledger.py", "tqqq_core_trial_journal.py")},
+    }
+    # Store aggregate reports only; never emit prices, member return sequences,
+    # modeled share/NAV paths or an artificial effective independent sample size.
+    def book_report(identity, weights, rebalances, fee):
+        ledger = build_historical_self_financing_ledger(
+            soxl_net_returns=members["soxl_core"]["returns"], tqqq_net_returns=members["tqqq_core"]["returns"],
+            initial_session_date=initial_session, session_dates=sessions, initial_capital=100_000.0,
+            target_weights=weights, rebalance_indices=rebalances, combo_fee_bps=fee,
+            pack_digest=pack["pack_digest"], report_id=identity)
+        return {"total_combo_fees": ledger.total_fees,
+                "terminal_nav": ledger.days[-1].nav, "terminal_cash": ledger.days[-1].cash,
+                "metric_report": compute_historical_research_metrics(
+                    ledger, input_binding=source_binding, annual_risk_free_rate=annual_risk_free_rate,
+                    annual_minimum_acceptable_return=annual_minimum_acceptable_return)}
+
+    comparisons = []
+    by_id = {row["baseline_id"]: row for row in legacy["c3_comparison"]["baselines"]}
+    for candidate in _declared_baselines():
+        identity = candidate["baseline_id"]
+        budget = candidate["member_budget_weights"]
+        weights = {"SOXL": budget["soxl_core"], "TQQQ": budget["tqqq_core"], "CASH": budget["cash_sleeve"]}
+        risk = by_id[identity]["concentration"]
+        scalar = risk["risk_scalar"]
+        scaled = scale_member_budgets_to_cash(budgets=weights, risk_scalar=scalar, cash_member_id="CASH")
+        reports = {
+            "raw_drift": book_report(identity + ":raw-drift", weights, (), 0.0),
+            "risk_scaled_drift": book_report(identity + ":scaled-drift", scaled, (), 0.0),
+            "raw_month_end_fee_0bps": book_report(identity + ":raw-month-end", weights, month_ends, 0.0),
+        }
+        for fee in (0.0, 5.0, 10.0, 15.0):
+            key = f"risk_scaled_month_end_fee_{int(fee)}bps"
+            reports[key] = book_report(identity + ":" + key, scaled, month_ends, fee)
+        comparisons.append({"baseline_id": identity, "target_weights": weights,
+                            "scaled_target_weights": scaled, "risk_diagnosis": risk, "books": reports})
+    standalone = {member: book_report("standalone:" + member, weights, (), 0.0)
+                  for member, weights in (
+                      ("soxl_core", {"SOXL": 1.0, "TQQQ": 0.0, "CASH": 0.0}),
+                      ("tqqq_core", {"SOXL": 0.0, "TQQQ": 1.0, "CASH": 0.0}),
+                      ("cash_sleeve", {"SOXL": 0.0, "TQQQ": 0.0, "CASH": 1.0}))}
+    report = {
+        "schema": "qsl.batch-a-historical-account-control-report.v1", "status": "COMPUTED",
+        "synthetic": False, "research_only": True, "data_qualified": False, "oos_qualified": False,
+        "promotion_authorized": False, "execution_authorized": False, "no_order": True,
+        "window_role": "SEEN_DEVELOPMENT", "strategy_identity": "NO_PLUGIN_TYPED_SMA200_CONTROL_NOT_PRODUCTION",
+        "input_binding": source_binding, "standalone": standalone, "baselines": comparisons,
+        "assumptions": {"combo_fee_bps": [0.0, 5.0, 10.0, 15.0], "fees_are_actual_quotes": False,
+                        "member_costs": "TYPED_BASELINE_ZERO", "cash_return_policy": CASH_RETURN_POLICY,
+                        "rf_annual_simple": annual_risk_free_rate, "mar_annual_simple": annual_minimum_acceptable_return,
+                        "rebalance_policy": "LAST_COMMON_SOURCE_SESSION_EACH_MONTH_AFTER_RETURN",
+                        "rebalance_session_count": len(month_ends),
+                        "rebalance_session_digest": _digest_payload({"dates": [sessions[i].isoformat() for i in month_ends]}),
+                        "trailing_partial_month": "LAST_SOURCE_SESSION_IS_A_DECLARED_REBALANCE_NOT_CALENDAR_PROOF",
+                        "fee_basis": "SELF_FINANCED_ABSOLUTE_SOXL_AND_TQQQ_TRADE_DOLLARS_CASH_NOT_DOUBLE_CHARGED",
+                        "initial_allocation_cost": "EXCLUDED_ALREADY_INVESTED_INITIAL_NAV",
+                        "units": "MODELED_STRATEGY_SLEEVE_UNITS_NOT_BROKER_ETF_SHARES"},
+    }
+    legacy["historical_account_report"] = report
+    _set_evidence_digest(legacy)
+    return legacy
+
+
 __all__ = [
     "ALLOWED_CASH_POLICIES",
     "EVIDENCE_SCOPE",
@@ -573,4 +693,5 @@ __all__ = [
     "REQUIRED_MEMBER_IDS",
     "SCHEMA_VERSION",
     "evaluate_batch_a_existing_member_baselines",
+    "report_historical_batch_a_baselines",
 ]

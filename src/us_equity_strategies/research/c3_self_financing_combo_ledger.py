@@ -1,8 +1,10 @@
-"""Synthetic SOXL/TQQQ/cash self-financing ledgers for one acceptance case.
+"""SOXL/TQQQ/cash self-financing ledgers with explicit research boundaries.
 
 Member net returns are already net of member-level costs and are not charged
 again. Combo-layer fees, when requested, are a synthetic assumption on the
 absolute traded dollars of the declared risk legs after same-day returns.
+The separate historical wrapper uses the same book with source-bound modeled
+sleeve units and declared fees, without granting data or OOS qualification.
 The post-fee NAV is solved so those target dollars and the cash residual are
 funded by available NAV. This is not the pre-trade weight approximation in
 ``simulate_fixed_budget_capital_path``.
@@ -364,6 +366,50 @@ def _research_ledger(
     )
 
 
+def build_historical_self_financing_ledger(
+    *, soxl_net_returns: Sequence[float], tqqq_net_returns: Sequence[float],
+    initial_session_date: date, session_dates: Sequence[date], initial_capital: float,
+    target_weights: Mapping[str, float], rebalance_indices: Sequence[int],
+    combo_fee_bps: float, pack_digest: str, report_id: str,
+) -> ResearchDailyLedger:
+    """Model historical strategy-sleeve units using the existing self-funding book.
+
+    Source bytes/binding are verified by the active consumer, not this arithmetic
+    adapter. The 0/5/10/15bps grid is a research assumption, cash earns zero, and
+    the initial allocation is already invested. Units are not broker ETF shares.
+    This never passes historical returns through a synthetic ledger constructor.
+    """
+    if (not isinstance(pack_digest, str) or len(pack_digest) != 64
+            or any(char not in "0123456789abcdef" for char in pack_digest)
+            or not isinstance(report_id, str) or not report_id):
+        raise ValueError("HISTORICAL_INPUT_BINDING_INVALID")
+    weights = _target_weights(target_weights)
+    capital = _number(initial_capital, "SELF_FINANCING_CAPITAL_INVALID")
+    if capital <= 0:
+        raise ValueError("SELF_FINANCING_CAPITAL_INVALID")
+    soxl = _return_series(soxl_net_returns, other_length=None)
+    tqqq = _return_series(tqqq_net_returns, other_length=len(soxl))
+    sessions = _session_dates(initial_session_date, session_dates, len(soxl))
+    fee = _number(combo_fee_bps, "SELF_FINANCING_FEE_BPS_INVALID")
+    if fee not in (0.0, 5.0, 10.0, 15.0):
+        raise ValueError("HISTORICAL_RESEARCH_FEE_ASSUMPTION_INVALID")
+    rebalances = _rebalance_indices(rebalance_indices, len(soxl))
+    if fee > 0 and not rebalances:
+        raise ValueError("SELF_FINANCING_FEE_SCHEDULE_REQUIRED")
+    marks, cash, days = _book(
+        weights=weights, soxl_returns=soxl, tqqq_returns=tqqq, sessions=sessions,
+        initial_capital=capital, rebalance_on=rebalances, fee_rate=fee / 10_000.0,
+        fee_bearing=(SOXL, TQQQ))
+    return ResearchDailyLedger(
+        trial_id=report_id, domain="us_equity", strategy_profile="batch_a_historical_account_control_v1",
+        run_id=report_id, param_version=1, input_id="sha256:" + pack_digest,
+        calendar_id="XNYS", periods_per_year=252,
+        cost_source="HISTORICAL_MEMBER_ZERO_PLUS_ASSUMED_COMBO_ABSOLUTE_RISK_LEG_BPS",
+        cost_inputs={"member_fee_bps": 0.0, "combo_fee_bps_assumption": fee},
+        initial_session_date=initial_session_date, initial_nav=capital,
+        initial_cash=cash, initial_positions=marks, days=days, synthetic=False)
+
+
 def build_soxl_tqqq_self_financing_ledgers(
     *,
     soxl_net_returns: Sequence[float],
@@ -460,4 +506,5 @@ __all__ = [
     "SOXL",
     "TQQQ",
     "build_soxl_tqqq_self_financing_ledgers",
+    "build_historical_self_financing_ledger",
 ]

@@ -6,13 +6,17 @@ a verified simulation/result/ledger triplet, not aggregate study qualification.
 from __future__ import annotations
 
 from dataclasses import replace
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 import hashlib
 import json
 import math
 from pathlib import Path
 
+import pandas as pd
+
 from quant_platform_kit.strategy_lifecycle import contracts as qpk_contracts
+from quant_platform_kit.strategy_lifecycle import performance_metrics as qpk_metrics
 from quant_platform_kit.strategy_lifecycle import performance_store as qpk_store
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult, ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark,
@@ -26,6 +30,235 @@ from . import tqqq_trial_journal as journal
 from . import tqqq_typed_baseline_result as baseline
 
 PROFILE = "tqqq_core_optimization_sma_journal_v1"
+
+
+def compute_synthetic_research_metrics(
+    ledger: ResearchDailyLedger, *, annual_risk_free_rate: float,
+    annual_minimum_acceptable_return: float,
+    start_session: date | None = None, end_session: date | None = None,
+) -> dict:
+    """Pure opt-in analysis of a closed synthetic XNYS account, not v1 scoring.
+
+    Rates are annual simple decimal fractions, divided by 252 per session.
+    Window bounds identify included return sessions exactly; the preceding NAV
+    is the initial drawdown mark, not an additional return observation. QPK
+    supplies compounding, initial-mark drawdown and target-downside Sortino.
+    Its population volatility is converted to sample volatility for Sharpe;
+    Sortino instead uses full-sample RMS shortfall and the MAR numerator.
+    Nothing is persisted, simulated, selected or granted execution authority.
+    """
+    return _compute_synthetic_account_metrics(
+        ledger, calendar_id="XNYS", contract_version="synthetic_account_metrics_v1",
+        annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+
+
+def compute_declared_session_research_metrics(
+    ledger: ResearchDailyLedger, *, annual_risk_free_rate: float,
+    annual_minimum_acceptable_return: float,
+    start_session: date | None = None, end_session: date | None = None,
+) -> dict:
+    """Report a synthetic declared-session account on an assumed 252-step year.
+
+    This independent contract accepts neither XNYS nor real-data ledgers.
+    The caller's declared steps provide no market-calendar or PIT attestation.
+    """
+    report = _compute_synthetic_account_metrics(
+        ledger, calendar_id="synthetic_declared_sessions",
+        contract_version="synthetic_declared_session_account_metrics_v1",
+        annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+    report["evaluation_contract"].update({
+        "annualization_basis": "DECLARED_SYNTHETIC_252_STEPS_PER_YEAR",
+        "session_scope": "CALLER_DECLARED_SEQUENCE_NOT_VERIFIED_MARKET_SESSIONS_OR_PIT",
+    })
+    return report
+
+
+def _compute_synthetic_account_metrics(
+    ledger: ResearchDailyLedger, *, calendar_id: str, contract_version: str,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+    start_session: date | None, end_session: date | None,
+) -> dict:
+    """Preserve the strict input boundary of both frozen synthetic contracts."""
+    if not isinstance(ledger, ResearchDailyLedger):
+        raise ValueError("RESEARCH_LEDGER_REQUIRED")
+    if ledger.synthetic is not True:
+        raise ValueError("REAL_RESEARCH_DATA_UNQUALIFIED")
+    return _compute_account_metrics(
+        ledger, calendar_id=calendar_id, contract_version=contract_version,
+        annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+
+
+def compute_historical_research_metrics(
+    ledger: ResearchDailyLedger, *, input_binding: Mapping,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+    start_session: date | None = None, end_session: date | None = None,
+) -> dict:
+    """Report historical modeled sleeves; binding is not PIT/OOS qualification.
+
+    The active Batch A CLI verifies original snapshot bytes and re-materializes
+    the pack before supplying this binding. This arithmetic-only API grants no
+    data license, source authority, promotion or execution permissions.
+    """
+    if not isinstance(ledger, ResearchDailyLedger) or ledger.synthetic is not False:
+        raise ValueError("HISTORICAL_RESEARCH_LEDGER_REQUIRED")
+    digest = input_binding.get("pack_digest") if isinstance(input_binding, Mapping) else None
+    if (not isinstance(digest, str) or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or input_binding.get("schema") != "qsl.batch-a-historical-input-binding.v1"
+            or ledger.input_id != "sha256:" + digest):
+        raise ValueError("HISTORICAL_INPUT_BINDING_INVALID")
+    report = _compute_account_metrics(
+        ledger, calendar_id="XNYS", contract_version="historical_research_account_metrics_v1",
+        annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+    report.update({"data_qualified": False, "oos_qualified": False,
+                   "evidence_scope": "HISTORICAL_SOURCE_SEEN_DEVELOPMENT_MODELED_SLEEVES",
+                   "input_binding": json.loads(json.dumps(input_binding, allow_nan=False))})
+    report["evaluation_contract"].update({
+        "session_scope": "XNYS_DECLARED_BY_SNAPSHOT_NOT_INDEPENDENT_CALENDAR_OR_PIT_ATTESTATION",
+        "historical_available_at_verified": False,
+        "cash_return_policy": "ASSUMED_ZERO_USD_CASH",
+        "initial_allocation_cost": "EXCLUDED_ALREADY_INVESTED_INITIAL_NAV",
+        "trial_matrix_and_dependence_assumptions": "NOT_ESTABLISHED_SEEN_DEVELOPMENT_ONLY",
+    })
+    return report
+
+
+def _compute_account_metrics(
+    ledger: ResearchDailyLedger, *, calendar_id: str, contract_version: str,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+    start_session: date | None, end_session: date | None,
+) -> dict:
+    """One arithmetic body shared by the explicit report-only input contracts."""
+    if ledger.calendar_id != calendar_id or ledger.periods_per_year != 252:
+        raise ValueError("RESEARCH_BASIS_INVALID")
+    rates = (annual_risk_free_rate, annual_minimum_acceptable_return)
+    if any(type(rate) not in (int, float) or not math.isfinite(rate) for rate in rates):
+        raise ValueError("RESEARCH_RATE_INVALID")
+    if any(day.external_cashflow != 0.0 for day in ledger.days):
+        raise ValueError("RESEARCH_EXTERNAL_FLOWS_UNSUPPORTED")
+    sessions = [day.session_date for day in ledger.days]
+    start = sessions[0] if start_session is None else start_session
+    end = sessions[-1] if end_session is None else end_session
+    if (type(start) is not date or type(end) is not date
+            or start not in sessions or end not in sessions or start > end):
+        raise ValueError("RESEARCH_WINDOW_INVALID")
+    first, last = sessions.index(start), sessions.index(end)
+    selected = ledger.days[first:last + 1]
+    returns = tuple(day.daily_return for day in selected)
+    count = len(returns)
+    shared = qpk_metrics.compute_window_metrics(
+        pd.Series(returns, index=pd.DatetimeIndex(day.session_date for day in selected)),
+        risk_free_rate=annual_minimum_acceptable_return,
+        periods_per_year=252, calendar_id=calendar_id)
+    sharpe, sortino, volatility = None, None, None
+    if count < 2:
+        sharpe_status = sortino_status = "INSUFFICIENT_OBSERVATIONS"
+    elif len(set(returns)) == 1:
+        volatility = 0.0
+        sharpe_status = sortino_status = "CONSTANT_RETURN_SAMPLE"
+    else:
+        # The pinned helper uses ddof=0. n/(n-1) gives the ddof=1 variance;
+        # annualized Sharpe uses the corresponding sample standard deviation.
+        volatility = shared.volatility * math.sqrt(count / (count - 1))
+        daily_std = volatility / math.sqrt(252)
+        sharpe = (math.fsum(returns) / count - annual_risk_free_rate / 252) / daily_std * math.sqrt(252)
+        sharpe_status = "COMPUTED" if math.isfinite(sharpe) else "NONFINITE_RESULT"
+        if sharpe_status != "COMPUTED":
+            sharpe = None
+        sortino = shared.sortino_ratio if math.isfinite(shared.sortino_ratio) else None
+        sortino_status = ("COMPUTED" if sortino is not None else
+                          "ZERO_DOWNSIDE_DEVIATION" if all(
+                              r >= annual_minimum_acceptable_return / 252 for r in returns)
+                          else "NONFINITE_RESULT")
+    return {
+        "research_only": True, "synthetic": ledger.synthetic, "promotion_eligible": False,
+        "live_ready": False, "size_zero_required": True, "no_order": True,
+        "trial_id": ledger.trial_id, "run_id": ledger.run_id,
+        "strategy_profile": ledger.strategy_profile, "input_id": ledger.input_id,
+        "initial_session": (ledger.initial_session_date if first == 0 else
+                            ledger.days[first - 1].session_date).isoformat(),
+        "start_session": start.isoformat(), "end_session": end.isoformat(),
+        "observation_count": count,
+        "metrics": {"cumulative_return": shared.total_return, "cagr": shared.cagr,
+                    "max_drawdown": shared.max_drawdown,
+                    "annualized_volatility": volatility, "sharpe": sharpe,
+                    "sortino": sortino, "dsr": None, "pbo": None},
+        "metric_status": {"sharpe": sharpe_status, "sortino": sortino_status,
+                          "dsr": "NOT_COMPUTED", "pbo": "NOT_COMPUTED"},
+        "effective_independent_observations": None,
+        "effective_sample_size_status": "NOT_ESTIMATED",
+        "evaluation_contract": {
+            "version": contract_version, "role": "REPORT_ONLY",
+            "unit": "STRATEGY_ACCOUNT_SESSION_SIMPLE_NET_RETURN",
+            "return_unit": "SIGNED_DECIMAL_FRACTION",
+            "calendar_id": calendar_id, "periods_per_year": 252,
+            "real_calendar_verified": False, "zero_return_sessions": "INCLUDED",
+            "initial_nav_is_return_observation": False, "initial_nav_in_drawdown": True,
+            "rf": {"annual_simple_decimal": annual_risk_free_rate,
+                   "per_session": annual_risk_free_rate / 252},
+            "mar": {"annual_simple_decimal": annual_minimum_acceptable_return,
+                    "per_session": annual_minimum_acceptable_return / 252},
+            "annual_rate_conversion": "DIVIDE_BY_252_NOT_COMPOUND_RATE_CONVERSION",
+            "sharpe": "MEAN_RETURN_MINUS_RF_OVER_SAMPLE_STD_TIMES_SQRT_252",
+            "volatility_ddof": 1, "qpk_population_volatility_adapter": "MULTIPLY_SQRT_N_OVER_N_MINUS_1",
+            "sortino": "MEAN_RETURN_MINUS_MAR_OVER_FULL_SAMPLE_RMS_SHORTFALL_TIMES_SQRT_252",
+            "cagr": "COMPOUNDED_NET_RETURN_POWER_252_OVER_OBSERVATION_COUNT",
+            "cost": {"source": ledger.cost_source, "inputs": dict(ledger.cost_inputs),
+                     "net_nav_costs_deducted_again": False,
+                     "cash_and_positions": "WHOLE_ACCOUNT_NAV",
+                     "cash_interest": "AS_RECORDED_IN_NAV_NO_ADDITIONAL_ACCRUAL",
+                     "external_flows": "NONE_CLOSED_RESEARCH_ACCOUNT"},
+            "undefined_policy": "NONE_WITH_REASON_NO_ZERO_FILL",
+            "constant_return_ratio_policy": "BOTH_RATIOS_NONE_EVEN_IF_MAR_SHORTFALL_NONZERO",
+            "uncomputed_metrics": ["dsr", "pbo"],
+            "trial_matrix_and_dependence_assumptions": "NOT_ESTABLISHED",
+        },
+    }
+
+
+def report_journaled_tqqq_core_metrics(
+    *, store: PerformanceStore, trial_id: str, annual_risk_free_rate: float,
+    annual_minimum_acceptable_return: float,
+    start_session: date | None = None, end_session: date | None = None,
+) -> dict:
+    """Read one verified v1 success into a separate synthetic metric report.
+
+    This is not an aggregate study or trial filter. Failed/incomplete trials
+    remain in the original journal and are refused here, never reconstructed.
+    The pinned store verifies the result/ledger/terminal triplet on readback.
+    No simulation, selection, persistence or frozen-result mutation occurs.
+    """
+    if (not isinstance(store, PerformanceStore) or store.cloud_bucket
+            or not isinstance(store.local_root, Path) or store.local_root.is_symlink()
+            or not store.local_root.is_dir()):
+        raise ValueError("LOCAL_RESEARCH_STORE_REQUIRED")
+    record = store.load_research_trial("us_equity", PROFILE, trial_id)
+    if record is None:
+        raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+    if record.status is not ResearchTrialStatus.SUCCEEDED:
+        raise ValueError("RESEARCH_TRIAL_NOT_SUCCEEDED:" + record.status.value)
+    ledger = store.load_research_ledger(
+        record.domain, record.strategy_profile, record.trial_id,
+        record.run_id, record.param_version)
+    report = compute_synthetic_research_metrics(
+        ledger, annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+    report.update({
+        "report_profile": "tqqq_core_trial_metric_report_v1",
+        "source_trial_status": record.status.value,
+        "source_candidate": json.loads(json.dumps(record.actual_params)),
+        "scope": "ONE_VERIFIED_SYNTHETIC_TRIAL_NOT_AGGREGATE_OR_SELECTION",
+    })
+    return report
 
 
 def _evaluation_contract() -> dict:

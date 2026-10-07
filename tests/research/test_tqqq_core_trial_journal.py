@@ -11,7 +11,9 @@ import socket
 
 import pytest
 
-from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialStatus
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark, ResearchTrialStatus,
+)
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from us_equity_strategies.research import tqqq_core_optimization as core
 from us_equity_strategies.research import soxl_core_optimization as soxl
@@ -293,6 +295,12 @@ def test_failure_boundaries_preserve_original_and_known_params(
     assert record.actual_params["window_days"] == 150
     assert record.run_id is record.param_version is None
     assert "private synthetic detail" not in "".join(p.read_text() for p in store.local_root.rglob("*.json"))
+    before = {p: p.read_bytes() for p in store.local_root.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError, match="RESEARCH_TRIAL_NOT_SUCCEEDED:" + record.status.value):
+        module.report_journaled_tqqq_core_metrics(
+            store=store, trial_id=record.trial_id, annual_risk_free_rate=0.0,
+            annual_minimum_acceptable_return=0.0)
+    assert before == {p: p.read_bytes() for p in store.local_root.rglob("*") if p.is_file()}
 
 
 def test_accounting_contradiction_is_rejected(source, tmp_path, monkeypatch):
@@ -354,6 +362,10 @@ def test_corrupt_success_fails_readback_without_rerun(source, tmp_path, monkeypa
     monkeypatch.setattr(core, "simulate_candidate", lambda *a, **k: pytest.fail("corrupt evidence rerun"))
     with pytest.raises(ValueError, match="RESEARCH_TRIAL_READBACK_INVALID"):
         _run(source, store)
+    with pytest.raises(ValueError, match="RESEARCH_TRIAL_READBACK_INVALID"):
+        _module().report_journaled_tqqq_core_metrics(
+            store=store, trial_id=record.trial_id, annual_risk_free_rate=0.0,
+            annual_minimum_acceptable_return=0.0)
 
 
 def test_aggregate_failure_does_not_rewrite_verified_slot_success(source, tmp_path, monkeypatch):
@@ -528,3 +540,297 @@ def test_legacy_namespace_without_contract_is_not_backfilled(source, tmp_path, m
     with pytest.raises(ValueError, match="research_trial_conflict"):
         _run(source, store)
     assert before == {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
+
+
+def _metric_ledger(navs):
+    """A closed synthetic account: USD 40 cash plus a marked fractional-share leg."""
+    return ResearchDailyLedger(
+        trial_id="synthetic-metrics", domain="us_equity", strategy_profile=PROFILE,
+        run_id="synthetic-metrics", param_version=1, input_id="synthetic-nav-path",
+        calendar_id="XNYS", periods_per_year=252, cost_source="synthetic-net-nav",
+        cost_inputs={"commission_bps": 0.0, "slippage_bps": 0.0},
+        initial_session_date=date(2024, 1, 1), initial_nav=navs[0], initial_cash=40.0,
+        initial_positions=(ResearchPositionMark("TQQQ", 0.5, navs[0] - 40.0),),
+        days=tuple(ResearchLedgerDay(
+            session_date=date(2024, 1, i + 2), cash=40.0,
+            positions=(ResearchPositionMark("TQQQ", 0.5, end - 40.0),),
+            trade_net_cashflow=0.0, fees=0.0, nav=end, daily_return=end / start - 1.0,
+        ) for i, (start, end) in enumerate(zip(navs, navs[1:]))), synthetic=True,
+    )
+
+
+def _research_metrics(ledger, **kwargs):
+    return _module().compute_synthetic_research_metrics(
+        ledger, annual_risk_free_rate=kwargs.pop("annual_risk_free_rate", 0.0),
+        annual_minimum_acceptable_return=kwargs.pop("annual_minimum_acceptable_return", 0.0),
+        **kwargs)
+
+
+def test_journal_metric_report_consumes_verified_trial_without_writes(source, tmp_path, monkeypatch):
+    store = PerformanceStore(local_root=tmp_path / "journal", cloud_bucket="")
+    original = _run(source, store)
+    record = next(r for r in _records(original, store)
+                  if r.actual_params["window_days"] == 200 and r.actual_params["scenario_id"] == "C2_5")
+    ledger = store.load_research_ledger("us_equity", PROFILE, record.trial_id, record.run_id, 1)
+    before = {p: p.read_bytes() for p in store.local_root.rglob("*") if p.is_file()}
+    monkeypatch.setattr(core, "simulate_candidate", lambda *a: pytest.fail("report resimulated"))
+    report = _module().report_journaled_tqqq_core_metrics(
+        store=store, trial_id=record.trial_id, annual_risk_free_rate=0.03,
+        annual_minimum_acceptable_return=0.06)
+    assert report["metrics"] == _research_metrics(
+        ledger, annual_risk_free_rate=0.03, annual_minimum_acceptable_return=0.06)["metrics"]
+    assert report["report_profile"] == "tqqq_core_trial_metric_report_v1"
+    assert report["source_trial_status"] == "succeeded"
+    assert ledger.total_fees > 0 and any(day.cash > 0 for day in ledger.days)
+    assert any(day.daily_return == 0.0 for day in ledger.days)
+    assert before == {p: p.read_bytes() for p in store.local_root.rglob("*") if p.is_file()}
+    assert original["evaluation_contract"]["uncomputed_metrics"] == ["sharpe", "sortino", "dsr", "pbo"]
+    # Both actual simulators receive the same generated bars and cost inputs.
+    soxl_rows = tuple(soxl.InputRow(
+        "SOXX" if row.symbol == "QQQ" else "SOXL", row.as_of,
+        row.open, row.high, row.low, row.close, row.volume) for row in source.rows)
+    lines = [",".join(core.INPUT_COLUMNS)] + [",".join((row.symbol, row.as_of, *(
+        format(v, ".17g") for v in (row.open, row.high, row.low, row.close, row.volume))))
+        for row in soxl_rows]
+    soxl_source = soxl.OfflineInput(soxl_rows, ("\n".join(lines) + "\n").encode(), "a" * 64, "synthetic")
+    soxl_points = soxl.simulate_candidate(soxl_source, 200, soxl.SCENARIOS[2])
+    paired = soxl.report_soxl_core_candidate_metrics(
+        soxl_source, soxl_points, window_days=200, scenario=soxl.SCENARIOS[2],
+        synthetic=True, calendar_id="XNYS", periods_per_year=252,
+        annual_risk_free_rate=0.03, annual_minimum_acceptable_return=0.06)
+    assert paired["metrics"] == report["metrics"]
+    assert paired["metric_status"] == report["metric_status"]
+    assert paired["evaluation_contract"]["rf"] == report["evaluation_contract"]["rf"]
+    first, third = ledger.days[0].session_date, ledger.days[2].session_date
+    windowed = _module().report_journaled_tqqq_core_metrics(
+        store=store, trial_id=record.trial_id, annual_risk_free_rate=0.03,
+        annual_minimum_acceptable_return=0.06, start_session=first, end_session=third)
+    assert windowed["observation_count"] == 3
+    assert windowed["metrics"] == _research_metrics(
+        ledger, annual_risk_free_rate=0.03, annual_minimum_acceptable_return=0.06,
+        start_session=first, end_session=third)["metrics"]
+    for field, value in (("annual_risk_free_rate", None), ("annual_risk_free_rate", float("nan")),
+                         ("annual_minimum_acceptable_return", float("inf"))):
+        rates = {"annual_risk_free_rate": 0.03, "annual_minimum_acceptable_return": 0.06, field: value}
+        with pytest.raises(ValueError, match="RESEARCH_RATE_INVALID"):
+            _module().report_journaled_tqqq_core_metrics(store=store, trial_id=record.trial_id, **rates)
+    assert before == {p: p.read_bytes() for p in store.local_root.rglob("*") if p.is_file()}
+
+
+def test_opt_in_metrics_hand_calculation_distinguishes_rf_mar_and_ddof():
+    report = _research_metrics(_metric_ledger((100.0, 90.0, 90.0, 99.0)),
+                               annual_risk_free_rate=0.252,
+                               annual_minimum_acceptable_return=0.504)
+    metrics = report["metrics"]
+    assert metrics["cumulative_return"] == pytest.approx(-0.01)
+    assert metrics["max_drawdown"] == pytest.approx(-0.1)
+    assert metrics["annualized_volatility"] == pytest.approx(0.1 * math.sqrt(252))
+    assert metrics["sharpe"] == pytest.approx(-0.001 / 0.1 * math.sqrt(252))
+    downside = math.sqrt((0.102 ** 2 + 0.002 ** 2) / 3)
+    assert metrics["sortino"] == pytest.approx(-0.002 / downside * math.sqrt(252))
+    assert metrics["sharpe"] < 0 and metrics["sortino"] < 0
+    assert report["observation_count"] == 3
+    assert report["evaluation_contract"]["rf"]["per_session"] == 0.001
+    assert report["evaluation_contract"]["mar"]["per_session"] == 0.002
+    assert report["metric_status"]["sharpe"] == "COMPUTED"
+    assert report["metric_status"]["sortino"] == "COMPUTED"
+    assert metrics["dsr"] is metrics["pbo"] is None
+    assert report["effective_independent_observations"] is None
+    assert report["metric_status"]["dsr"] == report["metric_status"]["pbo"] == "NOT_COMPUTED"
+    assert report["synthetic"] is report["research_only"] is report["no_order"] is True
+    assert report["promotion_eligible"] is report["live_ready"] is False
+
+
+@pytest.mark.parametrize("navs,status", [
+    ((100.0, 100.0), "INSUFFICIENT_OBSERVATIONS"),
+    ((100.0, 100.0, 100.0, 100.0), "CONSTANT_RETURN_SAMPLE"),
+    ((100.0, 50.0, 25.0), "CONSTANT_RETURN_SAMPLE"),
+    ((100.0, 200.0, 400.0), "CONSTANT_RETURN_SAMPLE"),
+])
+def test_opt_in_ratios_do_not_zero_fill_constant_or_short_samples(navs, status):
+    # Use a fully invested leg for the declining constant path.
+    ledger = _metric_ledger((100.0,) * len(navs))
+    ledger = replace(ledger, initial_cash=0.0,
+                     initial_positions=(ResearchPositionMark("TQQQ", 0.5, navs[0]),),
+                     days=tuple(replace(day, cash=0.0, nav=end,
+                         positions=(ResearchPositionMark("TQQQ", 0.5, end),),
+                         daily_return=end / start - 1.0)
+                         for day, start, end in zip(ledger.days, navs, navs[1:])))
+    report = _research_metrics(ledger)
+    assert report["metrics"]["sharpe"] is report["metrics"]["sortino"] is None
+    assert report["metric_status"]["sharpe"] == report["metric_status"]["sortino"] == status
+    assert report["metrics"]["annualized_volatility"] == (None if len(navs) == 2 else 0.0)
+    json.dumps(report, allow_nan=False)
+
+
+def test_opt_in_negative_ratios_and_zero_downside_are_distinct():
+    losing = _research_metrics(_metric_ledger((100.0, 90.0, 72.0)))
+    assert losing["metrics"]["sharpe"] == pytest.approx(-0.15 / math.sqrt(0.005) * math.sqrt(252))
+    assert losing["metrics"]["sortino"] == pytest.approx(-0.15 / math.sqrt(0.025) * math.sqrt(252))
+    gaining = _research_metrics(_metric_ledger((100.0, 110.0, 132.0)))
+    assert gaining["metrics"]["sharpe"] > 0
+    assert gaining["metrics"]["sortino"] is None
+    assert gaining["metric_status"]["sortino"] == "ZERO_DOWNSIDE_DEVIATION"
+
+
+def test_opt_in_computed_zero_ratios_and_negative_rates_are_preserved():
+    balanced = _research_metrics(_metric_ledger((100.0, 50.0, 75.0)))
+    assert balanced["metrics"]["sharpe"] == balanced["metrics"]["sortino"] == 0.0
+    assert balanced["metric_status"]["sharpe"] == balanced["metric_status"]["sortino"] == "COMPUTED"
+    negative = _research_metrics(_metric_ledger((100.0, 90.0, 99.0)),
+                                annual_risk_free_rate=-0.252,
+                                annual_minimum_acceptable_return=-0.504)
+    assert negative["metrics"]["sharpe"] > 0 and negative["metrics"]["sortino"] > 0
+    with pytest.raises(TypeError):
+        _module().compute_synthetic_research_metrics(_metric_ledger((100.0, 90.0, 99.0)))
+
+
+def test_opt_in_window_uses_preceding_nav_and_ignores_later_returns():
+    ledger = _metric_ledger((100.0, 110.0, 99.0, 99.0, 108.9))
+    kwargs = {"start_session": date(2024, 1, 3), "end_session": date(2024, 1, 4)}
+    report = _research_metrics(ledger, **kwargs)
+    changed = _metric_ledger((100.0, 110.0, 99.0, 99.0, 50.0))
+    assert report == _research_metrics(changed, **kwargs)
+    assert report["observation_count"] == 2
+    assert report["initial_session"] == "2024-01-02"
+    assert report["metrics"]["cumulative_return"] == pytest.approx(-0.1)
+    assert report["metrics"]["max_drawdown"] == pytest.approx(-0.1)
+    for invalid in ({"start_session": date(2024, 1, 1)},
+                    {"end_session": date(2024, 1, 6)},
+                    {"start_session": date(2024, 1, 4), "end_session": date(2024, 1, 3)}):
+        with pytest.raises(ValueError, match="RESEARCH_WINDOW_INVALID"):
+            _research_metrics(ledger, **invalid)
+
+
+def test_opt_in_metrics_include_cash_and_do_not_rededuct_costs_or_mutate_store(source, tmp_path):
+    store = PerformanceStore(local_root=tmp_path / "journal", cloud_bucket="")
+    report = _run(source, store)
+    record = next(r for r in _records(report, store) if r.actual_params["scenario_id"] == "C2_5")
+    ledger = store.load_research_ledger("us_equity", PROFILE, record.trial_id, record.run_id, 1)
+    before = {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
+    metrics = _research_metrics(ledger)["metrics"]
+    returns = [day.daily_return for day in ledger.days]
+    mean = math.fsum(returns) / len(returns)
+    sigma = math.sqrt(math.fsum((r - mean) ** 2 for r in returns) / (len(returns) - 1))
+    assert ledger.total_fees > 0 and any(day.trade_net_cashflow != 0 for day in ledger.days)
+    assert metrics["cumulative_return"] == pytest.approx(ledger.total_return)
+    assert metrics["sharpe"] == pytest.approx(mean / sigma * math.sqrt(252))
+    assert before == {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
+    assert report["evaluation_contract"]["uncomputed_metrics"] == ["sharpe", "sortino", "dsr", "pbo"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("annual_risk_free_rate", None), ("annual_risk_free_rate", True),
+    ("annual_risk_free_rate", float("nan")),
+    ("annual_minimum_acceptable_return", float("inf")),
+])
+def test_opt_in_requires_explicit_finite_rates(field, value):
+    with pytest.raises(ValueError, match="RESEARCH_RATE_INVALID"):
+        _research_metrics(_metric_ledger((100.0, 90.0, 99.0)), **{field: value})
+
+
+def test_opt_in_rejects_real_or_different_frequency_ledgers():
+    ledger = _metric_ledger((100.0, 90.0, 99.0))
+    for changed, reason in ((replace(ledger, synthetic=False), "REAL_RESEARCH_DATA_UNQUALIFIED"),
+                            (replace(ledger, periods_per_year=365.25), "RESEARCH_BASIS_INVALID"),
+                            (replace(ledger, calendar_id="CRYPTO"), "RESEARCH_BASIS_INVALID")):
+        with pytest.raises(ValueError, match=reason):
+            _research_metrics(changed)
+
+
+def test_opt_in_rejects_external_flow_scope_and_ledger_missing_values():
+    ledger = _metric_ledger((100.0, 90.0, 99.0))
+    first, second = ledger.days
+    flowed = replace(ledger, days=(replace(first, cash=50.0, nav=100.0,
+                         external_cashflow=10.0, daily_return=100.0 / 110.0 - 1.0),
+                         replace(second, cash=50.0, nav=109.0, daily_return=109.0 / 100.0 - 1.0)))
+    with pytest.raises(ValueError, match="RESEARCH_EXTERNAL_FLOWS_UNSUPPORTED"):
+        _research_metrics(flowed)
+    for invalid in (None, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            replace(first, daily_return=invalid)
+    with pytest.raises(ValueError):
+        replace(ledger, days=(second, first))  # A late/out-of-order row is not silently sorted.
+
+
+def test_declared_session_contract_keeps_calendar_and_shares_only_arithmetic(monkeypatch):
+    module = _module()
+    xnys = _metric_ledger((100.0, 90.0, 90.0, 99.0))
+    declared = replace(xnys, calendar_id="synthetic_declared_sessions")
+    calendars = []
+    original = module.qpk_metrics.compute_window_metrics
+    def observed(*args, **kwargs):
+        calendars.append(kwargs["calendar_id"])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(module.qpk_metrics, "compute_window_metrics", observed)
+    rates = {"annual_risk_free_rate": 0.252, "annual_minimum_acceptable_return": 0.504}
+    old = module.compute_synthetic_research_metrics(xnys, **rates)
+    new = module.compute_declared_session_research_metrics(declared, **rates)
+    assert calendars == ["XNYS", "synthetic_declared_sessions"]
+    assert declared.calendar_id == "synthetic_declared_sessions"
+    assert new["evaluation_contract"]["version"] == "synthetic_declared_session_account_metrics_v1"
+    assert new["evaluation_contract"]["annualization_basis"] == "DECLARED_SYNTHETIC_252_STEPS_PER_YEAR"
+    assert new["evaluation_contract"]["real_calendar_verified"] is False
+    assert new["metrics"] == old["metrics"]
+    normalized = json.loads(json.dumps(new))
+    contract = normalized["evaluation_contract"]
+    contract.pop("annualization_basis")
+    contract.pop("session_scope")
+    contract["calendar_id"] = "XNYS"
+    contract["version"] = "synthetic_account_metrics_v1"
+    assert normalized == old
+    with pytest.raises(ValueError, match="RESEARCH_BASIS_INVALID"):
+        module.compute_synthetic_research_metrics(declared, **rates)
+    for wrong, reason in ((xnys, "RESEARCH_BASIS_INVALID"),
+                          (replace(declared, synthetic=False), "REAL_RESEARCH_DATA_UNQUALIFIED"),
+                          (replace(declared, periods_per_year=365.25), "RESEARCH_BASIS_INVALID")):
+        with pytest.raises(ValueError, match=reason):
+            module.compute_declared_session_research_metrics(wrong, **rates)
+
+
+@pytest.mark.parametrize("rate", [None, float("nan"), float("inf")])
+def test_declared_session_contract_refuses_nonfinite_or_missing_rates(rate):
+    declared = replace(_metric_ledger((100.0, 90.0, 99.0)), calendar_id="synthetic_declared_sessions")
+    with pytest.raises(ValueError, match="RESEARCH_RATE_INVALID"):
+        _module().compute_declared_session_research_metrics(
+            declared, annual_risk_free_rate=rate, annual_minimum_acceptable_return=0.0)
+
+
+def test_historical_metric_contract_reuses_frozen_math_without_changing_synthetic_boundary():
+    module = _module()
+    original = _metric_ledger((100.0, 90.0, 90.0, 99.0))
+    historical = replace(original, synthetic=False, input_id="sha256:" + "d" * 64)
+    binding = {"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "d" * 64}
+    rates = {"annual_risk_free_rate": .252, "annual_minimum_acceptable_return": .504}
+    actual = module.compute_historical_research_metrics(historical, input_binding=binding, **rates)
+    frozen = module.compute_synthetic_research_metrics(original, **rates)
+    assert actual["metrics"] == frozen["metrics"]
+    assert actual["metric_status"] == frozen["metric_status"]
+    assert actual["synthetic"] is False
+    assert actual["data_qualified"] is actual["oos_qualified"] is False
+    assert actual["evaluation_contract"]["version"] == "historical_research_account_metrics_v1"
+    assert actual["evaluation_contract"]["volatility_ddof"] == 1
+    assert actual["evaluation_contract"]["real_calendar_verified"] is False
+    assert actual["evaluation_contract"]["historical_available_at_verified"] is False
+    assert actual["metrics"]["cumulative_return"] == pytest.approx(-.01)
+    assert actual["metrics"]["max_drawdown"] == pytest.approx(-.1)
+    with pytest.raises(ValueError, match="REAL_RESEARCH_DATA_UNQUALIFIED"):
+        module.compute_synthetic_research_metrics(historical, **rates)
+    with pytest.raises(ValueError, match="HISTORICAL_RESEARCH_LEDGER_REQUIRED"):
+        module.compute_historical_research_metrics(original, input_binding=binding, **rates)
+    with pytest.raises(ValueError, match="HISTORICAL_INPUT_BINDING_INVALID"):
+        module.compute_historical_research_metrics(historical, input_binding={**binding, "pack_digest": "e" * 64}, **rates)
+
+
+@pytest.mark.parametrize("navs,status", [((100.0, 90.0), "INSUFFICIENT_OBSERVATIONS"),
+                                        ((100.0, 100.0, 100.0), "CONSTANT_RETURN_SAMPLE"),
+                                        ((100.0, 110.0, 132.0), "ZERO_DOWNSIDE_DEVIATION")])
+def test_historical_metric_missing_ratio_status_is_not_zero_filled(navs, status):
+    ledger = replace(_metric_ledger(navs), synthetic=False, input_id="sha256:" + "d" * 64)
+    report = _module().compute_historical_research_metrics(
+        ledger, input_binding={"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "d" * 64},
+        annual_risk_free_rate=0.0, annual_minimum_acceptable_return=0.0)
+    assert report["metrics"]["sortino"] is None
+    assert report["metric_status"]["sortino"] == status
+    assert report["metrics"]["dsr"] is report["metrics"]["pbo"] is None
+    assert report["promotion_eligible"] is report["live_ready"] is False

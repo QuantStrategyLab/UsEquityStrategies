@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import hashlib
 import hmac
 import json
@@ -335,6 +336,97 @@ def _window_metrics(points: Sequence[DailyPoint], raw_start: int, raw_end: int) 
         "commission_paid": math.fsum(point.commission_paid for point in selected),
         "slippage_impact_vs_open": math.fsum(point.slippage_impact_vs_open for point in selected),
     }
+
+
+def report_soxl_core_candidate_metrics(
+    source: OfflineInput, points: tuple[DailyPoint, ...], *, window_days: int,
+    scenario: CostScenario, synthetic: bool, calendar_id: str,
+    periods_per_year: float, annual_risk_free_rate: float,
+    annual_minimum_acceptable_return: float,
+    start_session: date | None = None, end_session: date | None = None,
+) -> dict:
+    """Analyze existing static-SMA points without resimulation or new scoring.
+
+    The caller must explicitly declare synthetic XNYS/252; dates do not verify
+    exchange sessions, PIT availability or provenance. This bounded adapter
+    is not for volatility/RSI variants with different position mechanics.
+    """
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark,
+    )
+    from .tqqq_core_trial_journal import compute_synthetic_research_metrics
+
+    if synthetic is not True:
+        _fail("REAL_RESEARCH_DATA_UNQUALIFIED")
+    if calendar_id != "XNYS" or periods_per_year != 252:
+        _fail("RESEARCH_BASIS_INVALID")
+    if window_days not in CANDIDATE_WINDOWS or type(scenario) is not CostScenario or scenario not in SCENARIOS:
+        _fail("SIMULATION_CONTRACT_INVALID")
+    soxx, soxl = _typed_rows(source)
+    if (type(points) is not tuple or len(points) != len(soxl) - BASELINE_WINDOW_DAYS
+            or any(type(point) is not DailyPoint for point in points)):
+        _fail("SMA_LEDGER_WINDOW_INVALID")
+    previous_nav = previous_cash = INITIAL_EQUITY
+    previous_quantity = 0.0
+    commission_rate = scenario.commission_bps / 10_000.0
+    slippage_rate = scenario.slippage_bps / 10_000.0
+    days = []
+    for row, point in zip(soxl[BASELINE_WINDOW_DAYS:], points, strict=True):
+        values = (point.start_equity, point.end_equity, point.cash, point.quantity,
+                  point.daily_return, point.commission_paid, point.slippage_impact_vs_open,
+                  point.gross_traded_notional_at_open)
+        if (any(type(value) not in (int, float) or not math.isfinite(value) for value in values)
+                or point.date != row.as_of or point.start_equity != previous_nav
+                or min(point.cash, point.quantity, point.commission_paid, point.slippage_impact_vs_open) < 0
+                or type(point.transition) is not bool):
+            _fail("SMA_LEDGER_POINT_INVALID")
+        trade = point.quantity - previous_quantity
+        if (point.transition != ((point.quantity > 0.0) != (previous_quantity > 0.0))
+                or (not point.transition and trade != 0.0)):
+            _fail("SMA_LEDGER_ACCOUNTING_MISMATCH")
+        fill = row.open * (1.0 + slippage_rate if trade > 0 else 1.0 - slippage_rate)
+        trade_cash = -trade * fill
+        identities = (
+            (point.gross_traded_notional_at_open, abs(trade) * row.open),
+            (point.commission_paid, abs(trade) * fill * commission_rate),
+            (point.slippage_impact_vs_open, abs(trade) * abs(fill - row.open)),
+            (point.cash, previous_cash + trade_cash - point.commission_paid),
+            (point.end_equity, point.cash + point.quantity * row.close),
+        )
+        if (any(not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-9)
+                for actual, expected in identities)
+                or point.daily_return != point.end_equity / previous_nav - 1.0):
+            _fail("SMA_LEDGER_ACCOUNTING_MISMATCH")
+        positions = (() if point.quantity == 0.0 else
+                     (ResearchPositionMark("SOXL", point.quantity, point.quantity * row.close),))
+        days.append(ResearchLedgerDay(
+            session_date=date.fromisoformat(point.date), cash=point.cash, positions=positions,
+            trade_net_cashflow=trade_cash, fees=point.commission_paid,
+            nav=point.end_equity, daily_return=point.daily_return))
+        previous_nav, previous_cash, previous_quantity = point.end_equity, point.cash, point.quantity
+    report_profile = "soxl_core_candidate_metric_report_v1"
+    trial_id = f"soxl-core-metrics-{window_days}-{scenario.scenario_id}"
+    ledger = ResearchDailyLedger(
+        trial_id=trial_id, domain="us_equity", strategy_profile=report_profile,
+        run_id=trial_id, param_version=1, input_id=f"synthetic-soxl-core-{source.input_digest}",
+        calendar_id=calendar_id, periods_per_year=periods_per_year,
+        cost_source="SYNTHETIC_SOXL_CORE_ADVERSE_FILL",
+        cost_inputs={"commission_bps": float(scenario.commission_bps),
+                     "slippage_bps": float(scenario.slippage_bps)},
+        initial_session_date=date.fromisoformat(soxx[BASELINE_WINDOW_DAYS - 1].as_of),
+        initial_nav=INITIAL_EQUITY, initial_cash=INITIAL_EQUITY, initial_positions=(),
+        days=tuple(days), synthetic=True)
+    report = compute_synthetic_research_metrics(
+        ledger, annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+    report.update({
+        "report_profile": report_profile,
+        "source_candidate": {"window_days": window_days, "scenario_id": scenario.scenario_id,
+                             "source_schema": SCHEMA},
+        "scope": "ONE_SYNTHETIC_STATIC_SMA_PATH_NOT_AGGREGATE_OR_SELECTION",
+    })
+    return report
 
 
 def _median(values: Sequence[float]) -> float:
