@@ -6,6 +6,7 @@ from pathlib import Path
 import hashlib
 import importlib
 import json
+import math
 import socket
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialStatus
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from us_equity_strategies.research import tqqq_core_optimization as core
+from us_equity_strategies.research import soxl_core_optimization as soxl
 from us_equity_strategies.research.tqqq_offline_input_contract import InputRow, OfflineInput
 
 PROFILE = "tqqq_core_optimization_sma_journal_v1"
@@ -397,3 +399,132 @@ def test_guard_provenance_uses_actual_caller_and_shared_helper(tmp_path, monkeyp
     monkeypatch.setattr(guard, "_simulate", lambda *a, **k: pytest.fail("changed guard provenance rerun"))
     with pytest.raises(ValueError, match="research_trial_conflict"):
         guard_tests._run(case)
+
+
+def _window_points(module, navs):
+    return tuple(module.DailyPoint(
+        date=f"2024-01-0{i + 2}", start_equity=start, end_equity=end,
+        cash=end, quantity=0.0, daily_return=end / start - 1.0,
+        transition=False, commission_paid=0.0, slippage_impact_vs_open=0.0,
+        gross_traded_notional_at_open=0.0,
+    ) for i, (start, end) in enumerate(zip(navs, navs[1:])))
+
+
+@pytest.mark.parametrize("module", [core, soxl], ids=["tqqq", "soxl"])
+def test_common_window_semantics_use_sample_variance_and_initial_nav(module):
+    points = _window_points(module, (100.0, 90.0, 90.0, 99.0))
+    args = (200, 200, 202) if module is core else (200, 202)
+    metrics = module._window_metrics(points, *args)
+    assert metrics["observation_count"] == 3
+    assert metrics["cumulative_return"] == pytest.approx(-0.01)
+    assert metrics["max_drawdown"] == pytest.approx(-0.1)
+    assert metrics["expected_shortfall_95"] == pytest.approx(-0.1)
+    assert metrics["annualized_volatility"] == pytest.approx(0.1 * math.sqrt(252))
+    assert metrics["annualized_volatility"] != pytest.approx(math.sqrt(1.68))
+    # Costs are disclosures of already-net NAV, not another deduction here.
+    cost_points = (replace(points[0], commission_paid=1.0,
+                           slippage_impact_vs_open=2.0), *points[1:])
+    cost_metrics = module._window_metrics(cost_points, *args)
+    assert cost_metrics["total_cost"] == 3.0
+    for key in ("cumulative_return", "max_drawdown", "expected_shortfall_95",
+                "annualized_volatility"):
+        assert cost_metrics[key] == metrics[key]
+
+
+def test_zero_undefined_and_uncomputed_metrics_remain_distinct():
+    tqqq = core._window_metrics(_window_points(core, (100.0,) * 4), 200, 200, 202)
+    other = soxl._window_metrics(_window_points(soxl, (100.0,) * 4), 200, 202)
+    for metrics in (tqqq, other):
+        for key in ("cumulative_return", "max_drawdown", "annualized_volatility",
+                    "expected_shortfall_95"):
+            assert metrics[key] == 0.0
+    assert other["sharpe"] is None
+    assert "sharpe" not in tqqq and "sortino" not in tqqq
+    contract = _module()._evaluation_contract()
+    assert contract["rf"]["status"] == contract["mar"]["status"] == "NOT_USED"
+    assert contract["uncomputed_metrics"] == ["sharpe", "sortino", "dsr", "pbo"]
+    assert contract["sample"]["effective_independent_observations"] is None
+
+
+def test_evaluation_contract_is_frozen_read_back_before_simulation(source, tmp_path, monkeypatch):
+    store = PerformanceStore(local_root=tmp_path / "journal", cloud_bucket="")
+    module = _module()
+    expected = module._evaluation_contract()
+    original = core.simulate_candidate
+    seen = []
+    def observed(src, window, scenario):
+        trial_id = f"synthetic-attempt:sma{window}:{scenario.scenario_id}"
+        record = store.load_research_trial("us_equity", PROFILE, trial_id)
+        assert record.status is ResearchTrialStatus.STARTED
+        config = record.actual_params["study_config"]
+        assert config["evaluation_contract"] == expected
+        assert record.candidate_config_id == "sha256:" + module._digest(config)
+        seen.append(trial_id)
+        return original(src, window, scenario)
+    monkeypatch.setattr(core, "simulate_candidate", observed)
+    report = _run(source, store)
+    assert len(seen) == 12
+    assert report["evaluation_contract"] == expected
+    monkeypatch.setattr(core, "simulate_candidate", original)
+    assert report["optimization"] == core.run_tqqq_core_optimization(source)
+    assert "evaluation_contract" not in report["optimization"]
+    assert expected["volatility"] == {"ddof": 1, "periods_per_year": 252,
+                                      "annualization": "SQRT_PERIODS_PER_YEAR"}
+    assert expected["metric_roles"]["total_cost"] == ["REPORT"]
+    assert expected["metric_roles"]["annualized_volatility"] == ["REPORT", "PARETO_COMPARISON"]
+    assert expected["metric_roles"]["mc_terminal_loss_probability_c2_5"] == ["REPORT", "ELIGIBILITY_VETO"]
+    assert expected["uncertainty"]["configured_path_count"] == core.MC_TRIALS
+    assert expected["uncertainty"]["path_count_is_independent_observation_count"] is False
+    assert expected["untouched_holdout_established"] is False
+
+
+@pytest.mark.parametrize("section,key,value", [
+    ("volatility", "ddof", 0), ("volatility", "periods_per_year", 365),
+    ("cost", "net_nav_costs_deducted_again", True),
+    ("metric_roles", "total_cost", ["REPORT", "ELIGIBILITY_VETO"]),
+])
+def test_changed_evaluation_contract_conflicts_without_rewriting_or_simulation(
+        source, tmp_path, monkeypatch, section, key, value):
+    store = PerformanceStore(local_root=tmp_path / "journal", cloud_bucket="")
+    module = _module()
+    _run(source, store)
+    before = {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
+    original = module._evaluation_contract
+    def changed():
+        contract = original()
+        contract[section][key] = value
+        return contract
+    monkeypatch.setattr(module, "_evaluation_contract", changed)
+    monkeypatch.setattr(core, "simulate_candidate", lambda *a, **k: pytest.fail("changed contract simulated"))
+    with pytest.raises(ValueError, match="research_trial_conflict"):
+        _run(source, store)
+    assert before == {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
+
+
+def test_reported_eligibility_boundaries_match_the_existing_evaluator():
+    gates = _module()._evaluation_contract()["eligibility"]
+    assert gates == {"positive_folds_minimum": 2, "fold_count": 3,
+                     "final_c2_5_return_strictly_above": 0.0,
+                     "final_stress_return_strictly_above": 0.0,
+                     "terminal_loss_probability_strictly_below": 0.5}
+    assert core._eligibility((0.1, 0.1, -0.1), 0.1, 0.1, 0.49)[0] == "PASS"
+    assert core._eligibility((0.1, 0.0, -0.1), 0.1, 0.1, 0.49)[0] == "FAIL"
+    for final, stress, probability in ((0.0, 0.1, 0.49), (0.1, 0.0, 0.49), (0.1, 0.1, 0.5)):
+        assert core._eligibility((0.1, 0.1, -0.1), final, stress, probability)[0] == "FAIL"
+
+
+def test_legacy_namespace_without_contract_is_not_backfilled(source, tmp_path, monkeypatch):
+    full = PerformanceStore(local_root=tmp_path / "full", cloud_bucket="")
+    first = _records(_run(source, full), full)[0]
+    params = json.loads(json.dumps(first.actual_params))
+    del params["study_config"]["evaluation_contract"]
+    old = replace(first, status=ResearchTrialStatus.STARTED, reason_code="",
+                  run_id=None, param_version=None, actual_params=params,
+                  candidate_config_id="sha256:" + _module()._digest(params["study_config"]))
+    store = PerformanceStore(local_root=tmp_path / "old", cloud_bucket="")
+    store.save_research_trial(old)
+    before = {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
+    monkeypatch.setattr(core, "simulate_candidate", lambda *a, **k: pytest.fail("old namespace simulated"))
+    with pytest.raises(ValueError, match="research_trial_conflict"):
+        _run(source, store)
+    assert before == {p: p.read_bytes() for p in store.local_root.rglob("*.json")}
