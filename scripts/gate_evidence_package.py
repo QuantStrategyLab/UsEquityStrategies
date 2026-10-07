@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 GATE_STAGES = frozenset(
@@ -722,38 +723,38 @@ def _validate_artifact_semantics(
 
 
 def _run_promotion_dual_review(evidence_files: list[Path]) -> int:
-    root = Path(os.environ.get("AIAUDIT_BRIDGE_ROOT", "external/AIAuditBridge"))
-    script = root / "scripts" / "run_dual_review_pipeline.py"
-    if not script.is_file():
-        print("[evidence-gate] dual-review skipped: AIAuditBridge not found")
-        return 0
     if str(os.environ.get("DUAL_REVIEW_GATE_SKIP", "")).strip().lower() in {"1", "true", "yes"}:
         print("[evidence-gate] dual-review skipped by DUAL_REVIEW_GATE_SKIP")
         return 0
-
-    worst = 0
+    try:
+        from quant_platform_kit.strategy_lifecycle.task_review import review_material
+    except ImportError:
+        print("[evidence-gate] review task runtime unavailable", file=sys.stderr)
+        return 3
     for path in evidence_files:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                str(script),
-                "--from-evidence",
-                str(path),
-                "--dispatch",
-            ],
-            cwd=str(root),
-            env={**os.environ, "PYTHONPATH": str(root)},
-            check=False,
-        )
-        print(f"[evidence-gate] dual-review {path.name} exit={proc.returncode}")
-        if proc.stdout:
-            print(proc.stdout.strip())
-        if proc.stderr:
-            print(proc.stderr.strip(), file=sys.stderr)
-        worst = max(worst, proc.returncode)
-    if worst >= 2:
-        print("::error::Dual-review blocked promotion (disagreement or reject)", file=sys.stderr)
-        return 1
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 200000:
+                raise ValueError("invalid evidence file")
+            text = path.read_text(encoding="utf-8")
+            material = tomllib.loads(text) if path.suffix == ".toml" else json.loads(text)
+            if not isinstance(material, dict):
+                raise ValueError("invalid evidence object")
+            caller_ref = os.environ.get("GITHUB_SHA", "")
+            if re.fullmatch(r"[0-9a-f]{40}", caller_ref) is None:
+                raise ValueError("caller revision required")
+            result = review_material(
+                material, operation_id="us-evidence:" + caller_ref + ":" + path.as_posix(),
+                required_roles=("reviewer-primary", "reviewer-secondary", "reviewer-independent"),
+            )
+        except Exception:
+            print("[evidence-gate] review task unavailable", file=sys.stderr)
+            return 3
+        if result.get("status") != "completed":
+            print("[evidence-gate] review quorum pending or unavailable", file=sys.stderr)
+            return 3
+        if result.get("outcome") != "agree_approve" or result.get("advisory_only") is not True:
+            print("::error::Evidence review needs human resolution", file=sys.stderr)
+            return 1
     return 0
 
 

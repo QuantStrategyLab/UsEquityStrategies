@@ -1,0 +1,352 @@
+name: Reusable Drift Check
+
+on:
+  workflow_call:
+    inputs:
+      strategy_domain:
+        required: true
+        type: string
+      snapshot_repository:
+        required: true
+        type: string
+      snapshot_checkout_path:
+        required: true
+        type: string
+      snapshot_repository_ref:
+        required: false
+        type: string
+        default: "main"
+      python_version:
+        required: false
+        type: string
+        default: "3.11"
+      quant_platform_kit_ref:
+        required: false
+        type: string
+        default: "main"
+      ai_service_url:
+        required: false
+        type: string
+        default: ""
+      ai_service_audience:
+        required: false
+        type: string
+        default: ""
+      ai_service_reviewers_json:
+        required: false
+        type: string
+        default: "[]"
+      lifecycle_performance_bucket:
+        required: false
+        type: string
+        default: ""
+      caller_event_name:
+        required: true
+        type: string
+      caller_pr_head_repository:
+        required: false
+        type: string
+        default: ""
+      lifecycle_preflight_artifact:
+        required: false
+        type: string
+        default: ""
+      strategy_profile:
+        required: false
+        type: string
+        default: ""
+      gcp_workload_identity_provider:
+        description: "Optional WIF provider for writing LIFECYCLE_PERFORMANCE_BUCKET."
+        required: false
+        type: string
+        default: ""
+      gcp_service_account:
+        description: "Optional GCP service account email for lifecycle bucket writes."
+        required: false
+        type: string
+        default: ""
+      gcp_project_id:
+        description: "Optional GCP project id for gcloud setup."
+        required: false
+        type: string
+        default: ""
+      live_stream_id:
+        description: >-
+          Optional PerformanceStore live_runs stream id for monitor. When empty,
+          monitor uses preflight/research return CSVs only (not paper/live account
+          PnL). Set only for a verified account-bound stream.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      snapshot_repository_token:
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+jobs:
+  drift:
+    if: vars.AI_SERVICE_RELEASE_READY == 'true'
+    runs-on: ubuntu-latest
+    # A critical drift can require up to three sequential primary reviews.  Each
+    # service review has a 15-minute budget plus its polling grace period.
+    timeout-minutes: 60
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      STRATEGY_DOMAIN: ${{ inputs.strategy_domain }}
+      QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
+      LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
+      LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
+      LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
+      LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}
+
+    steps:
+      - name: Validate trusted caller
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
+          CALLER_PR_HEAD_REPOSITORY: ${{ inputs.caller_pr_head_repository }}
+          SNAPSHOT_REPOSITORY: ${{ inputs.snapshot_repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          caller_repo="$CALLER_REPOSITORY"
+          caller_event="$CALLER_EVENT_NAME"
+          caller_pr_head_repo="$CALLER_PR_HEAD_REPOSITORY"
+          snapshot_repo="$SNAPSHOT_REPOSITORY"
+          expected_snapshot_repo=""
+          case "$caller_repo" in
+            QuantStrategyLab/CnEquityStrategies)
+              expected_snapshot_repo="QuantStrategyLab/CnEquitySnapshotPipelines"
+              ;;
+            QuantStrategyLab/HkEquityStrategies)
+              expected_snapshot_repo="QuantStrategyLab/HkEquitySnapshotPipelines"
+              ;;
+            QuantStrategyLab/UsEquityStrategies)
+              expected_snapshot_repo="QuantStrategyLab/UsEquitySnapshotPipelines"
+              ;;
+            QuantStrategyLab/CryptoStrategies)
+              expected_snapshot_repo="QuantStrategyLab/CryptoLivePoolPipelines"
+              ;;
+            *)
+              echo "::error::Untrusted reusable workflow caller: $caller_repo"
+              exit 1
+              ;;
+          esac
+          case "$caller_event" in
+            schedule|workflow_dispatch)
+              ;;
+            pull_request|pull_request_target)
+              if [ -n "$caller_pr_head_repo" ] && [ "$caller_pr_head_repo" != "$caller_repo" ]; then
+                echo "::error::Fork pull_request callers are not trusted: $caller_pr_head_repo"
+              else
+                echo "::error::pull_request callers are not trusted: $caller_repo"
+              fi
+              exit 1
+              ;;
+            "")
+              echo "::error::caller_event_name must be provided by the caller workflow"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unsupported caller_event_name: $caller_event"
+              exit 1
+              ;;
+          esac
+          if [ "$snapshot_repo" != "$expected_snapshot_repo" ]; then
+            echo "::error::snapshot_repository mismatch for caller $caller_repo: $snapshot_repo"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout snapshot pipeline repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.snapshot_repository }}
+          ref: ${{ inputs.snapshot_repository_ref }}
+          token: ${{ secrets.snapshot_repository_token || github.token }}
+          path: ${{ inputs.snapshot_checkout_path }}
+
+      - name: Checkout QuantPlatformKit
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: ${{ inputs.quant_platform_kit_ref }}
+          path: external/QuantPlatformKit
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pandas
+          python -m pip install --no-deps -e external/QuantPlatformKit
+          # Required when LIFECYCLE_PERFORMANCE_BUCKET is set (PerformanceStore GCS client).
+          python -m pip install "google-cloud-storage>=2.14"
+
+      - name: Gate cloud lifecycle writes without GCP auth
+        env:
+          WIF_PROVIDER: ${{ inputs.gcp_workload_identity_provider }}
+          WIF_SA: ${{ inputs.gcp_service_account }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${LIFECYCLE_PERFORMANCE_BUCKET:-}" ] && { [ -z "${WIF_PROVIDER}" ] || [ -z "${WIF_SA}" ]; }; then
+            echo "::warning::LIFECYCLE_PERFORMANCE_BUCKET is set without GCP WIF inputs; keeping local-only lifecycle store for this run"
+            echo "LIFECYCLE_PERFORMANCE_BUCKET=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Authenticate to Google Cloud
+        if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.gcp_workload_identity_provider }}
+          service_account: ${{ inputs.gcp_service_account }}
+
+      - name: Set up gcloud
+        if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' && inputs.gcp_project_id != '' }}
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      - name: Download lifecycle preflight artifact
+        if: inputs.lifecycle_preflight_artifact != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ inputs.lifecycle_preflight_artifact }}
+          path: ${{ runner.temp }}/lifecycle-preflight
+
+      - name: Restore lifecycle preflight inputs
+        if: inputs.lifecycle_preflight_artifact != ''
+        env:
+          PREFLIGHT_BUNDLE_ROOT: ${{ runner.temp }}/lifecycle-preflight
+          SNAPSHOT_CHECKOUT_PATH: ${{ inputs.snapshot_checkout_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$SNAPSHOT_CHECKOUT_PATH" in
+            external/*) ;;
+            *) echo "::error::snapshot_checkout_path must remain under external/"; exit 1 ;;
+          esac
+          if [[ "$SNAPSHOT_CHECKOUT_PATH" == *".."* ]]; then
+            echo "::error::snapshot_checkout_path must not contain traversal segments"
+            exit 1
+          fi
+          if find "$PREFLIGHT_BUNDLE_ROOT" -type l -print -quit | grep -q .; then
+            echo "::error::lifecycle preflight artifact must not contain symlinks"
+            exit 1
+          fi
+          lifecycle_source="$PREFLIGHT_BUNDLE_ROOT/data/lifecycle_store"
+          snapshot_source="$PREFLIGHT_BUNDLE_ROOT/$SNAPSHOT_CHECKOUT_PATH/data/output"
+          if [ ! -d "$lifecycle_source" ] || [ ! -d "$snapshot_source" ]; then
+            echo "::error::lifecycle preflight artifact is missing required allowlisted directories"
+            exit 1
+          fi
+          snapshot_root="$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH"
+          resolved_snapshot_root="$(realpath "$snapshot_root")"
+          case "$resolved_snapshot_root" in
+            "$GITHUB_WORKSPACE"/external/*) ;;
+            *) echo "::error::snapshot checkout resolved outside the external workspace"; exit 1 ;;
+          esac
+          if find "$snapshot_root" -type l -print -quit | grep -q .; then
+            echo "::error::snapshot checkout must not contain symlinks"
+            exit 1
+          fi
+          snapshot_target="$snapshot_root/data/output"
+          rm -rf -- "$LIFECYCLE_LOCAL_ROOT" "$snapshot_target"
+          mkdir -p "$LIFECYCLE_LOCAL_ROOT" "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output"
+          cp -a "$lifecycle_source/." "$LIFECYCLE_LOCAL_ROOT/"
+          cp -a "$snapshot_source/." "$snapshot_target/"
+          if [ "$STRATEGY_DOMAIN" = "crypto" ]; then
+            echo "CRYPTO_LIFECYCLE_PREFLIGHT_ROOT=$PREFLIGHT_BUNDLE_ROOT" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build lifecycle performance snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Without LIFECYCLE_LIVE_STREAM_ID, monitor reads preflight/research
+          # portfolio_and_tracker_returns.csv proxies — not paper/live account PnL.
+          lifecycle_args=()
+          if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
+            lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          if [ -n "${LIFECYCLE_LIVE_STREAM_ID:-}" ]; then
+            lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")
+          fi
+          quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} --source-revision "${GITHUB_SHA}" "${lifecycle_args[@]}"
+
+      - name: Validate lifecycle prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          lifecycle_args=()
+          if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
+            lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"
+
+      - name: Install approved task-service artifacts
+        env:
+          AI_SERVICE_CLIENT_WHEEL: ${{ vars.AI_SERVICE_CLIENT_WHEEL }}
+          AI_SERVICE_CLIENT_SHA256: ${{ vars.AI_SERVICE_CLIENT_SHA256 }}
+          AI_SERVICE_QPK_WHEEL: ${{ vars.AI_SERVICE_QPK_WHEEL }}
+          AI_SERVICE_QPK_SHA256: ${{ vars.AI_SERVICE_QPK_SHA256 }}
+        run: |
+          python - <<'PYCODE'
+          import hashlib, os, pathlib, re, subprocess, sys
+          for prefix, name in (("CLIENT", "personal_ai_service-2.0.0-"), ("QPK", "quant_platform_kit-1.0.0-")):
+              path = pathlib.Path(os.environ.get("AI_SERVICE_" + prefix + "_WHEEL", ""))
+              digest = os.environ.get("AI_SERVICE_" + prefix + "_SHA256", "")
+              if not re.fullmatch(r"[0-9a-f]{64}", digest) or not path.is_file() or path.is_symlink() or not path.name.startswith(name) or path.suffix != ".whl":
+                  raise SystemExit("approved artifact required")
+              if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                  raise SystemExit("artifact digest mismatch")
+              subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "--no-index", str(path)], check=True)
+          PYCODE
+
+      - name: Run drift detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          lifecycle_args=()
+          if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
+            lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"
+
+      - name: Sync drift alerts to GitHub Issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os
+
+          from quant_platform_kit.strategy_lifecycle.codex_integration import create_issues_for_domain
+
+          owner, _, repository = os.environ["GITHUB_REPOSITORY"].partition("/")
+          if not owner or not repository:
+              raise RuntimeError("GITHUB_REPOSITORY must identify the reusable workflow caller")
+          os.environ["CODEX_AUDIT_ORG"] = owner
+          os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository
+          results = create_issues_for_domain("${{ inputs.strategy_domain }}")
+          created = [item for item in results if item.get("issue_url")]
+          print({"created_issues": len(created), "results": len(results)})
+          PY
+
+      - name: Review critical drift through task service
+        env:
+          AI_SERVICE_URL: ${{ inputs.ai_service_url }}
+          AI_SERVICE_AUDIENCE: ${{ inputs.ai_service_audience }}
+          AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}
+        run: python -m quant_platform_kit.strategy_lifecycle.drift_review --domain "$STRATEGY_DOMAIN"

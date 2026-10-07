@@ -101,7 +101,7 @@ def test_cloud_workflow_consumes_historical_report_and_verifies_runtime_before_a
     assert "--annual-minimum-acceptable-return 0.0" in text
     assert "report_historical_batch_a_baselines" in text
     assert "compute_historical_research_metrics" in text
-    assert "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62" in text
+    assert "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1" in text
     assert text.index("Verify fixed historical report runtime") < text.index("Authenticate to Google Cloud")
     assert "--apply-risk-scaling" not in text  # Separate original approximation remains opt-in.
     assert "--synthetic" not in text

@@ -36,7 +36,7 @@ jobs:
           from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerEvent
 
           expected = {
-              "quant-platform-kit": "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62",
+              "quant-platform-kit": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1",
               "quant-strategy-plugins": "3416da47580be1537183e378f3ca9efacc6f9b8c",
           }
           for name, sha in expected.items():

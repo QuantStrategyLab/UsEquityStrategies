@@ -1,0 +1,63 @@
+name: SOXL Manual Learning V2
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Run the frozen learning experiment without trading authority
+        type: boolean
+        default: false
+      parameter_grid:
+        description: Approved parameter grid JSON
+        type: string
+        default: ''
+      resume_task_id:
+        description: Read the original assistant task if pending
+        type: string
+        default: ''
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: soxl-manual-learning-v2
+  cancel-in-progress: false
+jobs:
+  learning:
+    if: github.repository == 'QuantStrategyLab/UsEquityStrategies' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.AI_SERVICE_RELEASE_READY == 'true'
+    runs-on: [self-hosted, research-runner]
+    timeout-minutes: 60
+    env:
+      AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
+      AI_SERVICE_AUDIENCE: ${{ vars.AI_SERVICE_AUDIENCE }}
+      AI_SERVICE_MODE: agent
+      AI_SERVICE_MODEL: ${{ vars.AI_SERVICE_RESEARCH_MODEL }}
+      AI_SERVICE_PROFILE: ${{ vars.AI_SERVICE_RESEARCH_PROFILE || 'default' }}
+      AI_SERVICE_CLIENT_WHEEL: ${{ vars.AI_SERVICE_CLIENT_WHEEL }}
+      AI_SERVICE_CLIENT_SHA256: ${{ vars.AI_SERVICE_CLIENT_SHA256 }}
+      AI_SERVICE_QPK_WHEEL: ${{ vars.AI_SERVICE_QPK_WHEEL }}
+      AI_SERVICE_QPK_SHA256: ${{ vars.AI_SERVICE_QPK_SHA256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install reviewed task runtime and owner source
+        run: |
+          python -m pip install --no-deps --no-build-isolation .
+          python scripts/install_ai_task_client.py
+          python -m pip check
+      - name: Show the bounded interface
+        if: inputs.execute != true
+        run: python -m us_equity_strategies.research.soxl_manual_learning --help
+      - name: Run source-bound learning
+        if: inputs.execute == true
+        env:
+          LEARNING_ROOT: ${{ vars.SOXL_MANUAL_LEARNING_ROOT }}
+          CONSUMER_SOURCE: ${{ vars.SOXL_MANUAL_CONSUMER_SOURCE }}
+          UES_SOURCE: ${{ vars.SOXL_MANUAL_UES_SOURCE }}
+          MANIFEST_SHA256: ${{ vars.SOXL_MANUAL_MANIFEST_SHA256 }}
+          PARAMETER_GRID: ${{ inputs.parameter_grid }}
+          RESUME_TASK_ID: ${{ inputs.resume_task_id }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$RESUME_TASK_ID" ]]; then args+=(--resume-ai-task-id "$RESUME_TASK_ID"); fi
+          python -m us_equity_strategies.research.soxl_manual_learning --parameter-grid "$PARAMETER_GRID" --root "$LEARNING_ROOT" --consumer-source "$CONSUMER_SOURCE" --ues-source "$UES_SOURCE" --manifest-sha256 "$MANIFEST_SHA256" --output "$RUNNER_TEMP/soxl-learning-v2.json" --repository "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" --event-name "$GITHUB_EVENT_NAME" --actor "$GITHUB_ACTOR" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" "${args[@]}"

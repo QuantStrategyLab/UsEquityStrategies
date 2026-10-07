@@ -1,0 +1,36 @@
+name: SOXL Frozen Financial Explanation
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Explain the approved frozen experiment without model calls
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: soxl-financial-explanation
+  cancel-in-progress: false
+jobs:
+  explain:
+    if: github.repository == 'QuantStrategyLab/UsEquityStrategies' && github.ref == 'refs/heads/main' && vars.AI_SERVICE_RELEASE_READY == 'true'
+    runs-on: [self-hosted, research-runner]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Show the frozen interface
+        if: inputs.execute != true
+        run: python scripts/soxl_financial_explanation.py --help
+      - name: Explain the frozen experiment
+        if: inputs.execute == true
+        env:
+          P1_ROOT: ${{ vars.SOXL_P1_ROOT }}
+          UES_SOURCE: ${{ vars.SOXL_FINANCIAL_UES_SOURCE_ROOT }}
+          QPK_SOURCE: ${{ vars.SOXL_FINANCIAL_QPK_SOURCE_ROOT }}
+          RUN_ROOT: ${{ vars.SOXL_FINANCIAL_RUN_ROOT }}
+        run: |
+          set -euo pipefail
+          test -n "$P1_ROOT" && test -n "$UES_SOURCE" && test -n "$QPK_SOURCE" && test -n "$RUN_ROOT"
+          python scripts/soxl_financial_explanation.py --p1-root "$P1_ROOT" --ues-repo-root "$UES_SOURCE" --qpk-repo-root "$QPK_SOURCE" --run-root "$RUN_ROOT"
