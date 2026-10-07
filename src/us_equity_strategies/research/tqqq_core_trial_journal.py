@@ -6,6 +6,7 @@ a verified simulation/result/ledger triplet, not aggregate study qualification.
 from __future__ import annotations
 
 from dataclasses import replace
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 import hashlib
 import json
@@ -81,11 +82,61 @@ def _compute_synthetic_account_metrics(
     annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
     start_session: date | None, end_session: date | None,
 ) -> dict:
-    """Shared arithmetic for the two explicit synthetic report contracts."""
+    """Preserve the strict input boundary of both frozen synthetic contracts."""
     if not isinstance(ledger, ResearchDailyLedger):
         raise ValueError("RESEARCH_LEDGER_REQUIRED")
     if ledger.synthetic is not True:
         raise ValueError("REAL_RESEARCH_DATA_UNQUALIFIED")
+    return _compute_account_metrics(
+        ledger, calendar_id=calendar_id, contract_version=contract_version,
+        annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+
+
+def compute_historical_research_metrics(
+    ledger: ResearchDailyLedger, *, input_binding: Mapping,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+    start_session: date | None = None, end_session: date | None = None,
+) -> dict:
+    """Report historical modeled sleeves; binding is not PIT/OOS qualification.
+
+    The active Batch A CLI verifies original snapshot bytes and re-materializes
+    the pack before supplying this binding. This arithmetic-only API grants no
+    data license, source authority, promotion or execution permissions.
+    """
+    if not isinstance(ledger, ResearchDailyLedger) or ledger.synthetic is not False:
+        raise ValueError("HISTORICAL_RESEARCH_LEDGER_REQUIRED")
+    digest = input_binding.get("pack_digest") if isinstance(input_binding, Mapping) else None
+    if (not isinstance(digest, str) or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or input_binding.get("schema") != "qsl.batch-a-historical-input-binding.v1"
+            or ledger.input_id != "sha256:" + digest):
+        raise ValueError("HISTORICAL_INPUT_BINDING_INVALID")
+    report = _compute_account_metrics(
+        ledger, calendar_id="XNYS", contract_version="historical_research_account_metrics_v1",
+        annual_risk_free_rate=annual_risk_free_rate,
+        annual_minimum_acceptable_return=annual_minimum_acceptable_return,
+        start_session=start_session, end_session=end_session)
+    report.update({"data_qualified": False, "oos_qualified": False,
+                   "evidence_scope": "HISTORICAL_SOURCE_SEEN_DEVELOPMENT_MODELED_SLEEVES",
+                   "input_binding": json.loads(json.dumps(input_binding, allow_nan=False))})
+    report["evaluation_contract"].update({
+        "session_scope": "XNYS_DECLARED_BY_SNAPSHOT_NOT_INDEPENDENT_CALENDAR_OR_PIT_ATTESTATION",
+        "historical_available_at_verified": False,
+        "cash_return_policy": "ASSUMED_ZERO_USD_CASH",
+        "initial_allocation_cost": "EXCLUDED_ALREADY_INVESTED_INITIAL_NAV",
+        "trial_matrix_and_dependence_assumptions": "NOT_ESTABLISHED_SEEN_DEVELOPMENT_ONLY",
+    })
+    return report
+
+
+def _compute_account_metrics(
+    ledger: ResearchDailyLedger, *, calendar_id: str, contract_version: str,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+    start_session: date | None, end_session: date | None,
+) -> dict:
+    """One arithmetic body shared by the explicit report-only input contracts."""
     if ledger.calendar_id != calendar_id or ledger.periods_per_year != 252:
         raise ValueError("RESEARCH_BASIS_INVALID")
     rates = (annual_risk_free_rate, annual_minimum_acceptable_return)
@@ -128,7 +179,7 @@ def _compute_synthetic_account_metrics(
                               r >= annual_minimum_acceptable_return / 252 for r in returns)
                           else "NONFINITE_RESULT")
     return {
-        "research_only": True, "synthetic": True, "promotion_eligible": False,
+        "research_only": True, "synthetic": ledger.synthetic, "promotion_eligible": False,
         "live_ready": False, "size_zero_required": True, "no_order": True,
         "trial_id": ledger.trial_id, "run_id": ledger.run_id,
         "strategy_profile": ledger.strategy_profile, "input_id": ledger.input_id,

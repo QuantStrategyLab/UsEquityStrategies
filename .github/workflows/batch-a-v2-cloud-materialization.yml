@@ -57,6 +57,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
+      - name: Verify fixed historical report runtime
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from importlib.metadata import distribution
+          from us_equity_strategies.research.c3_batch_a_existing_member_baseline import report_historical_batch_a_baselines
+          from us_equity_strategies.research.tqqq_core_trial_journal import compute_historical_research_metrics
+          provenance = json.loads(distribution("quant-platform-kit").read_text("direct_url.json"))
+          if provenance.get("vcs_info", {}).get("commit_id") != "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62":
+              raise SystemExit("HISTORICAL_REPORT_QPK_PIN_MISMATCH")
+          assert callable(report_historical_batch_a_baselines) and callable(compute_historical_research_metrics)
+          print("Historical report interfaces and fixed QPK pin verified; research only.")
+          PY
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
@@ -104,6 +119,10 @@ jobs:
           set +e
           PYTHONPATH=src python scripts/run_c3_batch_a_existing_member_baseline.py \
             --frozen-member-pack "${pack_path}" \
+            --historical-account-report \
+            --snapshot-input-root "${work_root}/staging" \
+            --annual-risk-free-rate 0.0 \
+            --annual-minimum-acceptable-return 0.0 \
             > "${work_root}/comparison.json"
           compare_rc=$?
           set -e
