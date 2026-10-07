@@ -595,3 +595,46 @@ def test_initial_cash_machine_residual_is_kept() -> None:
         rel_tol=0.0,
         abs_tol=1e-9,
     )
+
+
+@pytest.mark.parametrize("fee", [0.0, 5.0, 10.0, 15.0])
+def test_historical_book_uses_existing_self_funding_math_without_synthetic_constructor(monkeypatch, fee):
+    from us_equity_strategies.research import c3_self_financing_combo_ledger as module
+    expected = _ledgers(combo_fee_bps=fee, rebalance_indices=(0, 1),
+                        fee_bearing_members=(SOXL, TQQQ))[RISK_SCALED_WITH_SYNTHETIC_COMBO_FEE]
+    monkeypatch.setattr(module, "_research_ledger", lambda **k: pytest.fail("synthetic constructor used"))
+    actual = module.build_historical_self_financing_ledger(
+        soxl_net_returns=(.10, 0.0), tqqq_net_returns=(0.0, .10),
+        initial_session_date=INITIAL, session_dates=SESSIONS, initial_capital=1000.0,
+        target_weights=TARGET, rebalance_indices=(0, 1), combo_fee_bps=fee,
+        pack_digest="d" * 64, report_id="generated-fixture-historical-protocol")
+    assert actual.synthetic is False
+    assert actual.calendar_id == "XNYS"
+    assert actual.initial_positions == expected.initial_positions
+    assert actual.initial_cash == expected.initial_cash
+    assert actual.days == expected.days
+    assert actual.total_fees == expected.total_fees
+    cash = actual.initial_cash
+    nav = actual.initial_nav
+    for day in actual.days:
+        assert day.cash == pytest.approx(cash + day.trade_net_cashflow - day.fees)
+        assert day.nav == pytest.approx(day.cash + sum(mark.valuation for mark in day.positions))
+        assert day.daily_return == day.nav / nav - 1
+        cash, nav = day.cash, day.nav
+    assert actual.total_return == pytest.approx(expected.total_return)
+
+
+def test_historical_book_drift_has_no_fictional_rebalance_cost_and_rejects_unknown_fee():
+    from us_equity_strategies.research.c3_self_financing_combo_ledger import build_historical_self_financing_ledger
+    inputs = dict(soxl_net_returns=(-.10, 0.0), tqqq_net_returns=(0.0, .10),
+                  initial_session_date=INITIAL, session_dates=SESSIONS, initial_capital=1000.0,
+                  target_weights=TARGET, rebalance_indices=(), combo_fee_bps=0.0,
+                  pack_digest="d" * 64, report_id="generated-drift-protocol")
+    actual = build_historical_self_financing_ledger(**inputs)
+    assert actual.total_fees == 0.0
+    assert actual.days[0].nav == 960.0
+    assert actual.days[1].nav == pytest.approx(1000.0)
+    with pytest.raises(ValueError, match="SELF_FINANCING_FEE_SCHEDULE_REQUIRED"):
+        build_historical_self_financing_ledger(**{**inputs, "combo_fee_bps": 5.0})
+    with pytest.raises(ValueError, match="HISTORICAL_RESEARCH_FEE_ASSUMPTION_INVALID"):
+        build_historical_self_financing_ledger(**{**inputs, "combo_fee_bps": 20.0})

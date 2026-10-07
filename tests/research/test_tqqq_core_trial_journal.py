@@ -794,3 +794,43 @@ def test_declared_session_contract_refuses_nonfinite_or_missing_rates(rate):
     with pytest.raises(ValueError, match="RESEARCH_RATE_INVALID"):
         _module().compute_declared_session_research_metrics(
             declared, annual_risk_free_rate=rate, annual_minimum_acceptable_return=0.0)
+
+
+def test_historical_metric_contract_reuses_frozen_math_without_changing_synthetic_boundary():
+    module = _module()
+    original = _metric_ledger((100.0, 90.0, 90.0, 99.0))
+    historical = replace(original, synthetic=False, input_id="sha256:" + "d" * 64)
+    binding = {"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "d" * 64}
+    rates = {"annual_risk_free_rate": .252, "annual_minimum_acceptable_return": .504}
+    actual = module.compute_historical_research_metrics(historical, input_binding=binding, **rates)
+    frozen = module.compute_synthetic_research_metrics(original, **rates)
+    assert actual["metrics"] == frozen["metrics"]
+    assert actual["metric_status"] == frozen["metric_status"]
+    assert actual["synthetic"] is False
+    assert actual["data_qualified"] is actual["oos_qualified"] is False
+    assert actual["evaluation_contract"]["version"] == "historical_research_account_metrics_v1"
+    assert actual["evaluation_contract"]["volatility_ddof"] == 1
+    assert actual["evaluation_contract"]["real_calendar_verified"] is False
+    assert actual["evaluation_contract"]["historical_available_at_verified"] is False
+    assert actual["metrics"]["cumulative_return"] == pytest.approx(-.01)
+    assert actual["metrics"]["max_drawdown"] == pytest.approx(-.1)
+    with pytest.raises(ValueError, match="REAL_RESEARCH_DATA_UNQUALIFIED"):
+        module.compute_synthetic_research_metrics(historical, **rates)
+    with pytest.raises(ValueError, match="HISTORICAL_RESEARCH_LEDGER_REQUIRED"):
+        module.compute_historical_research_metrics(original, input_binding=binding, **rates)
+    with pytest.raises(ValueError, match="HISTORICAL_INPUT_BINDING_INVALID"):
+        module.compute_historical_research_metrics(historical, input_binding={**binding, "pack_digest": "e" * 64}, **rates)
+
+
+@pytest.mark.parametrize("navs,status", [((100.0, 90.0), "INSUFFICIENT_OBSERVATIONS"),
+                                        ((100.0, 100.0, 100.0), "CONSTANT_RETURN_SAMPLE"),
+                                        ((100.0, 110.0, 132.0), "ZERO_DOWNSIDE_DEVIATION")])
+def test_historical_metric_missing_ratio_status_is_not_zero_filled(navs, status):
+    ledger = replace(_metric_ledger(navs), synthetic=False, input_id="sha256:" + "d" * 64)
+    report = _module().compute_historical_research_metrics(
+        ledger, input_binding={"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "d" * 64},
+        annual_risk_free_rate=0.0, annual_minimum_acceptable_return=0.0)
+    assert report["metrics"]["sortino"] is None
+    assert report["metric_status"]["sortino"] == status
+    assert report["metrics"]["dsr"] is report["metrics"]["pbo"] is None
+    assert report["promotion_eligible"] is report["live_ready"] is False

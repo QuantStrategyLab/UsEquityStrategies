@@ -506,3 +506,150 @@ def test_cli_wires_capital_path_and_reports_gaps(
     parked_payload = json.loads(capsys.readouterr().out)
     assert parked_payload["status"] == "PARKED"
     assert "NEED_EXPLICIT_REBALANCE_SCHEDULE_INDICES" in parked_payload["reason_codes"]
+
+
+@pytest.fixture
+def historical_sources(tmp_path: Path):
+    """Generated protocol data only; never financial or calendar evidence."""
+    import runpy
+
+    from us_equity_strategies.research.batch_a_dataset import load_price_snapshot_v2
+    from us_equity_strategies.research.batch_a_member_pack import materialize_batch_a_member_pack
+
+    fixture = runpy.run_path(str(Path(__file__).with_name("test_batch_a_v2_contracts.py")))
+    dates = fixture["_dates"](240)
+    staging = tmp_path / "generated-staging"
+    staging.mkdir()
+    snapshots = []
+    for name, symbols in (("soxl_soxx", ("SOXL", "SOXX")), ("tqqq_qqq", ("TQQQ", "QQQ"))):
+        root = fixture["_write_dataset"](
+            staging, dataset_id="batch-fixture/" + name, symbols=symbols, dates=dates)
+        root.rename(staging / name)
+        snapshots.append(load_price_snapshot_v2(staging / name))
+    pack = materialize_batch_a_member_pack(soxl_snapshot=snapshots[0], tqqq_snapshot=snapshots[1])
+    pack_path = tmp_path / "generated-pack.json"
+    pack_path.write_text(json.dumps(pack), encoding="utf-8")
+    return staging, snapshots, pack, pack_path, dates
+
+
+def _historical_result(sources):
+    from us_equity_strategies.research.c3_batch_a_existing_member_baseline import (
+        report_historical_batch_a_baselines,
+    )
+
+    _, snapshots, pack, _, _ = sources
+    return report_historical_batch_a_baselines(
+        frozen_member_pack=pack, soxl_snapshot=snapshots[0], tqqq_snapshot=snapshots[1],
+        annual_risk_free_rate=0.0, annual_minimum_acceptable_return=0.0)
+
+
+def _historical_cli_args(sources):
+    staging, _, _, pack_path, _ = sources
+    return ["--frozen-member-pack", str(pack_path), "--historical-account-report",
+            "--snapshot-input-root", str(staging), "--annual-risk-free-rate", "0",
+            "--annual-minimum-acceptable-return", "0"]
+
+
+def test_historical_actual_consumer_preserves_legacy_and_declares_assumptions(historical_sources):
+    result = _historical_result(historical_sources)
+    report = result.pop("historical_account_report")
+    legacy = evaluate_batch_a_existing_member_baselines(frozen_member_pack=historical_sources[2])
+    result.pop("evidence_digest")
+    legacy.pop("evidence_digest")
+    assert result == legacy
+    assert report["synthetic"] is False
+    assert report["window_role"] == "SEEN_DEVELOPMENT"
+    assert report["data_qualified"] is report["oos_qualified"] is False
+    assert report["execution_authorized"] is report["promotion_authorized"] is False
+    assert report["input_binding"]["independent_calendar_authority_verified"] is False
+    assert report["input_binding"]["historical_available_at_verified"] is False
+    assumptions = report["assumptions"]
+    assert assumptions["combo_fee_bps"] == [0.0, 5.0, 10.0, 15.0]
+    assert assumptions["fees_are_actual_quotes"] is False
+    assert assumptions["cash_return_policy"] == CASH_RETURN_POLICY
+    assert assumptions["member_costs"] == "TYPED_BASELINE_ZERO"
+    assert len(report["baselines"]) == 4
+    assert len(report["standalone"]) == 3
+    for baseline in report["baselines"]:
+        assert len(baseline["books"]) == 7
+        assert baseline["books"]["raw_drift"]["total_combo_fees"] == 0
+        fees = [baseline["books"][f"risk_scaled_month_end_fee_{bps}bps"]["total_combo_fees"]
+                for bps in (0, 5, 10, 15)]
+        assert fees[0] == 0 < fees[1] < fees[2] < fees[3]
+        metrics = baseline["books"]["raw_drift"]["metric_report"]
+        assert metrics["evaluation_contract"]["periods_per_year"] == 252
+        assert metrics["evaluation_contract"]["volatility_ddof"] == 1
+        source_dates = historical_sources[4]
+        first_index = source_dates.index(metrics["start_session"])
+        assert metrics["initial_session"] == source_dates[first_index - 1]
+    json.dumps(report, allow_nan=False)
+
+
+def test_historical_original_cli_emits_only_aggregate_reports(historical_sources, capsys):
+    assert batch_a_cli.main(_historical_cli_args(historical_sources)) == 0
+    output = capsys.readouterr().out
+    report = json.loads(output)["historical_account_report"]
+    assert report["status"] == "COMPUTED"
+    assert report["input_binding"]["pack_digest"] == historical_sources[2]["pack_digest"]
+    assert "daily_returns" not in output
+    assert '"positions"' not in output
+    assert str(historical_sources[0]) not in output
+
+
+def test_historical_cli_refuses_changed_source_without_partial_report(historical_sources, capsys):
+    source = historical_sources[0] / "soxl_soxx" / "prices.csv"
+    source.write_bytes(source.read_bytes() + b"tampered\n")
+    assert batch_a_cli.main(_historical_cli_args(historical_sources)) == 2
+    output = capsys.readouterr().out
+    report = json.loads(output)
+    assert report["reason_codes"] == ["HISTORICAL_ACCOUNT_REPORT_REFUSED"]
+    assert report["batch_a_accepted"] is report["data_qualified"] is report["oos_qualified"] is False
+    assert "historical_account_report" not in report
+    assert str(source) not in output
+
+
+def test_historical_cli_requires_original_object_identity(historical_sources, capsys):
+    identity = historical_sources[0] / "soxl_soxx" / "object_identity.json"
+    identity.unlink()
+    assert batch_a_cli.main(_historical_cli_args(historical_sources)) == 2
+    assert json.loads(capsys.readouterr().out)["reason_codes"] == ["HISTORICAL_ACCOUNT_REPORT_REFUSED"]
+
+
+def test_historical_cli_refuses_failed_fee_path_atomically(historical_sources, capsys, monkeypatch):
+    from us_equity_strategies.research import c3_self_financing_combo_ledger as ledger_module
+
+    original = ledger_module.build_historical_self_financing_ledger
+
+    def fail_fee_path(**kwargs):
+        if kwargs["combo_fee_bps"] > 0:
+            raise ArithmeticError("private-source-must-not-be-echoed")
+        return original(**kwargs)
+
+    monkeypatch.setattr(ledger_module, "build_historical_self_financing_ledger", fail_fee_path)
+    assert batch_a_cli.main(_historical_cli_args(historical_sources)) == 2
+    output = capsys.readouterr().out
+    assert "private-source" not in output
+    assert "historical_account_report" not in json.loads(output)
+
+
+def test_historical_refuses_unbound_contract_pack_and_nonfinite_rates(historical_sources):
+    from us_equity_strategies.research.c3_batch_a_existing_member_baseline import (
+        report_historical_batch_a_baselines,
+    )
+
+    _, snapshots, pack, _, _ = historical_sources
+    kwargs = {"soxl_snapshot": snapshots[0], "tqqq_snapshot": snapshots[1],
+              "annual_risk_free_rate": 0.0, "annual_minimum_acceptable_return": 0.0}
+    with pytest.raises(ValueError, match="HISTORICAL_PACK_SOURCE_MISMATCH"):
+        report_historical_batch_a_baselines(frozen_member_pack=_contract_pack(), **kwargs)
+    for rate in (math.nan, math.inf, True):
+        with pytest.raises(ValueError, match="RESEARCH_RATE_INVALID"):
+            report_historical_batch_a_baselines(
+                frozen_member_pack=pack, **{**kwargs, "annual_risk_free_rate": rate})
+
+
+def test_historical_cli_requires_opt_in_and_complete_inputs(historical_sources, capsys):
+    assert batch_a_cli.main(["--snapshot-input-root", str(historical_sources[0])]) == 2
+    assert json.loads(capsys.readouterr().out)["reason_codes"] == ["HISTORICAL_REPORT_OPT_IN_REQUIRED"]
+    assert batch_a_cli.main(["--historical-account-report"]) == 2
+    assert json.loads(capsys.readouterr().out)["reason_codes"] == ["HISTORICAL_ACCOUNT_REPORT_REFUSED"]

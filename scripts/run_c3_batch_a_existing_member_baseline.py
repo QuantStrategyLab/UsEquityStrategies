@@ -20,6 +20,7 @@ from typing import Sequence
 
 from us_equity_strategies.research.c3_batch_a_existing_member_baseline import (
     evaluate_batch_a_existing_member_baselines,
+    report_historical_batch_a_baselines,
 )
 
 
@@ -113,6 +114,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--historical-account-report", action="store_true",
+        help="Opt-in source-bound seen-development control with 0/5/10/15bps combo assumptions, not qualification.",
+    )
+    parser.add_argument("--snapshot-input-root", type=Path, default=None,
+                        help="Original cloud staging root; historical report revalidates snapshots and the pack.")
+    parser.add_argument("--annual-risk-free-rate", type=float, default=None)
+    parser.add_argument("--annual-minimum-acceptable-return", type=float, default=None)
+    parser.add_argument(
         "--private-root",
         type=Path,
         default=None,
@@ -143,7 +152,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     capital_path_options = _capital_path_options_from_args(args)
     if capital_path_options is not None:
         kwargs["capital_path_options"] = capital_path_options
-    result = evaluate_batch_a_existing_member_baselines(**kwargs)
+    if args.historical_account_report:
+        from us_equity_strategies.research.batch_a_dataset import load_price_snapshot_v2
+        try:
+            if (pack is None or args.snapshot_input_root is None
+                    or args.annual_risk_free_rate is None or args.annual_minimum_acceptable_return is None
+                    or capital_path_options is not None):
+                raise ValueError("HISTORICAL_REPORT_INPUTS_REQUIRED")
+            result = report_historical_batch_a_baselines(
+                frozen_member_pack=pack,
+                soxl_snapshot=load_price_snapshot_v2(
+                    args.snapshot_input_root / "soxl_soxx",
+                    identity_path=args.snapshot_input_root / "soxl_soxx" / "object_identity.json"),
+                tqqq_snapshot=load_price_snapshot_v2(
+                    args.snapshot_input_root / "tqqq_qqq",
+                    identity_path=args.snapshot_input_root / "tqqq_qqq" / "object_identity.json"),
+                annual_risk_free_rate=args.annual_risk_free_rate,
+                annual_minimum_acceptable_return=args.annual_minimum_acceptable_return)
+        except (ValueError, TypeError, ArithmeticError):
+            # Never echo private paths, provider bodies or an arbitrary exception.
+            result = {"status": "PARKED", "reason_codes": ["HISTORICAL_ACCOUNT_REPORT_REFUSED"],
+                      "research_only": True, "execution_authorized": False,
+                      "promotion_authorized": False, "no_order": True,
+                      "data_qualified": False, "oos_qualified": False, "batch_a_accepted": False}
+    elif (args.snapshot_input_root is not None or args.annual_risk_free_rate is not None
+          or args.annual_minimum_acceptable_return is not None):
+        result = {"status": "PARKED", "reason_codes": ["HISTORICAL_REPORT_OPT_IN_REQUIRED"],
+                  "batch_a_accepted": False, "execution_authorized": False, "no_order": True}
+    else:
+        result = evaluate_batch_a_existing_member_baselines(**kwargs)
     print(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False))
     if result.get("status") == "READY_RESEARCH_ONLY" and result.get("batch_a_accepted") is True:
         return 0

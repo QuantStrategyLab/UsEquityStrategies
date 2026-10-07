@@ -89,3 +89,20 @@ def test_batch_a_v2_cloud_materialization_workflow_is_manual_default_branch_read
     assert "CODEX_AUDIT" not in workflow
     assert "--execute" not in workflow
     assert "acquire_batch_a" not in workflow
+
+
+def test_cloud_workflow_consumes_historical_report_and_verifies_runtime_before_auth():
+    # CLI behavior is exercised separately using generated snapshots; this check
+    # binds the actual cloud caller to that tested opt-in and prior staging.
+    text = WORKFLOW.read_text()
+    assert "--historical-account-report" in text
+    assert '--snapshot-input-root "${work_root}/staging"' in text
+    assert "--annual-risk-free-rate 0.0" in text
+    assert "--annual-minimum-acceptable-return 0.0" in text
+    assert "report_historical_batch_a_baselines" in text
+    assert "compute_historical_research_metrics" in text
+    assert "62bcd5f6d5e236c315a7383ddf7b35e2aac30b62" in text
+    assert text.index("Verify fixed historical report runtime") < text.index("Authenticate to Google Cloud")
+    assert "--apply-risk-scaling" not in text  # Separate original approximation remains opt-in.
+    assert "--synthetic" not in text
+    assert "upload-artifact" not in text
