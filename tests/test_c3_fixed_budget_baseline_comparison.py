@@ -1,6 +1,16 @@
 from __future__ import annotations
 
 import math
+from datetime import date
+from dataclasses import replace
+from copy import deepcopy
+
+import pytest
+
+from us_equity_strategies.research import c3_fixed_budget_baseline_comparison as comparison
+from us_equity_strategies.research.c3_self_financing_combo_ledger import (
+    build_soxl_tqqq_self_financing_ledgers,
+)
 
 from us_equity_strategies.portfolio_risk_budget import (
     PortfolioAssetRiskSpec,
@@ -59,6 +69,189 @@ POLICY = PortfolioRiskBudgetPolicy(
     max_symbol_weights={"SOXL": 0.40, "TQQQ": 0.40},
     max_underlying_effective_exposure={"SEMICONDUCTOR": 1.2, "NASDAQ100": 1.2},
 )
+
+
+COMBO_INPUTS = {
+    "soxl_net_returns": (-0.1, 0.0, 0.1),
+    "tqqq_net_returns": (0.0, 0.1, -0.1),
+    "initial_session_date": date(2026, 1, 2),
+    "session_dates": (date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)),
+    "initial_capital": 1_000.0,
+}
+
+
+def _combo_baseline(identity, soxl, tqqq, cash=0.0, scalar=0.5, **overrides):
+    declaration = {"target_weights": {"SOXL": soxl, "TQQQ": tqqq, "CASH": cash},
+                   "risk_scalar": scalar, "rebalance_indices": (1,),
+                   "combo_fee_bps": 100.0, "fee_bearing_members": ("SOXL", "TQQQ")}
+    declaration.update(overrides)
+    return {"baseline_id": identity, **declaration,
+            "ledgers": build_soxl_tqqq_self_financing_ledgers(**COMBO_INPUTS, **declaration)}
+
+
+def _combo_report(**overrides):
+    inputs = {**COMBO_INPUTS, "as_of": COMBO_INPUTS["session_dates"][-1],
+              "baselines": (_combo_baseline("balanced_50_50", 0.5, 0.5),
+                            _combo_baseline("soxl_heavy_60_40", 0.6, 0.4)),
+              "asset_risk_specs": SPECS, "risk_policy": POLICY,
+              "annual_risk_free_rate": 0.252, "annual_minimum_acceptable_return": 0.504}
+    return comparison.report_self_financing_combo_baselines(**{**inputs, **overrides})
+
+
+def test_self_financing_report_consumes_actual_three_ledgers_and_preserves_legacy():
+    members = (_member("soxl_core", (0.01, -0.02, 0.03, 0.00)),
+               _member("tqqq_core", (0.02, -0.01, 0.01, -0.01)))
+    baselines = (_baseline("balanced_50_50", 0.5, 0.5), _baseline("soxl_heavy_60_40", 0.6, 0.4))
+    legacy = compare_fixed_member_budget_baselines(members=members, baselines=baselines)
+    report = _combo_report()
+    assert report["schema_version"] == "qsl.c3-self-financing-baseline-metric-report.v1"
+    assert report["promotion_authorized"] is report["execution_authorized"] is False
+    assert report["synthetic"] is report["no_order"] is True
+    assert [item["baseline_id"] for item in report["baselines"]] == ["balanced_50_50", "soxl_heavy_60_40"]
+    for item in report["baselines"]:
+        assert set(item["books"]) == {"raw_fixed_budget", "risk_scaled", "risk_scaled_with_synthetic_combo_fee"}
+        for book in item["books"].values():
+            contract = book["metric_report"]["evaluation_contract"]
+            assert contract["version"] == "synthetic_declared_session_account_metrics_v1"
+            assert contract["calendar_id"] == "synthetic_declared_sessions"
+            assert contract["volatility_ddof"] == 1
+            assert contract["real_calendar_verified"] is False
+    assert compare_fixed_member_budget_baselines(members=members, baselines=baselines) == legacy
+
+
+def test_combo_report_hand_net_nav_fees_cash_and_signed_ratios_once():
+    baselines = (_combo_baseline("balanced_50_50", 0.5, 0.5), _combo_baseline("soxl_heavy_60_40", 0.6, 0.4))
+    before = deepcopy(baselines)
+    report = _combo_report(baselines=baselines)
+    balanced = report["baselines"][0]
+    assert balanced["risk_diagnosis"]["status"] == "REDUCE"
+    assert balanced["scaled_target_weights"] == {"SOXL": 0.25, "TQQQ": 0.25, "CASH": 0.5}
+    assert balanced["books"]["raw_fixed_budget"]["terminal_nav"] == pytest.approx(1000.0)
+    assert balanced["books"]["risk_scaled"]["terminal_nav"] == pytest.approx(1000.0)
+    charged = balanced["books"]["risk_scaled_with_synthetic_combo_fee"]
+    assert charged["terminal_nav"] == pytest.approx(999.5)
+    assert charged["initial_cash"] == pytest.approx(500.0)
+    assert charged["terminal_cash"] == pytest.approx(499.75)
+    assert charged["total_fees"] == pytest.approx(0.5)
+    metrics = charged["metric_report"]["metrics"]
+    assert metrics["cumulative_return"] == pytest.approx(-0.0005)
+    assert metrics["max_drawdown"] == pytest.approx(-0.025)
+    returns = (-0.025, 999.5 / 975.0 - 1.0, 0.0)
+    mean = sum(returns) / 3
+    std = math.sqrt(sum((r - mean) ** 2 for r in returns) / 2)
+    shortfall = math.sqrt(sum(min(r - 0.002, 0.0) ** 2 for r in returns) / 3)
+    assert metrics["sharpe"] == pytest.approx((mean - 0.001) / std * math.sqrt(252))
+    assert metrics["sortino"] == pytest.approx((mean - 0.002) / shortfall * math.sqrt(252))
+    assert metrics["sharpe"] < 0 and metrics["sortino"] < 0
+    assert metrics["cagr"] == pytest.approx((999.5 / 1000.0) ** (252 / 3) - 1)
+    for declared, output in zip(baselines, report["baselines"], strict=True):
+        for name, ledger in declared["ledgers"].items():
+            previous_cash = ledger.initial_cash
+            for day in ledger.days:
+                assert day.cash == pytest.approx(previous_cash + day.trade_net_cashflow - day.fees)
+                assert day.nav == pytest.approx(day.cash + sum(mark.valuation for mark in day.positions))
+                previous_cash = day.cash
+            assert output["books"][name]["metric_report"]["metrics"]["cumulative_return"] == pytest.approx(ledger.total_return)
+    assert baselines == before
+    assert _combo_report(baselines=baselines) == report
+
+
+def test_combo_report_retains_drift_without_free_rebalance():
+    baselines = (_combo_baseline("balanced_50_50", 0.5, 0.5, rebalance_indices=(), combo_fee_bps=0.0, fee_bearing_members=()),
+                 _combo_baseline("soxl_heavy_60_40", 0.6, 0.4, rebalance_indices=(), combo_fee_bps=0.0, fee_bearing_members=()))
+    drift = _combo_report(baselines=baselines)["baselines"][0]["books"]
+    assert drift["raw_fixed_budget"]["terminal_nav"] == pytest.approx(990.0)
+    assert drift["risk_scaled"]["terminal_nav"] == pytest.approx(995.0)
+    assert drift["risk_scaled_with_synthetic_combo_fee"]["terminal_nav"] == pytest.approx(995.0)
+    assert all(book["total_fees"] == 0 for book in drift.values())
+    ledger = baselines[0]["ledgers"]["raw_fixed_budget"]
+    assert [mark.quantity for mark in ledger.days[1].positions] == [mark.quantity for mark in ledger.initial_positions]
+    assert ledger.days[1].positions[0].valuation / ledger.days[1].nav != 0.5
+
+
+def test_combo_report_all_cash_and_single_leg_are_legal_declared_budgets():
+    cash = (_combo_baseline("cash_a", 0.0, 0.0, 1.0, scalar=1.0),
+            _combo_baseline("cash_b", 0.0, 0.0, 1.0, scalar=1.0))
+    for baseline in _combo_report(baselines=cash)["baselines"]:
+        assert baseline["risk_diagnosis"]["status"] == "APPROVE"
+        for book in baseline["books"].values():
+            assert book["initial_cash"] == book["terminal_cash"] == 1000.0
+            assert book["total_fees"] == 0.0
+            assert book["metric_report"]["metrics"]["cumulative_return"] == 0.0
+            assert book["metric_report"]["metrics"]["sharpe"] is None
+    single = (_combo_baseline("soxl_only", 1.0, 0.0, scalar=0.4),
+              _combo_baseline("tqqq_only", 0.0, 1.0, scalar=0.4))
+    for baseline in _combo_report(baselines=single)["baselines"]:
+        assert baseline["scaled_target_weights"]["CASH"] == pytest.approx(0.6)
+        assert baseline["books"]["risk_scaled"]["initial_cash"] == 600.0
+
+
+@pytest.mark.parametrize("change,reason", [
+    ("missing_book", "COMBO_TYPED_THREE_LEDGERS_REQUIRED"),
+    ("raw_dict", "COMBO_TYPED_THREE_LEDGERS_REQUIRED"),
+    ("missing_session", "COMBO_LEDGER_DECLARATION_MISMATCH"),
+    ("wrong_fee", "COMBO_LEDGER_DECLARATION_MISMATCH"),
+    ("wrong_rebalance", "COMBO_LEDGER_DECLARATION_MISMATCH"),
+    ("wrong_weights", "COMBO_LEDGER_DECLARATION_MISMATCH"),
+    ("unscaled_risk", "COMBO_RISK_SCALAR_MISMATCH"),
+    ("missing_member", "SELF_FINANCING_WEIGHT_INVALID"),
+    ("wrong_calendar", "COMBO_LEDGER_DECLARATION_MISMATCH"),
+    ("real_classification", "COMBO_LEDGER_DECLARATION_MISMATCH"),
+])
+def test_combo_report_refuses_incomplete_or_mismatched_ledger_and_risk_declarations(change, reason):
+    baseline = _combo_baseline("balanced_50_50", 0.5, 0.5)
+    if change == "missing_book":
+        baseline["ledgers"].pop("risk_scaled")
+    elif change == "raw_dict":
+        baseline["ledgers"]["risk_scaled"] = {}
+    elif change == "missing_session":
+        ledger = baseline["ledgers"]["risk_scaled"]
+        baseline["ledgers"]["risk_scaled"] = replace(ledger, days=ledger.days[:-1])
+    elif change == "wrong_fee":
+        baseline["combo_fee_bps"] = 10.0
+    elif change == "wrong_rebalance":
+        baseline["rebalance_indices"] = (2,)
+    elif change == "wrong_weights":
+        baseline["target_weights"] = {"SOXL": 0.6, "TQQQ": 0.4, "CASH": 0.0}
+    elif change == "unscaled_risk":
+        baseline = _combo_baseline("balanced_50_50", 0.5, 0.5, scalar=1.0)
+    elif change in {"wrong_calendar", "real_classification"}:
+        ledger = baseline["ledgers"]["risk_scaled"]
+        baseline["ledgers"]["risk_scaled"] = replace(
+            ledger, **({"calendar_id": "XNYS"} if change == "wrong_calendar" else {"synthetic": False}))
+    else:
+        baseline["target_weights"].pop("TQQQ")
+    before = deepcopy(baseline)
+    with pytest.raises(ValueError, match=reason):
+        _combo_report(baselines=(baseline, _combo_baseline("soxl_heavy_60_40", 0.6, 0.4)))
+    assert baseline == before
+
+
+@pytest.mark.parametrize("overrides,reason", [
+    ({"as_of": date(2026, 1, 6)}, "COMBO_SESSION_CUTOFF_INVALID"),
+    ({"session_dates": (date(2026, 1, 6), date(2026, 1, 5), date(2026, 1, 7))}, "SELF_FINANCING_DATE_MISALIGNED"),
+    ({"session_dates": (date(2026, 1, 5), date(2026, 1, 5), date(2026, 1, 7))}, "SELF_FINANCING_DATE_MISALIGNED"),
+    ({"tqqq_net_returns": (0.0, 0.1)}, "SELF_FINANCING_RETURN_LENGTH_MISMATCH"),
+    ({"soxl_net_returns": (None, 0.0, 0.1)}, "SELF_FINANCING_RETURN_INVALID"),
+    ({"soxl_net_returns": (float("nan"), 0.0, 0.1)}, "SELF_FINANCING_RETURN_INVALID"),
+    ({"tqqq_net_returns": (0.0, float("inf"), -0.1)}, "SELF_FINANCING_RETURN_INVALID"),
+    ({"annual_risk_free_rate": float("nan")}, "RESEARCH_RATE_INVALID"),
+])
+def test_combo_report_refuses_future_late_missing_or_invalid_common_inputs(overrides, reason):
+    with pytest.raises((ValueError, TypeError), match=reason):
+        _combo_report(**overrides)
+
+
+def test_combo_report_requires_two_unique_baselines_and_parks_no_failed_subset():
+    first = _combo_baseline("balanced_50_50", 0.5, 0.5)
+    with pytest.raises(ValueError, match="BASELINES_REQUIRED"):
+        _combo_report(baselines=(first,))
+    with pytest.raises(ValueError, match="BASELINE_IDS_NOT_UNIQUE_SORTED"):
+        _combo_report(baselines=(first, first))
+    invalid = _combo_baseline("soxl_heavy_60_40", 0.6, 0.4)
+    invalid["ledgers"].pop("raw_fixed_budget")
+    with pytest.raises(ValueError, match="COMBO_TYPED_THREE_LEDGERS_REQUIRED"):
+        _combo_report(baselines=(first, invalid))
 
 
 def test_compares_two_fixed_budgets_without_authorizing_execution() -> None:

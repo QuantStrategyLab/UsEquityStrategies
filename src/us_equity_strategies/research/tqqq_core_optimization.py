@@ -395,10 +395,104 @@ def _invalid(code: str, *, trial_manifest: dict[str, Any] | None = None) -> dict
     }
 
 
-def run_tqqq_core_optimization(source: object, *, plugin_control: object = PLUGIN_CONTROL, expected_input_digest: str = EXPECTED_INPUT_DIGEST) -> dict[str, Any]:
-    """Evaluate the three frozen candidates; this result has no adoption authority."""
-    return _run_tqqq_core_optimization(source, plugin_control=plugin_control,
-        expected_input_digest=expected_input_digest, simulate=simulate_candidate)
+def run_tqqq_core_optimization(
+    source: object, *, plugin_control: object = PLUGIN_CONTROL,
+    expected_input_digest: str = EXPECTED_INPUT_DIGEST,
+    include_synthetic_metrics: bool = False, synthetic: bool = False,
+    annual_risk_free_rate: float | None = None,
+    annual_minimum_acceptable_return: float | None = None,
+) -> dict[str, Any]:
+    """Evaluate frozen candidates, optionally reporting existing net paths.
+
+    The separate synthetic report uses the frozen XNYS/252 evaluation contract
+    and explicit annual simple rf/MAR. It never enters selection, eligibility
+    or historical v1 metrics. The simulation runs once per original slot.
+    Synthetic dates are caller declarations, not calendar/PIT attestations.
+    """
+    if type(include_synthetic_metrics) is not bool:
+        _fail("RESEARCH_METRIC_OPT_IN_INVALID")
+    if not include_synthetic_metrics:
+        if annual_risk_free_rate is not None or annual_minimum_acceptable_return is not None:
+            _fail("RESEARCH_METRIC_OPT_IN_REQUIRED")
+        return _run_tqqq_core_optimization(source, plugin_control=plugin_control,
+            expected_input_digest=expected_input_digest, simulate=simulate_candidate)
+    if synthetic is not True:
+        _fail("REAL_RESEARCH_DATA_UNQUALIFIED")
+    rates = (annual_risk_free_rate, annual_minimum_acceptable_return)
+    if any(type(rate) not in (int, float) or not math.isfinite(rate) for rate in rates):
+        _fail("RESEARCH_RATE_INVALID")
+    paths = {}
+
+    def capture(src, window, scenario):
+        points = simulate_candidate(src, window, scenario)
+        paths[(window, scenario.scenario_id)] = points
+        return points
+
+    result = _run_tqqq_core_optimization(source, plugin_control=plugin_control,
+        expected_input_digest=expected_input_digest, simulate=capture)
+    report = {
+        "report_profile": "tqqq_core_optimization_metric_report_v1",
+        "research_only": True, "synthetic": True, "data_qualified": False,
+        "promotion_authorized": False, "execution_authorized": False,
+        "scope": "ALL_ORIGINAL_CANDIDATES_COST_SCENARIOS_FULL_PATHS_AND_NON_EMBARGO_WINDOWS",
+        "selection_uses_report": False, "status": "NOT_COMPUTED",
+        "reason_code": "SOURCE_EVALUATION_INVALID", "windows": {},
+        "source_attempts": result["trial_manifest"]["attempts"],
+    }
+    if result["evidence_valid"]:
+        try:
+            report["windows"] = _synthetic_candidate_metric_reports(
+                source, paths, annual_risk_free_rate, annual_minimum_acceptable_return)
+            report.update(status="COMPUTED", reason_code="")
+        except ValueError:
+            # Preserve the frozen evaluation and every attempt if the additional
+            # accounting report fails; never substitute a successful metric.
+            report.update(status="FAILED", reason_code="METRIC_REPORT_ACCOUNTING_INVALID")
+    result["synthetic_metric_report"] = report
+    return result
+
+
+def _synthetic_candidate_metric_reports(source, paths, annual_rf, annual_mar) -> dict:
+    """Reuse the journal's verified fractional-share ledger, without persistence."""
+    from datetime import date, datetime, timezone
+    from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialRecord, ResearchTrialStatus
+    from .tqqq_core_trial_journal import _build_ledger, compute_synthetic_research_metrics
+
+    rows, _ = _typed_rows(source, EXPECTED_INPUT_DIGEST)
+    reports = {}
+    for window in CANDIDATE_WINDOWS:
+        reports[str(window)] = {}
+        for scenario in SCENARIOS:
+            trial_id = f"synthetic-core-report:sma{window}:{scenario.scenario_id}"
+            params = {"window_days": window, "scenario_id": scenario.scenario_id,
+                      "initial_equity_usd": INITIAL_EQUITY,
+                      "commission_bps": scenario.commission_bps, "slippage_bps": scenario.slippage_bps}
+            started = ResearchTrialRecord(
+                trial_id=trial_id, domain="us_equity", strategy_profile="tqqq_core_optimization_metric_report_v1",
+                status=ResearchTrialStatus.STARTED, candidate_config_id=trial_id,
+                actual_params=params, param_set_id=trial_id, source_revision=source.source_revision,
+                input_id="sha256:" + hashlib.sha256(source.canonical_bytes).hexdigest(),
+                window_start=date.fromisoformat(rows[window - 1].as_of),
+                window_end=date.fromisoformat(rows[-1].as_of), calendar_id="XNYS", periods_per_year=252.0,
+                cost_source="synthetic_frozen_sma_commission_slippage_bps",
+                cost_inputs={"commission_bps": float(scenario.commission_bps),
+                             "slippage_bps": float(scenario.slippage_bps)},
+                reason_code="", synthetic=True, run_id=None, param_version=None,
+                research_identity={"candidate_kind": "research_only_strategy",
+                                   "data_qualified": False, "synthetic": True})
+            _, ledger = _build_ledger(source, started, paths[(window, scenario.scenario_id)],
+                                      datetime.now(timezone.utc).isoformat())
+            reports[str(window)][scenario.scenario_id] = {
+                name: compute_synthetic_research_metrics(
+                    ledger, annual_risk_free_rate=annual_rf,
+                    annual_minimum_acceptable_return=annual_mar,
+                    start_session=date.fromisoformat(rows[start].as_of),
+                    end_session=date.fromisoformat(rows[end].as_of))
+                for name, start, end in WINDOW_SPECS if "EMBARGO" not in name
+            }
+            reports[str(window)][scenario.scenario_id]["FULL_PATH"] = compute_synthetic_research_metrics(
+                ledger, annual_risk_free_rate=annual_rf, annual_minimum_acceptable_return=annual_mar)
+    return reports
 
 
 def _run_tqqq_core_optimization(source: object, *, plugin_control: object,
