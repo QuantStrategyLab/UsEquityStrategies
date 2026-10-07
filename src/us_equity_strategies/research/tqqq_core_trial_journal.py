@@ -28,6 +28,93 @@ from . import tqqq_typed_baseline_result as baseline
 PROFILE = "tqqq_core_optimization_sma_journal_v1"
 
 
+def _evaluation_contract() -> dict:
+    """Describe this caller's existing calculations, not new scoring or qualification.
+
+    The executing implementation hashes bind this description to the evaluator.
+    Synthetic characterization tests check its numeric and decision semantics.
+    Configured bootstrap counts are not attestations that evaluation completed.
+    """
+    return {
+        "version": "tqqq_sma_evaluation_contract_v1",
+        "scope": "THIS_SYNTHETIC_JOURNALED_CALLER_ONLY",
+        "source_functions": ["core._window_metrics", "core._five_metric_winner",
+                             "core._eligibility", "core._terminal_loss_probability",
+                             "_build_ledger"],
+        "sample": {
+            "unit": "STRATEGY_ACCOUNT_SESSION_SIMPLE_NET_RETURN",
+            "return_unit": "SIGNED_DECIMAL_FRACTION", "currency": "USD",
+            "zero_return_sessions": "INCLUDED", "initial_nav_is_return_observation": False,
+            "effective_independent_observations": None,
+            "effective_sample_size_status": "NOT_ESTIMATED",
+            "minimum_window_observations": 2,
+            "insufficient_window_behavior": "NO_VALID_WINDOW_RESULT",
+        },
+        "timing": {"signal": "PREVIOUS_SESSION_QQQ_CLOSE_INCLUSIVE_SMA",
+                   "execution": "NEXT_TQQQ_OPEN", "valuation": "SOURCE_SESSION_CLOSE",
+                   "calendar_id": "XNYS", "real_calendar_verified": False},
+        "cost": {
+            "parameter_unit": "BASIS_POINTS_DIVIDED_BY_10000",
+            "amount_unit": "USD", "net_nav_costs_deducted_again": False,
+            "total_cost": "COMMISSION_PLUS_SLIPPAGE_IMPACT_VS_OPEN",
+            "ledger_fees": "COMMISSION_ONLY_SLIPPAGE_ALREADY_IN_TRADE_CASHFLOW",
+            "cash_interest": "NOT_ACCRUED_IN_FROZEN_MODEL",
+            "external_flows": "NONE_IN_CLOSED_RESEARCH_MODEL",
+            "corporate_actions": "NOT_ACTION_COMPLETE",
+            "financing_market_impact_fx": "NOT_SEPARATELY_MODELED",
+        },
+        "rf": {"status": "NOT_USED", "reason": "NO_EXCESS_RETURN_METRIC_COMPUTED"},
+        "mar": {"status": "NOT_USED", "reason": "NO_DOWNSIDE_RATIO_COMPUTED"},
+        "volatility": {"ddof": 1, "periods_per_year": 252,
+                       "annualization": "SQRT_PERIODS_PER_YEAR"},
+        "journal_cagr": {"basis": "NET_NAV_RATIO_POWER_252_OVER_RETURN_OBSERVATIONS",
+                         "role": "REPORT"},
+        "drawdown": {"initial_nav_included": True, "unit": "NONPOSITIVE_DECIMAL_RETURN",
+                     "recovery_duration": "NOT_COMPUTED"},
+        "expected_shortfall_95": {
+            "method": "MEAN_OF_LOWEST_CEIL_N_TIMES_0_05_SESSION_RETURNS",
+            "nominal_tail_fraction": 0.05, "sign": "SIGNED_RETURN_LOWER_IS_WORSE",
+            "tail_count_source": "WINDOW_EXPECTED_SHORTFALL_95_EVIDENCE",
+        },
+        "trade_count": "POSITION_STATE_TRANSITIONS_NOT_PAIRED_ROUND_TRIPS",
+        "uncomputed_metrics": ["sharpe", "sortino", "dsr", "pbo"],
+        "undefined_policy": "NO_ZERO_FILL_FOR_ABSENT_UNDEFINED_OR_INSUFFICIENT_METRICS",
+        "metric_roles": {
+            "cumulative_return": ["REPORT", "PARETO_COMPARISON", "ELIGIBILITY_VETO"],
+            "max_drawdown": ["REPORT", "PARETO_COMPARISON"],
+            "annualized_volatility": ["REPORT", "PARETO_COMPARISON"],
+            "expected_shortfall_95": ["REPORT", "PARETO_COMPARISON"],
+            "stress_cumulative_return": ["REPORT", "STRESS_COMPARISON", "ELIGIBILITY_VETO"],
+            "mc_terminal_loss_probability_c2_5": ["REPORT", "ELIGIBILITY_VETO"],
+            "total_cost": ["REPORT"], "trade_count": ["REPORT"],
+        },
+        "comparison": {
+            "baseline_window_days": core.BASELINE_WINDOW_DAYS,
+            "selection": "UNIQUE_STRICT_FOUR_METRIC_PARETO_THEN_STRESS_NOT_WORSE",
+            "tie_or_no_winner": "RETAIN_BASELINE",
+            "windows": "FOLD_VALIDATION_AND_FINAL_HOLDOUT_RECOMMENDATION_COMPARISON",
+            "new_absolute_risk_thresholds": False,
+        },
+        "eligibility": {"positive_folds_minimum": 2, "fold_count": 3,
+                        "final_c2_5_return_strictly_above": 0.0,
+                        "final_stress_return_strictly_above": 0.0,
+                        "terminal_loss_probability_strictly_below": 0.5},
+        "uncertainty": {
+            "configured_method": "CIRCULAR_MOVING_BLOCK_BOOTSTRAP",
+            "configured_path_count": core.MC_TRIALS,
+            "configured_path_length": core.MC_PATH_LENGTH,
+            "configured_block_length": core.MC_BLOCK_LENGTH,
+            "path_count_is_independent_observation_count": False,
+            "autocorrelation_adjusted_sharpe": "NOT_COMPUTED",
+            "execution_evidence": "EXISTING_AGGREGATE_RESULT_WHEN_AVAILABLE",
+        },
+        "freeze_scope": "CONFIGURATION_BEFORE_THIS_ATTEMPTS_SIMULATIONS",
+        "untouched_holdout_established": False,
+        "forward_observations_established": False,
+        "promotion_or_execution_authority": False,
+    }
+
+
 def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
                                      allow_nan=False).encode()).hexdigest()
@@ -154,6 +241,7 @@ def run_journaled_tqqq_core_optimization(
         "external_cashflow_scope": "closed_research_no_external_flows",
     }
     config = {
+        "evaluation_contract": _evaluation_contract(),
         "candidate_windows": list(core.CANDIDATE_WINDOWS),
         "scenarios": [[x.scenario_id, x.commission_bps, x.slippage_bps] for x in core.SCENARIOS],
         "initial_equity_usd": core.INITIAL_EQUITY, "plugin_control": dict(core.PLUGIN_CONTROL),
@@ -196,6 +284,7 @@ def run_journaled_tqqq_core_optimization(
             raise ValueError("research_trial_conflict")
         previous.append(record)
     report = {
+        "evaluation_contract": json.loads(json.dumps(config["evaluation_contract"])),
         "research_only": True, "synthetic": True, "data_qualified": False,
         "execution_authorized": False, "promotion_authorized": False, "no_order": True,
         "trial_namespace": trial_namespace, "implementation_sha256": implementation,

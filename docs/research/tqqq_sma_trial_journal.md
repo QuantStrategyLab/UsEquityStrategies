@@ -30,6 +30,54 @@ Candidate windows, signals, next-open timing, fee rates, selection rules, Monte 
 
 The guard-cash caller now delegates to the same internal transaction helper. Its financial behavior and report fields retain their meaning, while its actual implementation hashes naturally change. Its source revision now fingerprints the caller and shared helper. Old stored identities are not forged, rewritten or relabeled as the new implementation.
 
+## Frozen evaluation semantics
+
+New attempts include `evaluation_contract` in the existing `study_config`, so the
+existing candidate configuration digest, STARTED/readback and result parameters
+bind it before simulation. The outer journal report echoes that same contract;
+the legacy core result, financial formulas, ordering and eligibility remain
+unchanged. No QPK schema or dependency pin changes are required. A changed
+contract conflicts with an existing namespace before simulation and never
+rewrites or backfills old evidence; use a new namespace for a new attempt.
+
+This adopts the reporting discipline of the fixed
+[QPK evaluation standard](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/4cbb0bbdffc35994be4b21cbacdcd4c771abe883/docs/strategy_promotion_risk_standard.zh-CN.md)
+within this synthetic-only caller under `STRAT-02`. The
+[UES portfolio boundary](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/fa3f6b3737983d2c3c700a6fb57f63dcb6179bfd/docs/research/portfolio_risk_budget_contract.md)
+still governs distinct Markowitz/Kelly/log-growth research; this adds no allocator.
+
+The declaration describes actual `core._window_metrics`,
+`core._five_metric_winner`, `core._eligibility`, bootstrap and `_build_ledger`
+behavior, bound to their existing implementation hashes. Window returns are
+signed decimal session-level account net returns including zero-return sessions;
+sample volatility uses `ddof=1` and `sqrt(252)`. Journal CAGR uses 252 divided by
+return observations, not calendar years. Initial NAV contributes to drawdown but
+is not an extra return observation. ES95 averages the worst `ceil(N*0.05)` signed
+returns; the existing window evidence supplies the actual tail count.
+
+Current window metrics do not use rf or MAR, and do not compute Sharpe/Sortino;
+these remain `NOT_USED`/uncomputed, never a fabricated zero. Effective independent
+sample size is unknown. Configured bootstrap path counts are neither execution
+receipts nor additional independent observations. Autocorrelation-adjusted Sharpe,
+DSR/PBO, complete corporate actions and separate financing/market-impact/FX
+modeling remain unimplemented here. Cash interest is not accrued in the frozen
+model. Existing USD cost accounting above is preserved without a second deduction.
+
+Return, drawdown, volatility and ES participate in the existing Pareto comparison;
+stress return must also be no worse than other candidates. If there is no unique
+winner, the baseline is retained. Fold/final positive-return conditions and bootstrap terminal
+loss probability below 0.5 are the existing eligibility vetoes. Cost amount,
+transition count and journal CAGR are reported without new financial thresholds.
+The core also compares candidate metrics on `FINAL_HOLDOUT` for its final
+recommendation. This declaration does not establish an untouched holdout or
+independent OOS, and 252 is an annualization basis, not verified forward history.
+
+Synthetic regression checks compare the common TQQQ/SOXL window statistics on
+NAV 100→90→90→99 and distinguish actual zero from SOXL's undefined Sharpe and
+TQQQ's uncomputed Sharpe. They also check STARTED identity conflicts, exact legacy
+result parity, cost accounting and network refusal. SOXL receives no journal
+adoption from these comparisons, and no synthetic check qualifies real data.
+
 ## Acceptance boundary
 
 Synthetic mechanism checks do not verify a production durable location, retention, permissions, deployed environment, qualified data, or a real research run. Those require a separately approved location/input/execution context and readback acceptance. This source change performs no cloud-bucket write, deployment, market/provider/model/broker access or real-data replay.
