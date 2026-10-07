@@ -234,7 +234,7 @@ jobs:
         # Scope reusable doctor/monitor/drift to preflight-materialized profiles only.
         # Keeps tqqq_growth_income on its dedicated research lane.
         profile: ${{ fromJSON(needs.preflight_backtests.outputs.lifecycle_profiles) }}
-    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@c7646a7168b3dafa763ef7751a182d23e8de7790
+    uses: ./.github/workflows/reusable-drift-check.yml
     with:
       strategy_domain: us_equity
       caller_event_name: ${{ github.event_name }}
@@ -242,7 +242,9 @@ jobs:
       snapshot_repository: QuantStrategyLab/UsEquitySnapshotPipelines
       snapshot_checkout_path: external/UsEquitySnapshotPipelines
       snapshot_repository_ref: ${{ needs.preflight_backtests.outputs.snapshot_repository_ref }}
-      ai_gateway_service_url: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+      ai_service_url: ${{ vars.AI_SERVICE_URL }}
+      ai_service_audience: ${{ vars.AI_SERVICE_AUDIENCE }}
+      ai_service_reviewers_json: ${{ vars.AI_SERVICE_REVIEWERS_JSON }}
       lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}
       quant_platform_kit_ref: c7646a7168b3dafa763ef7751a182d23e8de7790
       lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}
@@ -251,5 +253,4 @@ jobs:
       gcp_service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
       gcp_project_id: ${{ vars.GCP_PROJECT_ID }}
     secrets:
-      codex_audit_service_url: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
       snapshot_repository_token: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}

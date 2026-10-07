@@ -1,0 +1,58 @@
+name: Global ETF Candidate Review
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Review the frozen volatility candidate without edits
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: global-etf-review-v2
+  cancel-in-progress: false
+jobs:
+  review:
+    if: github.repository == 'QuantStrategyLab/UsEquityStrategies' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.AI_SERVICE_RELEASE_READY == 'true'
+    runs-on: [self-hosted, research-runner]
+    timeout-minutes: 35
+    env:
+      AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
+      AI_SERVICE_AUDIENCE: ${{ vars.AI_SERVICE_AUDIENCE }}
+      AI_SERVICE_MODE: agent
+      AI_SERVICE_MODEL: ${{ vars.AI_SERVICE_RESEARCH_MODEL }}
+      AI_SERVICE_PROFILE: ${{ vars.AI_SERVICE_RESEARCH_PROFILE || 'default' }}
+      AI_SERVICE_CLIENT_WHEEL: ${{ vars.AI_SERVICE_CLIENT_WHEEL }}
+      AI_SERVICE_CLIENT_SHA256: ${{ vars.AI_SERVICE_CLIENT_SHA256 }}
+      AI_SERVICE_QPK_WHEEL: ${{ vars.AI_SERVICE_QPK_WHEEL }}
+      AI_SERVICE_QPK_SHA256: ${{ vars.AI_SERVICE_QPK_SHA256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install approved caller and client
+        run: |
+          python -m pip install .
+          python scripts/install_ai_task_client.py
+          python -m pip check
+          python -c 'from quant_platform_kit.strategy_lifecycle.ai_provider import AiServiceClient'
+      - name: Checkout frozen candidate
+        if: inputs.execute == true
+        uses: actions/checkout@v6
+        with:
+          ref: ceb3e6eb33c7913bcc10bacd6a04fda8aeb1c7ff
+          path: candidate-source
+          persist-credentials: false
+      - name: Review frozen candidate
+        if: inputs.execute == true
+        run: |
+          docker info --format '{{.ServerVersion}}'
+          python -m us_equity_strategies.research.global_etf_review --execute --ues-repo-root "$GITHUB_WORKSPACE/candidate-source"
+      - name: Show bounded plan
+        if: inputs.execute != true
+        run: python -m us_equity_strategies.research.global_etf_review

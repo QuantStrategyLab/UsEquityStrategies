@@ -38,18 +38,17 @@ jobs:
         id: quant-platform-kit-ref
         run: |
           set -euo pipefail
-          ref="main"
-          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
-            case "${GITHUB_HEAD_REF}" in
-              dependabot/*)
-                ;;
-              *)
-                if git ls-remote --exit-code --heads https://github.com/QuantStrategyLab/QuantPlatformKit.git "${GITHUB_HEAD_REF}" >/dev/null 2>&1; then
-                  ref="${GITHUB_HEAD_REF}"
-                fi
-                ;;
-            esac
-          fi
+          ref="$(python3 - <<'PYTHON'
+          import re, tomllib
+          with open("pyproject.toml", "rb") as stream:
+              deps = tomllib.load(stream)["project"]["dependencies"]
+          matches = [re.fullmatch(r"quant-platform-kit @ git\+https://github.com/QuantStrategyLab/QuantPlatformKit\.git@([0-9a-f]{40})", dep) for dep in deps]
+          pins = [match.group(1) for match in matches if match]
+          if len(pins) != 1:
+              raise SystemExit("exact consumer QPK pin required")
+          print(pins[0])
+          PYTHON
+          )"
           echo "ref=${ref}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout QuantPlatformKit
@@ -69,19 +68,12 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e . pandas
-          python -m pip install --no-deps -e external/QuantPlatformKit
-
-      - name: Checkout AIAuditBridge
-        uses: actions/checkout@v6
-        with:
-          repository: QuantStrategyLab/AIAuditBridge
-          ref: main
-          path: external/AIAuditBridge
+          python -m pip check
 
       - name: Evaluate Evidence Gate
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
-          AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
-          CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
-          AI_GATEWAY_SERVICE_URL: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+          AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
+          AI_SERVICE_AUDIENCE: ${{ vars.AI_SERVICE_AUDIENCE }}
+          AI_SERVICE_REVIEWERS_JSON: ${{ vars.AI_SERVICE_REVIEWERS_JSON }}
         run: python scripts/gate_evidence_package.py
