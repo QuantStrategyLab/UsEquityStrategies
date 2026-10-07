@@ -62,6 +62,125 @@ def _git(repo: Path, *arguments: str) -> str:
     return subprocess.run(("git", "-C", str(repo), *arguments), check=True, capture_output=True, text=True).stdout.strip()
 
 
+def test_opt_in_metric_report_consumes_soxl_points_without_changing_legacy(monkeypatch):
+    source = _source()
+    points = simulate_candidate(source, 200, SCENARIOS[2])
+    legacy = optimization._window_metrics(points, 200, 202)
+    monkeypatch.setattr(optimization, "simulate_candidate", lambda *a: pytest.fail("report resimulated"))
+    report = optimization.report_soxl_core_candidate_metrics(
+        source, points, window_days=200, scenario=SCENARIOS[2], synthetic=True,
+        calendar_id="XNYS", periods_per_year=252, annual_risk_free_rate=0.03,
+        annual_minimum_acceptable_return=0.06)
+    assert report["metrics"]["cumulative_return"] == pytest.approx(points[-1].end_equity / 100_000 - 1)
+    assert report["report_profile"] == "soxl_core_candidate_metric_report_v1"
+    assert report["evaluation_contract"]["volatility_ddof"] == 1
+    assert report["evaluation_contract"]["real_calendar_verified"] is False
+    assert report["promotion_eligible"] is report["live_ready"] is False
+    assert report["metrics"]["dsr"] is report["metrics"]["pbo"] is None
+    assert optimization._window_metrics(points, 200, 202) == legacy
+
+
+def _metric_report(source, points, **kwargs):
+    options = {"window_days": 200, "scenario": SCENARIOS[0], "synthetic": True,
+               "calendar_id": "XNYS", "periods_per_year": 252,
+               "annual_risk_free_rate": 0.0, "annual_minimum_acceptable_return": 0.0}
+    return optimization.report_soxl_core_candidate_metrics(source, points, **{**options, **kwargs})
+
+
+def _hand_metric_source():
+    rows = []
+    for index in range(753):
+        day = (date(2024, 1, 1) + timedelta(days=index)).isoformat()
+        opening, closing = (100.0, 100.0) if index < 200 else (
+            (100.0, 90.0) if index == 200 else (90.0, 90.0) if index == 201 else (99.0, 99.0))
+        signal = 100.0 if index < 201 else 1.0
+        rows.extend((InputRow("SOXL", day, opening, max(opening, closing), min(opening, closing), closing, 1.0),
+                     InputRow("SOXX", day, signal, signal, signal, signal, 1.0)))
+    return OfflineInput(tuple(rows), _canonical(rows), "b" * 64, "synthetic-hand")
+
+
+def test_soxl_report_hand_net_path_cash_rf_mar_initial_nav_and_short_sample():
+    import math
+    source = _hand_metric_source()
+    points = simulate_candidate(source, 200, SCENARIOS[0])
+    assert [p.end_equity for p in points[:3]] == [90_000.0, 90_000.0, 99_000.0]
+    assert points[1].daily_return == 0.0 and points[2].cash == 99_000.0
+    bounds = {"start_session": date.fromisoformat(points[0].date), "end_session": date.fromisoformat(points[2].date)}
+    report = _metric_report(source, points, annual_risk_free_rate=0.252,
+                            annual_minimum_acceptable_return=0.504, **bounds)
+    returns = [p.daily_return for p in points[:3]]
+    mean = sum(returns) / 3
+    std = math.sqrt(sum((r - mean) ** 2 for r in returns) / 2)
+    downside = math.sqrt(sum(min(r - 0.002, 0.0) ** 2 for r in returns) / 3)
+    assert report["metrics"]["cumulative_return"] == pytest.approx(-0.01)
+    assert report["metrics"]["max_drawdown"] == pytest.approx(-0.1)
+    assert report["metrics"]["sharpe"] == pytest.approx((mean - 0.001) / std * math.sqrt(252))
+    assert report["metrics"]["sortino"] == pytest.approx((mean - 0.002) / downside * math.sqrt(252))
+    assert report["metrics"]["sharpe"] < 0 and report["metrics"]["sortino"] < 0
+    flat = _metric_report(source, points, start_session=date.fromisoformat(points[1].date),
+                          end_session=date.fromisoformat(points[2].date), annual_minimum_acceptable_return=-0.252)
+    assert flat["metrics"]["sortino"] is None
+    assert flat["metric_status"]["sortino"] == "ZERO_DOWNSIDE_DEVIATION"
+    short = _metric_report(source, points, start_session=bounds["start_session"], end_session=bounds["start_session"])
+    assert short["metrics"]["sharpe"] is short["metrics"]["sortino"] is short["metrics"]["annualized_volatility"] is None
+    assert short["metric_status"]["sharpe"] == "INSUFFICIENT_OBSERVATIONS"
+    # Later bars and their newly simulated points cannot change this included window.
+    changed_rows = tuple(replace(row, open=2.0, high=2.0, low=2.0, close=2.0)
+                         if row.symbol == "SOXL" and row.as_of > points[2].date else row for row in source.rows)
+    changed = replace(source, rows=changed_rows, canonical_bytes=_canonical(changed_rows))
+    future = _metric_report(changed, simulate_candidate(changed, 200, SCENARIOS[0]),
+                           annual_risk_free_rate=0.252, annual_minimum_acceptable_return=0.504, **bounds)
+    assert future["metrics"] == report["metrics"]
+    constant = _metric_report(source, points, start_session=date.fromisoformat(points[3].date),
+                             end_session=date.fromisoformat(points[4].date))
+    assert constant["metrics"]["annualized_volatility"] == 0.0
+    assert constant["metric_status"]["sharpe"] == constant["metric_status"]["sortino"] == "CONSTANT_RETURN_SAMPLE"
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("synthetic", False, "REAL_RESEARCH_DATA_UNQUALIFIED"),
+    ("calendar_id", None, "RESEARCH_BASIS_INVALID"),
+    ("calendar_id", "synthetic_declared_sessions", "RESEARCH_BASIS_INVALID"),
+    ("periods_per_year", 365.25, "RESEARCH_BASIS_INVALID"),
+    ("annual_risk_free_rate", None, "RESEARCH_RATE_INVALID"),
+    ("annual_risk_free_rate", float("nan"), "RESEARCH_RATE_INVALID"),
+    ("annual_minimum_acceptable_return", float("inf"), "RESEARCH_RATE_INVALID"),
+])
+def test_soxl_report_refuses_unknown_basis_or_rates(field, value, reason):
+    source = _source()
+    with pytest.raises(ValueError, match=reason):
+        _metric_report(source, simulate_candidate(source, 200, SCENARIOS[0]), **{field: value})
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("daily_return", None, "SMA_LEDGER_POINT_INVALID"),
+    ("daily_return", float("nan"), "SMA_LEDGER_POINT_INVALID"),
+    ("end_equity", float("inf"), "SMA_LEDGER_POINT_INVALID"),
+    ("commission_paid", 1.0, "SMA_LEDGER_ACCOUNTING_MISMATCH"),
+    ("date", "2099-01-01", "SMA_LEDGER_POINT_INVALID"),
+])
+def test_soxl_report_refuses_missing_late_or_inconsistent_points(field, value, reason):
+    source = _source()
+    points = simulate_candidate(source, 200, SCENARIOS[0])
+    with pytest.raises(ValueError, match=reason):
+        _metric_report(source, (replace(points[0], **{field: value}), *points[1:]))
+    with pytest.raises(ValueError, match="SMA_LEDGER_POINT_INVALID"):
+        _metric_report(source, (points[1], points[0], *points[2:]))
+    with pytest.raises(ValueError, match="SMA_LEDGER_WINDOW_INVALID"):
+        _metric_report(source, points[:-1])
+
+
+def test_soxl_report_rejects_duplicate_source_sessions_instead_of_sorting_or_filling():
+    source = _source()
+    soxl = tuple(row for row in source.rows if row.symbol == "SOXL")
+    duplicate = tuple(replace(row, as_of=soxl[200].as_of) if row.as_of == soxl[201].as_of else row
+                      for row in source.rows)
+    source = replace(source, rows=duplicate, canonical_bytes=_canonical(duplicate))
+    points = simulate_candidate(source, 200, SCENARIOS[0])
+    with pytest.raises(ValueError):
+        _metric_report(source, points)
+
+
 def _provenance_repo(tmp_path: Path) -> tuple[Path, str, dict[str, str]]:
     repo = tmp_path / "source"
     repo.mkdir()

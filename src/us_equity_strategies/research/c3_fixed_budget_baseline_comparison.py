@@ -732,8 +732,111 @@ def compare_fixed_member_budget_baselines(
         )
 
 
+def report_self_financing_combo_baselines(
+    *, baselines: Sequence[Mapping[str, object]],
+    soxl_net_returns: Sequence[float], tqqq_net_returns: Sequence[float],
+    initial_session_date: date, session_dates: Sequence[date], initial_capital: float,
+    as_of: date, asset_risk_specs: Mapping[str, PortfolioAssetRiskSpec],
+    risk_policy: PortfolioRiskBudgetPolicy,
+    annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
+) -> dict:
+    """Report ≥2 existing synthetic three-book baselines, without selection.
+
+    Exact caller-declared returns, sessions, budgets and costs are replayed by
+    the existing small accounting builder only to verify the supplied typed
+    books. This is no new market backtest or provenance/PIT attestation.
+    Invalid input refuses the whole report; no successful subset is published.
+    """
+    from quant_platform_kit.strategy_lifecycle.contracts import ResearchDailyLedger
+    from .c3_self_financing_combo_ledger import (
+        CASH, RAW_FIXED_BUDGET, RISK_SCALED, RISK_SCALED_WITH_SYNTHETIC_COMBO_FEE,
+        SOXL, TQQQ, build_soxl_tqqq_self_financing_ledgers,
+    )
+    from .tqqq_core_trial_journal import compute_declared_session_research_metrics
+
+    if (not isinstance(baselines, Sequence) or isinstance(baselines, (str, bytes))
+            or len(baselines) < 2 or any(not isinstance(item, Mapping) for item in baselines)):
+        raise ValueError("BASELINES_REQUIRED")
+    ids = tuple(_identity(item.get("baseline_id"), "BASELINE_ID") for item in baselines)
+    if ids != tuple(sorted(set(ids))):
+        raise ValueError("BASELINE_IDS_NOT_UNIQUE_SORTED")
+    if (type(as_of) is not date or not isinstance(session_dates, Sequence)
+            or isinstance(session_dates, (str, bytes)) or not session_dates
+            or any(type(day) is not date or day > as_of for day in session_dates)):
+        raise ValueError("COMBO_SESSION_CUTOFF_INVALID")
+    if not isinstance(risk_policy, PortfolioRiskBudgetPolicy) or risk_policy.cash_symbol in {SOXL, TQQQ}:
+        raise ValueError("COMBO_RISK_POLICY_INVALID")
+    keys = {RAW_FIXED_BUDGET, RISK_SCALED, RISK_SCALED_WITH_SYNTHETIC_COMBO_FEE}
+    results = []
+    for item in baselines:
+        books = item.get("ledgers")
+        if (not isinstance(books, Mapping) or set(books) != keys
+                or any(type(book) is not ResearchDailyLedger for book in books.values())):
+            raise ValueError("COMBO_TYPED_THREE_LEDGERS_REQUIRED")
+        expected = build_soxl_tqqq_self_financing_ledgers(
+            soxl_net_returns=soxl_net_returns, tqqq_net_returns=tqqq_net_returns,
+            initial_session_date=initial_session_date, session_dates=session_dates,
+            initial_capital=initial_capital, target_weights=item.get("target_weights"),
+            risk_scalar=item.get("risk_scalar"), rebalance_indices=item.get("rebalance_indices"),
+            combo_fee_bps=item.get("combo_fee_bps"), fee_bearing_members=item.get("fee_bearing_members"))
+        if any(books[key] != expected[key] for key in keys):
+            raise ValueError("COMBO_LEDGER_DECLARATION_MISMATCH")
+        weights = item["target_weights"]
+        risk = assess_portfolio_risk_budget(
+            target_weights={SOXL: weights[SOXL], TQQQ: weights[TQQQ],
+                            risk_policy.cash_symbol: weights[CASH]},
+            asset_risk_specs=asset_risk_specs, policy=risk_policy)
+        if risk["status"] == "PARKED":
+            raise ValueError("COMBO_RISK_DIAGNOSIS_PARKED")
+        if not math.isclose(item["risk_scalar"], risk["risk_scalar"], rel_tol=0.0, abs_tol=_EPSILON):
+            raise ValueError("COMBO_RISK_SCALAR_MISMATCH")
+        scaled = scale_member_budgets_to_cash(
+            budgets=weights, risk_scalar=item["risk_scalar"], cash_member_id=CASH)
+        recommended = risk["recommended_target_weights"]
+        if any(not math.isclose(scaled[symbol], recommended.get(
+                risk_policy.cash_symbol if symbol == CASH else symbol, 0.0),
+                rel_tol=0.0, abs_tol=_EPSILON) for symbol in (SOXL, TQQQ, CASH)):
+            raise ValueError("COMBO_RISK_WEIGHT_MISMATCH")
+        reports = {}
+        for key in sorted(keys):
+            ledger = books[key]
+            reports[key] = {
+                "initial_nav": ledger.initial_nav, "terminal_nav": ledger.days[-1].nav,
+                "initial_cash": ledger.initial_cash, "terminal_cash": ledger.days[-1].cash,
+                "total_fees": ledger.total_fees,
+                "metric_report": compute_declared_session_research_metrics(
+                    ledger, annual_risk_free_rate=annual_risk_free_rate,
+                    annual_minimum_acceptable_return=annual_minimum_acceptable_return),
+            }
+        results.append({"baseline_id": item["baseline_id"], "target_weights": dict(weights),
+                        "scaled_target_weights": scaled, "risk_diagnosis": risk,
+                        "rebalance_indices": list(item["rebalance_indices"]),
+                        "fee_bearing_members": list(item["fee_bearing_members"]),
+                        "books": reports})
+    return {
+        "schema_version": "qsl.c3-self-financing-baseline-metric-report.v1",
+        "research_only": True, "synthetic": True, "promotion_authorized": False,
+        "execution_authorized": False, "no_order": True,
+        "as_of": as_of.isoformat(), "initial_session": initial_session_date.isoformat(),
+        "session_dates": [day.isoformat() for day in session_dates],
+        "baselines": results,
+        "scope": "DECLARED_SYNTHETIC_SELF_FINANCING_BOOKS_NOT_SELECTION_OR_REAL_OOS",
+        "boundaries": {
+            "calendar_id": "synthetic_declared_sessions", "periods_per_year": 252,
+            "annualization": "DECLARED_SYNTHETIC_ASSUMPTION",
+            "cash_return": "FIXED_ZERO_SYNTHETIC_NOT_POLICY_CASH_SYMBOL_PRICE_HISTORY",
+            "member_costs": "ALREADY_EMBEDDED_NOT_RECHARGED",
+            "combo_costs": "ACTUAL_DECLARED_RISK_LEG_TRADES_SELF_FINANCED_IN_NAV",
+            "cutoff": "CALLER_DECLARED_BOUND_NOT_PIT_OR_PUBLICATION_ATTESTATION",
+            "risk_diagnosis": "DECLARED_TARGET_SNAPSHOT_NOT_DRIFTING_PATH_RISK_ENFORCEMENT",
+            "optimization": "DISABLED_FIXED_BUDGETS_ONLY",
+        },
+    }
+
+
 __all__ = [
     "EVIDENCE_SCOPE",
     "SCHEMA_VERSION",
     "compare_fixed_member_budget_baselines",
+    "report_self_financing_combo_baselines",
 ]
