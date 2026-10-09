@@ -23,7 +23,7 @@ strategy-facing canonical inputs:
 
 - `tqqq_growth_income` uses `benchmark_history` + `portfolio_snapshot`
 - `soxl_soxx_trend_income` uses `derived_indicators` + `portfolio_snapshot`
-- `nasdaq_sp500_smart_dca` uses `market_history` + `portfolio_snapshot`
+- `nasdaq_sp500_smart_dca` uses `market_history` + `portfolio_snapshot` (smart mode: `prefetched_market_history` and/or `technical_indicator_snapshot`; see `nasdaq_sp500_smart_dca_input_contract.md`)
 - `ibit_smart_dca` uses `derived_indicators` + `portfolio_snapshot`
 
 This document records the fixed value-mode input contract and the current

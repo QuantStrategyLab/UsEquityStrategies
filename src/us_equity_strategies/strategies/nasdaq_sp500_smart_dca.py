@@ -221,8 +221,9 @@ def _resolve_prefetched_history(
 ) -> object | None:
     """Return a prefetched history payload for *symbol*, or None if absent.
 
-    Enables input builders to supply market history without calling
-    ``market_history(broker_client, symbol)`` inside the strategy.
+    Mapping values must be accepted by ``_extract_close_series`` (see
+    ``docs/nasdaq_sp500_smart_dca_input_contract.md``). Smart mode never
+    calls ``market_history(broker_client, symbol)`` (B07 Phase C).
     """
     if not isinstance(prefetched_market_history, Mapping):
         return None
@@ -559,7 +560,7 @@ def build_rebalance_plan(
     very_expensive_multiplier: float = 1.0,
     technical_indicator_snapshot: Mapping[str, object] | None = None,
     prefetched_market_history: Mapping[str, object] | None = None,
-    broker_client=None,
+    broker_client=None,  # deprecated for smart mode: ignored; do not rely on live IO
     translator=None,
 ) -> dict[str, object]:
     allocations = _normalize_allocations(trade_allocations or DEFAULT_TRADE_ALLOCATIONS)
@@ -597,7 +598,13 @@ def build_rebalance_plan(
                 continue
             history = _resolve_prefetched_history(prefetched_market_history, symbol)
             if history is None:
-                history = market_history(broker_client, symbol)
+                # B07 Phase C: no live broker IO. Input builder must supply
+                # technical_indicator_snapshot and/or prefetched_market_history.
+                raise ValueError(
+                    f"{symbol}: smart DCA requires technical_indicator_snapshot or "
+                    "prefetched_market_history; live market_history(broker_client) "
+                    "IO is removed (B07 Phase C)"
+                )
             indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
 
     if smart_enabled:
