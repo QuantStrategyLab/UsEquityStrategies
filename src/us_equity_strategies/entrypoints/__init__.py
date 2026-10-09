@@ -1920,6 +1920,9 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         ctx.market_data.get("technical_indicator_snapshot")
         or ctx.market_data.get("derived_indicators")
     )
+    prefetched_market_history = ctx.market_data.get("prefetched_market_history")
+    if prefetched_market_history is not None and not isinstance(prefetched_market_history, Mapping):
+        raise TypeError("market_data['prefetched_market_history'] must be a Mapping when provided")
     portfolio = require_portfolio(ctx)
     apply_reserved_cash_policy_to_usd_config(
         config,
@@ -1931,6 +1934,7 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         portfolio,
         as_of=ctx.as_of,
         technical_indicator_snapshot=technical_indicator_snapshot,
+        prefetched_market_history=prefetched_market_history,
         broker_client=ctx.capabilities.get("broker_client"),
         translator=translator,
         **config,
