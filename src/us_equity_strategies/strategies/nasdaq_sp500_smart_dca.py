@@ -214,6 +214,33 @@ def _resolve_indicator_payload(
     return value if isinstance(value, Mapping) else None
 
 
+
+def _resolve_prefetched_history(
+    prefetched_market_history: Mapping[str, object] | None,
+    symbol: str,
+) -> object | None:
+    """Return a prefetched history payload for *symbol*, or None if absent.
+
+    Enables input builders to supply market history without calling
+    ``market_history(broker_client, symbol)`` inside the strategy.
+    """
+    if not isinstance(prefetched_market_history, Mapping):
+        return None
+    candidates = (
+        symbol,
+        symbol.upper(),
+        symbol.removesuffix(".US"),
+        symbol.upper().removesuffix(".US"),
+    )
+    for key in candidates:
+        if key in prefetched_market_history:
+            return prefetched_market_history[key]
+    normalized = {
+        _normalize_symbol(key): value for key, value in prefetched_market_history.items()
+    }
+    return normalized.get(_normalize_symbol(symbol))
+
+
 def _indicator_from_payload(symbol: str, payload: Mapping[str, object]) -> SymbolIndicator | None:
     price = _payload_numeric(payload, "close", "price", "last", "last_price")
     sma200 = _payload_numeric(payload, "sma200", "ma200", "sma_200")
@@ -531,6 +558,7 @@ def build_rebalance_plan(
     expensive_multiplier: float = 1.0,
     very_expensive_multiplier: float = 1.0,
     technical_indicator_snapshot: Mapping[str, object] | None = None,
+    prefetched_market_history: Mapping[str, object] | None = None,
     broker_client=None,
     translator=None,
 ) -> dict[str, object]:
@@ -567,7 +595,9 @@ def build_rebalance_plan(
             if payload_indicator is not None:
                 indicators.append(payload_indicator)
                 continue
-            history = market_history(broker_client, symbol)
+            history = _resolve_prefetched_history(prefetched_market_history, symbol)
+            if history is None:
+                history = market_history(broker_client, symbol)
             indicators.append(_indicator_from_series(symbol, _extract_close_series(history)))
 
     if smart_enabled:
