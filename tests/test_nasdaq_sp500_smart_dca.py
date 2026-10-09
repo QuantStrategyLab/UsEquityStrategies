@@ -95,11 +95,12 @@ def test_smart_dca_skips_when_too_expensive_and_overbought() -> None:
     history = {"QQQ": _expensive_history(), "SPY": _expensive_history()}
 
     plan = build_rebalance_plan(
-        lambda _client, symbol: history[symbol],
+        _unavailable_history,
         _portfolio(),
         as_of="2026-05-26",
         investment_amount_mode="fixed",
         smart_multiplier_enabled=True,
+        prefetched_market_history=history,
         expensive_gap=0.10,
         very_expensive_gap=0.15,
         very_expensive_multiplier=0.0,
@@ -168,6 +169,27 @@ def test_smart_dca_uses_prefetched_market_history() -> None:
     assert plan["signal_symbols"] == ("QQQ", "SPY")
 
 
+def test_smart_dca_fail_closed_without_snapshot_or_prefetch() -> None:
+    with pytest.raises(ValueError, match="requires technical_indicator_snapshot or prefetched_market_history"):
+        build_rebalance_plan(
+            lambda _client, _symbol: (_ for _ in ()).throw(AssertionError("must not call live market_history")),
+            _portfolio(),
+            as_of="2026-05-26",
+            smart_multiplier_enabled=True,
+        )
+
+
+def test_smart_dca_fail_closed_when_prefetch_missing_symbol() -> None:
+    with pytest.raises(ValueError, match="SPY: smart DCA requires"):
+        build_rebalance_plan(
+            _unavailable_history,
+            _portfolio(),
+            as_of="2026-05-26",
+            smart_multiplier_enabled=True,
+            prefetched_market_history={"QQQ": _normal_history()},
+        )
+
+
 def test_smart_dca_waits_when_cash_is_below_minimum() -> None:
     history = {"QQQ": _normal_history(), "SPY": _normal_history()}
 
@@ -212,12 +234,13 @@ def test_smart_dca_invests_partial_cash_when_pullback_multiplier_exceeds_balance
     history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
 
     plan = build_rebalance_plan(
-        lambda _client, symbol: history[symbol],
+        _unavailable_history,
         _portfolio(buying_power=1450.0),
         as_of="2026-05-26",
         investment_amount_mode="fixed",
         max_investment_usd=2000.0,
         smart_multiplier_enabled=True,
+        prefetched_market_history=history,
     )
 
     assert plan["actionable"] is True
@@ -234,12 +257,13 @@ def test_smart_dca_skips_pullback_buy_when_cash_is_below_requested_amount() -> N
     history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
 
     plan = build_rebalance_plan(
-        lambda _client, symbol: history[symbol],
+        _unavailable_history,
         _portfolio(buying_power=4.0),
         as_of="2026-05-26",
         investment_amount_mode="fixed",
         max_investment_usd=2000.0,
         smart_multiplier_enabled=True,
+        prefetched_market_history=history,
     )
 
     assert plan["actionable"] is False
@@ -305,7 +329,13 @@ def test_smart_dca_entrypoint_returns_value_targets_and_no_execute_flag() -> Non
     expensive_decision = entrypoint.evaluate(
         StrategyContext(
             as_of="2026-05-26",
-            market_data={"market_history": lambda _client, symbol: _expensive_history()},
+            market_data={
+                "market_history": _unavailable_history,
+                "prefetched_market_history": {
+                    "QQQ": _expensive_history(),
+                    "SPY": _expensive_history(),
+                },
+            },
             portfolio=_portfolio(),
             runtime_config={
                 "translator": lambda key, **_kwargs: key,
