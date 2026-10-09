@@ -149,6 +149,25 @@ def test_smart_dca_uses_external_technical_indicator_snapshot() -> None:
     assert plan["signal_symbols"] == ("QQQ", "SPY")
 
 
+def test_smart_dca_uses_prefetched_market_history() -> None:
+    def unavailable_history(_client, _symbol):
+        raise AssertionError("prefetched history should avoid market_history")
+
+    history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
+    plan = build_rebalance_plan(
+        unavailable_history,
+        _portfolio(),
+        as_of="2026-05-26",
+        smart_multiplier_enabled=True,
+        prefetched_market_history=history,
+    )
+
+    assert plan["actionable"] is True
+    assert plan["regime"] == "severe_pullback"
+    assert plan["multiplier"] == 1.50
+    assert plan["signal_symbols"] == ("QQQ", "SPY")
+
+
 def test_smart_dca_waits_when_cash_is_below_minimum() -> None:
     history = {"QQQ": _normal_history(), "SPY": _normal_history()}
 
