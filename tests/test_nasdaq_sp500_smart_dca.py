@@ -388,3 +388,25 @@ def test_smart_dca_entrypoint_applies_platform_reserved_cash_floor() -> None:
     assert decision.diagnostics["planned_investment_usd"] == 500.0
     assert decision.diagnostics["skip_reason"] is None
     assert targets == {"QQQM": 1250.0, "SPLG": 1450.0}
+
+
+def test_entrypoint_forwards_prefetched_market_history() -> None:
+    from us_equity_strategies.entrypoints import evaluate_nasdaq_sp500_smart_dca
+
+    def unavailable_history(_client, _symbol):
+        raise AssertionError("entrypoint prefetch should avoid market_history callable")
+
+    history = {"QQQ": _severe_pullback_history(), "SPY": _severe_pullback_history()}
+    ctx = StrategyContext(
+        as_of=pd.Timestamp("2026-05-26").to_pydatetime(),
+        portfolio=_portfolio(),
+        market_data={
+            "market_history": unavailable_history,
+            "prefetched_market_history": history,
+        },
+        runtime_config={"smart_multiplier_enabled": True},
+        capabilities={},
+    )
+    decision = evaluate_nasdaq_sp500_smart_dca(ctx)
+    assert decision.diagnostics["regime"] == "severe_pullback"
+    assert decision.diagnostics["multiplier"] == 1.50
