@@ -56,3 +56,45 @@ jobs:
         run: |
           set -euo pipefail
           PYTHONPATH=src python -m pytest -q tests --cov --cov-report=term --cov-report=xml
+
+  research-stats-integration:
+    # Research-only integration for us_equity_strategies.research.trial_overfitting_report.
+    # This job alone overlays a newer QPK that provides quant_platform_kit.research_stats.
+    # The package pin in pyproject.toml / qsl.toml is NOT changed; production installs
+    # and the main test job keep the pinned QPK revision.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QPK_RESEARCH_STATS_SHA: 442b729dcc4be5100bc2cba5b67850ad676bfbc0
+      UES_REQUIRE_QPK_RESEARCH_STATS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install with research-only QPK overlay
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest
+          # QPK declares no runtime dependencies, so this dependency-enabled reinstall
+          # only swaps the QPK revision inside this job.
+          python -m pip install --force-reinstall \
+            "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@${QPK_RESEARCH_STATS_SHA}"
+          python - <<'PY'
+          import json, os
+          from importlib.metadata import distribution
+          from quant_platform_kit.research_stats import probability_of_backtest_overfitting, deflated_sharpe_ratio
+          sha = json.loads(distribution("quant-platform-kit").read_text("direct_url.json"))["vcs_info"]["commit_id"]
+          assert sha == os.environ["QPK_RESEARCH_STATS_SHA"], sha
+          print("research-only QPK overlay:", sha)
+          PY
+
+      - name: Run research_stats integration tests
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/test_research_import_boundary.py
