@@ -58,7 +58,8 @@ jobs:
           PYTHONPATH=src python -m pytest -q tests --cov --cov-report=term --cov-report=xml
 
   research-stats-integration:
-    # Research-only integration for us_equity_strategies.research.trial_overfitting_report.
+    # Research-only integration for us_equity_strategies.research.trial_overfitting_report
+    # and fractional_kelly_walk_forward (RS-04).
     # This job alone overlays a newer QPK that provides quant_platform_kit.research_stats.
     # The package pin in pyproject.toml / qsl.toml is NOT changed; production installs
     # and the main test job keep the pinned QPK revision.
@@ -80,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest
+          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest jsonschema
           # QPK declares no runtime dependencies, so this dependency-enabled reinstall
           # only swaps the QPK revision inside this job.
           python -m pip install --force-reinstall \
@@ -97,4 +98,4 @@ jobs:
       - name: Run research_stats integration tests
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/test_research_import_boundary.py
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/research/test_fractional_kelly_walk_forward.py tests/test_research_import_boundary.py
