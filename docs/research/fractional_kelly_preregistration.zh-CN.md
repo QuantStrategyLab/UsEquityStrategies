@@ -88,6 +88,19 @@
 | 允许的变体 | 仅 `no_plugin_core`；`live_plugins_as_live` 需另行确认（`VARIANT_NOT_CONFIRMED_FOR_REAL_DATA`），且目前仍被插件阻断 |
 | 运行位置 | 仅限批准的私有数据环境；原始数据和逐日输出不进仓库、不进公开 CI/日志 |
 
+### 4.0 修订（RS-04e，2026-10-11）：换用新取数归档
+
+原私有归档（raw manifest `cb14a511…`）在批准的运行环境里拿不到，而且 2023-03-28 之前的预热不够核心规则需要的约 252 个会话。经用户批准，改为从 `data.alpaca.markets` **只读**重新取数：`feed=sip`、`adjustment=raw`，日线加公司行动，2021-12-01 至 2026-08-25，标的 SOXL、SOXX、BOXX、QQQ、TQQQ、QQQM，存放在 box 私有目录（0700/0600），不进仓库。
+
+| 项 | 新值 |
+| --- | --- |
+| `data_source` | `alpaca_sip_raw_bars_plus_corporate_actions_box_fetch_20261011` |
+| `data_manifest_sha256` | `b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482` |
+| `data_retrieved_at` | `2026-10-11T02:07:07+00:00`（北京时间 10:07） |
+| 覆盖 | SOXL/SOXX/QQQ/TQQQ/QQQM 2021-12-01 至 2026-08-25 各 1187 根；BOXX 2022-12-28 起 917 根。窗口前预热 331 个会话，窗口内 856 个会话 |
+
+窗口、前推方案、c、费用、时点和变体限制**全部不变**。上表中的旧数据源与 `cb14a511…` 已被本修订取代。
+
 ### 4.1 原提议（存档）
 
 | 键 | 提议数据源 | 提议窗口 | 说明 |

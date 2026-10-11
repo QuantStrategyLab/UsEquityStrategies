@@ -99,8 +99,9 @@ def test_shipped_preregistrations_are_frozen_and_confirmed():
         assert p.multipliers == (1.0, 2.0, 3.0) and p.execution == "next_close"
         assert p.data_identity == "development" and "NO_BUDGET_INCREASE" in p.gates
         assert p.data_confirmed
-        assert p.data_source == "alpaca_sip_raw_bars_plus_corporate_actions_private_archive"
-        assert p.data_manifest_sha256 == "cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182"
+        assert p.data_source == "alpaca_sip_raw_bars_plus_corporate_actions_box_fetch_20261011"
+        assert p.data_manifest_sha256 == "b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482"
+        assert p.data_retrieved_at == "2026-10-11T02:07:07+00:00"
         assert (p.window_start, p.window_end) == (date(2023, 3, 28), date(2026, 8, 25))
         assert p.data_confirmed_variants == (prereg.VARIANT_NO_PLUGIN,)
     soxl = prereg.PREREGISTRATIONS["rs04-kelly-soxl-v1"]

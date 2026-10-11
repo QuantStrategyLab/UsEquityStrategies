@@ -83,6 +83,7 @@ class KellyPreregistration:
     window_end: date | None = None
     data_manifest_sha256: str | None = None
     data_license: str | None = None
+    data_retrieved_at: str | None = None
     data_confirmed_variants: tuple[str, ...] = ()
     gates: tuple[str, ...] = ()
     plugins: tuple[PluginSpec, ...] = ()
@@ -161,13 +162,19 @@ TQQQ_PLUGINS = (
                REPRO_OFF_IN_LIVE),
 )
 
-# User confirmation 2026-10-11: existing private Alpaca SIP raw bars + corporate actions archive
-# (raw manifest cb14a511...), user-confirmed non-commercial research license, window
-# 2023-03-28 .. 2026-08-25, and ONLY the no_plugin_core control variant may run.
+# User confirmation 2026-10-11: Alpaca SIP raw daily bars + corporate actions, user-confirmed
+# non-commercial research license, window 2023-03-28 .. 2026-08-25, ONLY the no_plugin_core
+# control variant may run.
+# Amendment 2026-10-11 (RS-04e): the original private archive (raw manifest cb14a511...) is not
+# reachable from the approved run environment and its warm-up before 2023-03-28 is insufficient
+# for the core rules (~252 sessions). The user approved a fresh read-only fetch from
+# data.alpaca.markets (feed=sip, adjustment=raw, 2021-12-01 .. 2026-08-25) into a private box
+# archive. Only the data identity changes; window, plan, fractions, costs and timing are unchanged.
 _CONFIRMED_DATA: dict[str, Any] = {
-    "data_source": "alpaca_sip_raw_bars_plus_corporate_actions_private_archive",
-    "data_manifest_sha256": "cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182",
+    "data_source": "alpaca_sip_raw_bars_plus_corporate_actions_box_fetch_20261011",
+    "data_manifest_sha256": "b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482",
     "data_license": "user_attested_non_commercial_private_research",
+    "data_retrieved_at": "2026-10-11T02:07:07+00:00",
     "window_start": date(2023, 3, 28),
     "window_end": date(2026, 8, 25),
     "data_confirmed_variants": (VARIANT_NO_PLUGIN,),
