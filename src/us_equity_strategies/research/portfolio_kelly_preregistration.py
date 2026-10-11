@@ -16,7 +16,7 @@ Human-readable copy: ``docs/research/portfolio_kelly_preregistration.zh-CN.md``.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -71,6 +71,7 @@ class PortfolioKellyPreregistration:
     dsr_trial_set: str
     data_identity: str = "development"
     gates: tuple[str, ...] = ()
+    supersedes: str | None = None
 
 
 PREREGISTRATIONS: Mapping[str, PortfolioKellyPreregistration] = {
@@ -106,6 +107,15 @@ PREREGISTRATIONS: Mapping[str, PortfolioKellyPreregistration] = {
         gates=("NO_BUDGET_INCREASE", "SOXL_252_SHADOW_SESSIONS_STILL_REQUIRED", "DEVELOPMENT_ONLY",
                "NO_LEVERAGE_NO_SHORT", "CAP_NOTE_ONLY"),
     ),
+}
+
+# RS-07: same study on the core_v2_parity component streams (new trials; see kelly_trial_ledger.json)
+PREREGISTRATIONS = {
+    **PREREGISTRATIONS,
+    "rs06-kelly-portfolio-v2": replace(
+        PREREGISTRATIONS["rs06-kelly-portfolio-v1"], preregistration_id="rs06-kelly-portfolio-v2",
+        components=(("SOXL", "rs04-kelly-soxl-v2"), ("TQQQ", "rs04-kelly-tqqq-v2")),
+        supersedes="rs06-kelly-portfolio-v1"),
 }
 
 

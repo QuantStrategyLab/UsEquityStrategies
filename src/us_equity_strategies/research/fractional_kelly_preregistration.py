@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -89,6 +89,13 @@ class KellyPreregistration:
     plugins: tuple[PluginSpec, ...] = ()
     variants: tuple[str, ...] = VARIANTS
     primary_variant: str = VARIANT_LIVE_PLUGINS
+    # RS-07 parity fields; v1 defaults reproduce the RS-04e generator exactly
+    generator_version: str = "core_v1"
+    signal_price_basis: str = "total_return"
+    indicator_source: str = "research_simulator"
+    indicator_history_bars: int | None = None
+    trial_role: str = "primary"
+    supersedes: str | None = None
 
     def blocking_plugins(self, variant: str) -> tuple[str, ...]:
         if variant != VARIANT_LIVE_PLUGINS:
@@ -203,6 +210,27 @@ PREREGISTRATIONS: Mapping[str, KellyPreregistration] = {
         **_COMMON,
         **_CONFIRMED_DATA,
     ),
+}
+
+# RS-07 (2026-10-11): research-live parity fixes, registered as NEW trials (see
+# docs/research/kelly_trial_ledger.json). Same data, window, plan, fractions, costs and timing.
+# core_v2_parity: signals on split-adjusted prices (backtest standard v1 section 4.4) and, for SOXL,
+# indicators from the QPK live builder (dynamic RSI threshold) on <= 504 trailing sessions.
+_V2 = {"generator_version": "core_v2_parity", "signal_price_basis": "split_adjusted"}
+_V1_SOXL = PREREGISTRATIONS["rs04-kelly-soxl-v1"]
+_V1_TQQQ = PREREGISTRATIONS["rs04-kelly-tqqq-v1"]
+PREREGISTRATIONS = {
+    **PREREGISTRATIONS,
+    "rs04-kelly-soxl-v2": replace(_V1_SOXL, preregistration_id="rs04-kelly-soxl-v2", **_V2,
+                                  indicator_source="qpk_live_builder", indicator_history_bars=504,
+                                  supersedes="rs04-kelly-soxl-v1"),
+    "rs04-kelly-tqqq-v2": replace(_V1_TQQQ, preregistration_id="rs04-kelly-tqqq-v2", **_V2,
+                                  indicator_source="strategy_internal", supersedes="rs04-kelly-tqqq-v1"),
+    # sensitivity: live indicator builder but total-return signals (closer to IBKR ADJUSTED_LAST history)
+    "rs04-kelly-soxl-v2-trsig": replace(_V1_SOXL, preregistration_id="rs04-kelly-soxl-v2-trsig",
+                                        generator_version="core_v2_parity", signal_price_basis="total_return",
+                                        indicator_source="qpk_live_builder", indicator_history_bars=504,
+                                        trial_role="sensitivity", supersedes=None),
 }
 
 
