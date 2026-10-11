@@ -68,7 +68,8 @@ def _ctx(manifest, **over):
 
 @pytest.fixture
 def confirmed(monkeypatch):
-    registry = {k: dataclasses.replace(v, data_source=SOURCE, window_start=DAYS[0], window_end=DAYS[-1])
+    registry = {k: dataclasses.replace(v, data_source=SOURCE, window_start=DAYS[0], window_end=DAYS[-1],
+                                       data_manifest_sha256="b" * 64, data_license="synthetic")
                 for k, v in prereg.PREREGISTRATIONS.items()}
     monkeypatch.setattr(prereg, "PREREGISTRATIONS", registry)
     return registry
@@ -91,13 +92,17 @@ def test_allowlist_is_exactly_soxl_and_tqqq():
     assert {p.strategy_key for p in prereg.PREREGISTRATIONS.values()} == {"SOXL", "TQQQ"}
 
 
-def test_shipped_preregistrations_are_frozen_and_pending():
+def test_shipped_preregistrations_are_frozen_and_confirmed():
     for p in prereg.PREREGISTRATIONS.values():
         assert p.plan == rs04.WalkForwardPlan(252, 63, 5, anchored=False)
         assert p.fractions == (0.25, 0.5) and p.base_cost_bps_per_side == 5.0
         assert p.multipliers == (1.0, 2.0, 3.0) and p.execution == "next_close"
         assert p.data_identity == "development" and "NO_BUDGET_INCREASE" in p.gates
-        assert not p.data_confirmed
+        assert p.data_confirmed
+        assert p.data_source == "alpaca_sip_raw_bars_plus_corporate_actions_private_archive"
+        assert p.data_manifest_sha256 == "cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182"
+        assert (p.window_start, p.window_end) == (date(2023, 3, 28), date(2026, 8, 25))
+        assert p.data_confirmed_variants == (prereg.VARIANT_NO_PLUGIN,)
     soxl = prereg.PREREGISTRATIONS["rs04-kelly-soxl-v1"]
     assert "SOXL_252_SHADOW_SESSIONS_STILL_REQUIRED" in soxl.gates
     assert soxl.live_profile == "soxl_soxx_trend_income"
@@ -132,9 +137,16 @@ def test_synthetic_with_authorization_is_rejected():
         _run(synthetic=True)
 
 
-def test_shipped_preregistration_blocks_until_data_confirmed():
+def test_unconfirmed_preregistration_blocks(monkeypatch):
+    registry = {k: dataclasses.replace(v, data_source=None) for k, v in prereg.PREREGISTRATIONS.items()}
+    monkeypatch.setattr(prereg, "PREREGISTRATIONS", registry)
     with pytest.raises(ValueError, match="PREREGISTRATION_PENDING_DATA_CONFIRMATION"):
         _run()
+
+
+def test_shipped_preregistration_rejects_other_manifest():
+    with pytest.raises(ValueError, match="DATA_MANIFEST_DIFFERS_FROM_PREREGISTRATION"):
+        _run(manifest=_manifest(start_date=date(2023, 3, 28), end_date=date(2026, 8, 25)))
 
 
 def test_wrong_or_cross_preregistration_id(confirmed):
@@ -222,3 +234,17 @@ def test_live_plugin_variant_blocked_while_plugins_not_reproducible(confirmed):
 def test_unknown_variant_refused(confirmed):
     with pytest.raises(ValueError, match="VARIANT_NOT_PREREGISTERED"):
         _run(variant="plugins_cherry_picked")
+
+
+def test_live_variant_needs_its_own_confirmation_even_if_plugins_become_reproducible(confirmed, monkeypatch):
+    registry = {k: dataclasses.replace(v, plugins=()) for k, v in prereg.PREREGISTRATIONS.items()}
+    monkeypatch.setattr(prereg, "PREREGISTRATIONS", registry)
+    with pytest.raises(ValueError, match="VARIANT_NOT_CONFIRMED_FOR_REAL_DATA"):
+        _run(variant=prereg.VARIANT_LIVE_PLUGINS)
+
+
+def test_manifest_sha_and_license_bound(confirmed):
+    with pytest.raises(ValueError, match="DATA_MANIFEST_DIFFERS_FROM_PREREGISTRATION"):
+        _run(manifest=_manifest(sha256="d" * 64))
+    with pytest.raises(ValueError, match="DATA_MANIFEST_DIFFERS_FROM_PREREGISTRATION"):
+        _run(manifest=_manifest(license="commercial"))
