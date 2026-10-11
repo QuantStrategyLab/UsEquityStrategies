@@ -81,6 +81,9 @@ class KellyPreregistration:
     data_source: str | None = None  # pending user confirmation
     window_start: date | None = None
     window_end: date | None = None
+    data_manifest_sha256: str | None = None
+    data_license: str | None = None
+    data_confirmed_variants: tuple[str, ...] = ()
     gates: tuple[str, ...] = ()
     plugins: tuple[PluginSpec, ...] = ()
     variants: tuple[str, ...] = VARIANTS
@@ -93,7 +96,8 @@ class KellyPreregistration:
 
     @property
     def data_confirmed(self) -> bool:
-        return self.data_source is not None and self.window_start is not None and self.window_end is not None
+        return (self.data_source is not None and self.window_start is not None and self.window_end is not None
+                and self.data_manifest_sha256 is not None and self.data_license is not None)
 
 
 _COMMON: dict[str, Any] = {
@@ -157,26 +161,40 @@ TQQQ_PLUGINS = (
                REPRO_OFF_IN_LIVE),
 )
 
+# User confirmation 2026-10-11: existing private Alpaca SIP raw bars + corporate actions archive
+# (raw manifest cb14a511...), user-confirmed non-commercial research license, window
+# 2023-03-28 .. 2026-08-25, and ONLY the no_plugin_core control variant may run.
+_CONFIRMED_DATA: dict[str, Any] = {
+    "data_source": "alpaca_sip_raw_bars_plus_corporate_actions_private_archive",
+    "data_manifest_sha256": "cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182",
+    "data_license": "user_attested_non_commercial_private_research",
+    "window_start": date(2023, 3, 28),
+    "window_end": date(2026, 8, 25),
+    "data_confirmed_variants": (VARIANT_NO_PLUGIN,),
+}
+
 PREREGISTRATIONS: Mapping[str, KellyPreregistration] = {
     "rs04-kelly-soxl-v1": KellyPreregistration(
         preregistration_id="rs04-kelly-soxl-v1", strategy_key="SOXL",
         live_profile="soxl_soxx_trend_income",
         return_generator=("live_plugins_as_live: live entrypoint decision replay with every plugin as live (not built); "
-                          "no_plugin_core: backtest.soxl_trend_simulator.run_soxl_core_only_backtest@live defaults"),
+                          "no_plugin_core: research.kelly_core_return_generator.generate_soxl_core_path"),
         benchmark_symbol="SOXX",
         gates=("NO_BUDGET_INCREASE", "SOXL_252_SHADOW_SESSIONS_STILL_REQUIRED", "DEVELOPMENT_ONLY"),
         plugins=SOXL_PLUGINS,
         **_COMMON,
+        **_CONFIRMED_DATA,
     ),
     "rs04-kelly-tqqq-v1": KellyPreregistration(
         preregistration_id="rs04-kelly-tqqq-v1", strategy_key="TQQQ",
         live_profile="tqqq_growth_income",
         return_generator=("live_plugins_as_live: live entrypoint decision replay with every plugin as live (not built); "
-                          "no_plugin_core: tqqq_growth_income core replay with plugins off (not built)"),
+                          "no_plugin_core: research.kelly_core_return_generator.generate_tqqq_core_path"),
         benchmark_symbol="QQQ",
         gates=("NO_BUDGET_INCREASE", "DEVELOPMENT_ONLY"),
         plugins=TQQQ_PLUGINS,
         **_COMMON,
+        **_CONFIRMED_DATA,
     ),
 }
 
@@ -216,6 +234,9 @@ def authorize_real_data(
         raise ValueError("VARIANT_NOT_PREREGISTERED")
     if not prereg.data_confirmed:
         raise ValueError("PREREGISTRATION_PENDING_DATA_CONFIRMATION")
+    if authorization.variant not in prereg.data_confirmed_variants and not prereg.blocking_plugins(
+            authorization.variant):
+        raise ValueError("VARIANT_NOT_CONFIRMED_FOR_REAL_DATA")
     blocking = prereg.blocking_plugins(authorization.variant)
     if blocking:
         raise ValueError("LIVE_PLUGIN_VARIANT_NOT_REPRODUCIBLE:" + ",".join(blocking))
@@ -231,7 +252,8 @@ def authorize_real_data(
     for text in (m.source, m.license, m.calendar):
         if not isinstance(text, str) or not text.strip():
             raise ValueError("DATA_MANIFEST_FIELD_MISSING")
-    if m.source != prereg.data_source or m.calendar != prereg.calendar:
+    if (m.source != prereg.data_source or m.calendar != prereg.calendar
+            or m.sha256 != prereg.data_manifest_sha256 or m.license != prereg.data_license):
         raise ValueError("DATA_MANIFEST_DIFFERS_FROM_PREREGISTRATION")
     if (m.start_date, m.end_date) != (prereg.window_start, prereg.window_end):
         raise ValueError("DATA_WINDOW_DIFFERS_FROM_PREREGISTRATION")

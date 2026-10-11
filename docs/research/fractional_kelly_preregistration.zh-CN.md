@@ -1,6 +1,6 @@
 # RS-04 分数 Kelly 评估器：SOXL / TQQQ 预注册（v1）
 
-状态：**参数已冻结，数据源与窗口待用户确认**。代码副本：`us_equity_strategies.research.fractional_kelly_preregistration`。
+状态：**参数已冻结；数据源与窗口已于 2026-10-11 经用户确认，只允许对照变体 `no_plugin_core` 运行**（主变体 `live_plugins_as_live` 仍被插件阻断）。代码副本：`us_equity_strategies.research.fractional_kelly_preregistration`。
 用户 2026-10-11 批准的候选只有当前两条实盘策略 SOXL 与 TQQQ；其他任何标的仍然 `REAL_DATA_REQUIRES_APPROVAL`。
 本文件与本次 PR **没有在真实数据上运行**，也不包含任何真实回测数字。
 
@@ -77,7 +77,18 @@
 - `report_context` 必须给出相同的 `manifest_sha256`/`source`/`license` 以及预注册的信号截止与成交时点；
 - 预注册的 `data_source`/`window_*` 仍为空时，一律 `PREREGISTRATION_PENDING_DATA_CONFIRMATION`。填写它们需要用户确认后单独审阅的 PR。
 
-## 4. 待用户确认的数据源与窗口（提议）
+## 4. 已确认的数据源与窗口（2026-10-11 用户确认）
+
+| 项 | 值 |
+| --- | --- |
+| `data_source` | `alpaca_sip_raw_bars_plus_corporate_actions_private_archive`（既有私有 Alpaca SIP 原始价 + 公司行动归档） |
+| `data_manifest_sha256` | `cb14a511083c824a748d137a271c93cfe0e8adf38f648905b26e37decf4c6182`（归档 `manifest.json` 的 SHA-256；DataManifest.sha256 必须等于它） |
+| `data_license` | `user_attested_non_commercial_private_research` |
+| 窗口 | 2023-03-28 至 2026-08-25（收益窗口；之前的会话只作信号预热） |
+| 允许的变体 | 仅 `no_plugin_core`；`live_plugins_as_live` 需另行确认（`VARIANT_NOT_CONFIRMED_FOR_REAL_DATA`），且目前仍被插件阻断 |
+| 运行位置 | 仅限批准的私有数据环境；原始数据和逐日输出不进仓库、不进公开 CI/日志 |
+
+### 4.1 原提议（存档）
 
 | 键 | 提议数据源 | 提议窗口 | 说明 |
 | --- | --- | --- | --- |
