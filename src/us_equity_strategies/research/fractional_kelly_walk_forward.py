@@ -156,7 +156,9 @@ def _path_metrics(returns: Sequence[float]) -> dict:
         equity *= 1.0 + r
         peak = max(peak, equity)
         mdd = min(mdd, equity / peak - 1.0)
+    worst = sorted(returns)[: max(1, math.ceil(0.05 * n))]
     return {"status": STATUS_COMPUTED, "reason_code": None, "observations": n,
+            "cvar_95_daily": math.fsum(worst) / len(worst),
             "log_growth_per_session": total_log / n,
             "total_return": math.expm1(total_log),
             "cagr": math.expm1(total_log * PERIODS_PER_YEAR / n),
@@ -304,6 +306,26 @@ def evaluate_fractional_kelly_walk_forward(
             except ImportError:
                 comparators[name]["bootstrap_gross"] = {"status": STATUS_UNCOMPUTABLE, "reason_code": "NUMPY_UNAVAILABLE"}
 
+    sizing = [name for name in comparators if name.startswith("kelly_") or name in ("full_exposure", "fixed_50pct")]
+    excess_1x: dict[str, list[float]] = {}
+    for name in sizing:
+        gross, traded = paths[name]
+        stressed = stats.cost_stress_recompute(gross, traded, cost_bps_per_side=base_bps, multipliers=(1.0,))
+        if stressed.status == STATUS_COMPUTED and not stressed.scenarios[0].ruined:
+            excess_1x[name] = [r - k for r, k in zip(stressed.scenarios[0].net_returns, c_test)]
+    trial_sharpes = []
+    for series in excess_1x.values():
+        m = math.fsum(series) / len(series)
+        sd = math.sqrt(math.fsum((x - m) ** 2 for x in series) / (len(series) - 1)) if len(series) > 1 else 0.0
+        if sd > 0:
+            trial_sharpes.append(m / sd)
+    for name in sizing:
+        if name.startswith("kelly_") and name in excess_1x and hasattr(stats, "deflated_sharpe_ratio"):
+            dsr = stats.deflated_sharpe_ratio(excess_1x[name], trial_sharpes)
+            comparators[name]["dsr_net1x_excess_vs_sizing_trials"] = {
+                "status": dsr.status, "value": dsr.value if dsr.status == STATUS_COMPUTED else None,
+                "reason_code": dsr.reason_code, "n_trials": len(trial_sharpes)}
+
     cap_note = {}
     for c in cs:
         computed = [f["fits"][format(c, "g")] for f in fold_records
@@ -359,7 +381,7 @@ def _build_report(stats: Any, result: dict, ctx: Mapping[str, Any], dates: Seque
     metrics = []
     for name, comp in result["comparators"].items():
         for tier, values in comp["tiers"].items():
-            for key in ("log_growth_per_session", "cagr", "max_drawdown"):
+            for key in ("log_growth_per_session", "cagr", "max_drawdown", "cvar_95_daily"):
                 if values.get("status") == STATUS_COMPUTED:
                     metrics.append(stats.MetricEntry(f"{name}.{key}", float(tier), STATUS_COMPUTED, values[key]))
                 else:
