@@ -49,3 +49,8 @@ no_plugin_core 与实盘不同（插件全关）；数据是事后取得的供�
 - 评估器：`research/portfolio_kelly_walk_forward.py`（Ledoit–Wolf 已与 `sklearn.covariance.ledoit_wolf` 逐位核对；`qp` 与网格暴力解核对）。
 - 私有运行器：`research/portfolio_kelly_private_runner.py`，复用 RS-04 的归档校验和 no_plugin_core 生成器；禁止在 CI 运行，输出只写 0700/0600 私有目录。
 - 单策略凯利对照与 RS-04 评估器在同一数据上逐项一致（有测试）。
+
+
+## 8. RS-07 修订：rs06-kelly-portfolio-v2（新试验）
+
+组件改为 `rs04-kelly-soxl-v2` 和 `rs04-kelly-tqqq-v2`（`core_v2_parity`，修正内容见单策略预注册文档的 RS-07 一节），其余冻结参数不变。

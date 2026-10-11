@@ -1,0 +1,17 @@
+{
+  "schema": "qsl.research.kelly_trial_ledger.v1",
+  "research_only": true,
+  "data_identity": "development",
+  "note": "Data-free ledger of every pre-registered Kelly sizing study run or registered on the same development window (2023-03-28..2026-08-25, manifest b5a3dd40...). Every run adds trials; results live only in private outputs. Each report's DSR uses its own declared trial set; cumulative_sizing_trials is the honest multiple-testing count across studies.",
+  "trials": [
+    {"study": "RS-04e", "preregistration_id": "rs04-kelly-soxl-v1", "generator_version": "core_v1", "role": "primary", "sizing_trials": 4, "status": "RUN", "run_source_revision": "a92c7e4d641705675627227dbea919855a0fdd52", "superseded_by": "rs04-kelly-soxl-v2"},
+    {"study": "RS-04e", "preregistration_id": "rs04-kelly-tqqq-v1", "generator_version": "core_v1", "role": "primary", "sizing_trials": 4, "status": "RUN", "run_source_revision": "a92c7e4d641705675627227dbea919855a0fdd52", "superseded_by": "rs04-kelly-tqqq-v2"},
+    {"study": "RS-06", "preregistration_id": "rs06-kelly-portfolio-v1", "generator_version": "core_v1", "role": "primary", "sizing_trials": 14, "status": "RUN", "run_source_revision": "1bbf76f2fbf33531089a1fc9217b6f30b238be5c", "superseded_by": "rs06-kelly-portfolio-v2"},
+    {"study": "RS-07", "preregistration_id": "rs04-kelly-soxl-v2", "generator_version": "core_v2_parity", "role": "primary", "sizing_trials": 4, "status": "REGISTERED_NEW_TRIAL", "change": "split-adjusted signal prices; QPK live indicator builder (dynamic RSI threshold)"},
+    {"study": "RS-07", "preregistration_id": "rs04-kelly-tqqq-v2", "generator_version": "core_v2_parity", "role": "primary", "sizing_trials": 4, "status": "REGISTERED_NEW_TRIAL", "change": "split-adjusted signal prices"},
+    {"study": "RS-07", "preregistration_id": "rs04-kelly-soxl-v2-trsig", "generator_version": "core_v2_parity", "role": "sensitivity", "sizing_trials": 4, "status": "REGISTERED_NEW_TRIAL", "change": "QPK live indicator builder with total-return signals (IBKR ADJUSTED_LAST proxy)"},
+    {"study": "RS-07", "preregistration_id": "rs06-kelly-portfolio-v2", "generator_version": "core_v2_parity", "role": "primary", "sizing_trials": 14, "status": "REGISTERED_NEW_TRIAL", "change": "components rs04-kelly-soxl-v2 + rs04-kelly-tqqq-v2"}
+  ],
+  "cumulative_sizing_trials": 48,
+  "added_statistics_rs07": ["psr_net1x_excess", "bootstrap_net1x", "paired_bootstrap (net 1x daily log-growth difference vs fixed 50% / equal-weight baselines)", "coverage (dropped tail)"]
+}

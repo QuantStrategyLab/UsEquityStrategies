@@ -38,6 +38,12 @@ from typing import Any
 
 from us_equity_strategies.research import fractional_kelly_walk_forward as rs04
 from us_equity_strategies.research.fractional_kelly_walk_forward_plan import WalkForwardPlan
+from us_equity_strategies.research.kelly_disclosures import (
+    COST_MODEL_DISCLOSURE,
+    METRIC_BASIS,
+    coverage_disclosure,
+    paired_stationary_bootstrap,
+)
 from us_equity_strategies.research.portfolio_kelly_preregistration import (
     METHOD_CLIP_SCALE,
     METHOD_QP,
@@ -368,6 +374,7 @@ def evaluate_portfolio_kelly_walk_forward(
 
     comparators: dict[str, dict] = {}
     excess_1x: dict[str, list[float]] = {}
+    net1x: dict[str, list[float]] = {}
     for name, (gross, traded) in paths.items():
         stressed = stats.cost_stress_recompute(gross, traded, cost_bps_per_side=base_bps, multipliers=multipliers)
         if stressed.status != STATUS_COMPUTED:
@@ -378,19 +385,29 @@ def evaluate_portfolio_kelly_walk_forward(
                        {"status": STATUS_UNCOMPUTABLE, "reason_code": "RUINED_BY_COSTS"})
             metrics["turnover_total"] = math.fsum(traded)
             tiers[format(sc.multiplier, "g")] = metrics
-            if float(sc.multiplier) == 1.0 and not sc.ruined and name in sizing:
-                excess_1x[name] = [r - k for r, k in zip(sc.net_returns, c_test)]
+            if float(sc.multiplier) == 1.0 and not sc.ruined:
+                net1x[name] = list(sc.net_returns)
+                if name in sizing:
+                    excess_1x[name] = [r - k for r, k in zip(sc.net_returns, c_test)]
         psr = stats.probabilistic_sharpe_ratio([g - k for g, k in zip(gross, c_test)])
         comparators[name] = {"tiers": tiers, "psr_gross_excess": {
             "status": psr.status, "value": psr.value if psr.status == STATUS_COMPUTED else None,
             "reason_code": psr.reason_code}}
+        if name in net1x:
+            psr_net = stats.probabilistic_sharpe_ratio([g - k for g, k in zip(net1x[name], c_test)])
+            comparators[name]["psr_net1x_excess"] = {
+                "status": psr_net.status, "value": psr_net.value if psr_net.status == STATUS_COMPUTED else None,
+                "reason_code": psr_net.reason_code}
         if bootstrap_seed is not None and hasattr(stats, "stationary_bootstrap_ci") and name.startswith("portfolio_"):
-            try:
-                ci = stats.stationary_bootstrap_ci(gross, seed=bootstrap_seed, mean_block_length=5.0, n_resamples=500,
-                                                   statistics=("log_growth", "max_drawdown"))
-                comparators[name]["bootstrap_gross"] = ci.to_dict()
-            except ImportError:
-                comparators[name]["bootstrap_gross"] = {"status": STATUS_UNCOMPUTABLE, "reason_code": "NUMPY_UNAVAILABLE"}
+            for key, series in (("bootstrap_gross", gross), ("bootstrap_net1x", net1x.get(name))):
+                if series is None:
+                    continue
+                try:
+                    ci = stats.stationary_bootstrap_ci(series, seed=bootstrap_seed, mean_block_length=5.0,
+                                                       n_resamples=500, statistics=("log_growth", "max_drawdown"))
+                    comparators[name][key] = ci.to_dict()
+                except ImportError:
+                    comparators[name][key] = {"status": STATUS_UNCOMPUTABLE, "reason_code": "NUMPY_UNAVAILABLE"}
     trial_sharpes = [s for s in (_sharpe(v) for v in excess_1x.values()) if s is not None]
     for name in sizing:
         if name in excess_1x and hasattr(stats, "deflated_sharpe_ratio"):
@@ -399,6 +416,16 @@ def evaluate_portfolio_kelly_walk_forward(
                 "status": dsr.status, "value": dsr.value if dsr.status == STATUS_COMPUTED else None,
                 "reason_code": dsr.reason_code, "n_trials": len(trial_sharpes)}
 
+    paired = {}
+    if bootstrap_seed is not None:
+        baselines = [b for b in (f"equal_weight_{round(100 * equal)}_{round(100 * equal)}",
+                                 f"equal_weight_{round(50 * equal)}_{round(50 * equal)}",
+                                 *(f"fixed_50.{a}" for a in assets)) if b in net1x]
+        for name in sizing:
+            if name.startswith(("portfolio_kelly.", "single_kelly.")) and name in net1x:
+                for base in baselines:
+                    paired[f"{name}__vs__{base}"] = paired_stationary_bootstrap(net1x[name], net1x[base],
+                                                                                seed=bootstrap_seed)
     excess_test = [[r - k for r, k in zip(r_test[a], c_test)] for a in assets]
     realized = {"correlation_sample": _corr(sample_covariance(excess_test, ddof=1)),
                 "sharpe_annualized_gross_excess": {
@@ -424,6 +451,8 @@ def evaluate_portfolio_kelly_walk_forward(
                  "purge_sessions": plan.purge_sessions, "anchored": plan.anchored},
         "folds": fold_records, "comparators": comparators, "realized_test_window": realized,
         "dsr_trials": sizing, "kelly_cap_note": cap_note, "trial_log_sha256": trial_sha,
+        "paired_bootstrap": paired, "coverage": coverage_disclosure(dates, folds), "metric_basis": METRIC_BASIS,
+        "cost_model_disclosure": COST_MODEL_DISCLOSURE,
         "evaluation_contract": {
             "mean": "TRAIN_ONLY_EXCESS_MEAN_POSITIVE_PART_SHRINK_SAME_AS_RS04",
             "covariance": "LEDOIT_WOLF_2004_SCALED_IDENTITY_ANALYTIC_DEMEANED_1_OVER_N",
@@ -476,6 +505,10 @@ def _build_report(stats: Any, result: dict, ctx: Mapping[str, Any], dates: Seque
             None),
         status="DEVELOPMENT_ONLY", metrics=tuple(metrics),
         limitations=(*tuple(ctx.get("limitations", ())),
-                     "portfolio fractional Kelly output is a cap note only; it never raises any budget"),
+                     "portfolio fractional Kelly output is a cap note only; it never raises any budget",
+                     rs04._tail_note(result["coverage"]),
+                     "PSR/bootstrap reported on net 1x (primary) and gross (diagnostic); DSR on net 1x",
+                     "outer cost model is a virtual-asset approximation, not security-level netted; "
+                     "outer cash leg free"),
     )
     return report.to_dict()

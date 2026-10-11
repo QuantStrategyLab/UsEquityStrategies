@@ -11,8 +11,18 @@ Contract
 --------
 - Per-symbol total return ``r_t = (close_t · split_t + dividend_t) / close_{t-1} − 1``
   (forward split ratio on its ex-date; cash dividend per post-split share on its
-  ex-date). Signals use a forward-built total-return index, so only information
-  up to ``t`` enters the signal at close ``t``.
+  ex-date) is the **return** series of every held asset.
+- Signal price basis (pre-registered per run):
+  ``total_return`` (generator ``core_v1``): signals on a forward-built total-return
+  index; ``split_adjusted`` (generator ``core_v2_parity``, backtest standard v1
+  §4.4): signals on split-adjusted prices without dividends, i.e. the forward
+  price index rescaled to the raw close at the decision date. Only information
+  up to ``t`` enters the signal at close ``t`` in both cases.
+- SOXL indicator source: ``research_simulator`` (``core_v1``; port without the
+  dynamic RSI threshold, so the RSI cap falls back to the fixed 70) or
+  ``qpk_live_builder`` (``core_v2_parity``): the exact QPK function the live
+  platforms call (``build_semiconductor_rotation_indicators_from_history``) on a
+  trailing window of at most ``indicator_history_bars`` signal prices.
 - Timing ``next_close``: signal at the completed close ``t``; trade to target at
   close ``t+1``; the new weights earn session ``t+2``. ``turnover[k]`` is the
   one-side traded security notional / NAV at the start of session ``k`` (cash leg
@@ -106,6 +116,39 @@ def _finite_positive(value: object) -> float:
     if not math.isfinite(number) or number <= 0:
         raise CoreGeneratorError("BAR_INVALID")
     return number
+
+
+SIGNAL_TOTAL_RETURN = "total_return"
+SIGNAL_SPLIT_ADJUSTED = "split_adjusted"
+INDICATORS_RESEARCH_SIMULATOR = "research_simulator"
+INDICATORS_QPK_LIVE_BUILDER = "qpk_live_builder"
+GENERATOR_V1 = "core_v1"
+GENERATOR_V2 = "core_v2_parity"
+# live IBKR requests "420 D" which QPK normalizes to "2 Y" (~504 sessions); see parity checklist
+LIVE_INDICATOR_HISTORY_BARS = 504
+# QPK required lookback for a non-floor dynamic RSI threshold: rsi quantile window 252 + 28
+MIN_INDICATOR_HISTORY_BARS = 280
+
+
+def price_return_series(bars: Sequence[RawBar], actions: CorporateActions,
+                        sessions: Sequence[date]) -> tuple[float, ...]:
+    """Split-adjusted daily **price** returns (dividends excluded); first session return is 0."""
+    return total_return_series(bars, CorporateActions(splits=actions.splits), sessions)
+
+
+def signal_returns(bars: Sequence[RawBar], actions: CorporateActions, sessions: Sequence[date],
+                   basis: str) -> tuple[float, ...]:
+    if basis == SIGNAL_TOTAL_RETURN:
+        return total_return_series(bars, actions, sessions)
+    if basis == SIGNAL_SPLIT_ADJUSTED:
+        return price_return_series(bars, actions, sessions)
+    raise CoreGeneratorError("SIGNAL_PRICE_BASIS_INVALID")
+
+
+def split_adjusted_history(levels: Sequence[float], raw_close_at_end: float) -> list[float]:
+    """Rescale a forward price index so its last value equals the raw close: split-adjusted as of that date."""
+    scale = raw_close_at_end / levels[-1]
+    return [v * scale for v in levels]
 
 
 def total_return_series(bars: Sequence[RawBar], actions: CorporateActions,
@@ -212,10 +255,12 @@ def _filtered_kwargs(fn: Callable, config: Mapping[str, object], drop: Sequence[
 
 
 def generate_soxl_core_path(bars: Mapping[str, Sequence[RawBar]], actions: Mapping[str, CorporateActions],
-                            sessions: Sequence[date], *, trade_start: date | None = None) -> CorePath:
+                            sessions: Sequence[date], *, trade_start: date | None = None,
+                            signal_price_basis: str = SIGNAL_TOTAL_RETURN,
+                            indicator_source: str = INDICATORS_RESEARCH_SIMULATOR,
+                            indicator_history_bars: int = LIVE_INDICATOR_HISTORY_BARS) -> CorePath:
     import pandas as pd
 
-    from us_equity_strategies.backtest.soxl_trend_simulator import build_indicator_history
     from us_equity_strategies.manifests import soxl_soxx_trend_income_manifest
     from us_equity_strategies.strategies.soxl_soxx_trend_income import build_rebalance_plan
 
@@ -224,28 +269,62 @@ def generate_soxl_core_path(bars: Mapping[str, Sequence[RawBar]], actions: Mappi
     kwargs = _filtered_kwargs(build_rebalance_plan, config, ("indicators", "account_state", "translator"))
     returns = {s: total_return_series(bars[s], actions.get(s, CorporateActions()), sessions)
                for s in SOXL_SIGNAL_SYMBOLS}
+    sig = {s: signal_returns(bars[s], actions.get(s, CorporateActions()), sessions, signal_price_basis)
+           for s in SOXL_SIGNAL_SYMBOLS}
+    levels = {s: _index(sig[s]) for s in SOXL_SIGNAL_SYMBOLS}
+    raw_close = {s: {b.session: b.close for b in bars[s]} for s in SOXL_SIGNAL_SYMBOLS}
     index = pd.DatetimeIndex(pd.to_datetime(list(sessions)))
-    close = pd.DataFrame({s: _index(returns[s]) for s in SOXL_SIGNAL_SYMBOLS}, index=index)
-    history = build_indicator_history(
-        close, trend_ma_window=int(kwargs["trend_ma_window"]),
-        volatility_window=int(kwargs["blend_gate_volatility_delever_window"]),
-        volatility_lookback=int(kwargs["blend_gate_volatility_delever_dynamic_lookback"]),
-        volatility_percentile=float(kwargs["blend_gate_volatility_delever_dynamic_percentile"]),
-        volatility_min_periods=int(kwargs["blend_gate_volatility_delever_dynamic_min_periods"]),
-        volatility_floor=float(kwargs["blend_gate_volatility_delever_dynamic_floor"]),
-        volatility_cap=float(kwargs["blend_gate_volatility_delever_dynamic_cap"]),
-    )
+    required = ("ma_trend", "realized_volatility_dynamic_threshold")
+    if indicator_source == INDICATORS_RESEARCH_SIMULATOR:
+        from us_equity_strategies.backtest.soxl_trend_simulator import build_indicator_history
+
+        close = pd.DataFrame(levels, index=index)
+        history = build_indicator_history(
+            close, trend_ma_window=int(kwargs["trend_ma_window"]),
+            volatility_window=int(kwargs["blend_gate_volatility_delever_window"]),
+            volatility_lookback=int(kwargs["blend_gate_volatility_delever_dynamic_lookback"]),
+            volatility_percentile=float(kwargs["blend_gate_volatility_delever_dynamic_percentile"]),
+            volatility_min_periods=int(kwargs["blend_gate_volatility_delever_dynamic_min_periods"]),
+            volatility_floor=float(kwargs["blend_gate_volatility_delever_dynamic_floor"]),
+            volatility_cap=float(kwargs["blend_gate_volatility_delever_dynamic_cap"]),
+        )
+
+        def snapshot(i: int) -> dict | None:
+            snap = {}
+            for key, frame in history.items():
+                row = frame.loc[index[i]]
+                snap[key] = {k: float(v) for k, v in row.items() if pd.notna(v)}
+            if "ma_trend" not in snap.get("soxl", {}) or any(k not in snap.get("soxx", {}) for k in required):
+                return None
+            return snap
+    elif indicator_source == INDICATORS_QPK_LIVE_BUILDER:
+        from quant_platform_kit.common.runtime_inputs import (
+            build_semiconductor_rotation_indicators_from_history,
+        )
+
+        bars_cap = int(indicator_history_bars)
+        if bars_cap < MIN_INDICATOR_HISTORY_BARS:
+            raise CoreGeneratorError("INDICATOR_HISTORY_BARS_TOO_SHORT")
+
+        def snapshot(i: int) -> dict | None:
+            if i + 1 < MIN_INDICATOR_HISTORY_BARS:
+                return None
+            lo = max(0, i + 1 - bars_cap)
+            hist = {s: split_adjusted_history(levels[s][lo: i + 1], raw_close[s][sessions[i]])
+                    if signal_price_basis == SIGNAL_SPLIT_ADJUSTED else levels[s][lo: i + 1]
+                    for s in SOXL_SIGNAL_SYMBOLS}
+            # live IBKR passes only trend_ma_window; every other parameter is the QPK default
+            return build_semiconductor_rotation_indicators_from_history(
+                soxl_history=hist["SOXL"], soxx_history=hist["SOXX"],
+                trend_ma_window=int(kwargs["trend_ma_window"]))
+    else:
+        raise CoreGeneratorError("INDICATOR_SOURCE_INVALID")
     boxx_returns = _optional_returns(bars.get("BOXX"), actions.get("BOXX"), sessions)
     asset_returns = {"SOXL": returns["SOXL"], "SOXX": returns["SOXX"], "BOXX": boxx_returns}
-    required = ("ma_trend", "realized_volatility_dynamic_threshold")
 
     def decide(i: int, drifted: Mapping[str, float]) -> Mapping[str, float] | None:
-        stamp = index[i]
-        snap = {}
-        for key, frame in history.items():
-            row = frame.loc[stamp]
-            snap[key] = {k: float(v) for k, v in row.items() if pd.notna(v)}
-        if "ma_trend" not in snap.get("soxl", {}) or any(k not in snap.get("soxx", {}) for k in required):
+        snap = snapshot(i)
+        if snap is None:
             return None
         equity = REFERENCE_EQUITY_USD
         market_values = {a: equity * drifted.get(a, 0.0) for a in SOXL_ASSETS}
@@ -271,7 +350,7 @@ def generate_soxl_core_path(bars: Mapping[str, Sequence[RawBar]], actions: Mappi
 
 def generate_tqqq_core_path(bars: Mapping[str, Sequence[RawBar]], actions: Mapping[str, CorporateActions],
                             sessions: Sequence[date], *, trade_start: date | None = None,
-                            min_history: int = 252) -> CorePath:
+                            min_history: int = 252, signal_price_basis: str = SIGNAL_TOTAL_RETURN) -> CorePath:
     import pandas as pd
     from quant_platform_kit.common.models import PortfolioSnapshot, Position
 
@@ -285,9 +364,11 @@ def generate_tqqq_core_path(bars: Mapping[str, Sequence[RawBar]], actions: Mappi
     unlevered = str(config.get("dual_drive_unlevered_symbol") or "QQQM").upper()
     if unlevered != "QQQM":
         raise CoreGeneratorError("UNLEVERED_SYMBOL_CHANGED")
-    qqq_returns = total_return_series(bars[TQQQ_SIGNAL_SYMBOL], actions.get(TQQQ_SIGNAL_SYMBOL, CorporateActions()),
-                                      sessions)
+    qqq_returns = signal_returns(bars[TQQQ_SIGNAL_SYMBOL], actions.get(TQQQ_SIGNAL_SYMBOL, CorporateActions()),
+                                 sessions, signal_price_basis)
     qqq_index = _index(qqq_returns)
+    if signal_price_basis == SIGNAL_SPLIT_ADJUSTED:
+        qqq_raw = {b.session: b.close for b in bars[TQQQ_SIGNAL_SYMBOL]}
     asset_returns = {"TQQQ": total_return_series(bars["TQQQ"], actions.get("TQQQ", CorporateActions()), sessions)}
     for symbol in ("QQQM", "BOXX"):
         series = _optional_returns(bars.get(symbol), actions.get(symbol), sessions)
@@ -297,7 +378,9 @@ def generate_tqqq_core_path(bars: Mapping[str, Sequence[RawBar]], actions: Mappi
     def decide(i: int, drifted: Mapping[str, float]) -> Mapping[str, float] | None:
         if i + 1 < min_history:
             return None
-        frame = pd.DataFrame({"date": pd.to_datetime(list(sessions[: i + 1])), "close": qqq_index[: i + 1]})
+        closes = (split_adjusted_history(qqq_index[: i + 1], qqq_raw[sessions[i]])
+                  if signal_price_basis == SIGNAL_SPLIT_ADJUSTED else qqq_index[: i + 1])
+        frame = pd.DataFrame({"date": pd.to_datetime(list(sessions[: i + 1])), "close": closes})
         equity = REFERENCE_EQUITY_USD
         positions = tuple(Position(symbol=a, quantity=equity * w, market_value=equity * w)
                           for a, w in drifted.items() if w > 0)
