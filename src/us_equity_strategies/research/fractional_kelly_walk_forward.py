@@ -30,8 +30,10 @@ strategy's internal turnover scaled by ``f`` when supplied), through QPK
 Boundaries
 ----------
 - No leverage, no shorting: ``0 <= f <= 1``.
-- Synthetic data only in this version: ``synthetic=True`` is required;
-  real/private data raise ``REAL_DATA_REQUIRES_APPROVAL``.
+- Synthetic data by default (``synthetic=True``). Real data only for the
+  allowlist ``{SOXL, TQQQ}`` with a ``RealDataAuthorization`` (pre-registration
+  id + data manifest) that matches ``fractional_kelly_preregistration``
+  exactly; anything else raises ``REAL_DATA_REQUIRES_APPROVAL``.
 - The output may only inform a ``kelly_ready`` **cap note**. It never raises
   any risk budget, never authorizes promotion/paper/shadow/live, and every
   report is ``live_ready=False`` / ``no_order=True``.
@@ -51,6 +53,14 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from us_equity_strategies.research.fractional_kelly_preregistration import (
+    RealDataAuthorization,
+    authorize_real_data,
+)
+from us_equity_strategies.research.fractional_kelly_walk_forward_plan import (
+    WalkForwardPlan,
+)
+
 EVALUATOR_VERSION = "fractional_kelly_walk_forward_v1"
 STATUS_COMPUTED = "COMPUTED"
 STATUS_UNCOMPUTABLE = "UNCOMPUTABLE"
@@ -60,37 +70,6 @@ PERIODS_PER_YEAR = 252
 DEFAULT_FRACTIONS = (0.25, 0.5)
 DEFAULT_MULTIPLIERS = (1.0, 2.0, 3.0)
 MIN_TRAIN_OBSERVATIONS = 30  # mirrors QPK Kelly contract v2 sample floor
-
-
-@dataclass(frozen=True)
-class WalkForwardPlan:
-    """Session-index walk-forward plan; test folds are contiguous and ordered."""
-
-    train_sessions: int
-    test_sessions: int
-    purge_sessions: int
-    anchored: bool = False
-
-    def folds(self, n: int) -> list[tuple[int, int, int, int]]:
-        for name in ("train_sessions", "test_sessions", "purge_sessions"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise TypeError("WALK_FORWARD_PLAN_INVALID")
-        if self.train_sessions < 2 or self.test_sessions < 1 or self.purge_sessions < 1:
-            raise ValueError("WALK_FORWARD_PLAN_INVALID")
-        out = []
-        train_start, train_end = 0, self.train_sessions
-        while True:
-            test_start = train_end + self.purge_sessions
-            test_end = test_start + self.test_sessions
-            if test_end > n:
-                break
-            out.append((train_start, train_end, test_start, test_end))
-            train_end += self.test_sessions
-            if not self.anchored:
-                train_start += self.test_sessions
-        # Contiguous test folds: each next test starts where the previous ended.
-        return out
 
 
 def _stats_module() -> Any | None:
@@ -189,7 +168,8 @@ def evaluate_fractional_kelly_walk_forward(
     benchmark_returns: Sequence[tuple[date, float]],
     plan: WalkForwardPlan,
     cost_bps_per_side: float,
-    synthetic: bool,
+    synthetic: bool = True,
+    real_data: RealDataAuthorization | None = None,
     cash_returns: Sequence[tuple[date, float]] | None = None,
     assume_zero_cash: bool = False,
     strategy_turnover: Sequence[float] | None = None,
@@ -200,7 +180,10 @@ def evaluate_fractional_kelly_walk_forward(
     report_context: Mapping[str, Any] | None = None,
     bootstrap_seed: int | None = None,
 ) -> dict:
-    if synthetic is not True:
+    if synthetic is True:
+        if real_data is not None:
+            raise ValueError("REAL_DATA_AUTHORIZATION_WITH_SYNTHETIC")
+    elif synthetic is not False or real_data is None:
         raise ValueError("REAL_DATA_REQUIRES_APPROVAL")
     if not isinstance(plan, WalkForwardPlan):
         raise TypeError("WALK_FORWARD_PLAN_INVALID")
@@ -241,9 +224,17 @@ def evaluate_fractional_kelly_walk_forward(
     base_bps = _finite(cost_bps_per_side, "COST_BPS")
     if base_bps < 0:
         raise ValueError("COST_BPS_INVALID")
+    prereg = None
+    if synthetic is False:
+        prereg = authorize_real_data(real_data, plan=plan, fractions=cs, cost_bps_per_side=base_bps,
+                                     multipliers=multipliers, dates=dates, report_context=report_context)
 
     envelope = {
-        "research_only": True, "synthetic": True, "promotion_eligible": False,
+        "research_only": True, "synthetic": prereg is None, "promotion_eligible": False,
+        "data_identity": "development",
+        "preregistration_id": None if prereg is None else prereg.preregistration_id,
+        "strategy_key": None if prereg is None else prereg.strategy_key,
+        "gates": () if prereg is None else prereg.gates,
         "live_ready": False, "size_zero_required": True, "no_order": True,
         "evaluator_version": EVALUATOR_VERSION,
         "kelly_ready_role": "CAP_NOTE_ONLY_NEVER_RAISES_BUDGET",
@@ -331,7 +322,6 @@ def evaluate_fractional_kelly_walk_forward(
     trial_log_sha = hashlib.sha256(trial_log.encode()).hexdigest()
     result = {
         **envelope, "status": STATUS_COMPUTED, "reason_code": None,
-        "data_identity": "development",
         "test_window": {"start": dates[test_start].isoformat(), "end": dates[test_end - 1].isoformat(),
                         "sessions": n_test},
         "plan": {"train_sessions": plan.train_sessions, "test_sessions": plan.test_sessions,

@@ -29,7 +29,7 @@
 ## 硬边界
 
 - 不加杠杆、不做空：`0 ≤ f ≤ 1`。
-- 本版本只接受 `synthetic=True`；真实/私有数据抛 `REAL_DATA_REQUIRES_APPROVAL`。
+- 默认 `synthetic=True`。真实数据只允许白名单 {SOXL, TQQQ}，且须提供与 [预注册](fractional_kelly_preregistration.zh-CN.md) 完全一致的 `RealDataAuthorization`（预注册 id + 数据清单）；其他一律 `REAL_DATA_REQUIRES_APPROVAL`，预注册数据源未确认时 `PREREGISTRATION_PENDING_DATA_CONFIRMATION`。
 - 结果只能作为 `kelly_ready` **上限备注**（`kelly_cap_note.usage = MAY_ONLY_LOWER_OR_CAP_NEVER_RAISE_EXISTING_BUDGET`），`budget_effect = NONE`；不提高任何预算，不授权晋级/纸面/影子/实盘，报告恒为 `live_ready=false`、`no_order=true`、`DEVELOPMENT_ONLY`。
 - 已安装 QPK 无 `research_stats` 时整体 `UNCOMPUTABLE`（`QPK_RESEARCH_STATS_UNAVAILABLE`），不输出任何数字。
 - 运行时入口/策略不导入本模块（`tests/test_research_import_boundary.py`）。
@@ -41,7 +41,7 @@
 
 ## 若要在真实数据上运行，需要
 
-1. **用户明确批准**具体候选、数据源与窗口，并解除 `synthetic=True` 限制（单独 PR，含审阅）。
+1. 候选已获批准（SOXL、TQQQ，2026-10-11）；数据源与窗口仍需用户确认后写入预注册（单独审阅的 PR）。
 2. 数据：该策略逐会话满仓收益（含拆股/分红处理说明）、可选的策略内部换手序列、同日期基准收益、现金收益序列（或明确声明按 0 计）、可选 R8 路径（收益 + 换手）；数据清单 SHA-256、来源、许可、日历。
 3. 预先冻结并记录：训练/测试/purge 会话数、是否锚定、`c` 集合、基础费率与档位、信号截止与成交时点（须符合回测标准 v1 §4，见 UES #575）、选择规则（本评估只报告不选择）。
 4. 数据身份：已见历史只能是 `development`；不能作为 OOS 结论，更不能据此提高预算。

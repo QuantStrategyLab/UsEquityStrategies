@@ -98,4 +98,4 @@ jobs:
       - name: Run research_stats integration tests
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/research/test_fractional_kelly_walk_forward.py tests/test_research_import_boundary.py
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/research/test_fractional_kelly_walk_forward.py tests/research/test_fractional_kelly_preregistration.py tests/test_research_import_boundary.py
