@@ -116,3 +116,19 @@
 3. 插件：市场状态控制、保留比例、TQQQ 危机防御无法用历史复现（见 §2.1）；收入层和 runtime risk gate 需要新的适配器；IBKR 的插件挂载、release 修订与 config SHA 需读回确认。
 4. 私有 raw/R6 归档的云端引用、覆盖到 2026-08-25 的 SOXL/SOXX 完整性、BOXX 分红 `process_date` 可知性需在运行前读回确认。
 5. 实盘 15:45 成交与研究 `next_close` 的差异（UES #575）。
+
+
+## RS-07 研究与实盘一致性修订（2026-10-11，新试验）
+
+外部审计指出两处研究和实盘不一致，已在研究代码中修正。修正后的版本登记为**新试验**（见 `docs/research/kelly_trial_ledger.json`），v1 保留、可复现：
+
+| 预注册 id | 生成器 | 信号价格 | SOXL 指标来源 | 角色 |
+| --- | --- | --- | --- | --- |
+| `rs04-kelly-soxl-v2` | `core_v2_parity` | 拆股复权价（不含分红，回测标准 v1 §4.4） | QPK 实盘函数 `build_semiconductor_rotation_indicators_from_history`（含动态 RSI 阈值），最多取最近 504 个交易日 | 主 |
+| `rs04-kelly-tqqq-v2` | `core_v2_parity` | 拆股复权价 | 策略内部计算 | 主 |
+| `rs04-kelly-soxl-v2-trsig` | `core_v2_parity` | 总收益指数（近似 IBKR 的 ADJUSTED_LAST） | QPK 实盘函数 | 敏感性 |
+
+其余参数（数据、窗口、前推、c、费用、时点、只跑 no_plugin_core）与 v1 完全相同。
+
+- 504 个交易日对应 IBKR 实盘请求的 "420 D"，QPK 会把它换算成 "2 Y"。窗口开始前只有 331 个交易日，所以早期决策用的历史较短；最少需要 280 个（252 + 28），这样动态 RSI 阈值才能算出来。历史长度不同只影响 RSI 指数平滑的起点，影响随时间衰减。
+- 实盘只传 `trend_ma_window`，其余参数都用 QPK 默认值；测试会检查这些默认值与 manifest 一致。

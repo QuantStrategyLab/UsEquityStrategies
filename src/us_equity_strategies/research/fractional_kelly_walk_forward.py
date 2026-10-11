@@ -53,6 +53,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from us_equity_strategies.research.kelly_disclosures import (
+    COST_MODEL_DISCLOSURE,
+    METRIC_BASIS,
+    coverage_disclosure,
+    paired_stationary_bootstrap,
+)
 from us_equity_strategies.research.fractional_kelly_preregistration import (
     RealDataAuthorization,
     authorize_real_data,
@@ -278,6 +284,7 @@ def evaluate_fractional_kelly_walk_forward(
         paths["r8"] = (list(r8[window]), None if r8_traded is None else list(r8_traded[window]))
 
     comparators: dict[str, dict] = {}
+    net1x: dict[str, list[float]] = {}
     for name, (gross, traded) in paths.items():
         tiers: dict[str, dict] = {}
         if traded is None:  # R8 supplied net of its own costs; no turnover to stress
@@ -294,17 +301,27 @@ def evaluate_fractional_kelly_walk_forward(
                            {"status": STATUS_UNCOMPUTABLE, "reason_code": "RUINED_BY_COSTS"})
                 metrics["turnover_total"] = math.fsum(traded)
                 tiers[format(scenario.multiplier, "g")] = metrics
+                if float(scenario.multiplier) == 1.0 and not scenario.ruined:
+                    net1x[name] = list(scenario.net_returns)
         psr = stats.probabilistic_sharpe_ratio([g - k for g, k in zip(gross, c_test)])
         comparators[name] = {"tiers": tiers, "psr_gross_excess": {
             "status": psr.status, "value": psr.value if psr.status == STATUS_COMPUTED else None,
             "reason_code": psr.reason_code}}
+        if name in net1x:
+            psr_net = stats.probabilistic_sharpe_ratio([g - k for g, k in zip(net1x[name], c_test)])
+            comparators[name]["psr_net1x_excess"] = {
+                "status": psr_net.status, "value": psr_net.value if psr_net.status == STATUS_COMPUTED else None,
+                "reason_code": psr_net.reason_code}
         if bootstrap_seed is not None and hasattr(stats, "stationary_bootstrap_ci") and name.startswith("kelly_"):
-            try:
-                ci = stats.stationary_bootstrap_ci(gross, seed=bootstrap_seed, mean_block_length=5.0,
-                                                   n_resamples=500, statistics=("log_growth", "max_drawdown"))
-                comparators[name]["bootstrap_gross"] = ci.to_dict()
-            except ImportError:
-                comparators[name]["bootstrap_gross"] = {"status": STATUS_UNCOMPUTABLE, "reason_code": "NUMPY_UNAVAILABLE"}
+            for key, series in (("bootstrap_gross", gross), ("bootstrap_net1x", net1x.get(name))):
+                if series is None:
+                    continue
+                try:
+                    ci = stats.stationary_bootstrap_ci(series, seed=bootstrap_seed, mean_block_length=5.0,
+                                                       n_resamples=500, statistics=("log_growth", "max_drawdown"))
+                    comparators[name][key] = ci.to_dict()
+                except ImportError:
+                    comparators[name][key] = {"status": STATUS_UNCOMPUTABLE, "reason_code": "NUMPY_UNAVAILABLE"}
 
     sizing = [name for name in comparators if name.startswith("kelly_") or name in ("full_exposure", "fixed_50pct")]
     excess_1x: dict[str, list[float]] = {}
@@ -341,6 +358,13 @@ def evaluate_fractional_kelly_walk_forward(
             "usage": "MAY_ONLY_LOWER_OR_CAP_NEVER_RAISE_EXISTING_BUDGET",
         }
 
+    paired = {}
+    if bootstrap_seed is not None:
+        for name in comparators:
+            if name.startswith("kelly_") and name in net1x and "fixed_50pct" in net1x:
+                paired[f"{name}__vs__fixed_50pct"] = paired_stationary_bootstrap(
+                    net1x[name], net1x["fixed_50pct"], seed=bootstrap_seed)
+
     trial_log = json.dumps({"folds": fold_records, "fractions": list(cs)}, sort_keys=True, allow_nan=False)
     trial_log_sha = hashlib.sha256(trial_log.encode()).hexdigest()
     result = {
@@ -350,7 +374,9 @@ def evaluate_fractional_kelly_walk_forward(
         "plan": {"train_sessions": plan.train_sessions, "test_sessions": plan.test_sessions,
                  "purge_sessions": plan.purge_sessions, "anchored": plan.anchored},
         "folds": fold_records, "comparators": comparators, "kelly_cap_note": cap_note,
-        "trial_log_sha256": trial_log_sha,
+        "trial_log_sha256": trial_log_sha, "paired_bootstrap": paired,
+        "coverage": coverage_disclosure(dates, folds), "metric_basis": METRIC_BASIS,
+        "cost_model_disclosure": COST_MODEL_DISCLOSURE,
         "evaluation_contract": {
             "fit": "TRAIN_ONLY_EXCESS_MEAN_SAMPLE_VARIANCE_DDOF1",
             "shrinkage": "POSITIVE_PART_MAX_0_1_MINUS_1_OVER_T_SQUARED",
@@ -408,6 +434,16 @@ def _build_report(stats: Any, result: dict, ctx: Mapping[str, Any], dates: Seque
         limitations=tuple(ctx.get("limitations", ())) + (
             "fractional Kelly output is a cap note only; it never raises any budget",
             "R8 path, if present, is caller-supplied and not recomputed",
+            _tail_note(result["coverage"]),
+            "PSR/bootstrap reported on net 1x (primary) and gross (diagnostic); DSR on net 1x",
+            "outer cost model is a virtual-asset approximation, not security-level netted; outer cash leg free",
         ),
     )
     return report.to_dict()
+
+
+def _tail_note(coverage: Mapping[str, Any]) -> str:
+    if not coverage["dropped_tail_sessions"]:
+        return "no window sessions dropped after the last complete fold"
+    return (f"{coverage['dropped_tail_sessions']} window sessions after the last complete fold "
+            f"({coverage['dropped_tail_start']}..{coverage['dropped_tail_end']}) are not evaluated")

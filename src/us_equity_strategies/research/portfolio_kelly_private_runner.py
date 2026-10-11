@@ -44,9 +44,11 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
     if p.window_start not in sessions or p.window_end not in sessions:
         raise PrivateRunError("WINDOW_NOT_COVERED_BY_ARCHIVE")
     paths = {}
+    components = {k: single.PREREGISTRATIONS[cid] for k, cid in p.components}
     for key in assets:
         try:
-            paths[key] = GENERATORS[key](bars, actions, sessions, trade_start=p.window_start).window(
+            paths[key] = GENERATORS[key](bars, actions, sessions, trade_start=p.window_start,
+                                         **rs04_runner.generator_kwargs(components[key])).window(
                 p.window_start, p.window_end)
         except CoreGeneratorError as exc:
             raise PrivateRunError(f"CORE_PATH_FAILED:{key}:{exc}") from exc
@@ -76,6 +78,9 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
         "benchmark_rationale": "underlying 1x index ETFs of the component strategies (pre-registered)",
         "cost_model_id": "single_side_bps_on_traded_notional", "settlement_rule": "not_modeled_fractional_weights",
         "limitations": ("no_plugin_core components: all plugins/overlays off; differs from live",
+                        "component generators: " + ", ".join(
+                            f"{k} {c.generator_version}/{c.signal_price_basis}/{c.indicator_source}"
+                            for k, c in components.items()),
                         "retrospective vendor data, not strict point-in-time; development only",
                         "fractional weights, no whole shares, no settlement"),
     }
@@ -87,6 +92,7 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
         multipliers=p.multipliers, synthetic=False,
         real_data=prereg_mod.PortfolioRealDataAuthorization(preregistration_id, manifest),
         report_context=context, bootstrap_seed=bootstrap_seed)
+    result["generator"] = {k: rs04_runner.generator_disclosure(components[k]) for k in assets}
     rs04_runner._write_private(out_dir / f"{preregistration_id}.result.json", result)
     return result
 

@@ -122,6 +122,25 @@ def _write_private(path: Path, payload: object) -> None:
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
 
+def generator_kwargs(p: prereg_mod.KellyPreregistration) -> dict[str, Any]:
+    """Generator options frozen in the pre-registration (core_v1 defaults reproduce RS-04e)."""
+    if p.generator_version == "core_v1":
+        return {}
+    if p.generator_version != "core_v2_parity":
+        raise PrivateRunError("GENERATOR_VERSION_UNKNOWN")
+    out: dict[str, Any] = {"signal_price_basis": p.signal_price_basis}
+    if p.strategy_key == "SOXL":
+        out["indicator_source"] = p.indicator_source
+        out["indicator_history_bars"] = p.indicator_history_bars
+    return out
+
+
+def generator_disclosure(p: prereg_mod.KellyPreregistration) -> dict[str, Any]:
+    return {"generator_version": p.generator_version, "signal_price_basis": p.signal_price_basis,
+            "indicator_source": p.indicator_source, "indicator_history_bars": p.indicator_history_bars,
+            "trial_role": p.trial_role, "supersedes": p.supersedes}
+
+
 def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
                 created_at: str, bootstrap_seed: int = 20261011) -> dict[str, Any]:
     p = prereg_mod.PREREGISTRATIONS.get(preregistration_id)
@@ -135,7 +154,8 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
         raise PrivateRunError("WINDOW_NOT_COVERED_BY_ARCHIVE")
     generator = generate_soxl_core_path if p.strategy_key == "SOXL" else generate_tqqq_core_path
     try:
-        path = generator(bars, actions, sessions, trade_start=p.window_start).window(p.window_start, p.window_end)
+        path = generator(bars, actions, sessions, trade_start=p.window_start, **generator_kwargs(p)).window(
+            p.window_start, p.window_end)
     except CoreGeneratorError as exc:
         raise PrivateRunError(f"CORE_PATH_FAILED:{exc}") from exc
     window_sessions = list(path.sessions)
@@ -159,7 +179,8 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
         "benchmark_rationale": "underlying 1x index ETF of the strategy (pre-registered)",
         "cost_model_id": "single_side_bps_on_traded_notional", "settlement_rule": "not_modeled_fractional_weights",
         "limitations": ("no_plugin_core: all plugins/overlays off; differs from live",
-                        "signals on forward total-return index built from raw bars + corporate actions",
+                        f"generator {p.generator_version}: signals on {p.signal_price_basis} prices; "
+                        f"SOXL indicators from {p.indicator_source}",
                         "fractional weights, no whole shares, no settlement; cash inside strategy earns 0",
                         "retrospective vendor data, not strict point-in-time; development only"),
     }
@@ -172,6 +193,7 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
         real_data=prereg_mod.RealDataAuthorization(p.strategy_key, preregistration_id, manifest,
                                                    prereg_mod.VARIANT_NO_PLUGIN),
         report_context=context, bootstrap_seed=bootstrap_seed)
+    result["generator"] = generator_disclosure(p)
     _write_private(out_dir / f"{preregistration_id}.result.json", result)
     _write_private(out_dir / f"{preregistration_id}.core_path.json", {
         "sessions": [d.isoformat() for d in window_sessions], "gross_returns": path.gross_returns,
