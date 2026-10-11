@@ -234,6 +234,7 @@ def evaluate_fractional_kelly_walk_forward(
         "data_identity": "development",
         "preregistration_id": None if prereg is None else prereg.preregistration_id,
         "strategy_key": None if prereg is None else prereg.strategy_key,
+        "strategy_variant": None if prereg is None else real_data.variant,
         "gates": () if prereg is None else prereg.gates,
         "live_ready": False, "size_zero_required": True, "no_order": True,
         "evaluator_version": EVALUATOR_VERSION,

@@ -74,13 +74,13 @@ def confirmed(monkeypatch):
     return registry
 
 
-def _run(key="SOXL", pid="rs04-kelly-soxl-v1", manifest=None, ctx=None, **over):
+def _run(key="SOXL", pid="rs04-kelly-soxl-v1", manifest=None, ctx=None, variant=prereg.VARIANT_NO_PLUGIN, **over):
     manifest = manifest or _manifest()
     p = prereg.PREREGISTRATIONS.get(pid) or prereg.PREREGISTRATIONS["rs04-kelly-soxl-v1"]
     kwargs = {"strategy_returns": STRAT, "benchmark_returns": BENCH, "plan": p.plan,
               "cost_bps_per_side": p.base_cost_bps_per_side, "fractions": p.fractions,
               "multipliers": p.multipliers, "synthetic": False, "assume_zero_cash": True,
-              "real_data": prereg.RealDataAuthorization(key, pid, manifest),
+              "real_data": prereg.RealDataAuthorization(key, pid, manifest, variant),
               "report_context": ctx if ctx is not None else _ctx(manifest)}
     kwargs.update(over)
     return rs04.evaluate_fractional_kelly_walk_forward(**kwargs)
@@ -169,7 +169,7 @@ def test_manifest_is_required_and_must_match(confirmed):
         rs04.evaluate_fractional_kelly_walk_forward(
             strategy_returns=STRAT, benchmark_returns=BENCH, plan=rs04.WalkForwardPlan(252, 63, 5),
             cost_bps_per_side=5.0, synthetic=False, assume_zero_cash=True,
-            real_data=prereg.RealDataAuthorization("SOXL", "rs04-kelly-soxl-v1", m))
+            real_data=prereg.RealDataAuthorization("SOXL", "rs04-kelly-soxl-v1", m, prereg.VARIANT_NO_PLUGIN))
     with pytest.raises(ValueError, match="REPORT_CONTEXT_DIFFERS"):
         _run(ctx=_ctx(m, execution="next_open"))
     with pytest.raises(ValueError, match="REPORT_CONTEXT_DIFFERS"):
@@ -181,8 +181,44 @@ def test_confirmed_preregistration_runs_and_keeps_gates(confirmed):
     result = _run()
     assert result["status"] == "COMPUTED"
     assert result["synthetic"] is False and result["preregistration_id"] == "rs04-kelly-soxl-v1"
+    assert result["strategy_variant"] == prereg.VARIANT_NO_PLUGIN
     assert "SOXL_252_SHADOW_SESSIONS_STILL_REQUIRED" in result["gates"]
     assert result["budget_effect"] == "NONE" and result["live_ready"] is False
     report = result["backtest_report"]
     assert report["data"]["manifest_sha256"] == "b" * 64 and report["data"]["data_identity"] == "development"
     assert report["timing"]["execution"] == "next_close"
+
+
+def test_plugin_inventory_covers_live_plugins():
+    soxl = {p.name.split(" ")[0] for p in prereg.PREREGISTRATIONS["rs04-kelly-soxl-v1"].plugins}
+    tqqq = {p.name.split(" ")[0] for p in prereg.PREREGISTRATIONS["rs04-kelly-tqqq-v1"].plugins}
+    assert {"market_regime_control", "volatility_delever_retention", "income_layer", "runtime_risk_gate",
+            "option_income_overlay"} <= soxl
+    assert {"market_regime_control", "volatility_delever_retention", "dual_drive_crisis_defense",
+            "income_layer", "option_growth_overlay", "ai_extensions"} <= tqqq
+    for p in prereg.PREREGISTRATIONS.values():
+        assert p.primary_variant == prereg.VARIANT_LIVE_PLUGINS
+        assert set(p.variants) == {prereg.VARIANT_LIVE_PLUGINS, prereg.VARIANT_NO_PLUGIN}
+        for plugin in p.plugins:
+            assert plugin.reproducible in {prereg.REPRO_YES, prereg.REPRO_NEEDS_ADAPTER, prereg.REPRO_NO,
+                                           prereg.REPRO_OFF_IN_LIVE}
+            assert plugin.config_source and plugin.live_state
+
+
+def test_doc_lists_every_plugin():
+    text = DOC.read_text(encoding="utf-8")
+    for p in prereg.PREREGISTRATIONS.values():
+        for plugin in p.plugins:
+            assert plugin.name.split(" ")[0] in text
+
+
+def test_live_plugin_variant_blocked_while_plugins_not_reproducible(confirmed):
+    with pytest.raises(ValueError, match="LIVE_PLUGIN_VARIANT_NOT_REPRODUCIBLE:.*market_regime_control"):
+        _run(variant=prereg.VARIANT_LIVE_PLUGINS)
+    with pytest.raises(ValueError, match="LIVE_PLUGIN_VARIANT_NOT_REPRODUCIBLE:.*dual_drive_crisis_defense"):
+        _run(key="TQQQ", pid="rs04-kelly-tqqq-v1", variant=prereg.VARIANT_LIVE_PLUGINS)
+
+
+def test_unknown_variant_refused(confirmed):
+    with pytest.raises(ValueError, match="VARIANT_NOT_PREREGISTERED"):
+        _run(variant="plugins_cherry_picked")
