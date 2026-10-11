@@ -43,3 +43,9 @@
 ## 6. 已知局限
 
 no_plugin_core 与实盘不同（插件全关）；数据是事后取得的供应商数据，不是严格的时点数据；整段历史已被看过，只算开发参考；小数权重、不考虑整股与结算。
+
+## 7. 实现（RS-06 第二个 PR）
+
+- 评估器：`research/portfolio_kelly_walk_forward.py`（Ledoit–Wolf 已与 `sklearn.covariance.ledoit_wolf` 逐位核对；`qp` 与网格暴力解核对）。
+- 私有运行器：`research/portfolio_kelly_private_runner.py`，复用 RS-04 的归档校验和 no_plugin_core 生成器；禁止在 CI 运行，输出只写 0700/0600 私有目录。
+- 单策略凯利对照与 RS-04 评估器在同一数据上逐项一致（有测试）。
