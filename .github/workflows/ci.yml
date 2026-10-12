@@ -99,3 +99,48 @@ jobs:
         run: |
           set -euo pipefail
           PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/research/test_fractional_kelly_walk_forward.py tests/research/test_fractional_kelly_preregistration.py tests/research/test_kelly_core_return_generator.py tests/research/test_portfolio_kelly_preregistration.py tests/research/test_portfolio_kelly_walk_forward.py tests/research/test_rs07_parity.py tests/test_research_import_boundary.py
+
+  research-execution-integration:
+    # Test A2 against an immutable research-only QPK overlay. Production pins
+    # and the existing statistics integration environment remain unchanged.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QPK_EXECUTION_MODELS_SHA: 5c0693c8735f5ed04c8943ab1fab00c82496b22c
+      UES_REQUIRE_QPK_EXECUTION_MODELS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install research-only execution overlay
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+          python -m pip install --force-reinstall \
+            "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@${QPK_EXECUTION_MODELS_SHA}"
+          python - <<'PY'
+          import json, os
+          from importlib.metadata import distribution
+          from quant_platform_kit.research_stats.execution_models import CostModel, FillModel
+          installed = json.loads(distribution("quant-platform-kit").read_text("direct_url.json"))
+          sha = installed["vcs_info"]["commit_id"]
+          assert sha == os.environ["QPK_EXECUTION_MODELS_SHA"], sha
+          print("research-only execution QPK overlay:", sha)
+          PY
+
+      - name: Run required execution adapter acceptance
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_execution_model_adapter.py --junitxml=execution-model-tests.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suites = ET.parse("execution-model-tests.xml").getroot().iter("testsuite")
+          skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
+          assert skipped == 0, f"required execution tests skipped: {skipped}"
+          PY
