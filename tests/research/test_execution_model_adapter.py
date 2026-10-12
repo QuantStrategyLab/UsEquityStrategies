@@ -1,12 +1,16 @@
 """A2 opt-in research adapter, with synthetic prices only."""
-import random
-import os
 import importlib
+import os
+import random
 import unittest
-from unittest.mock import patch
 from datetime import date, timedelta
+from itertools import pairwise
+from unittest.mock import patch
 
-from us_equity_strategies.research.execution_model_adapter import compare_execution_timings, replay_targets
+from us_equity_strategies.research.execution_model_adapter import (
+    compare_execution_timings,
+    replay_targets,
+)
 from us_equity_strategies.research.kelly_core_return_generator import _replay
 
 
@@ -42,7 +46,7 @@ class ExecutionAdapterTests(unittest.TestCase):
         closes = tuple(100 * (1 + rng.uniform(-.2, .2)) for _ in range(40))
         days, opens, closes = fixture(closes, closes)
         targets = tuple(rng.choice((0., .25, .5, 1.)) for _ in days)
-        returns = (0.,) + tuple(b/a - 1 for a, b in zip(closes, closes[1:]))
+        returns = (0.,) + tuple(b/a - 1 for a, b in pairwise(closes))
         old = _replay("X", days, {"A": returns}, ("A",), lambda i, _: {"A": targets[i]}, None)
         new = replay_targets(days, opens, closes, targets, timing="next_close")
         self.assertEqual(new.gross_returns, old.gross_returns)
@@ -76,6 +80,14 @@ class ExecutionAdapterTests(unittest.TestCase):
         self.assertEqual(a.net_returns[:3], b.net_returns[:3])
         self.assertEqual(a.fills[:2], b.fills[:2])
 
+    def test_large_gain_close_exit_cost_uses_ending_not_starting_nav(self):
+        path = replay_targets(*fixture((100, 10000), (100, 10000)),
+                              (1., 0.), timing="same_close", commission_bps=200)
+        self.assertEqual(path.fill_turnover, (1., 1.))
+        self.assertAlmostEqual(path.gross_returns[1], 99)
+        self.assertAlmostEqual(path.net_returns[1], 97)
+        self.assertAlmostEqual(path.net_returns[0], -.02)
+
     def test_invalid_prices_sessions_targets_are_rejected(self):
         for opens in ((100, 0), (100, float("nan")), (100, True)):
             with self.assertRaises(ValueError):
@@ -98,9 +110,9 @@ class OptionalDependencyTests(unittest.TestCase):
                 raise ImportError("synthetic absent dependency")
             return original(name, *args, **kwargs)
 
-        with patch("builtins.__import__", guarded):
-            with self.assertRaisesRegex(ValueError, "QPK_EXECUTION_MODELS_REQUIRED"):
-                replay_targets(*fixture(), (1.,) * 4, timing="next_open")
+        with (patch("builtins.__import__", guarded),
+              self.assertRaisesRegex(ValueError, "QPK_EXECUTION_MODELS_REQUIRED")):
+            replay_targets(*fixture(), (1.,) * 4, timing="next_open")
 
 
 if __name__ == "__main__":

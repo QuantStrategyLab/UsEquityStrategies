@@ -17,9 +17,10 @@ only when called; unchanged QPK pins and legacy generator defaults remain valid.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Sequence
+from itertools import pairwise
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ class ExecutionPath:
 
 def _finite(value: object, *, positive: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("RESEARCH_INPUT_INVALID")
+        raise ValueError("RESEARCH_INPUT_INVALID")  # noqa: TRY004 - one validation error contract
     number = float(value)
     if not math.isfinite(number) or (positive and number <= 0):
         raise ValueError("RESEARCH_INPUT_INVALID")
@@ -73,7 +74,9 @@ def replay_targets(sessions: Sequence[date], opens: Sequence[float], closes: Seq
     """
     try:
         from quant_platform_kit.research_stats.execution_models import (
-            EXECUTION_MODEL_VERSION, CostModel, FillModel,
+            EXECUTION_MODEL_VERSION,
+            CostModel,
+            FillModel,
         )
     except ImportError as exc:
         raise ValueError("QPK_EXECUTION_MODELS_REQUIRED") from exc
@@ -82,7 +85,7 @@ def replay_targets(sessions: Sequence[date], opens: Sequence[float], closes: Seq
     cost_model = CostModel(commission_bps, slippage_bps, cost_multiplier)
     days = tuple(sessions)
     n = len(days)
-    if not n or any(type(d) is not date for d in days) or any(b <= a for a, b in zip(days, days[1:])):
+    if not n or any(type(d) is not date for d in days) or any(b <= a for a, b in pairwise(days)):
         raise ValueError("SESSIONS_INVALID")
     if any(len(values) != n for values in (opens, closes, targets)):
         raise ValueError("LENGTH_MISMATCH")
