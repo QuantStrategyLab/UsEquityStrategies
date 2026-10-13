@@ -908,3 +908,195 @@ def test_unified_api_requires_explicit_boolean_before_source_replay(value):
         report_historical_batch_a_baselines(frozen_member_pack={}, soxl_snapshot=None, tqqq_snapshot=None,
                                           annual_risk_free_rate=0.0, annual_minimum_acceptable_return=0.0,
                                           include_unified_net_report=value)
+
+
+def _net_path_capability():
+    name = "quant_platform_kit.research_stats.net_path_diagnostics"
+    try:
+        module = importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"quant_platform_kit.research_stats", name}:
+            raise
+        builder = None
+    else:
+        builder = getattr(module, "build_net_path_diagnostics", None)
+        if not callable(builder):
+            builder = None
+    if os.environ.get("UES_REQUIRE_NET_PATH_DIAGNOSTICS") == "1":
+        assert builder is not None, "Required net-path capability unavailable"
+    return builder
+
+
+def test_net_path_flag_requires_historical_mode_before_input_read(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: pytest.fail("wrong mode read input"))
+    assert batch_a_cli.main(["--include-net-path-diagnostics", "--frozen-member-pack",
+                            str(tmp_path / "private.json")]) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output)["reason_codes"] == ["HISTORICAL_REPORT_OPT_IN_REQUIRED"]
+    assert str(tmp_path) not in output
+
+
+@pytest.mark.parametrize("missing_kind", ["missing_module", "missing_builder"])
+def test_net_path_capability_refused_before_input_read(tmp_path, capsys, monkeypatch, missing_kind):
+    from types import SimpleNamespace
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    original = importlib.import_module
+    name = "quant_platform_kit.research_stats.net_path_diagnostics"
+
+    def unavailable(requested, *args, **kwargs):
+        if requested == name:
+            if missing_kind == "missing_module":
+                raise ModuleNotFoundError("PRIVATE_DEPENDENCY_MARKER", name=name)
+            return SimpleNamespace()
+        return original(requested, *args, **kwargs)
+
+    monkeypatch.setattr(journal.importlib, "import_module", unavailable)
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: pytest.fail("missing capability read input"))
+    assert batch_a_cli.main(["--historical-account-report", "--include-net-path-diagnostics",
+                            "--frozen-member-pack", str(tmp_path / "private.json")]) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output)["reason_codes"] == ["NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE"]
+    assert "PRIVATE_DEPENDENCY_MARKER" not in output and str(tmp_path) not in output
+
+
+def test_net_path_default_is_lazy_and_preserves_existing_report(historical_sources, capsys, monkeypatch):
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    expected = json.loads(json.dumps(_historical_result(historical_sources)))
+    monkeypatch.setattr(journal, "_net_path_diagnostics_builder",
+                        lambda: pytest.fail("default touched optional net-path capability"))
+    assert batch_a_cli.main(_historical_cli_args(historical_sources)) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result == expected
+    assert "net_path_diagnostics" not in json.dumps(result)
+
+
+def test_net_path_actual_cli_31_books_selected_returns_and_legacy_preserved(historical_sources, capsys, monkeypatch):
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    builder = _net_path_capability()
+    baseline = json.loads(json.dumps(_historical_result(historical_sources)))
+    before = {p: p.read_bytes() for p in historical_sources[0].rglob("*") if p.is_file()}
+    captured = []
+    if builder is not None:
+        def actual(net):
+            captured.append(tuple(net))
+            return builder(net)
+        monkeypatch.setattr(journal, "_net_path_diagnostics_builder", lambda: actual)
+    code = batch_a_cli.main([*_historical_cli_args(historical_sources), "--include-net-path-diagnostics"])
+    output = capsys.readouterr().out
+    current = json.loads(output)
+    if builder is None:
+        assert code == 2 and current["reason_codes"] == ["NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE"]
+        assert "historical_account_report" not in current
+        return
+    assert code == 0
+    report = current["historical_account_report"]
+    reports = [book["metric_report"] for row in report["baselines"] for book in row["books"].values()]
+    reports += [book["metric_report"] for book in report["standalone"].values()]
+    assert len(captured) == len(reports) == 31
+    for item in reports:
+        path = item.pop("net_path_diagnostics")
+        basis = item.pop("net_path_diagnostics_basis")
+        assert path["schema_version"] == "qsl.net_path_diagnostics.v1"
+        assert path["status"] == "DEVELOPMENT_ONLY" and path["purpose"] == "REPORT_ONLY"
+        assert path["no_order"] is True and path["live_ready"] is False
+        assert path["observations"] == item["observation_count"]
+        assert path["unit"] == "return_observations" and path["prior_history"] == "unknown"
+        assert basis["costs_deducted_again"] is False
+        assert basis["initial_nav_is_return_observation"] is False
+        assert basis["start_session"] == item["start_session"] and basis["end_session"] == item["end_session"]
+        assert basis["real_calendar_verified"] is False
+        assert "unified_net_report" not in item
+    current.pop("evidence_digest")
+    baseline.pop("evidence_digest")
+    assert current == baseline
+    assert all(len(net) == reports[0]["observation_count"] for net in captured)
+    assert before == {p: p.read_bytes() for p in historical_sources[0].rglob("*") if p.is_file()}
+    for private in (str(historical_sources[0]), '"positions"', '"daily_returns"', '"net_returns"'):
+        assert private not in output
+
+
+@pytest.mark.parametrize("navs,expected", [
+    ((100.0, 50.0, 50.0, 100.0), (2, 3, 0, 1, False)),
+    ((100.0, 90.0, 81.0, 81.0), (3, None, 3, 2, True)),
+    ((100.0, 100.0, 100.0), (0, None, 0, 0, False)),
+    ((100.0, 150.0, 75.0, 75.0, 150.0), (2, 3, 0, 1, False)),
+])
+def test_net_path_hand_math_and_censoring(navs, expected):
+    from us_equity_strategies.research.tqqq_core_trial_journal import compute_historical_research_metrics
+    ledger = _unified_hand_ledger(navs)
+    kwargs = {"input_binding": {"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "a" * 64},
+              "annual_risk_free_rate": 0.0, "annual_minimum_acceptable_return": 0.0,
+              "include_net_path_diagnostics": True}
+    if _net_path_capability() is None:
+        with pytest.raises(ValueError, match="^NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE$"):
+            compute_historical_research_metrics(ledger, **kwargs)
+        return
+    result = compute_historical_research_metrics(ledger, **kwargs)
+    path = result["net_path_diagnostics"]
+    metrics = {m["name"]: m for m in path["metrics"]}
+    names = ("longest_underwater_run_observations", "longest_recovered_drawdown_duration_observations",
+             "terminal_underwater_run_observations", "longest_negative_net_return_run_observations")
+    for name, number in zip(names, expected[:4], strict=True):
+        assert metrics[name]["value"] == number
+        if number is None:
+            assert metrics[name]["status"] == "UNCOMPUTABLE"
+            assert metrics[name]["reason_code"] == "no_recovered_drawdown"
+        else:
+            assert metrics[name]["status"] == "COMPUTED"
+    assert metrics[names[2]]["details"]["right_censored"] is expected[4]
+    assert path["observations"] == len(navs) - 1
+    assert path["scope"] == "window_only" and path["prior_history"] == "unknown"
+    json.dumps(result, allow_nan=False)
+
+
+def test_net_path_exact_window_does_not_reconstruct_pre_window_peak():
+    from us_equity_strategies.research.tqqq_core_trial_journal import compute_historical_research_metrics
+    ledger = _unified_hand_ledger((100.0, 50.0, 50.0, 100.0))
+    kwargs = {"input_binding": {"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "a" * 64},
+              "annual_risk_free_rate": 0.0, "annual_minimum_acceptable_return": 0.0,
+              "start_session": ledger.days[1].session_date, "end_session": ledger.days[2].session_date,
+              "include_net_path_diagnostics": True}
+    if _net_path_capability() is None:
+        with pytest.raises(ValueError, match="^NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE$"):
+            compute_historical_research_metrics(ledger, **kwargs)
+        return
+    result = compute_historical_research_metrics(ledger, **kwargs)
+    path = result["net_path_diagnostics"]
+    metrics = {m["name"]: m for m in path["metrics"]}
+    assert path["observations"] == result["observation_count"] == 2
+    assert metrics["longest_underwater_run_observations"]["value"] == 0
+    assert metrics["longest_recovered_drawdown_duration_observations"]["value"] is None
+    assert path["prior_history"] == "unknown"
+
+
+@pytest.mark.parametrize("value", [None, 1, "true"])
+def test_net_path_api_requires_explicit_boolean_before_replay(value):
+    from us_equity_strategies.research.c3_batch_a_existing_member_baseline import report_historical_batch_a_baselines
+    with pytest.raises(ValueError, match="^NET_PATH_DIAGNOSTICS_OPT_IN_INVALID$"):
+        report_historical_batch_a_baselines(frozen_member_pack={}, soxl_snapshot=None, tqqq_snapshot=None,
+                                          annual_risk_free_rate=0.0, annual_minimum_acceptable_return=0.0,
+                                          include_net_path_diagnostics=value)
+
+
+def test_net_path_and_unified_sidecars_are_independent_and_keep_twelve_metrics(historical_sources, capsys):
+    code = batch_a_cli.main([*_historical_cli_args(historical_sources),
+                            "--include-unified-net-report", "--include-net-path-diagnostics"])
+    result = json.loads(capsys.readouterr().out)
+    if _unified_capability() is None or _net_path_capability() is None:
+        assert code == 2
+        assert result["reason_codes"][0] in {
+            "UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE", "NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE"}
+        assert "historical_account_report" not in result
+        return
+    assert code == 0
+    report = result["historical_account_report"]
+    books = [book for row in report["baselines"] for book in row["books"].values()]
+    books += list(report["standalone"].values())
+    assert len(books) == 31
+    for book in books:
+        metrics = book["metric_report"]
+        assert len(metrics["unified_net_report"]["metrics"]) == 12
+        assert len(metrics["net_path_diagnostics"]["metrics"]) == 4
+        assert metrics["unified_net_report"]["observations"] == metrics["net_path_diagnostics"]["observations"]
+        assert metrics["unified_net_report"]["no_order"] is metrics["net_path_diagnostics"]["no_order"] is True
+        assert metrics["unified_net_report"]["live_ready"] is metrics["net_path_diagnostics"]["live_ready"] is False

@@ -123,6 +123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--annual-minimum-acceptable-return", type=float, default=None)
     parser.add_argument("--include-unified-net-report", action="store_true",
                         help="Explicit research-only B3 sidecar with per-session outcome diagnostics; requires historical-account-report and latest QPK.")
+    parser.add_argument("--include-net-path-diagnostics", action="store_true",
+                        help="Opt-in window-local net-return path counts; requires historical-account-report and the research capability.")
     parser.add_argument(
         "--private-root",
         type=Path,
@@ -130,15 +132,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=argparse.SUPPRESS,  # legacy flag retained only to emit a clear park reason
     )
     args = parser.parse_args(argv)
-    if args.include_unified_net_report:
+    for requested, builder_name, unavailable_reason in (
+        (args.include_unified_net_report, "_unified_net_report_builder", "UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE"),
+        (args.include_net_path_diagnostics, "_net_path_diagnostics_builder", "NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE"),
+    ):
+        if not requested:
+            continue
         if not args.historical_account_report:
             reason = "HISTORICAL_REPORT_OPT_IN_REQUIRED"
         else:
-            from us_equity_strategies.research.tqqq_core_trial_journal import _unified_net_report_builder
+            from us_equity_strategies.research import tqqq_core_trial_journal as journal
             try:
-                _unified_net_report_builder()
+                getattr(journal, builder_name)()
             except ValueError:
-                reason = "UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE"
+                reason = unavailable_reason
             else:
                 reason = None
         if reason is not None:
@@ -190,7 +197,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     identity_path=args.snapshot_input_root / "tqqq_qqq" / "object_identity.json"),
                 annual_risk_free_rate=args.annual_risk_free_rate,
                 annual_minimum_acceptable_return=args.annual_minimum_acceptable_return,
-                include_unified_net_report=args.include_unified_net_report)
+                include_unified_net_report=args.include_unified_net_report,
+                include_net_path_diagnostics=args.include_net_path_diagnostics)
         except (ValueError, TypeError, ArithmeticError):
             # Never echo private paths, provider bodies or an arbitrary exception.
             result = {"status": "PARKED", "reason_codes": ["HISTORICAL_ACCOUNT_REPORT_REFUSED"],

@@ -571,6 +571,7 @@ def report_historical_batch_a_baselines(
     *, frozen_member_pack: Mapping[str, object], soxl_snapshot, tqqq_snapshot,
     annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
     include_unified_net_report: bool = False,
+    include_net_path_diagnostics: bool = False,
 ) -> dict:
     """Opt-in source-bound historical control, retaining the old comparison.
 
@@ -583,12 +584,19 @@ def report_historical_batch_a_baselines(
     from .batch_a_member_pack import materialize_batch_a_member_pack
     from .c3_capital_path import scale_member_budgets_to_cash
     from .c3_self_financing_combo_ledger import build_historical_self_financing_ledger
-    from .tqqq_core_trial_journal import compute_historical_research_metrics, _unified_net_report_builder
+    from .tqqq_core_trial_journal import (
+        compute_historical_research_metrics, _unified_net_report_builder,
+        _net_path_diagnostics_builder,
+    )
 
     if type(include_unified_net_report) is not bool:
         raise ValueError("UNIFIED_NET_REPORT_OPT_IN_INVALID")
+    if type(include_net_path_diagnostics) is not bool:
+        raise ValueError("NET_PATH_DIAGNOSTICS_OPT_IN_INVALID")
     if include_unified_net_report:
         _unified_net_report_builder()
+    if include_net_path_diagnostics:
+        _net_path_diagnostics_builder()
 
     if not all(isinstance(item, PriceSnapshotV2) for item in (soxl_snapshot, tqqq_snapshot)):
         raise ValueError("HISTORICAL_SNAPSHOTS_REQUIRED")
@@ -645,7 +653,8 @@ def report_historical_batch_a_baselines(
                 "metric_report": compute_historical_research_metrics(
                     ledger, input_binding=source_binding, annual_risk_free_rate=annual_risk_free_rate,
                     annual_minimum_acceptable_return=annual_minimum_acceptable_return,
-                    include_unified_net_report=include_unified_net_report)}
+                    include_unified_net_report=include_unified_net_report,
+                    include_net_path_diagnostics=include_net_path_diagnostics)}
 
     comparisons = []
     by_id = {row["baseline_id"]: row for row in legacy["c3_comparison"]["baselines"]}

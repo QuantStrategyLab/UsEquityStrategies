@@ -101,6 +101,7 @@ def compute_historical_research_metrics(
     annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
     start_session: date | None = None, end_session: date | None = None,
     include_unified_net_report: bool = False,
+    include_net_path_diagnostics: bool = False,
 ) -> dict:
     """Report historical modeled sleeves; binding is not PIT/OOS qualification.
 
@@ -121,7 +122,8 @@ def compute_historical_research_metrics(
         annual_risk_free_rate=annual_risk_free_rate,
         annual_minimum_acceptable_return=annual_minimum_acceptable_return,
         start_session=start_session, end_session=end_session,
-        include_unified_net_report=include_unified_net_report)
+        include_unified_net_report=include_unified_net_report,
+        include_net_path_diagnostics=include_net_path_diagnostics)
     report.update({"data_qualified": False, "oos_qualified": False,
                    "evidence_scope": "HISTORICAL_SOURCE_SEEN_DEVELOPMENT_MODELED_SLEEVES",
                    "input_binding": json.loads(json.dumps(input_binding, allow_nan=False))})
@@ -150,16 +152,35 @@ def _unified_net_report_builder():
     return builder
 
 
+def _net_path_diagnostics_builder():
+    """Load the optional pure research capability only after explicit opt-in."""
+    name = "quant_platform_kit.research_stats.net_path_diagnostics"
+    try:
+        module = importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"quant_platform_kit.research_stats", name}:
+            raise
+        raise ValueError("NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE") from None
+    builder = getattr(module, "build_net_path_diagnostics", None)
+    if not callable(builder):
+        raise ValueError("NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE")
+    return builder
+
+
 def _compute_account_metrics(
     ledger: ResearchDailyLedger, *, calendar_id: str, contract_version: str,
     annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
     start_session: date | None, end_session: date | None,
     include_unified_net_report: bool = False,
+    include_net_path_diagnostics: bool = False,
 ) -> dict:
     """One arithmetic body shared by the explicit report-only input contracts."""
     if type(include_unified_net_report) is not bool:
         raise ValueError("UNIFIED_NET_REPORT_OPT_IN_INVALID")
+    if type(include_net_path_diagnostics) is not bool:
+        raise ValueError("NET_PATH_DIAGNOSTICS_OPT_IN_INVALID")
     unified_builder = _unified_net_report_builder() if include_unified_net_report else None
+    path_builder = _net_path_diagnostics_builder() if include_net_path_diagnostics else None
     if ledger.calendar_id != calendar_id or ledger.periods_per_year != 252:
         raise ValueError("RESEARCH_BASIS_INVALID")
     rates = (annual_risk_free_rate, annual_minimum_acceptable_return)
@@ -264,6 +285,19 @@ def _compute_account_metrics(
             "benchmark_dropped_count": None,
             "legacy_rf_adjusted_annualized_metrics_replaced": False,
             "inference_parameters_role": "ESTIMATOR_DEFAULTS_NOT_ACCEPTANCE_THRESHOLDS",
+        }
+    if path_builder is not None:
+        report["net_path_diagnostics"] = path_builder(returns).to_dict()
+        report["net_path_diagnostics_basis"] = {
+            "metric_role": "REPORT_ONLY", "return_basis": "RAW_NET",
+            "observation_unit": "STRATEGY_ACCOUNT_SESSION_SIMPLE_NET_RETURN",
+            "frequency": "RETURN_OBSERVATIONS_NOT_CALENDAR_TIME_OR_TRADES",
+            "calendar_id": calendar_id, "real_calendar_verified": False,
+            "start_session": start.isoformat(), "end_session": end.isoformat(),
+            "zero_return_sessions": "INCLUDED", "initial_nav_is_return_observation": False,
+            "initial_nav": "WINDOW_NORMALIZED_NOT_ACCOUNT_BALANCE",
+            "costs_deducted_again": False, "prior_history": "UNKNOWN",
+            "legacy_metrics_replaced": False,
         }
     return report
 

@@ -151,8 +151,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      QPK_UNIFIED_NET_REPORT_SHA: b23511cbb28b72743e35512ef4b3c73f1cd43c23
+      QPK_UNIFIED_NET_REPORT_SHA: b6b51d5c32594c47cc1b3ebc0c1ed226e9db887f
       UES_REQUIRE_UNIFIED_NET_REPORT: "1"
+      UES_REQUIRE_NET_PATH_DIAGNOSTICS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -174,11 +175,15 @@ jobs:
           import inspect, json, os
           from importlib.metadata import distribution
           from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+          from quant_platform_kit.research_stats.net_path_diagnostics import build_net_path_diagnostics
           installed = json.loads(distribution("quant-platform-kit").read_text("direct_url.json"))
           assert installed["vcs_info"]["commit_id"] == os.environ["QPK_UNIFIED_NET_REPORT_SHA"]
           assert "include_outcome_diagnostics" in inspect.signature(build_unified_net_report).parameters
           report = build_unified_net_report([-.1, 0.0, .2], include_outcome_diagnostics=True)
           assert len(report.metrics) == 12 and report.no_order is True
+          path = build_net_path_diagnostics([-.5, 0.0, 1.0])
+          assert path.metric("longest_recovered_drawdown_duration_observations").value == 3
+          assert path.no_order is True and path.live_ready is False
           print("Required latest unified/outcome report capability and immutable source verified.")
           PY
 
@@ -194,6 +199,8 @@ jobs:
           cases = list(root.iter("testcase"))
           assert cases and any("unified_cli_uses_actual_selected_net_returns" in c.attrib["name"] for c in cases)
           assert any("unified_hand_math" in c.attrib["name"] for c in cases)
+          assert any("net_path_actual_cli_31_books" in c.attrib["name"] for c in cases)
+          assert any("net_path_hand_math_and_censoring" in c.attrib["name"] for c in cases)
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
           print("Actual CLI chain and positive hand-math tests executed with no skipped/failed cases.")
           PY
