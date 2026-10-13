@@ -128,3 +128,42 @@ MAR shortfall RMS 的 Sortino。rf 和 MAR 分别是显式年简单小数，除�
 `NOT_ESTIMATED`：这些单路径和固定预算比较没有完整 trial 集合及真实依赖/
 多重试验假设。报告始终 research/synthetic、report-only、非晋级、不可实盘
 或配仓。真实净成本 OOS、联合风险资格与成员资格不由合成测试授予。
+
+## Batch A 历史入口的可选 B3 诊断
+
+已有 `scripts/run_c3_batch_a_existing_member_baseline.py --historical-account-report`
+可显式增加 `--include-unified-net-report`。对应 Python 入口
+`report_historical_batch_a_baselines` 和 `compute_historical_research_metrics`
+的参数为 `include_unified_net_report=False`；未请求时保留原字段、算术和
+行为，不导入或要求新 B3 能力。Batch A cloud workflow 默认不增加此 flag，
+生产 QPK pin、既有两个研究 overlay、冻结候选/报告/账本和排名保持。
+
+显式请求需要 QPK `b23511cbb28b72743e35512ef4b3c73f1cd43c23` 或实际具有
+相同 B3/outcome 合同的研究安装。旧 pin 缺该能力时返回明确的
+`UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE`，不会静默用八项代替十二项。
+CLI 的模式/能力错误在读取私有输入前拒绝；输入绑定、来源重算与整个
+历史报告的已有原子拒绝边界仍保留。新隔离 CI job 核验实际 immutable
+安装来源、强制能力，并执行同一 CLI/report 链和数值验收，禁止跳过。
+
+每本已有账户报告附独立 `unified_net_report` 及 `unified_net_report_basis`。
+它使用该本已验证 ledger 的精确同窗口净简单收益，不额外扣费，不补零、
+删观察或增加初始 NAV 收益。B3 的 Sharpe 是同频未年化 raw-net、ddof=1；
+旧扣 rf 的年化 Sharpe/MAR Sortino 原字段不替换。四项 outcome 为
+`net_win_rate_ex_zero_per_period`、`net_payoff_ratio_per_period`、
+`net_profit_factor_per_period`、`mean_net_return_per_period`：周期剔零胜率、
+平均正负收益比、正负收益总额比及含零观察的平均净收益。它们不表示
+逐笔闭合交易成绩、未来收益或新排名/否决条件。
+
+输入没有同路径 gross counterfactual 或完整累计 trial 证据，故成本拖累与
+DSR 分别保留 `UNCOMPUTABLE/missing_gross_returns` 和
+`UNCOMPUTABLE/missing_trial_evidence`、value=null；不反加费用、不拿其他
+成本场景冒充 gross，也不拿旧 ledger 声明48当完整全集。无资产基准时
+比较/对齐计数为 absent/null。报告估计器的既有默认样本数、概率参数不
+构成晋级阈值；无定义与实际零严格区分。仅输出聚合报告，不新增原始
+价格、逐日收益、持仓路径或私有位置。
+
+输入仍为 source-seen development、data/oos unqualified，不证明 PIT、许可、
+真实收费、完整插件或实盘采用；原研究/执行拒绝状态保持。修改代码会
+更新报告已有的真实 `implementation_sha256` 及其派生 `evidence_digest`，
+不得硬编码旧身份以假称完整字节不变。未开启诊断时除此必要来源身份
+之外，历史报告数值/字段/行为保持；旧 RS artifact 和 trial ledger 不重写。

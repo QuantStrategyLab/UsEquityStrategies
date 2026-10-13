@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import math
+import importlib
+import inspect
+import os
+import socket
 from pathlib import Path
 
 import pytest
@@ -18,6 +22,27 @@ from us_equity_strategies.research.c3_batch_a_existing_member_baseline import (
     evaluate_batch_a_existing_member_baselines,
 )
 import scripts.run_c3_batch_a_existing_member_baseline as batch_a_cli
+
+
+@pytest.fixture(autouse=True)
+def no_consumer_network(monkeypatch):
+    attempts = []
+
+    def denied(*args, **kwargs):
+        attempts.append(True)
+        raise AssertionError("LOCAL_CONSUMER_FIXTURE_NETWORK_FORBIDDEN")
+
+    class DeniedSocket(socket.socket):
+        def __new__(cls, *args, **kwargs):
+            return denied(*args, **kwargs)
+
+    # Preserve the socket type for stdlib SSL class declarations while refusing
+    # any actual allocation; replacing it with a function breaks lazy imports.
+    monkeypatch.setattr(socket, "socket", DeniedSocket)
+    for name in ("create_connection", "getaddrinfo", "gethostbyname"):
+        monkeypatch.setattr(socket, name, denied)
+    yield
+    assert not attempts, "Report consumer attempted network access"
 
 
 def _comp(**overrides: object) -> dict[str, object]:
@@ -653,3 +678,233 @@ def test_historical_cli_requires_opt_in_and_complete_inputs(historical_sources, 
     assert json.loads(capsys.readouterr().out)["reason_codes"] == ["HISTORICAL_REPORT_OPT_IN_REQUIRED"]
     assert batch_a_cli.main(["--historical-account-report"]) == 2
     assert json.loads(capsys.readouterr().out)["reason_codes"] == ["HISTORICAL_ACCOUNT_REPORT_REFUSED"]
+
+
+def _unified_capability():
+    try:
+        module = importlib.import_module("quant_platform_kit.research_stats.unified_report")
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"quant_platform_kit.research_stats", "quant_platform_kit.research_stats.unified_report"}:
+            raise
+        builder = None
+    else:
+        builder = getattr(module, "build_unified_net_report", None)
+        if not callable(builder) or "include_outcome_diagnostics" not in inspect.signature(builder).parameters:
+            builder = None
+    if os.environ.get("UES_REQUIRE_UNIFIED_NET_REPORT") == "1":
+        assert builder is not None, "Required latest QPK unified/outcome capability unavailable"
+    return builder
+
+
+def _unified_cli(sources, capsys):
+    code = batch_a_cli.main([*_historical_cli_args(sources), "--include-unified-net-report"])
+    text = capsys.readouterr().out
+    return code, text, json.loads(text)
+
+
+def test_unified_flag_requires_historical_mode_before_input_read(tmp_path, capsys, monkeypatch):
+    def denied(*args, **kwargs):
+        pytest.fail("wrong opt-in mode read private input")
+    monkeypatch.setattr(Path, "read_text", denied)
+    assert batch_a_cli.main(["--include-unified-net-report", "--frozen-member-pack",
+                            str(tmp_path / "private-missing.json")]) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output)["reason_codes"] == ["HISTORICAL_REPORT_OPT_IN_REQUIRED"]
+    assert str(tmp_path) not in output
+
+
+def test_unified_capability_refused_before_private_input_read(tmp_path, capsys, monkeypatch):
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    original = importlib.import_module
+
+    def missing(name, *args, **kwargs):
+        if name == "quant_platform_kit.research_stats.unified_report":
+            raise ModuleNotFoundError("private-marker", name=name)
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(journal.importlib, "import_module", missing)
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: pytest.fail("missing capability read input"))
+    assert batch_a_cli.main(["--historical-account-report", "--include-unified-net-report",
+                            "--frozen-member-pack", str(tmp_path / "private-missing.json")]) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output)["reason_codes"] == ["UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE"]
+    assert "private-marker" not in output and str(tmp_path) not in output
+
+
+def test_unified_cli_uses_actual_selected_net_returns_and_preserves_legacy(historical_sources, capsys, monkeypatch):
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    builder = _unified_capability()
+    baseline = json.loads(json.dumps(_historical_result(historical_sources)))
+    before = {p: p.read_bytes() for p in historical_sources[0].rglob("*") if p.is_file()}
+    if builder is None:
+        code, _, refused = _unified_cli(historical_sources, capsys)
+        assert code == 2 and refused["reason_codes"] == ["UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE"]
+        assert "historical_account_report" not in refused
+        return
+    captured = []
+
+    def actual(net, **kwargs):
+        captured.append((tuple(net), kwargs))
+        return builder(net, **kwargs)
+
+    monkeypatch.setattr(journal, "_unified_net_report_builder", lambda: actual)
+    code, output, current = _unified_cli(historical_sources, capsys)
+    assert code == 0
+    report = current["historical_account_report"]
+    metric_reports = [book["metric_report"] for row in report["baselines"] for book in row["books"].values()]
+    metric_reports += [book["metric_report"] for book in report["standalone"].values()]
+    # CLI JSON sorts object keys, while source construction order is preserved in captured input.
+    sidecars = sorted((item["unified_net_report"] for item in metric_reports),
+                      key=lambda item: (item["metrics"][-1]["value"], item["observations"]))
+    assert len(captured) == len(sidecars) == 31
+    for net, kwargs in captured:
+        assert kwargs == {"include_outcome_diagnostics": True}
+        assert len(net) == metric_reports[0]["observation_count"]
+    expected_means = sorted(math.fsum(net) / len(net) for net, _ in captured)
+    assert [item["metrics"][-1]["value"] for item in sidecars] == pytest.approx(expected_means)
+    for item in metric_reports:
+        sidecar = item.pop("unified_net_report")
+        basis = item.pop("unified_net_report_basis")
+        assert sidecar["status"] == "DEVELOPMENT_ONLY"
+        assert sidecar["volatility_ddof"] == 1
+        assert sidecar["live_ready"] is False and sidecar["no_order"] is True
+        assert sidecar["observations"] == item["observation_count"]
+        assert len(sidecar["metrics"]) == 12
+        values = {m["name"]: m for m in sidecar["metrics"]}
+        assert values["deflated_sharpe_ratio"]["reason_code"] == "missing_trial_evidence"
+        assert values["cost_log_drag_per_period"]["reason_code"] == "missing_gross_returns"
+        assert values["deflated_sharpe_ratio"]["value"] is values["cost_log_drag_per_period"]["value"] is None
+        assert basis["return_basis"] == "RAW_NET"
+        assert basis["observation_unit"] == "STRATEGY_ACCOUNT_SESSION_SIMPLE_NET_RETURN"
+        assert basis["metric_role"] == "REPORT_ONLY"
+        assert basis["asset_benchmark"] is None and basis["benchmark_alignment_count"] is None
+        assert basis["costs_deducted_again"] is False
+        assert basis["legacy_rf_adjusted_annualized_metrics_replaced"] is False
+    current.pop("evidence_digest")
+    baseline.pop("evidence_digest")
+    assert current == baseline
+    assert before == {p: p.read_bytes() for p in historical_sources[0].rglob("*") if p.is_file()}
+    for forbidden in (str(historical_sources[0]), '"positions"', '"daily_returns"', '"net_returns"'):
+        assert forbidden not in output
+
+
+def test_unified_missing_outcome_flag_refuses_old_builder_before_read(tmp_path, capsys, monkeypatch):
+    from types import SimpleNamespace
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    original = importlib.import_module
+
+    def old_builder(net_returns):
+        pytest.fail("older eight-metric builder was substituted")
+
+    def old_module(name, *args, **kwargs):
+        if name == "quant_platform_kit.research_stats.unified_report":
+            return SimpleNamespace(build_unified_net_report=old_builder)
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(journal.importlib, "import_module", old_module)
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: pytest.fail("old capability read input"))
+    assert batch_a_cli.main(["--historical-account-report", "--include-unified-net-report",
+                            "--frozen-member-pack", str(tmp_path / "private.json")]) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output)["reason_codes"] == ["UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE"]
+    assert str(tmp_path) not in output
+
+
+def test_unified_default_does_not_require_or_import_new_capability(historical_sources, capsys, monkeypatch):
+    from us_equity_strategies.research import tqqq_core_trial_journal as journal
+    expected = json.loads(json.dumps(_historical_result(historical_sources)))
+    monkeypatch.setattr(journal, "_unified_net_report_builder",
+                        lambda: pytest.fail("default report touched new optional capability"))
+    assert batch_a_cli.main(_historical_cli_args(historical_sources)) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result == expected
+    assert "unified_net_report" not in json.dumps(result)
+
+
+def _unified_hand_ledger(navs):
+    from datetime import date, timedelta
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark,
+    )
+    initial = date(2024, 1, 1)
+    return ResearchDailyLedger(
+        trial_id="existing-hand-fixture", domain="us_equity", strategy_profile="report-only-hand-fixture",
+        run_id="fixture-run", param_version=1, input_id="sha256:" + "a" * 64,
+        calendar_id="XNYS", periods_per_year=252, cost_source="HAND_FIXTURE_NET_MARKS",
+        cost_inputs={"commission_bps": 0.0, "slippage_bps": 0.0},
+        initial_session_date=initial, initial_nav=navs[0], initial_cash=40.0,
+        initial_positions=(ResearchPositionMark("TQQQ", 1.0, navs[0] - 40.0),),
+        days=tuple(ResearchLedgerDay(
+            session_date=initial + timedelta(days=i + 1), cash=40.0,
+            positions=(ResearchPositionMark("TQQQ", 1.0, end - 40.0),),
+            trade_net_cashflow=0.0, fees=0.0, nav=end, daily_return=end / start - 1.0,
+        ) for i, (start, end) in enumerate(zip(navs, navs[1:]))), synthetic=False)
+
+
+@pytest.mark.parametrize("navs,expected", [
+    ((100.0, 90.0, 90.0, 108.0), (0.5, 2.0, 2.0, 1.0 / 30)),
+    ((100.0, 110.0, 121.0), (1.0, "no_loss_observations", "no_loss_observations", 0.1)),
+    ((100.0, 90.0, 81.0), (0.0, "no_win_observations", 0.0, -0.1)),
+    ((100.0, 100.0, 100.0), ("no_nonzero_observations", "no_loss_observations", "no_loss_observations", 0.0)),
+])
+def test_unified_hand_math_and_known_zero_distinct_from_unknown(navs, expected):
+    from us_equity_strategies.research.tqqq_core_trial_journal import compute_historical_research_metrics
+    ledger = _unified_hand_ledger(navs)
+    kwargs = {"input_binding": {"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "a" * 64},
+              "annual_risk_free_rate": 0.252, "annual_minimum_acceptable_return": 0.504,
+              "include_unified_net_report": True}
+    if _unified_capability() is None:
+        with pytest.raises(ValueError, match="^UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE$"):
+            compute_historical_research_metrics(ledger, **kwargs)
+        return
+    report = compute_historical_research_metrics(ledger, **kwargs)
+    sidecar = report["unified_net_report"]
+    assert sidecar["observations"] == len(navs) - 1
+    values = {item["name"]: item for item in sidecar["metrics"]}
+    names = ("net_win_rate_ex_zero_per_period", "net_payoff_ratio_per_period",
+             "net_profit_factor_per_period", "mean_net_return_per_period")
+    for name, value in zip(names, expected, strict=True):
+        metric = values[name]
+        assert metric["details"]["aggregation_level"] == "return_observations_not_trades"
+        assert metric["details"]["descriptive_only"] is True
+        if isinstance(value, str):
+            assert metric["value"] is None and metric["status"] == "UNCOMPUTABLE"
+            assert metric["reason_code"] == value
+        else:
+            assert metric["status"] == "COMPUTED" and metric["value"] == pytest.approx(value)
+    assert report["evaluation_contract"]["rf"]["annual_simple_decimal"] == 0.252
+    assert report["evaluation_contract"]["mar"]["annual_simple_decimal"] == 0.504
+    assert report["metrics"]["dsr"] is None and report["metric_status"]["dsr"] == "NOT_COMPUTED"
+    assert values["deflated_sharpe_ratio"]["reason_code"] == "missing_trial_evidence"
+    assert values["cost_log_drag_per_period"]["reason_code"] == "missing_gross_returns"
+    json.dumps(report, allow_nan=False)
+
+
+def test_unified_exact_window_retains_return_count_and_does_not_add_initial_mark():
+    from us_equity_strategies.research.tqqq_core_trial_journal import compute_historical_research_metrics
+    ledger = _unified_hand_ledger((100.0, 90.0, 90.0, 108.0))
+    kwargs = {"input_binding": {"schema": "qsl.batch-a-historical-input-binding.v1", "pack_digest": "a" * 64},
+              "annual_risk_free_rate": 0.0, "annual_minimum_acceptable_return": 0.0,
+              "start_session": ledger.days[1].session_date, "end_session": ledger.days[2].session_date,
+              "include_unified_net_report": True}
+    if _unified_capability() is None:
+        with pytest.raises(ValueError, match="^UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE$"):
+            compute_historical_research_metrics(ledger, **kwargs)
+        return
+    report = compute_historical_research_metrics(ledger, **kwargs)
+    values = {item["name"]: item for item in report["unified_net_report"]["metrics"]}
+    assert report["observation_count"] == report["unified_net_report"]["observations"] == 2
+    assert values["mean_net_return_per_period"]["value"] == pytest.approx(0.1)
+    assert values["net_win_rate_ex_zero_per_period"]["value"] == 1.0
+    assert values["net_win_rate_ex_zero_per_period"]["details"]["zero_observations"] == 1
+    assert values["max_drawdown"]["value"] == 0.0
+    assert report["unified_net_report_basis"]["start_session"] == kwargs["start_session"].isoformat()
+
+
+@pytest.mark.parametrize("value", [None, 1, "true"])
+def test_unified_api_requires_explicit_boolean_before_source_replay(value):
+    from us_equity_strategies.research.c3_batch_a_existing_member_baseline import report_historical_batch_a_baselines
+    with pytest.raises(ValueError, match="^UNIFIED_NET_REPORT_OPT_IN_INVALID$"):
+        report_historical_batch_a_baselines(frozen_member_pack={}, soxl_snapshot=None, tqqq_snapshot=None,
+                                          annual_risk_free_rate=0.0, annual_minimum_acceptable_return=0.0,
+                                          include_unified_net_report=value)

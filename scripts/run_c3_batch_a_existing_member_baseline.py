@@ -121,6 +121,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="Original cloud staging root; historical report revalidates snapshots and the pack.")
     parser.add_argument("--annual-risk-free-rate", type=float, default=None)
     parser.add_argument("--annual-minimum-acceptable-return", type=float, default=None)
+    parser.add_argument("--include-unified-net-report", action="store_true",
+                        help="Explicit research-only B3 sidecar with per-session outcome diagnostics; requires historical-account-report and latest QPK.")
     parser.add_argument(
         "--private-root",
         type=Path,
@@ -128,6 +130,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=argparse.SUPPRESS,  # legacy flag retained only to emit a clear park reason
     )
     args = parser.parse_args(argv)
+    if args.include_unified_net_report:
+        if not args.historical_account_report:
+            reason = "HISTORICAL_REPORT_OPT_IN_REQUIRED"
+        else:
+            from us_equity_strategies.research.tqqq_core_trial_journal import _unified_net_report_builder
+            try:
+                _unified_net_report_builder()
+            except ValueError:
+                reason = "UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE"
+            else:
+                reason = None
+        if reason is not None:
+            # Refuse mode/capability errors before loading private inputs.
+            result = {"status": "PARKED", "reason_codes": [reason],
+                      "research_only": True, "execution_authorized": False,
+                      "promotion_authorized": False, "no_order": True,
+                      "data_qualified": False, "oos_qualified": False, "batch_a_accepted": False}
+            print(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False))
+            return 2
     if args.private_root is not None and args.frozen_member_pack is None:
         result = {
             "schema_version": "qsl.c3-batch-a-existing-member-baseline-research.v1",
@@ -168,7 +189,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.snapshot_input_root / "tqqq_qqq",
                     identity_path=args.snapshot_input_root / "tqqq_qqq" / "object_identity.json"),
                 annual_risk_free_rate=args.annual_risk_free_rate,
-                annual_minimum_acceptable_return=args.annual_minimum_acceptable_return)
+                annual_minimum_acceptable_return=args.annual_minimum_acceptable_return,
+                include_unified_net_report=args.include_unified_net_report)
         except (ValueError, TypeError, ArithmeticError):
             # Never echo private paths, provider bodies or an arbitrary exception.
             result = {"status": "PARKED", "reason_codes": ["HISTORICAL_ACCOUNT_REPORT_REFUSED"],
