@@ -9,6 +9,8 @@ from dataclasses import replace
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
 import hashlib
+import importlib
+import inspect
 import json
 import math
 from pathlib import Path
@@ -98,6 +100,7 @@ def compute_historical_research_metrics(
     ledger: ResearchDailyLedger, *, input_binding: Mapping,
     annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
     start_session: date | None = None, end_session: date | None = None,
+    include_unified_net_report: bool = False,
 ) -> dict:
     """Report historical modeled sleeves; binding is not PIT/OOS qualification.
 
@@ -117,7 +120,8 @@ def compute_historical_research_metrics(
         ledger, calendar_id="XNYS", contract_version="historical_research_account_metrics_v1",
         annual_risk_free_rate=annual_risk_free_rate,
         annual_minimum_acceptable_return=annual_minimum_acceptable_return,
-        start_session=start_session, end_session=end_session)
+        start_session=start_session, end_session=end_session,
+        include_unified_net_report=include_unified_net_report)
     report.update({"data_qualified": False, "oos_qualified": False,
                    "evidence_scope": "HISTORICAL_SOURCE_SEEN_DEVELOPMENT_MODELED_SLEEVES",
                    "input_binding": json.loads(json.dumps(input_binding, allow_nan=False))})
@@ -131,12 +135,31 @@ def compute_historical_research_metrics(
     return report
 
 
+def _unified_net_report_builder():
+    """Require the optional latest research capability without eager imports."""
+    name = "quant_platform_kit.research_stats.unified_report"
+    try:
+        module = importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"quant_platform_kit.research_stats", name}:
+            raise
+        raise ValueError("UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE") from None
+    builder = getattr(module, "build_unified_net_report", None)
+    if not callable(builder) or "include_outcome_diagnostics" not in inspect.signature(builder).parameters:
+        raise ValueError("UNIFIED_NET_REPORT_CAPABILITY_UNAVAILABLE")
+    return builder
+
+
 def _compute_account_metrics(
     ledger: ResearchDailyLedger, *, calendar_id: str, contract_version: str,
     annual_risk_free_rate: float, annual_minimum_acceptable_return: float,
     start_session: date | None, end_session: date | None,
+    include_unified_net_report: bool = False,
 ) -> dict:
     """One arithmetic body shared by the explicit report-only input contracts."""
+    if type(include_unified_net_report) is not bool:
+        raise ValueError("UNIFIED_NET_REPORT_OPT_IN_INVALID")
+    unified_builder = _unified_net_report_builder() if include_unified_net_report else None
     if ledger.calendar_id != calendar_id or ledger.periods_per_year != 252:
         raise ValueError("RESEARCH_BASIS_INVALID")
     rates = (annual_risk_free_rate, annual_minimum_acceptable_return)
@@ -178,7 +201,7 @@ def _compute_account_metrics(
                           "ZERO_DOWNSIDE_DEVIATION" if all(
                               r >= annual_minimum_acceptable_return / 252 for r in returns)
                           else "NONFINITE_RESULT")
-    return {
+    report = {
         "research_only": True, "synthetic": ledger.synthetic, "promotion_eligible": False,
         "live_ready": False, "size_zero_required": True, "no_order": True,
         "trial_id": ledger.trial_id, "run_id": ledger.run_id,
@@ -222,6 +245,27 @@ def _compute_account_metrics(
             "trial_matrix_and_dependence_assumptions": "NOT_ESTABLISHED",
         },
     }
+    if unified_builder is not None:
+        # The existing ledger has already deducted costs. It has neither a
+        # matching gross counterfactual nor a complete cumulative trial ledger.
+        report["unified_net_report"] = unified_builder(
+            returns, include_outcome_diagnostics=True).to_dict()
+        report["unified_net_report_basis"] = {
+            "metric_role": "REPORT_ONLY", "return_basis": "RAW_NET",
+            "observation_unit": "STRATEGY_ACCOUNT_SESSION_SIMPLE_NET_RETURN",
+            "return_unit": "SIGNED_DECIMAL_FRACTION",
+            "frequency": "PER_SESSION_NOT_ANNUALIZED", "volatility_ddof": 1,
+            "calendar_id": calendar_id, "real_calendar_verified": False,
+            "start_session": start.isoformat(), "end_session": end.isoformat(),
+            "zero_return_sessions": "INCLUDED", "initial_nav_is_return_observation": False,
+            "costs_deducted_again": False, "gross_counterfactual": "NOT_SUPPLIED",
+            "cumulative_trial_evidence": "NOT_SUPPLIED",
+            "asset_benchmark": None, "benchmark_alignment_count": None,
+            "benchmark_dropped_count": None,
+            "legacy_rf_adjusted_annualized_metrics_replaced": False,
+            "inference_parameters_role": "ESTIMATOR_DEFAULTS_NOT_ACCEPTANCE_THRESHOLDS",
+        }
+    return report
 
 
 def report_journaled_tqqq_core_metrics(
