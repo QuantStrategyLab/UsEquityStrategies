@@ -11,6 +11,82 @@
 - 跨库依据为 QPK `f8d8b4045276ce9e0c491eefd8506c544c19575b` 的 [B1/B2 草案](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/b1_b2_preregistration_proposal.zh-CN.md)、[A2 成交与成本](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/research_execution_models_v1.zh-CN.md)、[A3 指标语义](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/window_metrics_semantics.zh-CN.md)、[B3 净收益报告](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/unified_net_report.zh-CN.md)和 [Kelly 单位合同](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/kelly_contract_v2.zh-CN.md)。这些版本提供测量依据，不自动成为 B4 运行依赖。
 - 原 B1/B2 文档不包含 B4 的范围约束保持原文；B4 由本独立任务准备。这里不修改旧批准、参数、账本、生产 pin、配置、候选状态或 B5，也不做自动候选扫描。
 
+### 原报告已取得与当前工程接续
+
+原《Quant 系统复利数学与工程审计报告》12页现已取得，SHA256 `f60ce29f267722245cf62e308883e11b001f38efc3ee2de9d6c861806acb1bfb`。p5明确参数不确定性Kelly建议 `f=m/(sigma²+tau²)`，位置为UES RS-04新增方案、“第二波新任务B4”；p6要求新增研究预注册/累计台账，p10限制预算只降低/封顶、Kelly倍数≤0.5。原文没有选先验/似然/超参/更新/状态/效用，不因获得原式自动冻结模型。
+
+上述26e77/f8历史依据保留，不冒称当前安装。当前文档批次读取UES `0e66469c95a72c6248eae3ea474223d9ff6e1df5`，QPK测量参考为 `b23511cbb28b72743e35512ef4b3c73f1cd43c23`。UES#590仅为既有历史CLI的默认关闭B3消费者，四项周期outcome不是B4后验；其独立研究overlay不代表任何B4模型已安装/执行，缺gross/trials仍为不可计算。
+
+原PDFp9–10要求A2/A3先于B1/B2冻结计算；“B1/B2可靠对照 → B4 → E1”是当前#588后续批准的执行安排，不写成原文已明确的完整依赖。当前可先完善[三组事实与B1/B2决策](b1_b2_freeze_decision_contract.zh-CN.md)及[CVaR→B1约束](cvar_exposure_constraint_decision_contract.zh-CN.md)的DRAFT；不调整既定顺序或自动扩入B5。
+
+## B4原式的变量、状态与决策合同补充
+
+本节是依据p5原式提出的**DRAFT语义合同**，不是报告已经冻结的模型。原式可作为二阶增长近似的研究目标，不单独证明任意收益分布下精确最大化预期log效用。
+
+仅当F02/F07定义的财富因子确为`1+f*U`时，有限周期的二阶Taylor为`E[log(1+f*U)|D_t] ≈ f*m_t - (f²/2)*E[U²|D_t]`，其中`E[U²|D_t]=sigma_t²+tau_t²+m_t²`；正有限分母、未加约束时该截断式的驻点为`m_t/(sigma_t²+tau_t²+m_t²)`，仍不是精确log效用的最优解。
+原报告的`m_t/(sigma_t²+tau_t²)`还需忽略`m_t²`等相应小增量/连续时间近似，现金腿与财富因子必须在F02/F07使用同一定义，不能将未归一化的策略减现金简单收益直接代入不同的效用口径；本补充不改原推荐式、不选择模型/参数/额外候选，精确效用决定仍为F07 `UNSPECIFIED`。
+
+### 同频条件方差与均值不确定性
+
+设未来同一预测期的观测为`U_(t+h)`；DRAFT提出以精确scope策略收益相对明确现金腿的超额收益定义U，是否采用、现金/费用/FX口径由决策F01/F02冻结，不能将raw-net与excess混用。`D_t`只含决策截止前实际可用信息，`Theta`为尚未选择模型的参数/状态。先分别定义：
+
+```text
+mu(Theta,D_t) = E[U_(t+h) | Theta,D_t]
+m_t           = E[mu(Theta,D_t) | D_t]
+sigma_t²      = E[Var(U_(t+h) | Theta,D_t) | D_t]
+tau_t²        = Var(mu(Theta,D_t) | D_t)
+V_predictive  = sigma_t² + tau_t² = Var(U_(t+h) | D_t)
+f_uncertain   = m_t / (sigma_t² + tau_t²)
+```
+
+这是全方差分解：sigma²为后验平均条件创新方差，tau²为条件均值不确定性方差；三个量必须同收益基准、预测期及小数单位，方差不是标准差。若输入已经是`V_predictive`，它已含tau²，**不能再加tau²**；也不把不属于同一分解的样本方差与标准误平方直接拼接。`sample_variance/N`只有在冻结模型证明其对应上述tau²时才可使用，不能因实现便利叫作后验。
+
+在合法模型、正有限分母下，m=0可产生真实零原式目标；m<0的原式目标为负，后续long-only处置必须明确，不能新增做空。缺失/非有限、负方差或零分母不算成零风险/无限仓位，标不可计算并研究停放；具体容差/现金/恢复规则仍须冻结。对正m，在其余条件固定时增大tau²不应提高原式目标；这是一条未来算术性质检查，不是已验证策略收益。
+
+### 原式输出与一次fractional
+
+必须在候选记录中分别命名：原式`f_uncertain`、是否已经fractional的研究目标、`c`消费位置、裁切后的资金暴露及原scope cap来源。原式不自带“已乘半Kelly”标签；也不能在上游已经乘c后由下游再次乘c。已定研究家族的fractional倍数最多0.5、只应用一次；0.5不是全策略统一50%资金暴露。若原式内已有其他收缩/效用约束，如何与这一界限结合必须在F07明确，不能以“替代拍定c”解除上限或默认重归一化满仓。
+
+旧hard gate、cash reserve、产品限额、drawdown/breaker/veto及更严scope cap始终优先，未来输出不高于其既有预算上限。本批仅`DEVELOPMENT_ONLY/live_ready=False/no_order=True/budget_effect=NONE`备注；数学目标、研究备注和真实发单分别处理，不增加预算/融资/候选启用。
+
+### 具体冻结表
+
+以下补充原冻结表的可核验记录结构，不代填其仍UNSPECIFIED的值。每行须绑定决定、scope/版本、材料/实际摘要、owner/独立reviewer批准范围、依赖与有效期；private值不进入公开账本。不存在的状态、观察、holdout或批准不填hash。
+
+|ID|必须决定与可审查产物|当前状态|
+|---|---|---|
+|F01|准确candidate/profile/variant及新preregistration/model身份、完整对照/敏感性列表；旧RS-04结果与许可不得覆盖|UNSPECIFIED|
+|F02|U的raw-net或excess选择、现金/FX/成本、观察频率/日历/预测期、观测/发布/决策可用截止与PIT来源|UNSPECIFIED / NOT_ATTESTED|
+|F03|Theta和先验族/支持/proper性/参数化/有效样本量；独立来源或经验Bayes拟合边界，不用holdout调先验|UNSPECIFIED|
+|F04|似然族/支持/尾部/相关性/非平稳、mu与条件方差的函数；若收益支持使log效用无定义必须明定处理，不能静默截尾|UNSPECIFIED|
+|F05|sigma²/tau²具体后验估计器及全方差拆分、输入已有predictive variance的标记；均值/标准差/方差单位核验|UNSPECIFIED|
+|F06|超参/数值算法/精度/收敛/RNG、warmup/空历史是否允许仅prior；任何模型/参数变体的trial角色|UNSPECIFIED|
+|F07|原式是近似目标或精确效用决策何者；效用/损失、fractional状态和唯一消费位置、c≤0.5、负均值/原cap映射|UNSPECIFIED|
+|F08|batch/incremental、更新频率/窗口/遗忘/重拟合、折间prior重置或后验延续、预热及可用观察权重|UNSPECIFIED|
+|F09|稳定观察身份、修订/迟到/重复消费规则、消耗顺序与watermark；不得合并未知重复或倒灌旧决策|UNSPECIFIED|
+|F10|checkpoint版本/模型参数/输入与已消费范围、序列化/原子持久化、重启和旧state拒绝；恢复不能重算成新成功|UNSPECIFIED|
+|F11|缺数/非有限/零负方差、不正规posterior、数值失败/停放/恢复、错误记录；已知零与unknown分开|UNSPECIFIED|
+|F12|原scope风险/现金cap、B1/B2可靠对照与CVaR约束角色/条件、成交/末次fill/净成本/现金反馈|UNSPECIFIED / NOT_ATTESTED|
+|F13|主终点/paired difference/校准与失败诊断、report/ranking/veto角色、统计阈值/依赖假设及停止规则|UNSPECIFIED|
+|F14|untouchedholdout实际内容/隔离/未查看、完整累计journal/计数/无Sharpe处理、immutable runner+安装依赖、真实owner/reviewer与授权期限|NOT_ATTESTED|
+
+### 状态转移的DRAFT验收边界
+
+未来实现应能审查下列动作，具体存储和规则由F08–F11决定，不在本批创建state schema或框架：
+
+|动作|未来验收要验证的边界|
+|---|---|
+|初始化|模型/prior/参数身份绑定；空历史资格显式，不造已更新posterior或自动风险目标|
+|接受新观察|先验证身份、可用截止、次序/权重与覆盖，再按冻结模型更新；保存已消费范围与成功/失败事实|
+|重复/修订/迟到|重复不再计入；修订按预注册规则登记，不能覆盖此前决策或把同训练集既拟prior又更新likelihood两次|
+|更新失败|保留原因/覆盖与明确状态；是否保留旧checkpoint或停止恢复由冻结规则定，不把旧posterior伪装为新成功|
+|持久化/重启|同输入/state重放一致，checkpoint身份漂移拒绝；写成功回执未知不重复消费、不造新批准|
+|跨fold|只按冻结规则重置或carry；不删除亏损fold状态或看到holdout后换先验|
+
+FROZEN模型的合成验收设计至少为：独立手算后验及三个量；正m下tau增大不提高目标与tau=0的合法退化；同模型/有序数据/窗口/权重下明确的batch与incremental关系；未来信息与迟到修订扰动；重复/重启/写入未知；缺数/非有限/零方差/不收敛；一次fractional与原cap/veto优先；同会话净成本/terminal-fill/B3报告对照。带遗忘/窗口/自适应超参不假设天然batch等价。具体fixture/seed/容差/收集命令仍未冻结，**这些设计均未执行**。
+
+外部事实收敛为与[B1/B2合同](b1_b2_freeze_decision_contract.zh-CN.md)相同三组：scope+source许可/PIT+原cap/尾部预算；真实untouchedholdout内容/隔离/未查看；完整累计journal及独立owner/reviewer。B4还需本表具体模型/参数决定；收到三组事实不自动选模型，数学原式与工程CI不替代研究edge或E1。
+
 ## 研究问题与未决定项
 
 拟回答：在相同已冻结候选、时点、现金、成本和风险限制下，用后验表达估计不确定性的研究 sizing，是否相对 B1/B2 的可靠对照改善净对数增长及风险表现？这不是“贝叶斯一定优于样本估计”的结论。
