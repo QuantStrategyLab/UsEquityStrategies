@@ -167,3 +167,31 @@ DSR 分别保留 `UNCOMPUTABLE/missing_gross_returns` 和
 更新报告已有的真实 `implementation_sha256` 及其派生 `evidence_digest`，
 不得硬编码旧身份以假称完整字节不变。未开启诊断时除此必要来源身份
 之外，历史报告数值/字段/行为保持；旧 RS artifact 和 trial ledger 不重写。
+
+### 同窗口路径观察诊断（独立显式选择）
+
+同一历史 CLI 可额外选择 `--include-net-path-diagnostics`，要求
+`--historical-account-report`；三个 Python 报告入口相应参数
+`include_net_path_diagnostics=False`。不请求时不导入新能力、不增加字段。
+显式请求而旧 QPK 不具备能力时，在读取私有 pack/snapshot 前返回
+`PARKED/NET_PATH_DIAGNOSTICS_CAPABILITY_UNAVAILABLE`，不会仅返回旧报告。
+该参数与 `--include-unified-net-report` 独立，可以同时选择；原十二项不变。
+
+每本现有报告附 `net_path_diagnostics` 和同窗口 basis，直接使用该本已验证
+ledger 的净简单收益，不再扣费用、不增加初始 NAV 收益观察、不改变
+路径、参数、费用、排序或账本。四项是最长 underwater 观察段、最长
+已完成回撤恢复时长、窗口末 underwater 观察段和最长严格负净收益观察段。
+单位是 return observations，不能称作日历钟点、逐笔交易连败或未来恢复预测。
+零收益在 underwater 时延续，同时中断严格负收益连亏；恢复时长包含
+恢复观察。无已恢复样本为 null；末段未恢复显式 right-censored。
+
+QPK 以校验后所供浮点收益的精确相对财富乘积判断峰值，不使用 epsilon
+把微小回撤圆整为恢复。这里的 NAV=1 是窗口归一化起点而非账户余额；
+此前峰值/连亏与完整日历均未证明，`window_only/prior_history=unknown`。
+截短窗口不证明原回撤恢复，也不证明账户全历史最长连亏。原报告的
+REPORT_ONLY、DEVELOPMENT_ONLY、no_order、data/oos unqualified 及晋级拒绝保持。
+
+既有 research-unified-net-consumer CI 在自身隔离环境绑定不可变 QPK 新能力，
+同时强制旧十二项和新路径报告实际 CLI/手算用例、零 skip；生产依赖 pin
+与其他两个 research overlays 保留。验收只使用已有生成协议夹具，不运行
+私有 cloud workflow、不新增策略试验、PIT/OOS 或生产采用声明。
