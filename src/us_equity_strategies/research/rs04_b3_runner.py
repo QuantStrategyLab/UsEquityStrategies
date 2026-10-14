@@ -59,7 +59,8 @@ class Ledger:
         if cost_multiplier not in CONFIG.cost_multipliers:
             raise ValueError("COST_SCENARIO_NOT_REGISTERED")
         target = cap_targets(targets, profile)
-        symbols = sorted(set(target)|set(self.quantity))
+        symbols = sorted({s for s, w in target.items() if w > 0} |
+                         {s for s, q in self.quantity.items() if q > 0})
         if any(s not in prices or not math.isfinite(prices[s]) or prices[s] <= 0 for s in symbols):
             raise ValueError("PRICE_INVALID")
         initial = self.nav(prices)
@@ -114,7 +115,7 @@ class Ledger:
         capped = cap_targets(actual, profile)
         if any(actual.get(s, 0.) > capped.get(s, 0.)+1e-10 for s in actual):
             raise ValueError("POST_COST_CAP_BREACH")
-        self.cash, self.quantity, self.last_fills = cash_after, qs, details
+        self.cash, self.quantity, self.last_fills = cash_after, {s: q for s, q in qs.items() if q}, details
         if abs(self.nav(prices)-after) > 1e-7 or self.cash < -1e-9:
             raise ValueError("CASH_RECONCILIATION_FAILED")
         return {k: math.fsum(d[k] for d in details) for k in ("commission", "slippage")}
@@ -128,6 +129,9 @@ class Session:
     splits: Mapping[str, float] = field(default_factory=dict)
     dividends: tuple[tuple[str, float, date], ...] = ()
     hard_risk: bool = False
+    signal_closes: Mapping[str, float] = field(default_factory=dict)
+    live_indicators: Mapping | None = None
+    context: Mapping | None = None
 
 
 @dataclass(frozen=True)
@@ -193,7 +197,16 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
     """
     if synthetic is not True:
         raise ValueError("QUALIFIED_LIVE_BASELINE_CLOUD_ADAPTER_REQUIRED")
-    if mode not in ("baseline", "sizing_control", "b3") or len(rows) < 2:
+    return _replay(rows, baseline, profile=profile, mode=mode, kelly_full=kelly_full,
+                   sizing_returns=sizing_returns, cost_multiplier=cost_multiplier, synthetic=True)
+
+
+def _replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: str,
+            kelly_full: float | Sequence[float], sizing_returns: Sequence[float] | None = None,
+            cost_multiplier: float = 1., synthetic: bool = True,
+            trade_start: date | None = None) -> Replay:
+    """Shared ledger; real invocation belongs to the qualified cloud adapter."""
+    if mode not in ("baseline", "sizing_control", "b3", "de_risk_only") or len(rows) < 2:
         raise ValueError("REPLAY_INPUT_INVALID")
     if any(b.session <= a.session for a, b in zip(rows, rows[1:])):
         raise ValueError("SESSIONS_NOT_ORDERED")
@@ -207,10 +220,11 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
     turnover, total_cost = 0., {"commission": 0., "slippage": 0.}
     episode_balance, episode_peak = 0., 0.
     for i, row in enumerate(rows):
+        earning_regime = state.regime if mode in ("b3", "de_risk_only") else "BASELINE_AS_IS"
         old_q = book.quantity.get(profile, 0)
         targets, reasons, factor, sleeve = {}, (), 1., "TREND"
         upstream_targets, b1_budget, b2_factor = {}, None, None
-        if i:
+        if i and (trade_start is None or row.session >= trade_start):
             previous = rows[i-1]
             snapshot = {"cash": book.cash, "quantity": dict(book.quantity), "nav": prior_nav,
                         "receivables": math.fsum(book.receivables.values())}
@@ -219,9 +233,10 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
             if any(raw.get(s, 0.) > capped.get(s, 0.)+1e-12 for s in raw):
                 raise ValueError("BASELINE_CAP_BREACH")
             held = {s: q*previous.prices[s]/prior_nav for s, q in book.quantity.items()}
-            if mode == "b3":
+            if mode in ("b3", "de_risk_only"):
                 decision = advance(state, previous.features, decision=row.session, index=i,
-                                   profile=profile, baseline=raw, held=held, hard_risk=previous.hard_risk)
+                                   profile=profile, baseline=raw, held=held, hard_risk=previous.hard_risk,
+                                   allow_mr=mode == "b3")
                 state, targets, reasons, sleeve = decision.state, decision.targets, decision.reasons, decision.sleeve
             else:
                 targets = raw
@@ -263,7 +278,8 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
         weights = {s: q*row.prices[s]/final_nav for s, q in book.quantity.items()}
         for name, value in costs.items():
             total_cost[name] += value
-        turnover += math.fsum(f["notional"] for f in book.last_fills)/prefill_nav
+        daily_turnover = math.fsum(f["notional"] for f in book.last_fills)/prefill_nav
+        turnover += daily_turnover
         new_q = book.quantity.get(profile, 0)
         if not old_q and new_q:
             episode_balance, episode_peak = 0., 0.
@@ -278,7 +294,7 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
                                  "giveback_amount": episode_peak-economic_pnl,
                                  "giveback_ratio": (episode_peak-economic_pnl)/episode_peak if episode_peak > 0 else None,
                                  "sleeve": state.sleeve})
-        if mode == "b3" and (old_q or new_q):
+        if mode in ("b3", "de_risk_only") and (old_q or new_q):
             f = rows[i-1].features if i else None
             if f is None:
                 # A missing observation can close existing risk, but cannot open it.
@@ -292,19 +308,20 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
                         if fill and new_q > old_q else 0.)
             state = record_fill(state, old_quantity=old_q, quantity=new_q, price=row.prices[profile],
                                 fee_per_share=buy_fees, atr=atr, index=i, sleeve=sleeve)
-        regime = state.regime if mode == "b3" else "BASELINE_AS_IS"
+        regime = state.regime if mode in ("b3", "de_risk_only") else "BASELINE_AS_IS"
         if last_regime is not None and regime != last_regime:
             switches += 1
         last_regime = regime
         regime_counts[regime] += 1
-        regime_returns[regime].append(daily)
+        regime_returns[earning_regime].append(daily)
         points.append(dict(session=row.session, nav=final_nav, net_return=daily, cash=book.cash,
                            market_value=sum(q*row.prices[s] for s, q in book.quantity.items()),
                            receivables=sum(book.receivables.values()), weights=weights, targets=dict(targets),
                            nominal=sum(weights.values()), effective=sum(weights.values())+2*weights.get(profile, 0.),
                            sizing_factor=factor, upstream_targets=upstream_targets,
                            b1_nominal_budget=b1_budget, b2_drawdown_factor=b2_factor,
-                           regime=regime, reasons=reasons))
+                           regime=regime, earning_regime=earning_regime, reasons=reasons,
+                           turnover_one_side=daily_turnover, fees=costs))
         if sizing_returns is None:
             # Invented fixture driver only, never an asserted RS-04 net return path.
             past_sizing_returns.append(row.prices[profile]/rows[i-1].prices[profile]-1 if i else 0.)
@@ -316,7 +333,7 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
         episodes.append({"closed": False, "net_pnl": pnl, "mfe": episode_peak,
                          "giveback_amount": episode_peak-pnl, "sleeve": state.sleeve})
     metrics = path_metrics([p["net_return"] for p in points], turnover=turnover)
-    metrics.update(synthetic=True, research_only=True, promotion_eligible=False, live_ready=False,
+    metrics.update(synthetic=synthetic, research_only=True, promotion_eligible=False, live_ready=False,
                    no_order=True, budget_effect="NONE", config_sha256=config_identity(), mode=mode,
                    fees=total_cost, fee_status=CONFIG.fee_status, regime_sessions=dict(regime_counts),
                    regime_switches=switches, regime_stats={r: path_metrics(rs, turnover=0.) for r, rs in regime_returns.items()},
@@ -324,7 +341,7 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
                    max_combined_effective=max(p["effective"] for p in points),
                    combined_exposure_path="PRIVATE_POINTS_UPSTREAM_TARGET_AND_B1_B2_FACTOR_AND_POST_COST_WEIGHTS",
                    closed_mr_episodes=sum(e["closed"] and e["sleeve"] == "MR" for e in episodes),
-                   acceptance="NOT_EVALUATED_SYNTHETIC_ONLY")
+                   acceptance="NOT_EVALUATED_SYNTHETIC_ONLY" if synthetic else "NOT_EVALUATED")
     return Replay(tuple(points), metrics, tuple(episodes))
 
 

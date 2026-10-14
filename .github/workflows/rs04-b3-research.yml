@@ -2,8 +2,8 @@ name: RS-04 B3 research qualification
 run-name: RS-04 B3 research (execute=${{ inputs.execute }})
 
 # Manual, cloud-only, existing WIF and input roots. No provider secrets or data
-# acquisition; no live/shadow permissions. Currently parks before real replay:
-# existing inputs do not qualify the required live-as-is baseline.
+# acquisition; no live/shadow permissions. Full rule callback is implemented;
+# qualification still stops on absent effective config/context/parity evidence.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +11,10 @@ on:
         description: Attempt cloud input qualification; park on missing live baseline
         type: boolean
         default: false
+      archive_prefix:
+        description: Exact approved RS-04 GCS archive prefix; never a substitute dataset
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -40,7 +44,7 @@ jobs:
         id: synthetic
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m pytest -q tests/research/test_rs04_b3.py tests/research/test_rs04_b3_cloud.py tests/test_research_import_boundary.py
+          PYTHONPATH=src python -m pytest -q tests/research/test_rs04_b3.py tests/research/test_rs04_b3_cloud.py tests/research/test_rs04_b3_live_replay.py tests/test_research_import_boundary.py
           PYTHONPATH=src python scripts/run_rs04_b3_research.py --synthetic --output "$RUNNER_TEMP/rs04-b3-synthetic.json"
       - name: Authenticate with existing research WIF
         id: auth
@@ -61,6 +65,7 @@ jobs:
           EXECUTE: ${{ inputs.execute }}
           RS04_AUTH_OUTCOME: ${{ steps.auth.outcome }}
           RS04_SYNTHETIC_OUTCOME: ${{ steps.synthetic.outcome }}
+          RS04_ARCHIVE_PREFIX: ${{ inputs.archive_prefix }}
           UX1_RAW_GCS_PREFIX: ${{ vars.UX1_RAW_GCS_PREFIX }}
           UX1_R6_GCS_PREFIX: ${{ vars.UX1_R6_GCS_PREFIX }}
         run: |

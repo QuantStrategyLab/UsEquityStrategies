@@ -1,7 +1,7 @@
 """Bounded cloud qualification for RS-04 B3; aggregate artifacts only.
 
-Existing available stores do not provide a qualified live-as-is replay adapter.
-This preflight reports that limitation and never substitutes no_plugin_core.
+The full-rule callback exists; effective configuration, historical external
+context and recorded-live parity remain unbound. Never substitutes core-only.
 It reads ONLY existing input manifest metadata in a GitHub-hosted cloud runner;
 no pricing object, return path, broker, provider credential, or IAM mutation.
 """
@@ -22,6 +22,7 @@ from .rs04_b3_config import CONFIG, config_identity
 INPUT_ROOT = "gs://qsl-research-evidence-831478360303/research/v2/input/"
 MANIFEST_PATTERN = re.compile(re.escape(INPUT_ROOT)+r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}/manifest\.json")
 MAX_MANIFEST_BYTES = 1_048_576
+RS04_ARCHIVE_SHA256 = "b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482"
 
 
 def walk_forward_plan(observations: int, *, feature_warmup: int) -> dict:
@@ -129,25 +130,38 @@ def cloud_report(*, execute: bool, cloud: bool, today: date, sources: Sequence[s
             except Exception:
                 metadata.append({"status": "UNAVAILABLE", "reason": "CLOUD_MANIFEST_READ_DENIED_OR_UNAVAILABLE"})
     # These cannot be cleared by untrusted metadata self-attestations.
-    blockers.extend(("LIVE_AS_IS_BASELINE_NOT_BOUND", "QUALIFIED_LIVE_RULE_REPLAY_ADAPTER_MISSING",
+    blockers.extend(("LIVE_AS_IS_BASELINE_NOT_BOUND", "EFFECTIVE_LIVE_CONFIG_AND_STRATEGY_REVISION_UNVERIFIED",
+                     "HISTORICAL_EXTERNAL_CONTEXT_NOT_BOUND",
                      "RAW_OHLC_ACTIONS_LICENSE_PIT_NOT_BOUND", "SELL_REGULATORY_FEES_NOT_BOUND",
                      "CUMULATIVE_TRIAL_UNIVERSE_NOT_ATTESTED"))
     holdout = "NOT_YET_OBSERVABLE" if today <= date.fromisoformat(CONFIG.holdout_end) else "ISOLATION_NOT_ATTESTED"
     blockers.append("HOLDOUT_"+holdout)
+    from .rs04_b3_live import binding_report
     return {"status": "PARKED" if execute else "PLAN_ONLY", "research_only": True, "synthetic": False,
             "promotion_eligible": False, "live_ready": False, "no_order": True, "budget_effect": "NONE",
             "config_sha256": config_identity(), "registration": asdict(CONFIG),
             "source_metadata": metadata, "blockers": blockers,
             "real_bars_read": 0, "real_daily_returns_exported": 0, "real_replay_executed": False,
             "baseline_identity": "CURRENT_LIVE_RULES_AS_IS_REQUIRED_NO_CORE_SUBSTITUTION",
-            "baseline_vs_b3": {p: {str(c): {k: _empty_metrics() for k in ("baseline", "sizing_control", "b3")}
+            "live_rule_adapter": {"implementation": "FULL_EXISTING_STRATEGY_FUNCTIONS",
+                "qualified": False, "bindings": {p: binding_report(p) for p in ("SOXL", "TQQQ")},
+                "parity": {"status": "UNAVAILABLE", "recorded_live_decisions": 0}},
+            "approved_archive": {"expected_manifest_sha256": RS04_ARCHIVE_SHA256,
+                "matching_metadata_found": any(x.get("sha256") == RS04_ARCHIVE_SHA256 for x in metadata)},
+            "baseline_vs_b3": {p: {str(c): {k: _empty_metrics() for k in ("baseline", "sizing_control", "b3", "de_risk_only")}
                                     for c in CONFIG.cost_multipliers} for p in ("SOXL", "TQQQ")},
             "walk_forward": {"status": "NOT_RUN", "train": CONFIG.train, "validation": CONFIG.validation,
                              "test": CONFIG.test, "purge": CONFIG.purge, "embargo": CONFIG.embargo,
                              "minimum_folds": CONFIG.min_folds, "continuous_ledger": True},
             "holdout": {"status": holdout, "provisional": True, "start": CONFIG.holdout_start,
                         "end": CONFIG.holdout_end, "opened": False},
-            "trial_journal": {"attempt": "PARKED_QUALIFICATION", "candidate_identities": 2,
+            "pseudo_holdout": {"status": "NOT_COMPUTED_INPUT_NOT_BOUND", "start": "2024-08-26",
+                "end": CONFIG.development_end, "months": 24,
+                "anchor": "DOCUMENTED_ARCHIVE_END_NOT_CURRENT_DATE",
+                "weaker_evidence": True, "previously_seen_development": True, "untouched": False,
+                "parameters_frozen_before_read": True, "excluded_from_wfa": True,
+                "current_trailing_24_month_coverage": "NOT_AVAILABLE_ARCHIVE_ENDS_2026_08_25"},
+            "trial_journal": {"attempt": "PARKED_QUALIFICATION", "candidate_identities": 4,
                               "costs_are_paired_scenarios": True, "historical_universe": "NOT_ATTESTED"},
             "acceptance": "INSUFFICIENT_EVIDENCE", "recommend_shadow": False}
 
@@ -157,6 +171,9 @@ def workflow_cloud_report(execute: bool) -> dict:
     cloud = _cloud_environment()
     sources = [os.environ[name].rstrip("/")+"/manifest.json" for name in
                ("UX1_RAW_GCS_PREFIX", "UX1_R6_GCS_PREFIX") if os.environ.get(name)]
+    archive = os.environ.get("RS04_ARCHIVE_PREFIX", "").rstrip("/")
+    if archive:
+        sources = [archive+"/manifest.json"]
     result = cloud_report(execute=execute, cloud=cloud, today=date.today(), sources=sources,
                           auth_ok=os.environ.get("RS04_AUTH_OUTCOME") == "success",
                           synthetic_ok=os.environ.get("RS04_SYNTHETIC_OUTCOME") == "success")
