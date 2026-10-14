@@ -50,7 +50,7 @@ owner 核心验收：B3 CAGR 至少保留正 baseline 的90%，且 MDD/盈利回
 
 `research/rs04_b3_live.py` 直接调用现有 SOXL / TQQQ 的 `build_rebalance_plan`，不覆盖或关闭收入层、市场状态控制、波动率保留比例或危机防御。SOXL 沿用 manifest 的 SOXX MA140 三档参数；TQQQ 沿用原函数的 QQQ MA200、回调、波动率与状态规则。各分支消费各自前一收盘净权益、现金、真实股数与历史上下文，收入层随各自净权益变化。信号和上下文只来自已完成的 t-1；t-close 成交和净成本由同一账本处理。baseline 超过原 cap 时拒绝，不静默裁切成另一条基线。收入证券的正目标缺行情时拒绝；零目标不要求虚构行情。
 
-适配器实现不等于有效实盘绑定。参数来源名为 `us_equity_strategies.manifests.*_manifest.default_config`，实盘证据来源名为 `docs/research/fractional_kelly_preregistration.zh-CN.md` 的第 1、2.1、5 节。该文档明确记载有效 config hash 与 defaults 不同、release revision 有差异、外部历史状态未核实。因此报告输出源码及默认配置摘要，`effective_config_verified=false`，不填造有效配置摘要，也不读取或修改券商、Secret、生产配置。输入文件不能自行证明其有效性。
+适配器实现不等于有效实盘绑定。参数来源名为 `us_equity_strategies.manifests.*_manifest.default_config`，较新的证据来源为 `docs/research/rs08_live_research_parity_report.zh-CN.md` 第 1–4、6 节。RS-08 已确认策略行为等价、MA140 一致；本轮也核对两条策略文件与记录的实盘 UES `4a394388` 完全相同，并绑定完整源码摘要。不能继续把已解决的代码版本差异列为阻塞。平台合并配置及哈希生成口径仍未归档，所以 `effective_config_verified=false`。RS-08 记载 2026-10-11 未配置外部 MARKET_SIGNAL，但没有完整历史上下文归档；不能把当前缺少环境变量推广成整段历史的无信号证明。本轮不读取或修改券商、Secret、生产配置；输入文件不能自行证明其有效性。
 
 同输入规则比对入口 `compare_recorded_decisions` 接收原决策的完整历史、账户快照和目标，只输出比对数量与不匹配数量。没有录制实盘记录时为 UNAVAILABLE，不能把 synthetic 同函数比对报成 recorded-live parity。日线研究时钟与文档记载的 15:45 实盘时钟仍有差别；owner 指定的日线研究不声称复现分时成交。
 
@@ -68,4 +68,4 @@ owner 核心验收：B3 CAGR 至少保留正 baseline 的90%，且 MDD/盈利回
 
 与并行任务 `soxl_cap2` 分开写文件；PR #599 的 cap workflow/script/tests 不在本次写集内。复用其 names-only 发现：现有 input root 下仅发现 Batch A、QQQM/BOXX、R7、R9 和 SOXL V7 路径，未定位到 manifest `b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482` 的 RS-04 归档；这些已知路径不能代替它。不访问原 box/server，也不为研究重新取数或改变 IAM。
 
-**尚未完成真实回测**：确切 RS-04 GCS 归档、有效配置/源码版本、历史外部上下文、包含收入证券的 raw OHLC/公司行动与可用时点仍未绑定。现有 workflow 保持 qualification safe-stop，不能仅凭新增 callback 解锁真实回放。CAGR/MDD/giveback/2x 成本/DSR 仍可能全部不可计算；只有合成规则比对和边界测试不构成实盘一致性、投资验收或 shadow 准入。
+**尚未完成真实回测**：确切 RS-04 GCS 归档、有效平台合并配置、历史外部上下文、包含收入证券的 raw OHLC/公司行动与可用时点仍未绑定。现有 workflow 保持 qualification safe-stop，不能仅凭新增 callback 解锁真实回放。CAGR/MDD/giveback/2x 成本/DSR 仍可能全部不可计算；只有合成规则比对和边界测试不构成实盘一致性、投资验收或 shadow 准入。

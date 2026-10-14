@@ -18,13 +18,16 @@ from typing import Mapping, Sequence
 from .kelly_core_return_generator import _filtered_kwargs
 
 PROFILES = {"SOXL": "soxl_soxx_trend_income", "TQQQ": "tqqq_growth_income"}
-# Intentionally unfilled: repo docs explicitly record different effective hashes
-# and unverified release revisions. A fresh reviewed repository binding is needed;
+# Intentionally unfilled: RS-08 resolves code equivalence but the platform-merged
+# configuration and its hash method are not archived. A reviewed binding is needed;
 # an input manifest cannot attest its own authority or silently select defaults.
 EFFECTIVE_CONFIG_SHA256 = {"SOXL": None, "TQQQ": None}
-EFFECTIVE_STRATEGY_SOURCE_SHA256 = {"SOXL": None, "TQQQ": None}
+EFFECTIVE_STRATEGY_SOURCE_SHA256 = {
+    "SOXL": "4831c9ab84f2373579e2cf118e880e13f369cfdf14141db0bf06424508f1c4ef",
+    "TQQQ": "90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42",
+}
 CONFIG_SOURCE = "us_equity_strategies.manifests.*_manifest.default_config"
-EVIDENCE_SOURCE = "docs/research/fractional_kelly_preregistration.zh-CN.md sections 1, 2.1, 5"
+EVIDENCE_SOURCE = "docs/research/rs08_live_research_parity_report.zh-CN.md sections 1-4, 6"
 
 
 def default_config(profile: str) -> dict:
@@ -49,7 +52,11 @@ def binding_report(profile: str, config: Mapping | None = None) -> dict:
             "effective_config_verified": EFFECTIVE_CONFIG_SHA256[profile] == sha,
             "repo_strategy_source_sha256": source_sha,
             "strategy_source_verified": EFFECTIVE_STRATEGY_SOURCE_SHA256[profile] == source_sha,
-            "reason": "DOCUMENTED_EFFECTIVE_HASH_AND_REVISION_MISMATCH_UNRESOLVED",
+            "reason": "PLATFORM_MERGED_EFFECTIVE_CONFIG_AND_HASH_METHOD_NOT_ARCHIVED",
+            "strategy_evidence_revision": "4a3943883cd6",
+            "strategy_evidence_date": "2026-10-11",
+            "current_live_readback_performed": False,
+            "external_market_signals": "DOCUMENTED_UNCONFIGURED_2026_10_11_HISTORY_NOT_ARCHIVED",
             "signal_clock": "COMPLETED_CLOSE_T_MINUS_1_NEXT_CLOSE_FILL",
             "live_clock_parity": "UNVERIFIED_INTRADAY_VS_DAILY_CLOSE_DIFFERENCE",
             "caps": {"total": .97 if profile == "SOXL" else .98,

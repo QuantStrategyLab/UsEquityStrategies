@@ -19,6 +19,7 @@ def test_defaults_keep_live_layers_and_binding_does_not_claim_effective_config()
         config = default_config(profile)
         assert config["income_layer_enabled"] and config["market_regime_control_enabled"]
         assert binding_report(profile)["effective_config_verified"] is False
+        assert binding_report(profile)["strategy_source_verified"] is True
     assert default_config("SOXL")["trend_ma_window"] == 140
     assert default_config("SOXL")["blend_gate_soxl_weight"] == .70
     assert default_config("TQQQ")["dual_drive_crisis_defense_enabled"]

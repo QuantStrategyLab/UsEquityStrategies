@@ -130,7 +130,7 @@ def cloud_report(*, execute: bool, cloud: bool, today: date, sources: Sequence[s
             except Exception:
                 metadata.append({"status": "UNAVAILABLE", "reason": "CLOUD_MANIFEST_READ_DENIED_OR_UNAVAILABLE"})
     # These cannot be cleared by untrusted metadata self-attestations.
-    blockers.extend(("LIVE_AS_IS_BASELINE_NOT_BOUND", "EFFECTIVE_LIVE_CONFIG_AND_STRATEGY_REVISION_UNVERIFIED",
+    blockers.extend(("LIVE_AS_IS_BASELINE_NOT_BOUND", "EFFECTIVE_MERGED_LIVE_CONFIG_NOT_BOUND",
                      "HISTORICAL_EXTERNAL_CONTEXT_NOT_BOUND",
                      "RAW_OHLC_ACTIONS_LICENSE_PIT_NOT_BOUND", "SELL_REGULATORY_FEES_NOT_BOUND",
                      "CUMULATIVE_TRIAL_UNIVERSE_NOT_ATTESTED"))
