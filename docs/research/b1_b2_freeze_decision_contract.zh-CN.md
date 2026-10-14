@@ -10,13 +10,15 @@
 
 现项目次序是测量适用性与冻结事实齐备 → **B1/B2可靠对照 → B4独立研究 → E1**。原PDF把B4称第二波，未写出这条完整额外依赖；这里记录后续批准的执行安排。C2/候选启用和真实数据运行仍有独立准入，本草案不授予。
 
-## 先选择实际路径
+## 已选择首个核查路径
 
-以下是已存在的输入/调用合同，不是本次获批候选列表。必须在决策D01/D02选定一条作用域及准确版本，不能将三个路径合并成“已支持全实盘”。
+用户本轮委托助手选择首条研究路径，[#588 当前记录](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588#issuecomment-6162055942)已选择现有 **RS-04 SOXL/TQQQ research core**。这只闭合首个核查路径，不表示单策略/组合范围、profile/variant、参数、cap、runner或新数据许可全部冻结，也不等于完整实盘插件一致性。以下保留三条已有输入/调用合同作适用性比较，不再把“首路径未选”作为阻塞。
+
+当前工程来源为 UES [#593](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/593) 合并 `48026f5af85aa11b0e3b9f61316f33e8f94d4a39`：实际末次 close fill 的费用测量入口已补齐，默认旧路径、输出、账本与生产 pin 保持。工程完成不证明该研究 runner 已采用新入口或现金/净仓位会计已完整。
 
 |已有路径|可复用输入与行为|实施B1/B2前要绑定的适用性|
 |---|---|---|
-|[RS-04 core生成器](../../src/us_equity_strategies/research/kelly_core_return_generator.py)：`generate_soxl_core_path` / `generate_tqqq_core_path`、`CorePath`|有序sessions、gross returns、turnover、逐资产returns/weights；raw bars加公司行动；`no_plugin_core`|是多资产核心路径，非完整插件/live parity；现`_replay`的close turnover延后记到下期，不能直接声称已采用A2的at-fill净成本。需同路径时点/末次成交/现金与公司行动适配证明，旧RS结果不回写|
+|[RS-04 core生成器](../../src/us_equity_strategies/research/kelly_core_return_generator.py)：`generate_soxl_core_path` / `generate_tqqq_core_path`、`CorePath`|有序sessions、gross returns、旧turnover、逐资产returns/weights；raw bars加公司行动；显式`close_fill_turnover`及`measure_close_fill_costs(CostModel)`|首个核查路径已选；多资产核心非完整插件/live parity。旧turnover仍后移到下一earning session；新入口按真实close计费并包含末次fill，仅为`no_weight_feedback` NAV overlay。不能将其当完整现金/费用反馈/净额结算模拟；仍须绑定variant、现金与公司行动、内外费用及实际runner采用，旧RS结果不回写|
 |[A2 `replay_targets`](../../src/us_equity_strategies/research/execution_model_adapter.py)|调用方冻结的完成收盘目标、单证券、零收益现金、合成或一致复权open/close；同sessions的gross/net及真实fill turnover|不生成信号；不支持raw公司行动、BOXX现金、多证券漂移或完整插件。费用为独立NAV overlay、不反馈gross目标权重，不能当自融资净仓位模型|
 |[Batch A历史报告CLI](../../scripts/run_c3_batch_a_existing_member_baseline.py)、[v2合同](batch_a_v2_contracts.zh-CN.md)|已有typed SMA200控制成员、来源重绑定、净ledger及#590可选十二项report-only诊断|不是RS-04完整核心路径；`ASSUMED_ZERO_USD_CASH`、来源已见development，许可/PIT/OOS未独立成立。同路径gross/完整trial缺失时cost drag/DSR明确不可计算|
 
@@ -24,12 +26,12 @@
 
 ## 决策记录与状态
 
-每项冻结记录包含：具体决定、作用域、版本、来源材料及实际内容摘要、责任人/独立reviewer和批准范围、依赖、有效期/停止职责。当前具体值未填，统一`UNSPECIFIED / NOT_FROZEN`；外部证明另标`NOT_ATTESTED`。不存在的内容不填hash，private值保留于受保护位置，公开仅记不敏感的字段/状态/摘要。填表、代码合并或CI成功均不自动变为FROZEN。
+每项冻结记录包含：具体决定、作用域、版本、来源材料及实际内容摘要、责任人/独立reviewer和批准范围、依赖、有效期/停止职责。首路径单独标`PATH_SELECTED`；其余未决定值保持`UNSPECIFIED / NOT_FROZEN`，外部证明另标`NOT_ATTESTED`。不存在的内容不填hash，private值保留于受保护位置，公开仅记不敏感的字段/状态/摘要。填表、代码合并或CI成功均不自动变为FROZEN。
 
 |ID|待决定及必须绑定的内容|当前状态|
 |---|---|---|
-|D01|strategy key/profile/variant、单策略或组合scope、core-only与完整插件的精确边界、原始配置与作用域risk/cash cap来源|UNSPECIFIED / NOT_ATTESTED|
-|D02|上述实际consumer/生成器及immutable源码、runner、lock/已安装依赖；输入/输出适用性和A2接入差分|UNSPECIFIED|
+|D01|strategy key/profile/variant、单策略或组合scope、core-only与完整插件的精确边界、原始配置与作用域risk/cash cap来源|首路径RS-04 SOXL/TQQQ research core：PATH_SELECTED；完整scope/profile/variant/参数未冻，cap来源NOT_ATTESTED|
+|D02|上述实际consumer/生成器及immutable源码、runner、lock/已安装依赖；输入/输出适用性和A2接入差分|core生成器首路径：PATH_SELECTED；#593测量源码可绑定，实际runner/安装依赖/完整适用性仍UNSPECIFIED / NOT_ATTESTED|
 |D03|B1完整候选ID及角色：固定50%、quarter/half Kelly、EWMA、HAR、vol-target+Kelly cap哪些独立行；每行参数和拒绝条件|UNSPECIFIED|
 |D04|B2固定基础sizing与独立对照：原阶梯、连续drawdown、normalized cushion哪些行；禁止默认B1×B2笛卡尔积|UNSPECIFIED|
 |D05|同频净收益/超额收益、现金/FX、日历/年化、初始NAV与完整测试sessions；资产基准及不匹配/丢弃数处理|UNSPECIFIED|
