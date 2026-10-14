@@ -32,12 +32,12 @@
 |---|---|---|
 |D01|strategy key/profile/variant、单策略或组合scope、core-only与完整插件的精确边界、原始配置与作用域risk/cash cap来源|首路径RS-04 SOXL/TQQQ research core：PATH_SELECTED；完整scope/profile/variant/参数未冻，cap来源NOT_ATTESTED|
 |D02|上述实际consumer/生成器及immutable源码、runner、lock/已安装依赖；输入/输出适用性和A2接入差分|core生成器首路径：PATH_SELECTED；#593测量源码可绑定，实际runner/安装依赖/完整适用性仍UNSPECIFIED / NOT_ATTESTED|
-|D03|B1完整候选ID及角色：固定50%、quarter/half Kelly、EWMA、HAR、vol-target+Kelly cap哪些独立行；每行参数和拒绝条件|UNSPECIFIED|
-|D04|B2固定基础sizing与独立对照：原阶梯、连续drawdown、normalized cushion哪些行；禁止默认B1×B2笛卡尔积|UNSPECIFIED|
-|D05|同频净收益/超额收益、现金/FX、日历/年化、初始NAV与完整测试sessions；资产基准及不匹配/丢弃数处理|UNSPECIFIED|
-|D06|target-vol单位/预测期、EWMA零均值或其他形式、decay、初值、warmup、决策更新时点与缺值规则|UNSPECIFIED|
-|D07|HAR真正intraday RV来源/许可、采样/时区/时段/清洗/可用时点、日周月窗口、拟合/重拟合/warmup与失败规则|NOT_ATTESTED；缺合同PARKED|
-|D08|B2原scope `D_max`、阶梯阈值/边界与硬gate来源；净NAV峰值延续、资金流调整、成本反馈、重启/恢复/停放规则|UNSPECIFIED / NOT_ATTESTED|
+|D03|B1完整候选ID及角色：固定50%、quarter/half Kelly、EWMA、HAR、vol-target+Kelly cap哪些独立行；每行参数和拒绝条件|**OWNER_APPROVED 2026-10-14**：B1 只登记四行 `fixed_50_subject_to_original_cap`、`kelly_c_0.25_once`（主）、`kelly_c_0.5_once`（对照）、`ewma_vol_target_and_kelly_cap`（c=0.25）；c 只在 {0.25, 0.5} 取一次，再与原 cap 取 min，c>0.5 拒绝；不另开纯 vol-target 行；HAR 不登记（见 D07）|
+|D04|B2固定基础sizing与独立对照：原阶梯、连续drawdown、normalized cushion哪些行；禁止默认B1×B2笛卡尔积|**OWNER_APPROVED 2026-10-14**：B2 基础 sizing = `kelly_c_0.25_once` 的输出；只对照 `original_ladder` 与 `continuous_drawdown`；`normalized_cushion` 不进入本 trial 集；禁止 B1×B2 笛卡尔积|
+|D05|同频净收益/超额收益、现金/FX、日历/年化、初始NAV与完整测试sessions；资产基准及不匹配/丢弃数处理|**OWNER_APPROVED 2026-10-14（部分）**：主终点为同频日净 log 增长，现金对照为同频现金；初始 NAV=1.0。资产基准、不匹配/丢弃数处理、FX 仍 UNSPECIFIED；费用见 D10（UNSPECIFIED）|
+|D06|target-vol单位/预测期、EWMA零均值或其他形式、decay、初值、warmup、决策更新时点与缺值规则|**OWNER_APPROVED 2026-10-14**：target_vol 年化 20%（日 `0.20/sqrt(252)`）；零均值 EWMA `v_next=λv+(1-λ)r²`，日简单收益，λ=0.94；初值 = 训练前缀前 63 个 session 的样本方差；warmup 63 个 session，期间暴露 0（PARKED）；session t 的预测只用 t-1 及以前的收益；缺值/非有限 → PARKED 为 0，不切换 HAR。敏感性（仅报告）：target_vol 30%、λ=0.97|
+|D07|HAR真正intraday RV来源/许可、采样/时区/时段/清洗/可用时点、日周月窗口、拟合/重拟合/warmup与失败规则|**OWNER_APPROVED 2026-10-14：PARKED**。无授权 intraday RV，HAR 不登记、不运行|
+|D08|B2原scope `D_max`、阶梯阈值/边界与硬gate来源；净NAV峰值延续、资金流调整、成本反馈、重启/恢复/停放规则|**OWNER_APPROVED 2026-10-14**：`D_max`=min(原 scope, 0.20)=0.20（原 scope 无回撤上限，UNSPECIFIED）；阶梯：回撤 ≤10% 满仓、≤20% 半仓、>20% 为 0；净投资指数峰值含初始 NAV，亏损不重置，外部资金不消除回撤。作用域 cap 见下方 B1/B2 批准值。成本反馈与重启/恢复规则仍 UNSPECIFIED|
 |D09|信号可用时点、`next_close`/`next_open`的主/敏感性角色、公司行动/终端未成交/末次fill及实际费时点|UNSPECIFIED|
 |D10|commission/spread/slippage/融资、内部与外层成本/现金归属；成本档位属报告情景还是选择trial，不重复扣费|UNSPECIFIED|
 |D11|真实source/license/PIT/coverage、raw/split/total-return价口径、公司行动与现金可用时点、实际manifest身份|NOT_ATTESTED|
@@ -46,6 +46,23 @@
 |D14|CVaR描述与约束分离：tail-budget来源/单位/窗口、成本现金齐次条件、缺覆盖/不可计算规则及B1消费位置|UNSPECIFIED / NOT_ATTESTED|
 |D15|每个候选/模型/参数/成本角色/敏感性/重复的trial单位；失败/拒绝/中断记录、全累计journal及同频net Sharpe方差/无Sharpe处理|UNSPECIFIED / NOT_ATTESTED|
 |D16|研究owner/reviewer真实独立绑定、预注册批准和真实数据运行批准、有效期/输出位置/停止与复审权限|NOT_ATTESTED|
+
+### B1/B2 批准值与来源（2026-10-14，owner 批准）
+
+生效值 = min(原 scope 值, 提案值)。研究口径按 IBKR runtime 风控。
+
+|项目|原 scope 值|提案|生效值|来源|
+|---|---|---|---|---|
+|总名义暴露上限（SOXL 路径）|0.97|1.00|**0.97**|IBKR `soxl_soxx_trend_income` runtime_risk_limits `total_nominal_exposure_cap`；`reserved_cash_ratio` 0.03|
+|总暴露上限（TQQQ 路径）|0.98（`cash_reserve_ratio` 0.02）|1.00|**0.98**|UES `manifests/__init__.py` tqqq_growth_income 默认配置（`ca599d5`）|
+|SOXL 单标的名义上限|0.679|1.00|**0.679**|IBKR runtime_risk_limits `nominal_caps.SOXL`|
+|`D_max`|UNSPECIFIED|0.20|**0.20**|原 scope 无回撤上限|
+|Kelly 倍数 c|≤0.5（审计）|0.25 主 / 0.5 对照|**0.25 / 0.5**|审计 p6/p10|
+
+来源：IBKR 平台仓库变量 `CLOUD_RUN_SERVICE_TARGETS_JSON`（更新于 2026-09-25T15:30:24Z），由 owner 侧只读核对，与 2026-10-10 快照一致。本文不记录账户标识。
+
+仍为 UNSPECIFIED / NOT_ATTESTED：费用与滑点（D10）、数据源/许可/PIT（D11）、holdout（D12）、CVaR（D14）、trial journal（D15）、reviewer 绑定（D16）。本批准不授权真实数据运行、不改生产 pin、不提高任何预算。
+
 
 ## 比较形式的DRAFT，不能直接运行
 
