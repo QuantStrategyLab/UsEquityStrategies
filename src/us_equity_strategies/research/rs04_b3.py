@@ -272,11 +272,13 @@ def advance(state: State, feature: Features | None, *, decision: date, index: in
         out.update(dict.fromkeys(risks, 0.))
         sleeve = "MR"
         if s.sleeve == "MR" and s.entry > 0:
-            if feature.rsi > CONFIG.mr_exit_rsi or index-s.entry_index >= CONFIG.mr_max_hold:
-                reasons.append("MR_EXIT")
-            elif feature.trade_price <= s.entry-s.initial_r:
+            stop_exit = feature.trade_price <= s.entry-s.initial_r
+            timed_exit = feature.rsi > CONFIG.mr_exit_rsi or index-s.entry_index >= CONFIG.mr_max_hold
+            if stop_exit:
                 reasons.append("MR_STOP")
-            else:
+            if timed_exit:
+                reasons.append("MR_EXIT")
+            if not (stop_exit or timed_exit):
                 out[profile] = min(current.get(profile, 0.), CONFIG.mr_cap)
         elif s.entry == 0 and feature.rsi < CONFIG.mr_enter_rsi and index > s.cooldown_until:
             total_room = _profile(profile)[0]-math.fsum(out.values())

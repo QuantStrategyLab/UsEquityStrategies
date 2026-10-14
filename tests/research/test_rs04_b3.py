@@ -264,3 +264,10 @@ def test_combined_path_exposes_upstream_b1_b2_and_actual_fills_separately():
     assert point["b2_drawdown_factor"] in (0., .5, 1.)
     assert sum(point["targets"].values()) == pytest.approx(.45*point["sizing_factor"])
     assert point["nominal"] <= sum(point["targets"].values())+1e-8
+
+
+def test_mr_simultaneous_exit_reasons_are_preserved():
+    out = step(State(regime="RANGE", sleeve="MR", entry=100., initial_r=4., entry_index=0),
+               feature(adx=15., slope=0., rsi=70., trade_price=95.), i=6, held={"SOXL": .05})
+    assert out.targets["SOXL"] == 0
+    assert "MR_STOP" in out.reasons and "MR_EXIT" in out.reasons
