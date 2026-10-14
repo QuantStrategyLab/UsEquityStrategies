@@ -1,6 +1,6 @@
 # B1/B2 冻结决策合同草案
 
-状态：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。本文件把已有提案变成可逐项评审的决策单；没有选择新参数、批准试验、取得私有数据、写入台账或改变实盘风险门。追踪 [QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659) 和 [UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588)。B4另见[独立草案](bayesian_kelly_preregistration_proposal.zh-CN.md)，尾部约束另见[CVaR决策合同](cvar_exposure_constraint_decision_contract.zh-CN.md)；B5不进入本批。
+状态：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。本文件把已有提案变成可逐项评审的决策单，并记录 D03–D08 的 owner 批准参数；没有批准试验、取得私有数据、写入台账或改变实盘风险门。追踪 [QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659) 和 [UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588)。B4另见[独立草案](bayesian_kelly_preregistration_proposal.zh-CN.md)，尾部约束另见[CVaR决策合同](cvar_exposure_constraint_decision_contract.zh-CN.md)；B5不进入本批。
 
 ## 原文与已有工程的边界
 
@@ -40,7 +40,7 @@
 |D08|B2原scope `D_max`、阶梯阈值/边界与硬gate来源；净NAV峰值延续、资金流调整、成本反馈、重启/恢复/停放规则|**OWNER_APPROVED 2026-10-14**：`D_max`=min(原 scope, 0.20)=0.20（原 scope 无回撤上限，UNSPECIFIED）；阶梯：回撤 ≤10% 满仓、≤20% 半仓、>20% 为 0；净投资指数峰值含初始 NAV，亏损不重置，外部资金不消除回撤。作用域 cap 见下方 B1/B2 批准值。成本反馈与重启/恢复规则仍 UNSPECIFIED|
 |D09|信号可用时点、`next_close`/`next_open`的主/敏感性角色、公司行动/终端未成交/末次fill及实际费时点|UNSPECIFIED|
 |D10|commission/spread/slippage/融资、内部与外层成本/现金归属；成本档位属报告情景还是选择trial，不重复扣费|UNSPECIFIED|
-|D11|真实source/license/PIT/coverage、raw/split/total-return价口径、公司行动与现金可用时点、实际manifest身份|NOT_ATTESTED|
+|D11|真实source/license/PIT/coverage、raw/split/total-return价口径、公司行动与现金可用时点、实际manifest身份|UNSPECIFIED / NOT_ATTESTED|
 |D12|train/test/purge/embargo、warmup与尾部未覆盖、untouched holdout边界/实际摘要/隔离管理员和未查看事实|UNSPECIFIED / NOT_ATTESTED|
 |D13|净log增长主终点及paired difference；各指标report/ranking/veto角色、效应/统计阈值、bootstrap/PBO/PSR/DSR/MinTRL假设与停止规则|UNSPECIFIED|
 |D14|CVaR描述与约束分离：tail-budget来源/单位/窗口、成本现金齐次条件、缺覆盖/不可计算规则及B1消费位置|UNSPECIFIED / NOT_ATTESTED|
@@ -54,7 +54,7 @@
 |项目|原 scope 值|提案|生效值|来源|
 |---|---|---|---|---|
 |总名义暴露上限（SOXL 路径）|0.97|1.00|**0.97**|IBKR `soxl_soxx_trend_income` runtime_risk_limits `total_nominal_exposure_cap`；`reserved_cash_ratio` 0.03|
-|总暴露上限（TQQQ 路径）|0.98（`cash_reserve_ratio` 0.02）|1.00|**0.98**|UES `manifests/__init__.py` tqqq_growth_income 默认配置（`ca599d5`）|
+|总名义暴露上限（TQQQ 路径）|0.98（`cash_reserve_ratio` 0.02）|1.00|**0.98**|UES `manifests/__init__.py` tqqq_growth_income 默认配置（`ca599d5`）|
 |SOXL 单标的名义上限|0.679|1.00|**0.679**|IBKR runtime_risk_limits `nominal_caps.SOXL`|
 |`D_max`|UNSPECIFIED|0.20|**0.20**|原 scope 无回撤上限|
 |Kelly 倍数 c|≤0.5（审计）|0.25 主 / 0.5 对照|**0.25 / 0.5**|审计 p6/p10|
@@ -66,11 +66,11 @@
 
 ## 比较形式的DRAFT，不能直接运行
 
-B1可复用原提案的零均值EWMA形式 `v_next=lambda*v_current+(1-lambda)*r_t²`，但D06未填前不选lambda/初值/warmup。HAR只在D07真实RV合同齐备后登记；只有日线就PARKED，不把平方close return改称RV，也不静默切换预测器。
+B1采用 D06 批准的零均值EWMA形式 `v_next=lambda*v_current+(1-lambda)*r_t²`、lambda、初值与 warmup；session t 的预测只用 t-1 及以前的数据。HAR按 D07 保持PARKED，不登记、不运行；不把平方close return改称RV，也不静默切换预测器。
 
-B1的vol-target与Kelly组合如被选择，须显式成为D03中的一行，按相同预测期计算 `min(existing_cap,clip(target_vol/forecast_vol,0,1),clip(c*f_star,0,1))`。`c`最多0.5且只消费一次；0.5是Kelly倍数上限，不是所有策略共同50%资金暴露。固定50%对照也受同一作用域硬cap，不因名为baseline而豁免；候选不能提高既有预算。
+B1的vol-target与Kelly组合已登记为D03中的 `ewma_vol_target_and_kelly_cap`（c=0.25），按相同预测期计算 `min(existing_cap,clip(target_vol/forecast_vol,0,1),clip(c*f_star,0,1))`。`c`最多0.5且只消费一次，0.25为主、0.5仅为对照；0.5是Kelly倍数上限，不是所有策略共同50%资金暴露。固定50%对照也受同一作用域硬cap，不因名为baseline而豁免；候选不能提高既有预算。
 
-B2形式沿原提案：净财富`W>0`、包含初始NAV的峰值`M>=W`，`d=1-W/M`、`alpha=1-D_max`；连续drawdown `clip(1-d/D_max,0,1)`与normalized cushion `clip((W-alpha*M)/(D_max*W),0,1)`分别作为待选行。`D_max`必须来自原scope、不能更宽。资金流存在时须先定净投资指数/峰值的具体解释，不能直接混用美元W和资金流调整指数；成本后峰值/决策截止规则冻结后才算。不因亏损重置M，跳空/离散费用可突破floor，不宣称硬回撤保证。
+B2形式沿原提案：净财富`W>0`、包含初始NAV的峰值`M>=W`，`d=1-W/M`、`alpha=1-D_max`；D04只登记原阶梯与连续drawdown `clip(1-d/D_max,0,1)`；normalized cushion `clip((W-alpha*M)/(D_max*W),0,1)`仅保留为原提案形式，不进入本 trial 集。`D_max`按D08批准为0.20，原scope存在更严上限时不能放宽。资金流存在时按D08使用净投资指数/峰值，不能直接混用美元W和资金流调整指数；成本后峰值/决策截止规则冻结后才算。不因亏损重置M，跳空/离散费用可突破floor，不宣称硬回撤保证。
 
 所有候选先受原hard gate、cash reserve、产品上限、breaker和veto约束，未来输出仅`DEVELOPMENT_ONLY/live_ready=False/no_order=True/budget_effect=NONE`的封顶/降低备注。CVaR缺预算/尾部或预测异常不意味着解除既有约束；具体现金处置/恢复需D06/D08/D14明定，否则研究停放。
 
@@ -126,18 +126,18 @@ B2形式沿原提案：净财富`W>0`、包含初始NAV的峰值`M>=W`，`d=1-W/
 
 因此：测量入口存在，不等于 runner 已采用；core-only 路径存在，不等于 live parity。`runner_adoption=NOT_ATTESTED`。
 
-## RECOMMENDED 参数与 trial 单位
+## 已批准参数与 trial 单位（未冻结）
 
-状态：**RECOMMENDED_NOT_FROZEN**。这是准备方案，不是预注册批准。机器可读副本在 `research/b1_b2_rs04_preparation.py` 的 `RECOMMENDED_PROPOSAL`。旧 RS-04 的 252/63/5、5/10/15 bps、旧 manifest 和已见 development 窗口不转入本 scope。
+状态：**OWNER_APPROVED / NOT_FROZEN**。参数决定以 D03–D08 和上方批准值表为准，完整预注册仍未冻结。`research/b1_b2_rs04_preparation.py` 的 `RECOMMENDED_PROPOSAL` 保留原合成准备建议，不是这些批准值的机器可读绑定。旧 RS-04 的 252/63/5、5/10/15 bps、旧 manifest 和已见 development 窗口不转入本 scope。
 
-|项|推荐|仍为空的停止规则|
+|项|批准决定|未完成的绑定与停止规则|
 |---|---|---|
 |B1 行，且只列这些行|`fixed_50_subject_to_original_cap`；`kelly_c_0.25_once`；`kelly_c_0.5_once`；`ewma_vol_target_and_kelly_cap`|不另开纯波动目标行，除非 D03 另批。不与 B2 做笛卡尔积|
 |HAR-RV|`PARKED`|只有日线平方收益时不得改名为 RV，也不得自动改跑 EWMA|
-|B2 第一对照，不与全部 B1 行交叉|`original_ladder` 与 `continuous_drawdown` 共用一个尚未指定的基础 sizing|`normalized_cushion` 另登记之前不进入同一 trial 集。阶梯阈值与 `D_max` 为 NOT_ATTESTED，合成边界不是实盘 gate|
+|B2 第一对照，不与全部 B1 行交叉|`original_ladder` 与 `continuous_drawdown` 共用 D04 的 `kelly_c_0.25_once` 输出作为基础 sizing|`normalized_cushion` 不进入同一 trial 集。阶梯阈值 10% / 20% 与 `D_max`=0.20 已由 D08 批准；合成边界不是实盘 gate，实际 runner 适用性仍须绑定|
 |主时点|`next_close`|`next_open` 与 `same_close` 各是独立敏感性 trial；`same_close` 不是主结果|
-|EWMA 形式|`v_next = lambda·v_current + (1-lambda)·r_t²`，单位是每观察简单收益的平方，不年化|lambda 的推荐值 0.94 来自 QPK 草案所引 RiskMetrics 日频惯例，`RECOMMENDED_NOT_FROZEN`，对本 scope `NOT_ATTESTED`。初值与 warmup 会话数保持 UNSPECIFIED；调用方不提供有限正初值或足够 warmup 时预测停放、暴露尺度为 0|
-|`c`|只在 `{0.25, 0.5}` 中取一次，再与原 cap 取 min|`c>0.5` 拒绝。固定 50% 也先被原 cap 裁切。原 cap、`target_vol`、`D_max` 均为 NOT_ATTESTED；cap 缺失时暴露是 null，不补 1|
+|EWMA 形式|`v_next = lambda·v_current + (1-lambda)·r_t²`，单位是每观察简单收益的平方，不年化|D06批准年化 target_vol 20%、lambda 0.94、前63个session样本方差初值与63个session warmup，session t 只用 t-1 及以前的数据；调用方不提供有限正初值或足够 warmup 时预测停放、暴露尺度为 0|
+|`c`|0.25为主、0.5仅为对照；只在 `{0.25, 0.5}` 中取一次，再与原 cap 取 min|`c>0.5` 拒绝。固定 50% 也先被原 cap 裁切。作用域 cap、`target_vol`、`D_max` 的批准值见上表及 D06/D08；实际输入/runner 绑定仍未完成，cap 缺失时暴露是 null，不补 1|
 |费用档|在 D10 被证明之前只作 `REPORT_SCENARIO_NOT_SELECTION_TRIAL`，不乘进选择 trial 数|费率 NOT_ATTESTED。若有人按某一档做了选择，该档必须改记为选择 trial。不把旧 5/10/15 bps 写成本 scope 的费率|
 |trial 单位|一次 attempt = RS-04 research-core 路径 + 候选行 + 参数绑定 + 成本角色 + 时点角色 + attempt 序号|`COMPUTED`、`PARKED`、`REJECTED`、`INTERRUPTED` 都计入。预注册之前不能登记，登记之前不能计算。禁止只保留成功行、删除或覆盖失败行|
 |PIT / holdout / journal|无推荐值|三项都是 NOT_ATTESTED。没有边界、未查看证明或累计账本时停止，不补 hash、不把已见 development 改称 holdout、缺 Sharpe 不补 0|
