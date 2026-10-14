@@ -77,3 +77,16 @@ def test_synthetic_failure_blocks_cloud_reads_and_is_not_reported_as_auth_failur
     assert calls == []
     assert "SYNTHETIC_ACCEPTANCE_NOT_PASSED" in result["blockers"]
     assert "EXISTING_WIF_AUTHENTICATION_UNAVAILABLE" not in result["blockers"]
+
+
+def test_native_reader_cannot_run_on_mac_even_with_inherited_ci_environment(monkeypatch):
+    import pytest
+    import us_equity_strategies.research.rs04_b3_cloud as module
+    monkeypatch.setattr(module.platform, "system", lambda: "Darwin")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_OS", "Linux")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "QuantStrategyLab/UsEquityStrategies")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    with pytest.raises(ValueError, match="CLOUD_ONLY"):
+        module.read_cloud_manifest("gs://qsl-research-evidence-831478360303/research/v2/input/fixture/manifest.json")

@@ -12,6 +12,7 @@ from datetime import date
 import hashlib
 import json
 import os
+import platform
 import re
 import subprocess
 from typing import Callable, Mapping, Sequence
@@ -62,12 +63,22 @@ def inspect_manifest(manifest: Mapping, identity: Mapping) -> dict:
             "reason": "PRICE_MANIFEST_DOES_NOT_ATTEST_CORPORATE_ACTIONS_PIT_OR_LIVE_BASELINE"}
 
 
+def _cloud_environment() -> bool:
+    return (platform.system() == "Linux" and os.environ.get("GITHUB_ACTIONS") == "true"
+            and os.environ.get("RUNNER_OS") == "Linux"
+            and os.environ.get("GITHUB_REPOSITORY") == "QuantStrategyLab/UsEquityStrategies"
+            and os.environ.get("GITHUB_REF") == "refs/heads/main"
+            and os.environ.get("GITHUB_RUN_ATTEMPT") == "1")
+
+
 def read_cloud_manifest(uri: str) -> tuple[dict, dict]:
     """Existing WIF Cloud SDK; exact generation read, no lists or writes.
 
     Native diagnostics remain captured and are never included in an artifact.
     No retries after a failed read; each configured manifest is tried once.
     """
+    if not _cloud_environment():
+        raise ValueError("CLOUD_ONLY")
     if not MANIFEST_PATTERN.fullmatch(uri):
         raise ValueError("SOURCE_PREFIX_REJECTED")
     proc = subprocess.run(["gcloud", "storage", "objects", "describe", uri, "--format=json", "--quiet"],
@@ -143,10 +154,7 @@ def cloud_report(*, execute: bool, cloud: bool, today: date, sources: Sequence[s
 
 def workflow_cloud_report(execute: bool) -> dict:
     # Only this module performs the boundary check; a CLI flag cannot override it.
-    cloud = (os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_OS") == "Linux"
-             and os.environ.get("GITHUB_REPOSITORY") == "QuantStrategyLab/UsEquityStrategies"
-             and os.environ.get("GITHUB_REF") == "refs/heads/main"
-             and os.environ.get("GITHUB_RUN_ATTEMPT") == "1")
+    cloud = _cloud_environment()
     sources = [os.environ[name].rstrip("/")+"/manifest.json" for name in
                ("UX1_RAW_GCS_PREFIX", "UX1_R6_GCS_PREFIX") if os.environ.get(name)]
     result = cloud_report(execute=execute, cloud=cloud, today=date.today(), sources=sources,
