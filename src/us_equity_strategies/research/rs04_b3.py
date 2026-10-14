@@ -72,6 +72,8 @@ class SizedTargets:
     sizing_factor: float
     cash: float
     effective_exposure: float
+    b1_nominal_budget: float
+    b2_drawdown_factor: float
 
 
 def _valid(*values: float) -> bool:
@@ -116,17 +118,18 @@ def combined_targets(upstream: Mapping[str, float], *, profile: str, kelly_full:
     weights = cap_targets(upstream, profile)
     if not _valid(kelly_full, drawdown) or drawdown < 0:
         raise ValueError("SIZING_INPUT_INVALID")
-    factor = 0.
+    factor, budget = 0., 0.
+    ladder = original_ladder_factor(drawdown, full_until=CONFIG.dd_full, half_until=CONFIG.dd_half)
     if forecast_vol is not None and _valid(forecast_vol) and forecast_vol > 0:
         budget = min(_profile(profile)[0], max(0., CONFIG.kelly_c*kelly_full),
                      CONFIG.target_vol/forecast_vol)
         nominal = math.fsum(weights.values())
         factor = min(1., budget/nominal) if nominal else 0.
-        factor *= original_ladder_factor(drawdown, full_until=CONFIG.dd_full, half_until=CONFIG.dd_half)
+        factor *= ladder
     result = cap_targets({key: value*factor for key, value in weights.items()}, profile)
     nominal = math.fsum(result.values())
     return SizedTargets(result, math.fsum(weights.values()), factor, 1.-nominal,
-                        nominal+2*result.get(profile, 0.))
+                        nominal+2*result.get(profile, 0.), budget, ladder)
 
 
 def ewma_forecast(past_returns: Sequence[float]) -> float | None:

@@ -252,3 +252,15 @@ def test_b1_absolute_budget_does_not_apply_existing_cash_cap_twice():
                            profile="SOXL", kelly_full=2., forecast_vol=.2, drawdown=0.)
     assert sum(out.targets.values()) == pytest.approx(.5)
     assert sum(out.targets.values()) != pytest.approx(.5*.97)
+
+
+def test_combined_path_exposes_upstream_b1_b2_and_actual_fills_separately():
+    from us_equity_strategies.research.rs04_b3_runner import synthetic_sessions, replay
+    out = replay(synthetic_sessions(350), lambda history, book: {"TQQQ": .45},
+                 profile="TQQQ", mode="sizing_control", kelly_full=2.)
+    point = out.points[-1]
+    assert point["upstream_targets"] == {"TQQQ": .45}
+    assert point["b1_nominal_budget"] <= .5
+    assert point["b2_drawdown_factor"] in (0., .5, 1.)
+    assert sum(point["targets"].values()) == pytest.approx(.45*point["sizing_factor"])
+    assert point["nominal"] <= sum(point["targets"].values())+1e-8
