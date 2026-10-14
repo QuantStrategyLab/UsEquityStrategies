@@ -54,6 +54,8 @@ jobs:
                       raise SystemExit('unsafe hosted input bundle entry')
               bundle.extractall(target)
           PYCODE
+      - name: Install approved research dependencies
+        run: python -m pip install --no-index --find-links hosted-inputs/wheels -r hosted-inputs/runtime-requirements.txt
       - name: Show the frozen interface
         if: inputs.execute != true
         run: python scripts/soxl_financial_explanation.py --help
