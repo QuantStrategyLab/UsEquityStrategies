@@ -16,7 +16,7 @@ MR 与趋势风险仓互斥，只有 RANGE、RSI2<10 新开；RSI2>60、5 sessio
 
 ## B1/B2 与证券账本
 
-冻结合约 [`52e7c70`](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/52e7c7062a9b2fa367d2e27cce1756efa8180e54/docs/research/b1_b2_freeze_decision_contract.zh-CN.md) 不修改。B3 先改变信号目标；B1 `min(1,.25*f*,.20/年化EWMA预测波动)` 只消费一次 Kelly，B2 原阶梯只消费一次：回撤≤10%为1，≤20%为.5，>20%为0。EWMA λ=.94，前63日样本方差初始化，之后零均值递推；预热/无效预测暴露0，仅用 t-1。
+冻结合约 [`52e7c70`](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/52e7c7062a9b2fa367d2e27cce1756efa8180e54/docs/research/b1_b2_freeze_decision_contract.zh-CN.md) 不修改。B3 先改变信号目标；B1 绝对名义预算 `min(原scope cap,.25*f*,.20/年化EWMA预测波动)` 与 B3 已有总目标取较低值，只消费一次 Kelly，不再把原现金cap乘一次，B2 原阶梯只消费一次：回撤≤10%为1，≤20%为.5，>20%为0。EWMA λ=.94，前63日样本方差初始化，之后零均值递推；预热/无效预测暴露0，仅用 t-1。
 
 SOXL 总名义≤.97、SOXL≤.679、现金≥.03、有效≤2.328；TQQQ 总名义≤.98、原回撤预算.20。20%回撤预算不是跳空下的硬保证。BOXX 及其他 ETF 计入总名义、买卖两腿计费。
 

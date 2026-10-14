@@ -109,6 +109,7 @@ def combined_targets(upstream: Mapping[str, float], *, profile: str, kelly_full:
                      forecast_vol: float | None, drawdown: float) -> SizedTargets:
     """B1=min(original budget, vol cap, .25*f*); B2 original ladder once.
 
+    B1 is an absolute nominal budget, not another cash-reserve multiplier.
     B3 has already changed the signal weights. No second B3 scalar is applied.
     Uninvested budget is actual zero-yield cash, never an uncharged BOXX leg.
     """
@@ -117,7 +118,10 @@ def combined_targets(upstream: Mapping[str, float], *, profile: str, kelly_full:
         raise ValueError("SIZING_INPUT_INVALID")
     factor = 0.
     if forecast_vol is not None and _valid(forecast_vol) and forecast_vol > 0:
-        factor = min(1., max(0., CONFIG.kelly_c*kelly_full), CONFIG.target_vol/forecast_vol)
+        budget = min(_profile(profile)[0], max(0., CONFIG.kelly_c*kelly_full),
+                     CONFIG.target_vol/forecast_vol)
+        nominal = math.fsum(weights.values())
+        factor = min(1., budget/nominal) if nominal else 0.
         factor *= original_ladder_factor(drawdown, full_until=CONFIG.dd_full, half_until=CONFIG.dd_half)
     result = cap_targets({key: value*factor for key, value in weights.items()}, profile)
     nominal = math.fsum(result.values())

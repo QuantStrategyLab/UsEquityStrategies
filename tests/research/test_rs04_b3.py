@@ -243,3 +243,12 @@ def test_mr_never_averages_down_and_gap_risk_is_recapped_at_fill():
     ledger.rebalance({"SOXL": .1}, {"SOXL": 20.}, profile="SOXL", cost_multiplier=1.,
                      loss_per_share={"SOXL": 4.})
     assert ledger.quantity["SOXL"]*4 <= .0025*ledger.nav({"SOXL": 20.})
+
+
+def test_b1_absolute_budget_does_not_apply_existing_cash_cap_twice():
+    # Frozen B1: min(scope_cap, c*f*, vol_target/forecast); cap is an
+    # absolute nominal budget, not an extra multiplier on a 97% target.
+    out = combined_targets({"SOXL": .679, "SOXX": .194, "BOXX": .097},
+                           profile="SOXL", kelly_full=2., forecast_vol=.2, drawdown=0.)
+    assert sum(out.targets.values()) == pytest.approx(.5)
+    assert sum(out.targets.values()) != pytest.approx(.5*.97)
