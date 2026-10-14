@@ -139,9 +139,10 @@ jobs:
           set -euo pipefail
           PYTHONPATH=src python -m pytest -q -rs tests/research/test_execution_model_adapter.py --junitxml=execution-model-tests.xml
           PYTHONPATH=src python -m pytest -q -rs tests/research/test_kelly_core_return_generator.py -k close_fill --junitxml=close-fill-measurement-tests.xml
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_b1_b2_rs04_synthetic_acceptance.py -k "not qpk_measurement_nulls" --junitxml=b1-b2-preparation-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
-          for filename in ("execution-model-tests.xml", "close-fill-measurement-tests.xml"):
+          for filename in ("execution-model-tests.xml", "close-fill-measurement-tests.xml", "b1-b2-preparation-tests.xml"):
               root = ET.parse(filename).getroot()
               assert list(root.iter("testcase")), f"required execution tests missing: {filename}"
               skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in root.iter("testsuite"))
@@ -196,6 +197,8 @@ jobs:
           PYTHONPATH=src python -m pytest -q -rs \
             tests/test_c3_batch_a_existing_member_baseline.py \
             --junitxml=unified-net-consumer-tests.xml
+          PYTHONPATH=src python -m pytest -q -rs \
+            tests/research/test_b1_b2_rs04_synthetic_acceptance.py -k qpk_measurement_nulls
           python - <<'PY'
           import xml.etree.ElementTree as ET
           root = ET.parse("unified-net-consumer-tests.xml").getroot()
