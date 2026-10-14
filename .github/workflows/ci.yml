@@ -138,11 +138,14 @@ jobs:
         run: |
           set -euo pipefail
           PYTHONPATH=src python -m pytest -q -rs tests/research/test_execution_model_adapter.py --junitxml=execution-model-tests.xml
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_kelly_core_return_generator.py -k close_fill --junitxml=close-fill-measurement-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
-          suites = ET.parse("execution-model-tests.xml").getroot().iter("testsuite")
-          skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
-          assert skipped == 0, f"required execution tests skipped: {skipped}"
+          for filename in ("execution-model-tests.xml", "close-fill-measurement-tests.xml"):
+              root = ET.parse(filename).getroot()
+              assert list(root.iter("testcase")), f"required execution tests missing: {filename}"
+              skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in root.iter("testsuite"))
+              assert skipped == 0, f"required execution tests skipped: {filename}: {skipped}"
           PY
 
   research-unified-net-consumer:

@@ -53,6 +53,9 @@
   - 单标的总收益为 `(close_t·拆股比 + 分红_t)/close_{t−1} − 1`，信号用前向构建的总收益指数。
   - 成交时点 `next_close`：t 日收盘出信号，t+1 收盘成交，t+2 起计收益。
   - `turnover[k]` 是 k 日开始时的单边证券成交额/NAV（现金腿不计），供 QPK 费用档位压力使用。
+  - 旧 `turnover` 保持 close 成交后移到下一 earning session 的合同；最后 close 已成交但没有下一会话时，旧费用路径会漏掉该笔费用。新增 `CorePath.close_fill_turnover` 只供显式测量：记录真实 close 的单边证券成交额/pre-fill NAV，包含末次成交，`window` 同会话切片。
+  - 显式调用 `path.measure_close_fill_costs(cost_model)` 并注入 QPK `research_stats.execution_models.CostModel` 才生成 at-fill 净收益。close 成本在当日毛收益后扣，金额为 `fill_turnover × (1 + gross_return) × 每边费率`，相对当日起始 NAV，仅转换一次。尚未加载该接口的旧 QPK pin 会明确报 `QPK_EXECUTION_MODELS_REQUIRED`；本变更不改 pin。
+  - 该测量是 `no_weight_feedback` 的独立 NAV 费用 overlay，费用不反馈到原毛仓位、策略决策或参考权益；不是多资产自融资净仓位、外层现金/证券净额模型，也不代表完整 A2 适用性或新研究冻结。默认生成器的毛收益、旧换手、私有 runner、路径摘要和历史报告不消费该诊断，不改写旧结果。没有下一会话的末日新信号不虚构成交；原已排到末日 close 的成交正常计费。
   - 预热完成后，任何策略失败一律报错，不静默跳过。
 - `research/kelly_private_runner.py`：只能在批准的私有数据环境运行（检测到 `CI`/`GITHUB_ACTIONS` 拒绝）。
   - 校验归档 `manifest.json` 的 SHA-256 与预注册一致，逐页核对 SHA-256 和字节数。

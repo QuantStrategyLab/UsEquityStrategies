@@ -96,6 +96,7 @@ class CorePath:
     weights: tuple[Mapping[str, float], ...]  # weights earning each session
     asset_returns: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     first_signal: date | None = None
+    close_fill_turnover: tuple[float, ...] = ()  # actual close fills / pre-fill NAV; opt-in measurement only
 
     def window(self, start: date, end: date) -> CorePath:
         idx = [i for i, d in enumerate(self.sessions) if start <= d <= end]
@@ -106,7 +107,36 @@ class CorePath:
             raise CoreGeneratorError("WINDOW_STARTS_BEFORE_WARMUP_COMPLETE")
         return CorePath(self.strategy_key, self.variant, self.sessions[lo:hi], self.gross_returns[lo:hi],
                         self.turnover[lo:hi], self.weights[lo:hi],
-                        {k: v[lo:hi] for k, v in self.asset_returns.items()}, self.first_signal)
+                        {k: v[lo:hi] for k, v in self.asset_returns.items()}, self.first_signal,
+                        self.close_fill_turnover[lo:hi])
+
+    def measure_close_fill_costs(self, cost_model: Any) -> tuple[float, ...]:
+        """Opt-in close-fill NAV overlay; no_weight_feedback to gross decisions.
+
+        The injected QPK CostModel charges each actual security fill, including
+        the final close. Turnover / pre-fill NAV is converted once to the day's
+        starting-NAV fraction. Legacy turnover, targets and reports are unchanged;
+        this is neither a self-financing ledger nor a new research authorization.
+        """
+        try:
+            from quant_platform_kit.research_stats.execution_models import CostModel
+        except ImportError as exc:
+            raise CoreGeneratorError("QPK_EXECUTION_MODELS_REQUIRED") from exc
+        if type(cost_model) is not CostModel:
+            raise CoreGeneratorError("COST_MODEL_INVALID")
+        n = len(self.sessions)
+        if not n or len(self.gross_returns) != n or len(self.close_fill_turnover) != n:
+            raise CoreGeneratorError("CLOSE_FILL_DIAGNOSTICS_REQUIRED")
+        net = []
+        for gross, traded in zip(self.gross_returns, self.close_fill_turnover, strict=True):
+            if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                   for v in (gross, traded)) or traded < 0:
+                raise CoreGeneratorError("CLOSE_FILL_INPUT_INVALID")
+            try:
+                net.append(cost_model.net_return(gross, traded * (1 + gross), charge_at="end"))
+            except ValueError as exc:
+                raise CoreGeneratorError("CLOSE_FILL_COST_INVALID") from exc
+        return tuple(net)
 
 
 def _finite_positive(value: object) -> float:
@@ -203,6 +233,7 @@ def _replay(strategy_key: str, sessions: Sequence[date], asset_returns: Mapping[
     pending: Mapping[str, float] | None = None
     gross = [0.0] * n
     turnover = [0.0] * n
+    close_fill_turnover = [0.0] * n
     earning: list[Mapping[str, float]] = [{} for _ in range(n)]
     first_signal = None
     start_index = 0
@@ -225,6 +256,7 @@ def _replay(strategy_key: str, sessions: Sequence[date], asset_returns: Mapping[
         # close i: execute the order decided at close i-1
         if pending is not None:
             traded = math.fsum(abs(pending.get(a, 0.0) - weights.get(a, 0.0)) for a in assets)
+            close_fill_turnover[i] = traded
             if i + 1 < n:
                 turnover[i + 1] = traded
             weights = {a: w for a, w in pending.items() if w > 0.0}
@@ -246,7 +278,8 @@ def _replay(strategy_key: str, sessions: Sequence[date], asset_returns: Mapping[
             raise CoreGeneratorError("TARGET_WEIGHTS_LEVERED")
         pending = {a: max(0.0, w) for a, w in cleaned.items()}
     return CorePath(strategy_key, "no_plugin_core", tuple(sessions), tuple(gross), tuple(turnover),
-                    tuple(earning), {a: tuple(asset_returns[a]) for a in asset_returns}, first_signal)
+                    tuple(earning), {a: tuple(asset_returns[a]) for a in asset_returns}, first_signal,
+                    tuple(close_fill_turnover))
 
 
 def _filtered_kwargs(fn: Callable, config: Mapping[str, object], drop: Sequence[str]) -> dict[str, object]:
