@@ -95,14 +95,17 @@ def _empty_metrics() -> dict:
 
 
 def cloud_report(*, execute: bool, cloud: bool, today: date, sources: Sequence[str],
-                 reader: Callable | None = read_cloud_manifest, auth_ok: bool = True) -> dict:
+                 reader: Callable | None = read_cloud_manifest, auth_ok: bool = True,
+                 synthetic_ok: bool = True) -> dict:
     """Attempt qualification, preserving every missing condition, no fake results."""
     blockers, metadata = [], []
     if execute and not cloud:
         blockers.append("CLOUD_ONLY")
-    if not auth_ok:
+    if execute and not synthetic_ok:
+        blockers.append("SYNTHETIC_ACCEPTANCE_NOT_PASSED")
+    if execute and synthetic_ok and not auth_ok:
         blockers.append("EXISTING_WIF_AUTHENTICATION_UNAVAILABLE")
-    if execute and cloud and auth_ok:
+    if execute and cloud and auth_ok and synthetic_ok:
         if not sources:
             blockers.append("APPROVED_INPUT_MANIFEST_NOT_BOUND")
         for uri in sources:
@@ -147,8 +150,8 @@ def workflow_cloud_report(execute: bool) -> dict:
     sources = [os.environ[name].rstrip("/")+"/manifest.json" for name in
                ("UX1_RAW_GCS_PREFIX", "UX1_R6_GCS_PREFIX") if os.environ.get(name)]
     result = cloud_report(execute=execute, cloud=cloud, today=date.today(), sources=sources,
-                          auth_ok=(os.environ.get("RS04_AUTH_OUTCOME") == "success"
-                                   and os.environ.get("RS04_SYNTHETIC_OUTCOME") == "success"))
+                          auth_ok=os.environ.get("RS04_AUTH_OUTCOME") == "success",
+                          synthetic_ok=os.environ.get("RS04_SYNTHETIC_OUTCOME") == "success")
     sha = os.environ.get("GITHUB_SHA", "")
     result["source_revision"] = sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
     return result

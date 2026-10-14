@@ -64,3 +64,16 @@ def test_wfa_boundaries_purge_embargo_and_no_partial_success_fold():
         assert fold["test_end"]-fold["test_start"] == 126
     assert all(a["test_end"] == b["test_start"] for a, b in zip(folds, folds[1:]))
     assert walk_forward_plan(917, feature_warmup=272)["status"] == "INSUFFICIENT_COVERAGE"
+
+
+def test_synthetic_failure_blocks_cloud_reads_and_is_not_reported_as_auth_failure():
+    calls = []
+    def forbidden(uri):
+        calls.append(uri)
+        raise AssertionError("should not read")
+    result = cloud_report(execute=True, cloud=True, today=date(2026, 10, 15),
+                          sources=["gs://qsl-research-evidence-831478360303/research/v2/input/fixture/manifest.json"],
+                          reader=forbidden, auth_ok=False, synthetic_ok=False)
+    assert calls == []
+    assert "SYNTHETIC_ACCEPTANCE_NOT_PASSED" in result["blockers"]
+    assert "EXISTING_WIF_AUTHENTICATION_UNAVAILABLE" not in result["blockers"]
