@@ -67,7 +67,7 @@ B2形式沿原提案：净财富`W>0`、包含初始NAV的峰值`M>=W`，`d=1-W/
 
 ## 未来合成验收与停止
 
-以下是**尚未执行**的验收设计；具体fixture/seed、容差、模型及收集命令由冻结后的实现PR绑定，不填一个未经批准的默认seed。
+下表仍是研究冻结前的验收设计。任何 D 行都没有因此变成 FROZEN。合成反例的种子、容差和收集命令绑定在下一节，只约束工程 fixture；不填真实费率、风险 cap、PIT、holdout 或 journal。
 
 |验收|应证明的合同|
 |---|---|
@@ -80,3 +80,82 @@ B2形式沿原提案：净财富`W>0`、包含初始NAV的峰值`M>=W`，`d=1-W/
 |试验完整性|预注册先于计算；每个attempt先登记，失败/拒绝/中断保留；不只挑成功结果进入累计统计或删覆盖失败行|
 
 身份漂移、未批准输入、未来泄漏、数量/成本/峰值对账失败、原cap被放宽、冻结范围外候选或缺trial记录均停止研究并保留证据。停止只隔离研究产物，不解除生产breaker、不改pin/预算/候选。实现和研究成功仍需E1独立运营/统计双轴验收，文档/工程CI不是edge或部署批准。
+
+## RS-04 现金、成交与费用角色
+
+状态与本文件相同：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。这里写的是当前 UES 源码已经做到的调用边界，不是实盘等价，也不是完整自融资净仓位。生产 pin 不改。`live_ready=False`、`no_order=True`、`budget_effect=NONE`。
+
+|角色|当前合同|明确不是|
+|---|---|---|
+|内层残余现金|`_replay` 里未投入的权重差额收益为 0|不是 BOXX，也不是外层 Kelly 的现金腿|
+|内层 BOXX|核心路径里的可交易资产；内层换手在它被买卖时计入|不因名为现金而免内层费用|
+|外层现金腿|评估器把整条策略毛收益当一个虚拟资产，`(1-f)` 乘调用方另行提供的现金序列。私有 runner 在真跑时把 BOXX 总收益放在这个位置，且外层现金腿不计费|不替代内层残余现金；不与内层 BOXX 轧差|
+|A2 现金|`replay_targets` 的单证券剩余仓位，收益固定为 0|不是 BOXX，不是融资，不是多资产漂移|
+|legacy turnover|close 成交额后移到下一 earning session。私有 runner 和旧费用压力消费这一列|会漏掉没有下一 session 的末次 fill；不能与下面两列相加|
+|close-fill turnover|真实 close 的单边证券成交额 / pre-fill NAV，含末次 fill。只有 `measure_close_fill_costs` 使用，`charge_at=end`，`no_weight_feedback`|不改毛权重、决策或参考权益；不是分券种净额|
+|外层交易额|`abs(外层权重变化) + 外层权重 × 内层 legacy turnover`，再交给 QPK `cost_stress_recompute`|不使用 close-fill 列；不与内层 fill 相加或抵消|
+|A2 fill turnover|单证券实际成交日换手。`legacy_turnover` 只作差分|两列不能同时扣费|
+
+公司行动只在核心路径的总收益里按 `(close_t·拆股比 + 分红)/close_{t-1}-1` 进入。A2 拒绝 `raw_unadjusted`。三套时点 `same_close` / `next_close` / `next_open` 必须在同一输入上分开报告；`same_close` 仍是收盘后信号用同一收盘价的假设。观测、可用、信号、fill 分相：完成收盘的观测和“收盘后可用”可以落在同一 session index，fill 在 `next_close` 上是下一 index。这不是 15:45 实盘时钟。
+
+## Runner 差分
+
+|调用面|实际消费|未消费 / 未证明|
+|---|---|---|
+|`kelly_private_runner.run_private`|窗口内 `gross_returns`、后移 `turnover`、外层 BOXX 现金序列、旧预注册里的费率参数|不调用 `measure_close_fill_costs`，写出的 core path 不含 `close_fill_turnover`。本批没有运行它|
+|close-fill 测量|显式注入的 QPK `CostModel`|不进入默认 wire、路径摘要或私有 runner|
+|A2 `replay_targets`|调用方已冻结的单证券目标|不生成 RS-04 信号，不处理 raw 公司行动或 BOXX|
+|外层 `evaluate_fractional_kelly_walk_forward`|策略毛收益流、调用方现金序列、可选内层 legacy turnover|不读取 close-fill 净收益，不把内外交易轧差|
+
+因此：测量入口存在，不等于 runner 已采用；core-only 路径存在，不等于 live parity。`runner_adoption=NOT_ATTESTED`。
+
+## RECOMMENDED 参数与 trial 单位
+
+状态：**RECOMMENDED_NOT_FROZEN**。这是准备方案，不是预注册批准。机器可读副本在 `research/b1_b2_rs04_preparation.py` 的 `RECOMMENDED_PROPOSAL`。旧 RS-04 的 252/63/5、5/10/15 bps、旧 manifest 和已见 development 窗口不转入本 scope。
+
+|项|推荐|仍为空的停止规则|
+|---|---|---|
+|B1 行，且只列这些行|`fixed_50_subject_to_original_cap`；`kelly_c_0.25_once`；`kelly_c_0.5_once`；`ewma_vol_target_and_kelly_cap`|不另开纯波动目标行，除非 D03 另批。不与 B2 做笛卡尔积|
+|HAR-RV|`PARKED`|只有日线平方收益时不得改名为 RV，也不得自动改跑 EWMA|
+|B2 第一对照，不与全部 B1 行交叉|`original_ladder` 与 `continuous_drawdown` 共用一个尚未指定的基础 sizing|`normalized_cushion` 另登记之前不进入同一 trial 集。阶梯阈值与 `D_max` 为 NOT_ATTESTED，合成边界不是实盘 gate|
+|主时点|`next_close`|`next_open` 与 `same_close` 各是独立敏感性 trial；`same_close` 不是主结果|
+|EWMA 形式|`v_next = lambda·v_current + (1-lambda)·r_t²`，单位是每观察简单收益的平方，不年化|lambda 的推荐值 0.94 来自 QPK 草案所引 RiskMetrics 日频惯例，`RECOMMENDED_NOT_FROZEN`，对本 scope `NOT_ATTESTED`。初值与 warmup 会话数保持 UNSPECIFIED；调用方不提供有限正初值或足够 warmup 时预测停放、暴露尺度为 0|
+|`c`|只在 `{0.25, 0.5}` 中取一次，再与原 cap 取 min|`c>0.5` 拒绝。固定 50% 也先被原 cap 裁切。原 cap、`target_vol`、`D_max` 均为 NOT_ATTESTED；cap 缺失时暴露是 null，不补 1|
+|费用档|在 D10 被证明之前只作 `REPORT_SCENARIO_NOT_SELECTION_TRIAL`，不乘进选择 trial 数|费率 NOT_ATTESTED。若有人按某一档做了选择，该档必须改记为选择 trial。不把旧 5/10/15 bps 写成本 scope 的费率|
+|trial 单位|一次 attempt = RS-04 research-core 路径 + 候选行 + 参数绑定 + 成本角色 + 时点角色 + attempt 序号|`COMPUTED`、`PARKED`、`REJECTED`、`INTERRUPTED` 都计入。预注册之前不能登记，登记之前不能计算。禁止只保留成功行、删除或覆盖失败行|
+|PIT / holdout / journal|无推荐值|三项都是 NOT_ATTESTED。没有边界、未查看证明或累计账本时停止，不补 hash、不把已见 development 改称 holdout、缺 Sharpe 不补 0|
+
+成本角色本身不是第二条经济 trial：同一候选行的 legacy、close-fill 与外层交易额必须分列，不能相加后当成更真实的成本。证券级轧差仍没有 QPK 接口。
+
+## 本批绑定的合成反例
+
+模块 `src/us_equity_strategies/research/b1_b2_rs04_preparation.py`，测试 `tests/research/test_b1_b2_rs04_synthetic_acceptance.py`。
+
+|绑定|值|不是|
+|---|---|---|
+|fixture 种子|`20261014`|不是研究 RNG 的冻结种子。QPK 草案里未执行的 `20261013` 仍未采用|
+|绝对容差|`1e-12`|不放宽对账失败|
+|费用与 cap 夹具|测试可以传入明确标注的合成数|`NOT_A_FEE_SCHEDULE` / `NOT_A_RISK_CAP`，不能抄进 D10 或 D08|
+
+覆盖：未来收益与迟到公司行动不改变前缀毛收益、权重和 close-fill；EWMA 手算递推、缺值/非有限/零初值停放且不切换 HAR；连续回撤与 cushion 的边界和单调、阶梯的精确边界、资金流不消除投资回撤、checkpoint 后峰值延续；三时点、末次 fill、无下期成交、费用不反馈毛权重；fractional 只乘一次且不超过 0.5，固定 50% 被原 cap 裁切，breaker/veto 与缺失 CVaR 都不放宽 cap；缺 gross 或完整 trials 时测量为 null，B3 的 ddof1 与 legacy 年化字段分开，周期诊断不是逐笔成绩；attempt 先登记，失败行保留。
+
+收集命令：
+
+```bash
+PYTHONPATH=src python -m pytest -q tests/research/test_b1_b2_rs04_synthetic_acceptance.py
+```
+
+主 CI 的生产 pin 没有 A2/B3 overlay 时，成交与 QPK null 两条跳过，其余反例仍运行。`research-execution-integration` 与 `research-unified-net-consumer` 分别在对应 overlay 上强制运行这两条。跳过或通过都不把本文件标成 FROZEN。
+
+## QPK 跨库缺口
+
+本 PR 只改 UES。下面的符号是已读到的现有接口；缺的能力不在 UES 里假造同名 API。生产 pin `f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1` 不因这些 overlay SHA 而改变。
+
+|现有符号|读到的 overlay|没有的合同|
+|---|---|---|
+|`CostModel.net_return(gross, security_turnover, charge_at)`|`5c0693c8735f5ed04c8943ab1fab00c82496b22c`|没有内层/外层现金角色、多资产现金余额、分券种轧差或融资|
+|`FillModel.resolve(signal_index, available_index, bar_count)`|同上|没有现金余额、BOXX 或多资产目标|
+|`cost_stress_recompute(gross, traded, ...)`|`442b729dcc4be5100bc2cba5b67850ad676bfbc0`|只收汇总交易额，不能把外层 `f` 与内层证券权重轧成一笔净交易|
+|`build_unified_net_report`|`b6b51d5c32594c47cc1b3ebc0c1ed226e9db887f`|缺 gross 时 cost drag 为 UNCOMPUTABLE，缺 trials 时 DSR 为 UNCOMPUTABLE；没有 RS-04 角色参数，caller-supplied digest 不是账本证明|
+
+`docs/research/kelly_security_level_ledger_design.zh-CN.md` 仍是设计。在 QPK 提供并经准入的证券级净交易接口之前，RS-04 的现金/费用角色保持上表的并列差分，研究在这一缺口上停在 `QPK_INTERFACE_ABSENT`，不把三列 turnover 相加。
