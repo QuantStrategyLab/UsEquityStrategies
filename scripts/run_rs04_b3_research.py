@@ -9,6 +9,7 @@ from pathlib import Path
 
 from us_equity_strategies.research.rs04_b3_config import CONFIG, config_identity
 from us_equity_strategies.research.rs04_b3_runner import paired_giveback, replay, synthetic_sessions
+from us_equity_strategies.research.rs04_b3_evaluation import evaluate_windows
 
 
 def synthetic_report() -> dict:
@@ -24,12 +25,14 @@ def synthetic_report() -> dict:
             baseline = replay(rows, invented_rule, profile=profile, mode="baseline", kelly_full=4., cost_multiplier=cost)
             sizing_returns = [p["net_return"] for p in baseline.points]
             paths = {"baseline": baseline}
-            for mode in ("sizing_control", "b3"):
+            for mode in ("sizing_control", "b3", "de_risk_only"):
                 paths[mode] = replay(rows, invented_rule, profile=profile, mode=mode, kelly_full=4.,
                                      sizing_returns=sizing_returns, cost_multiplier=cost)
             results[profile][str(cost)] = {mode: path.metrics for mode, path in paths.items()}
             results[profile][str(cost)]["paired_giveback"] = paired_giveback(
                 sizing_returns, [p["net_return"] for p in paths["b3"].points])
+            results[profile][str(cost)]["windows"] = evaluate_windows(paths, feature_warmup=280,
+                                                                      cost_multiplier=cost)
     return {"status": "SYNTHETIC_ENGINEERING_ONLY", "synthetic": True, "research_only": True,
             "live_ready": False, "promotion_eligible": False, "no_order": True, "budget_effect": "NONE",
             "config_sha256": config_identity(), "registration": asdict(CONFIG), "results": results,

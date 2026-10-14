@@ -46,10 +46,26 @@ owner 核心验收：B3 CAGR 至少保留正 baseline 的90%，且 MDD/盈利回
 
 上述只产生虚构数据。真实数据只能在已有批准的云端运行；Mac 不接收行情、逐日收益、成交或 checkpoint，公开 artifact 仅聚合结果及具体未完成原因。
 
-## 云端资格检查入口与尚未完成的回测
+## 完整规则适配器与历史伪留出（2026-10-15，真实数据前冻结）
 
-`.github/workflows/rs04-b3-research.yml` 手动、默认 execute=false、只允许 main 和首次 run attempt，runner 为 ubuntu-latest；沿用既有 WIF，不使用 provider/broker secrets。先跑合成测试，然后只读两个现有 UX1 input root 的 `manifest.json` 元数据，固定 generation、限制1MiB；不跟随其中的行情对象引用，不写任何云端输入/结果 store。
+`research/rs04_b3_live.py` 直接调用现有 SOXL / TQQQ 的 `build_rebalance_plan`，不覆盖或关闭收入层、市场状态控制、波动率保留比例或危机防御。SOXL 沿用 manifest 的 SOXX MA140 三档参数；TQQQ 沿用原函数的 QQQ MA200、回调、波动率与状态规则。各分支消费各自前一收盘净权益、现金、真实股数与历史上下文，收入层随各自净权益变化。信号和上下文只来自已完成的 t-1；t-close 成交和净成本由同一账本处理。baseline 超过原 cap 时拒绝，不静默裁切成另一条基线。收入证券的正目标缺行情时拒绝；零目标不要求虚构行情。
 
-目前该 workflow 是 **qualification preflight，不是已实现的真实回测**。已有真实数据入口仅支持 no-plugin core 或别的已冻结 profile；当前 live-as-is 有效合并配置、路径相关规则回放 adapter、raw OHLC+公司行动/PIT 资格、完整费用与累计trial未绑定。不能从这些已知不完整输入输出 real CAGR/MDD，也不能给已见历史贴 holdout 标签。须补充这些具体条件后才能实现/运行 baseline、sizing-only、B3 三条真实 WFA 路径；本PR不声称完成该项。
+适配器实现不等于有效实盘绑定。参数来源名为 `us_equity_strategies.manifests.*_manifest.default_config`，较新的证据来源为 `docs/research/rs08_live_research_parity_report.zh-CN.md` 第 1–4、6 节。RS-08 已确认策略行为等价、MA140 一致；本轮也核对两条策略文件与记录的实盘 UES `4a394388` 完全相同，并绑定完整源码摘要。不能继续把已解决的代码版本差异列为阻塞。平台合并配置及哈希生成口径仍未归档，所以 `effective_config_verified=false`。RS-08 记载 2026-10-11 未配置外部 MARKET_SIGNAL，但没有完整历史上下文归档；不能把当前缺少环境变量推广成整段历史的无信号证明。本轮不读取或修改券商、Secret、生产配置；输入文件不能自行证明其有效性。
 
-启用 execute 时会尝试现有云端 metadata read，再以 `PARKED` 和退出码2保存聚合 artifact；所有真实指标为 null，2×成本场景同样保留空值及原因，holdout 未开封，明确不建议 shadow。缺权限时不改变 IAM、不换源、不重复失败读。Artifact 只上传 `rs04-b3-aggregate.json`，不上传行情、逐日收益、成交或 checkpoint。
+同输入规则比对入口 `compare_recorded_decisions` 接收原决策的完整历史、账户快照和目标，只输出比对数量与不匹配数量。没有录制实盘记录时为 UNAVAILABLE，不能把 synthetic 同函数比对报成 recorded-live parity。日线研究时钟与文档记载的 15:45 实盘时钟仍有差别；owner 指定的日线研究不声称复现分时成交。
+
+新增第四条路径 `de_risk_only`：保留 B3 的盈利保护和状态降风险，RANGE 时关闭 MR 入场；B1/B2 的参数、计算和一次应用顺序不变。报告仍保留 sizing_control，便于识别多重减仓对结果的影响。
+
+历史伪留出规则在本轮读取真实数据前冻结：取已绑定归档最后一个会话向前 24 个日历月；按已登记归档末日 2026-08-25，拟定窗口为 **2024-08-26—2026-08-25**。这是已见 development 上的历史伪留出，证据较弱，既不是 untouched，也不是截至今天的最近 24 个月；归档未覆盖 2026-08-26 之后。若实际绑定归档不覆盖完整 24 个月，报告 INSUFFICIENT_COVERAGE，不缩短窗口冒充覆盖。
+
+`research/rs04_b3_evaluation.py` 从同一连续净账本切片：完整历史、原规格 WFA、历史伪留出和 2x 成本；各路径、成本情景采用相同日期。WFA 的 train/validation/test 全部在伪留出之前，保持 504/126/126、5 purge/5 embargo、至少 4 折；不足时明确失败，不把伪留出用于训练，也不缩短训练凑折数。按旧归档的 856 会话，完整 24 个月伪留出之前不足以形成所需 4 折。边界不重置持仓、净峰值、费用或 episode。前瞻 **2026-11-01—2028-10-31** 继续单独保留，未开封。
+
+必报各路径 CAGR、含初始 NAV 的 MDD、Sharpe、Sortino、Calmar、固定同区块 giveback、证券单边换手、按实际持有状态归属的收益和合并敞口。状态条件收益不是连续可交易路径。giveback 的“明显下降”以相对 baseline 配对回吐减少至少 20% 衡量，2x 成本场景为至少 10%；不足 6 个合格区块则证据不足。缺少累计 trial 收益及完整性证据时 DSR 为 null / UNCOMPUTABLE，不拿旧台账的 48 声明代替全集。
+
+## 云端入口与剩余阻塞
+
+`.github/workflows/rs04-b3-research.yml` 仅手动 main、首次 run attempt、ubuntu-latest、既有 WIF。真实数据前先执行合成测试；可显式传入 `archive_prefix`，仅尝试获准 input root 的固定 generation manifest。聚合 artifact 仅含状态、指标或不可计算原因；不上传行情、逐日收益、成交或 checkpoint。本机只运行 synthetic。
+
+与并行任务 `soxl_cap2` 分开写文件；PR #599 的 cap workflow/script/tests 不在本次写集内。复用其 names-only 发现：现有 input root 下仅发现 Batch A、QQQM/BOXX、R7、R9 和 SOXL V7 路径，未定位到 manifest `b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482` 的 RS-04 归档；这些已知路径不能代替它。不访问原 box/server，也不为研究重新取数或改变 IAM。
+
+**尚未完成真实回测**：确切 RS-04 GCS 归档、有效平台合并配置、历史外部上下文、包含收入证券的 raw OHLC/公司行动与可用时点仍未绑定。现有 workflow 保持 qualification safe-stop，不能仅凭新增 callback 解锁真实回放。CAGR/MDD/giveback/2x 成本/DSR 仍可能全部不可计算；只有合成规则比对和边界测试不构成实盘一致性、投资验收或 shadow 准入。
