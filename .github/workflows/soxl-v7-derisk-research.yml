@@ -1,0 +1,49 @@
+name: SOXL V7 de-risk UBPS qualification
+on:
+  workflow_dispatch:
+    inputs:
+      archive_prefix:
+        description: Exact approved RS-04 GCS locator, if discovered; no substitute inputs
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: soxl-v7-derisk-research
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install research test runtime
+        run: python -m pip install -e '.[research]' pytest
+      - name: Verify synthetic invariant, counterexample, calibration and qualification
+        run: >-
+          PYTHONPATH=src python -m pytest -q
+          tests/research/test_soxl_v7_derisk.py
+          tests/research/test_soxl_v7_derisk_history.py
+          tests/research/test_soxl_v7_derisk_study.py
+          tests/test_research_import_boundary.py
+      - name: Qualify before any authentication or real-data read
+        env:
+          ARCHIVE_PREFIX: ${{ inputs.archive_prefix }}
+        run: |
+          PYTHONPATH=src python scripts/run_soxl_v7_derisk_research.py --cloud-qualify \
+            --archive-prefix "$ARCHIVE_PREFIX" --output "$RUNNER_TEMP/soxl-v7-derisk-aggregate.json"
+      - name: Archive sanitized evidence gaps only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soxl-v7-derisk-aggregate
+          path: ${{ runner.temp }}/soxl-v7-derisk-aggregate.json
+          if-no-files-found: error
+          retention-days: 30
