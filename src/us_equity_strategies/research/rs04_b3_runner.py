@@ -209,6 +209,7 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
     for i, row in enumerate(rows):
         old_q = book.quantity.get(profile, 0)
         targets, reasons, factor, sleeve = {}, (), 1., "TREND"
+        upstream_targets, b1_budget, b2_factor = {}, None, None
         if i:
             previous = rows[i-1]
             snapshot = {"cash": book.cash, "quantity": dict(book.quantity), "nav": prior_nav,
@@ -224,11 +225,13 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
                 state, targets, reasons, sleeve = decision.state, decision.targets, decision.reasons, decision.sleeve
             else:
                 targets = raw
+            upstream_targets = dict(targets)
             if mode != "baseline":
                 full = kelly_full[i] if isinstance(kelly_full, Sequence) else kelly_full
                 sized = combined_targets(targets, profile=profile, kelly_full=full,
                     forecast_vol=ewma_forecast(past_sizing_returns), drawdown=max(0., 1-prior_nav/peak))
                 targets, factor = sized.targets, sized.sizing_factor
+                b1_budget, b2_factor = sized.b1_nominal_budget, sized.b2_drawdown_factor
         # Corporate actions apply only after the t-1 decision, before t-close fill.
         for symbol, ratio in row.splits.items():
             book.split(symbol, ratio)
@@ -299,7 +302,9 @@ def replay(rows: Sequence[Session], baseline: Callable, *, profile: str, mode: s
                            market_value=sum(q*row.prices[s] for s, q in book.quantity.items()),
                            receivables=sum(book.receivables.values()), weights=weights, targets=dict(targets),
                            nominal=sum(weights.values()), effective=sum(weights.values())+2*weights.get(profile, 0.),
-                           sizing_factor=factor, regime=regime, reasons=reasons))
+                           sizing_factor=factor, upstream_targets=upstream_targets,
+                           b1_nominal_budget=b1_budget, b2_drawdown_factor=b2_factor,
+                           regime=regime, reasons=reasons))
         if sizing_returns is None:
             # Invented fixture driver only, never an asserted RS-04 net return path.
             past_sizing_returns.append(row.prices[profile]/rows[i-1].prices[profile]-1 if i else 0.)

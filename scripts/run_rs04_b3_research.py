@@ -38,14 +38,23 @@ def synthetic_report() -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--synthetic", action="store_true", required=True)
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--synthetic", action="store_true")
+    modes.add_argument("--cloud-preflight", action="store_true")
+    parser.add_argument("--execute", action="store_true")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
-    result = synthetic_report()
+    if args.synthetic:
+        if args.execute:
+            parser.error("--execute applies only to cloud preflight")
+        result = synthetic_report()
+    else:
+        from us_equity_strategies.research.rs04_b3_cloud import workflow_cloud_report
+        result = workflow_cloud_report(args.execute)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, sort_keys=True, indent=2, allow_nan=False)+"\n")
     print(json.dumps({"status": result["status"], "config_sha256": result["config_sha256"]}))
-    return 0
+    return 2 if result["status"] == "PARKED" else 0
 
 
 if __name__ == "__main__":
