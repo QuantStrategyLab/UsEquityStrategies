@@ -9,6 +9,7 @@ import os
 import random
 import socket
 import stat
+import sys
 from datetime import date, timedelta
 
 import pytest
@@ -29,6 +30,20 @@ def _has_stats():
 
 requires_qpk_stats = pytest.mark.skipif(not _has_stats() and not REQUIRE_QPK_STATS,
                                         reason="installed QPK lacks research_stats")
+
+
+def _has_execution_models():
+    try:
+        importlib.import_module("quant_platform_kit.research_stats.execution_models")
+        return True
+    except ImportError:
+        return False
+
+
+requires_execution_models = pytest.mark.skipif(
+    not _has_execution_models() and os.environ.get("UES_REQUIRE_QPK_EXECUTION_MODELS") != "1",
+    reason="installed QPK lacks opt-in A2 execution models; pin remains unchanged",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -82,6 +97,100 @@ def test_replay_next_close_timing_and_turnover():
     assert path.gross_returns[3] == 0.0 and path.gross_returns[4] == pytest.approx(0.04)
     assert path.turnover[4] == pytest.approx(1.0) and path.turnover[5] == pytest.approx(0.0)
     assert dict(path.weights[4]) == {"A": 1.0}
+
+
+def _close_fill_path(targets, returns=None):
+    days = _days(len(targets))
+    path = gen._replay("X", days, {"A": returns or (0.0,) * len(days)}, ("A",),
+                       lambda i, _weights: {"A": targets[i]}, None)
+    return path
+
+
+@requires_execution_models
+def test_close_fill_costs_include_terminal_entry_and_exit():
+    from quant_platform_kit.research_stats.execution_models import CostModel
+
+    model = CostModel(commission_bps=10)
+    exit_path = _close_fill_path((1.0, 0.0, 0.0))
+    assert exit_path.turnover == (0.0, 0.0, 1.0)  # legacy remains shifted
+    assert exit_path.close_fill_turnover == (0.0, 1.0, 1.0)
+    net = exit_path.measure_close_fill_costs(model)
+    assert net == pytest.approx((0.0, -.001, -.001))
+    assert math.prod(1 + r for r in net) == pytest.approx(.999 ** 2)
+    entry_path = _close_fill_path((0.0, 1.0, 0.0))
+    assert entry_path.turnover == (0.0, 0.0, 0.0)
+    assert entry_path.close_fill_turnover == (0.0, 0.0, 1.0)
+    assert entry_path.measure_close_fill_costs(model) == pytest.approx((0.0, 0.0, -.001))
+    assert _close_fill_path((0.0, 0.0, 1.0)).measure_close_fill_costs(model) == (0.0, 0.0, 0.0)
+
+
+@requires_execution_models
+def test_close_fill_costs_use_pre_fill_nav_once_and_preserve_window():
+    from quant_platform_kit.research_stats.execution_models import CostModel
+
+    path = _close_fill_path((1.0, 0.0, 0.0), (0.0, 0.0, .5))
+    # Last day's starting NAV=1: asset gain=.5, pre-fill NAV=1.5,
+    # exit notional=1.5, cost=.015. No extra multiplication by 1.5.
+    model = CostModel(commission_bps=100)
+    assert path.measure_close_fill_costs(model) == pytest.approx((0.0, -.01, .485))
+    window = path.window(path.sessions[2], path.sessions[2])
+    assert window.close_fill_turnover == (1.0,)
+    assert window.measure_close_fill_costs(model) == pytest.approx((.485,))
+    assert path.measure_close_fill_costs(CostModel()) == path.gross_returns
+
+
+@requires_execution_models
+def test_close_fill_measurement_changes_neither_gross_state_nor_default_wire():
+    from quant_platform_kit.research_stats.execution_models import CostModel
+    from us_equity_strategies.research.execution_model_adapter import replay_targets
+
+    path = _close_fill_path((.5, .5, 0.0, 1.0), (0.0, 0.0, 120 / 100 - 1, 0.0))
+    before = dataclasses.asdict(path)
+    digest = gen.path_digest_payload(path)
+    # This is the existing private runner's explicit core-path payload.
+    wire = {"sessions": [d.isoformat() for d in path.sessions],
+            "gross_returns": path.gross_returns, "turnover": path.turnover,
+            "first_signal": str(path.first_signal)}
+    assert path.close_fill_turnover == pytest.approx((0.0, .5, 1 / 22, .5))
+    assert path.turnover == pytest.approx((0.0, 0.0, .5, 1 / 22))
+    net = path.measure_close_fill_costs(CostModel(commission_bps=10, slippage_bps=5, multiplier=2))
+    a2 = replay_targets(path.sessions, (100., 100., 120., 120.), (100., 100., 120., 120.),
+                        (.5, .5, 0., 1.), timing="next_close", commission_bps=10,
+                        slippage_bps=5, cost_multiplier=2)
+    assert path.gross_returns == a2.gross_returns
+    assert net == a2.net_returns
+    assert net[1] == pytest.approx(-.0015)  # charged on fill, before next earning session
+    assert dataclasses.asdict(path) == before
+    assert gen.path_digest_payload(path) == digest
+    assert set(digest) == {"strategy_key", "variant", "sessions", "start", "end", "first_signal"}
+    assert "close_fill_turnover" not in wire
+    assert wire["turnover"] == path.turnover
+    # Final decision at close3 has no next-session fill; only prior exit is charged.
+    assert path.close_fill_turnover[-1] == .5
+
+
+@requires_execution_models
+@pytest.mark.parametrize("invalid", ["missing", "length", "nan", "negative", "bool", "gross_nan"])
+def test_close_fill_measurement_rejects_unusable_diagnostics(invalid):
+    from quant_platform_kit.research_stats.execution_models import CostModel
+
+    path = _close_fill_path((1.0, 0.0, 0.0))
+    changes = {"close_fill_turnover": {"missing": (), "length": (1.0,), "nan": (0., 1., math.nan),
+                                      "negative": (0., 1., -1.), "bool": (False, 1., 1.)}.get(invalid,
+                                                                                              path.close_fill_turnover)}
+    if invalid == "gross_nan":
+        changes["gross_returns"] = (0., 0., math.nan)
+    with pytest.raises(gen.CoreGeneratorError):
+        dataclasses.replace(path, **changes).measure_close_fill_costs(CostModel())
+    with pytest.raises(gen.CoreGeneratorError, match="COST_MODEL_INVALID"):
+        path.measure_close_fill_costs(object())
+
+
+def test_close_fill_measurement_requires_explicit_qpk_capability(monkeypatch):
+    path = _close_fill_path((1.0, 0.0, 0.0))
+    monkeypatch.setitem(sys.modules, "quant_platform_kit.research_stats.execution_models", None)
+    with pytest.raises(gen.CoreGeneratorError, match="QPK_EXECUTION_MODELS_REQUIRED"):
+        path.measure_close_fill_costs(object())
 
 
 def test_replay_fails_closed_after_warmup():
@@ -193,6 +302,10 @@ def test_private_runner_end_to_end_on_synthetic_archive(archive, tmp_path):
     assert "dsr_net1x_excess_vs_sizing_trials" in result["comparators"]["kelly_c0.5"]
     assert "cvar_95_daily" in result["comparators"]["full_exposure"]["tiers"]["1"]
     assert stat.S_IMODE(out.stat().st_mode) == 0o700
+    core_wire = json.loads((out / "rs04-kelly-soxl-v1.core_path.json").read_text())
+    assert set(core_wire) == {"sessions", "gross_returns", "turnover", "first_signal"}
+    assert "close_fill_turnover" not in json.dumps(result)
+    assert "measure_close_fill_costs" not in json.dumps(result)
     for f in out.iterdir():
         assert stat.S_IMODE(f.stat().st_mode) == 0o600
 
