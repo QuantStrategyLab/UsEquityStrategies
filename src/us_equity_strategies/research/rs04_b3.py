@@ -213,7 +213,8 @@ def build_features(signal: Sequence[Bar], traded: Sequence[Bar]) -> list[Feature
 
 
 def advance(state: State, feature: Features | None, *, decision: date, index: int, profile: str,
-            baseline: Mapping[str, float], held: Mapping[str, float], hard_risk: bool = False) -> Decision:
+            baseline: Mapping[str, float], held: Mapping[str, float], hard_risk: bool = False,
+            allow_mr: bool = True) -> Decision:
     """One close decision; fill feedback is supplied separately after execution."""
     if index <= state.last_index:
         raise ValueError("DUPLICATE_OR_REVERSED_SESSION")
@@ -270,8 +271,10 @@ def advance(state: State, feature: Features | None, *, decision: date, index: in
             reasons.append("MR_REGIME_EXIT")
     elif s.regime == "RANGE":
         out.update(dict.fromkeys(risks, 0.))
-        sleeve = "MR"
-        if s.sleeve == "MR" and s.entry > 0:
+        sleeve = "MR" if allow_mr else "NONE"
+        if not allow_mr:
+            reasons.append("MR_DISABLED_DE_RISK_ONLY")
+        elif s.sleeve == "MR" and s.entry > 0:
             stop_exit = feature.trade_price <= s.entry-s.initial_r
             timed_exit = feature.rsi > CONFIG.mr_exit_rsi or index-s.entry_index >= CONFIG.mr_max_hold
             if stop_exit:
