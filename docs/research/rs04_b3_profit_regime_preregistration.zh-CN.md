@@ -45,3 +45,11 @@ owner 核心验收：B3 CAGR 至少保留正 baseline 的90%，且 MDD/盈利回
 `PYTHONPATH=src python scripts/run_rs04_b3_research.py --synthetic --output /tmp/rs04-b3-synthetic.json`
 
 上述只产生虚构数据。真实数据只能在已有批准的云端运行；Mac 不接收行情、逐日收益、成交或 checkpoint，公开 artifact 仅聚合结果及具体未完成原因。
+
+## 云端资格检查入口与尚未完成的回测
+
+`.github/workflows/rs04-b3-research.yml` 手动、默认 execute=false、只允许 main 和首次 run attempt，runner 为 ubuntu-latest；沿用既有 WIF，不使用 provider/broker secrets。先跑合成测试，然后只读两个现有 UX1 input root 的 `manifest.json` 元数据，固定 generation、限制1MiB；不跟随其中的行情对象引用，不写任何云端输入/结果 store。
+
+目前该 workflow 是 **qualification preflight，不是已实现的真实回测**。已有真实数据入口仅支持 no-plugin core 或别的已冻结 profile；当前 live-as-is 有效合并配置、路径相关规则回放 adapter、raw OHLC+公司行动/PIT 资格、完整费用与累计trial未绑定。不能从这些已知不完整输入输出 real CAGR/MDD，也不能给已见历史贴 holdout 标签。须补充这些具体条件后才能实现/运行 baseline、sizing-only、B3 三条真实 WFA 路径；本PR不声称完成该项。
+
+启用 execute 时会尝试现有云端 metadata read，再以 `PARKED` 和退出码2保存聚合 artifact；所有真实指标为 null，2×成本场景同样保留空值及原因，holdout 未开封，明确不建议 shadow。缺权限时不改变 IAM、不换源、不重复失败读。Artifact 只上传 `rs04-b3-aggregate.json`，不上传行情、逐日收益、成交或 checkpoint。

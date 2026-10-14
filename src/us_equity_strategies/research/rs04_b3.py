@@ -72,6 +72,8 @@ class SizedTargets:
     sizing_factor: float
     cash: float
     effective_exposure: float
+    b1_nominal_budget: float
+    b2_drawdown_factor: float
 
 
 def _valid(*values: float) -> bool:
@@ -116,17 +118,18 @@ def combined_targets(upstream: Mapping[str, float], *, profile: str, kelly_full:
     weights = cap_targets(upstream, profile)
     if not _valid(kelly_full, drawdown) or drawdown < 0:
         raise ValueError("SIZING_INPUT_INVALID")
-    factor = 0.
+    factor, budget = 0., 0.
+    ladder = original_ladder_factor(drawdown, full_until=CONFIG.dd_full, half_until=CONFIG.dd_half)
     if forecast_vol is not None and _valid(forecast_vol) and forecast_vol > 0:
         budget = min(_profile(profile)[0], max(0., CONFIG.kelly_c*kelly_full),
                      CONFIG.target_vol/forecast_vol)
         nominal = math.fsum(weights.values())
         factor = min(1., budget/nominal) if nominal else 0.
-        factor *= original_ladder_factor(drawdown, full_until=CONFIG.dd_full, half_until=CONFIG.dd_half)
+        factor *= ladder
     result = cap_targets({key: value*factor for key, value in weights.items()}, profile)
     nominal = math.fsum(result.values())
     return SizedTargets(result, math.fsum(weights.values()), factor, 1.-nominal,
-                        nominal+2*result.get(profile, 0.))
+                        nominal+2*result.get(profile, 0.), budget, ladder)
 
 
 def ewma_forecast(past_returns: Sequence[float]) -> float | None:
@@ -269,11 +272,13 @@ def advance(state: State, feature: Features | None, *, decision: date, index: in
         out.update(dict.fromkeys(risks, 0.))
         sleeve = "MR"
         if s.sleeve == "MR" and s.entry > 0:
-            if feature.rsi > CONFIG.mr_exit_rsi or index-s.entry_index >= CONFIG.mr_max_hold:
-                reasons.append("MR_EXIT")
-            elif feature.trade_price <= s.entry-s.initial_r:
+            stop_exit = feature.trade_price <= s.entry-s.initial_r
+            timed_exit = feature.rsi > CONFIG.mr_exit_rsi or index-s.entry_index >= CONFIG.mr_max_hold
+            if stop_exit:
                 reasons.append("MR_STOP")
-            else:
+            if timed_exit:
+                reasons.append("MR_EXIT")
+            if not (stop_exit or timed_exit):
                 out[profile] = min(current.get(profile, 0.), CONFIG.mr_cap)
         elif s.entry == 0 and feature.rsi < CONFIG.mr_enter_rsi and index > s.cooldown_until:
             total_room = _profile(profile)[0]-math.fsum(out.values())
