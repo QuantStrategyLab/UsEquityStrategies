@@ -35,6 +35,7 @@ jobs:
           tests/test_research_import_boundary.py
       - name: Qualify before any authentication or real-data read
         env:
+          RS04_INPUT_ROOT: ${{ vars.RS04_INPUT_ROOT }}
           ARCHIVE_PREFIX: ${{ inputs.archive_prefix }}
         run: |
           PYTHONPATH=src python scripts/run_soxl_v7_derisk_research.py --cloud-qualify \

@@ -10,7 +10,7 @@ import json
 import re
 from typing import Sequence
 
-from .rs04_b3_cloud import INPUT_ROOT, RS04_ARCHIVE_SHA256, _cloud_environment
+from .rs04_b3_cloud import RS04_ARCHIVE_SHA256, _cloud_environment, input_root
 from .rs04_b3_live import binding_report, config_sha256, default_config
 from .soxl_v7_derisk import CANDIDATE_ID, variant_config
 from .soxl_v7_derisk_history import STRESS_PERIODS
@@ -114,7 +114,7 @@ def registration() -> dict:
 
 
 def qualification_report(*, cloud: bool, archive_prefix: str = "", extra_ids: Sequence[str] = ()) -> dict:
-    if archive_prefix and not re.fullmatch(re.escape(INPUT_ROOT)+r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}", archive_prefix):
+    if archive_prefix and not re.fullmatch(re.escape(input_root())+r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}", archive_prefix):
         raise ValueError("ARCHIVE_PREFIX_REJECTED")
     inventory, spec = plugin_inventory(extra_ids), registration()
     blockers = ["RS04_CLOUD_ARCHIVE_LOCATION_REQUIRED" if not archive_prefix else "RS04_ARCHIVE_GENERATION_AND_DIGEST_UNVERIFIED",

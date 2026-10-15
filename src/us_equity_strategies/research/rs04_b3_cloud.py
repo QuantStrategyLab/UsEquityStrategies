@@ -19,11 +19,22 @@ from typing import Callable, Mapping, Sequence
 
 from .rs04_b3_config import CONFIG, config_identity
 
-INPUT_ROOT = "gs://qsl-research-evidence-831478360303/research/v2/input/"
-MANIFEST_PATTERN = re.compile(re.escape(INPUT_ROOT)+r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}/manifest\.json")
+DEFAULT_INPUT_ROOT = "gs://research-inputs/research/v2/input/"
 MAX_MANIFEST_BYTES = 1_048_576
 # Cloud registration and legacy provenance: docs/research/rs04_cloud_archive_registration.md.
 RS04_ARCHIVE_SHA256 = "d5d40dfc54f55fe59c0eba57302ef9b018d006a0835f33f969053e52d05cc9e7"
+
+
+def input_root() -> str:
+    """One configured research root; no bucket discovery or fallback dataset."""
+    root = os.environ.get("RS04_INPUT_ROOT") or DEFAULT_INPUT_ROOT
+    if not re.fullmatch(r"gs://[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]/research/v2/input/", root):
+        raise ValueError("INPUT_ROOT_REJECTED")
+    return root
+
+
+def _manifest_allowed(uri: str) -> bool:
+    return re.fullmatch(re.escape(input_root())+r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}/manifest\.json", uri) is not None
 
 
 def walk_forward_plan(observations: int, *, feature_warmup: int) -> dict:
@@ -81,7 +92,7 @@ def read_cloud_manifest(uri: str) -> tuple[dict, dict]:
     """
     if not _cloud_environment():
         raise ValueError("CLOUD_ONLY")
-    if not MANIFEST_PATTERN.fullmatch(uri):
+    if not _manifest_allowed(uri):
         raise ValueError("SOURCE_PREFIX_REJECTED")
     proc = subprocess.run(["gcloud", "storage", "objects", "describe", uri, "--format=json", "--quiet"],
                           capture_output=True, timeout=45, check=True)
@@ -122,7 +133,7 @@ def cloud_report(*, execute: bool, cloud: bool, today: date, sources: Sequence[s
         if not sources:
             blockers.append("APPROVED_INPUT_MANIFEST_NOT_BOUND")
         for uri in sources:
-            if not MANIFEST_PATTERN.fullmatch(uri):
+            if not _manifest_allowed(uri):
                 metadata.append({"status": "REJECTED", "reason": "SOURCE_PREFIX_REJECTED"})
                 continue
             try:
