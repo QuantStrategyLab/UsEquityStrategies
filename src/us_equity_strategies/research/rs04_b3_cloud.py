@@ -22,7 +22,8 @@ from .rs04_b3_config import CONFIG, config_identity
 INPUT_ROOT = "gs://qsl-research-evidence-831478360303/research/v2/input/"
 MANIFEST_PATTERN = re.compile(re.escape(INPUT_ROOT)+r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}/manifest\.json")
 MAX_MANIFEST_BYTES = 1_048_576
-RS04_ARCHIVE_SHA256 = "b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482"
+# Cloud registration and legacy provenance: docs/research/rs04_cloud_archive_registration.md.
+RS04_ARCHIVE_SHA256 = "d5d40dfc54f55fe59c0eba57302ef9b018d006a0835f33f969053e52d05cc9e7"
 
 
 def walk_forward_plan(observations: int, *, feature_warmup: int) -> dict:
