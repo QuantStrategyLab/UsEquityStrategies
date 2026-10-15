@@ -1,0 +1,51 @@
+{
+  "baseline_config_sha256": "8f4aed33bdbcdcd96d8fb563c6af6f73ab91f57c8bff4091aab7eee7fdacaa70",
+  "baseline_parameter_pointer": "/parameters/values",
+  "candidate_id": "soxl-derisk-only-202610",
+  "composition": {
+    "apply_reviewed_overrides": true,
+    "cash_reserve_ratio": "max(0.03, baseline value)",
+    "copy_baseline_parameters": true,
+    "preserve_all_other_parameters": true,
+    "required_baseline_flags": {
+      "income_layer_enabled": true,
+      "market_regime_control_enabled": true
+    },
+    "soxl_full_and_mid": "min(baseline value, reviewed override)"
+  },
+  "engineering_alias": "soxl_v7_strict_derisk_only_v1",
+  "materialized_parameter_serialization": "UTF-8; json.dumps(indent=2, sort_keys=True, allow_nan=False) + LF",
+  "materialized_parameter_sha256": "fbfba885215aaf19d40f7e94f1401a7aeb5876b744ba410bcd13d73bacf1da10",
+  "parameter_function": "us_equity_strategies.research.soxl_v7_derisk.variant_config",
+  "record_kind": "RESEARCH_PARAMETER_BINDING_ONLY",
+  "reviewed_overrides": {
+    "blend_gate_bollinger_cap_enabled": true,
+    "blend_gate_dynamic_rsi_threshold_enabled": true,
+    "blend_gate_mid_soxl_weight": 0.25,
+    "blend_gate_overlay_stack_triggers": true,
+    "blend_gate_rsi_cap_enabled": true,
+    "blend_gate_rsi_threshold": 70.0,
+    "blend_gate_soxl_weight": 0.35,
+    "blend_gate_volatility_delever_dynamic_cap": 0.75,
+    "blend_gate_volatility_delever_dynamic_floor": 0.5,
+    "blend_gate_volatility_delever_dynamic_lookback": 252,
+    "blend_gate_volatility_delever_dynamic_min_periods": 126,
+    "blend_gate_volatility_delever_dynamic_percentile": 0.95,
+    "blend_gate_volatility_delever_enabled": true,
+    "blend_gate_volatility_delever_max_retention_ratio": 0.5,
+    "blend_gate_volatility_delever_redirect_symbol": "BOXX",
+    "blend_gate_volatility_delever_retention_context_required": false,
+    "blend_gate_volatility_delever_retention_mode": "none",
+    "blend_gate_volatility_delever_retention_policy": "soxl_step_rebound_0.25_0.50",
+    "blend_gate_volatility_delever_retention_ratio": 0.0,
+    "blend_gate_volatility_delever_symbol": "SOXX",
+    "blend_gate_volatility_delever_threshold": 0.55,
+    "blend_gate_volatility_delever_threshold_mode": "rolling_percentile",
+    "blend_gate_volatility_delever_window": 10
+  },
+  "risk_policy_overlay_sha256": "c81910666830f183398f99f1e3d397d98f585dc80ff3251d17f9f3be4dc316c0",
+  "risk_policy_sha256": "5077c0ff9e1ca58c1f08654ed12d84de7c4ecf8920b8c7f3481a2e1344c4fc29",
+  "runtime_activation": false,
+  "source_commit": "0f48d49c8b066b03a47b54c9a6a1d538241eb394",
+  "source_repository": "QuantStrategyLab/UsEquityStrategies"
+}
