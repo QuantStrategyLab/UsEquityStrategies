@@ -55,17 +55,9 @@ MC_TRIALS = 10_000
 MC_PATH_LENGTH = 126
 MC_BLOCK_LENGTH = 12
 ALIGNED_DATES_SHA256 = "9ad30cd2ae54d56e58e4ea517f15070b31b4e1d9127ae6031529c191920a7f80"
-DEFAULT_OUTPUT_ROOT = Path(
-    "/Users/lisiyi/Documents/Codex/2026-07-14/ba-2/work/private_research/r3_joint_evidence_v1"
-)
-CONTRACT_PATH = Path(
-    "/Users/lisiyi/Documents/Codex/2026-07-14/ba-2/outputs/"
-    "qsl_r3_joint_evidence_acceptance_contract_v1_2026-07-17.md"
-)
-WORKER_PROMPT_PATH = Path(
-    "/Users/lisiyi/Documents/Codex/2026-07-14/ba-2/outputs/"
-    "qsl_r3_joint_evidence_worker_prompt_v1_2026-07-17.md"
-)
+DEFAULT_OUTPUT_ROOT = Path(os.environ.get("UES_R3_OUTPUT_ROOT", ".local/r3_joint_evidence"))
+CONTRACT_PATH = Path(os.environ.get("UES_R3_CONTRACT_PATH", ".local/r3_joint_evidence/acceptance-contract.md"))
+WORKER_PROMPT_PATH = Path(os.environ.get("UES_R3_WORKER_PROMPT_PATH", ".local/r3_joint_evidence/worker-prompt.md"))
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMMITTED_RUNNER_PATHS = (
     "src/us_equity_strategies/research/r3_joint_evidence.py",
@@ -346,7 +338,7 @@ SOXL_SPEC = StrategySpec(
     "78c056c9a4541b7612b4f077ca25df6093aa6eb2f17783097c5b5f83a31dd5c6",
 )
 
-PRIVATE_ROOT = Path("/Users/lisiyi/Documents/Codex/2026-07-14/ba-2/work/private_research")
+PRIVATE_ROOT = Path(os.environ.get("UES_R3_PRIVATE_ROOT", ".local/private_research"))
 TQQQ_ARTIFACT_RELATIVE_PATH = Path("tqqq_baseline_v1/full_20230714_20260716.csv")
 SOXL_ARTIFACT_RELATIVE_PATH = Path("soxx_soxl_adjusted_daily_v1/full_20230714_20260716.csv")
 
