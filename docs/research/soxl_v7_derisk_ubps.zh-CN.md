@@ -30,7 +30,7 @@ BOXX/SGOV 在此不是半导体或股票风险敞口，分别记为现金替代�
 
 ## 当前阻塞和云端入口
 
-复用 soxl_cap2 的 names-only GCS 发现并在本任务重新查阅研究工作流、预注册和 RS-08 配置证据报告。确切 RS-04 云端副本仍未定位；允许根为 `gs://qsl-research-evidence-831478360303/research/v2/input/`。文档唯一固定归档 manifest SHA256 为 `b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482`，明确存于 box 私有目录；本任务禁止访问 server，未访问该目录。
+复用 soxl_cap2 的 names-only GCS 发现并在本任务重新查阅研究工作流、预注册和 RS-08 配置证据报告。确切 RS-04 云端副本仍未定位；允许根为 `gs://<research-evidence-bucket>/research/v2/input/`。文档唯一固定归档 manifest SHA256 为 `b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482`，明确存于 box 私有目录；本任务禁止访问 server，未访问该目录。
 
 该归档只含 SOXL/SOXX/BOXX/QQQ/TQQQ/QQQM，2021-12-01—2026-08-25；BOXX 自 2022-12-28 开始。因此即使找到 GCS 副本，也不能覆盖 2000/2008/2020、收入证券全集、早期 BOXX、历史插件/PIT 或完整长期校准。Batch A、QQQM/BOXX、R7、R9、旧 V7 输入不能替代固定 RS-04 归档或完整研究数据。
 

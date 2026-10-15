@@ -1,6 +1,6 @@
 # RS-08 实盘与研究一致性核查报告（只读）
 
-> 日期 2026-10-11。范围：SOXL（Schwab live、IBKR U15998061）、TQQQ（IBKR U16608560）。全程只读：没有部署，没有改环境变量、密钥或流量，也没有碰下单路径。凡是会改变实盘行为的修复都只是建议，需要人工批准。
+> 日期 2026-10-11。范围：SOXL（Schwab live、IBKR SOXL 账户）、TQQQ（IBKR TQQQ 账户）。全程只读：没有部署，没有改环境变量、密钥或流量，也没有碰下单路径。凡是会改变实盘行为的修复都只是建议，需要人工批准。
 
 ## 证据来源
 
@@ -16,8 +16,8 @@
 | 服务 | 承接流量的 revision（100%） | 镜像 digest | 镜像内 UES | 镜像内 QPK |
 | --- | --- | --- | --- | --- |
 | Schwab `charles-schwab-quant-service` | `00781-lel`（2026-10-09 创建） | `sha256:cd4779376abf…` | `4a3943883cd6`（0.7.60） | `2dc0b26ad4f1` |
-| IBKR U15998061（SOXL） | `00416-8jb`（2026-10-09） | `sha256:9429234a87bf…` | `4a3943883cd6`（`/app/UES_REVISION` 也是这个） | `bd8d06e50f88` |
-| IBKR U16608560（TQQQ） | `n0110100718`（2026-10-09） | `sha256:9fca942d3713…` | `4a3943883cd6` | `bd8d06e50f88` |
+| IBKR（SOXL） | `00416-8jb`（2026-10-09） | `sha256:9429234a87bf…` | `4a3943883cd6`（`/app/UES_REVISION` 也是这个） | `bd8d06e50f88` |
+| IBKR（TQQQ） | `n0110100718`（2026-10-09） | `sha256:9fca942d3713…` | `4a3943883cd6` | `bd8d06e50f88` |
 
 结论：
 - 三个服务运行的 UES 都是 `4a394388`，与 `strategy_release.strategy_revision` 以及风控绑定里的 `ues_revision` 一致。
@@ -42,7 +42,7 @@
 | IBKR SOXL | `0fbd7b3b…` | 同上 |
 | IBKR TQQQ | `90e8ded5…` | `eec673a4…` / `c37dde83…` |
 
-两个平台跑的是同一份 SOXL manifest，发布的 config_sha256 却不同。说明这个哈希覆盖的是**平台合并后的配置**（预留现金、收入层、期权开关、插件挂载等平台覆盖项），不是 manifest 默认值。生成方法不在任何仓库里，是 2026-09-17 发布时在仓库之外算出来的。**判定：这不是代码不一致，而是哈希口径没有归档。** 要复算，需要找到 `evidence_sha256` 对应的发布证据包。第 6 节的只读诊断在 `gs://qsl-runtime-logs-shared` 里**没有找到**证据包，计算方法仍未归档。
+两个平台跑的是同一份 SOXL manifest，发布的 config_sha256 却不同。说明这个哈希覆盖的是**平台合并后的配置**（预留现金、收入层、期权开关、插件挂载等平台覆盖项），不是 manifest 默认值。生成方法不在任何仓库里，是 2026-09-17 发布时在仓库之外算出来的。**判定：这不是代码不一致，而是哈希口径没有归档。** 要复算，需要找到 `evidence_sha256` 对应的发布证据包。第 6 节的只读诊断在 `gs://<runtime-logs-bucket>` 里**没有找到**证据包，计算方法仍未归档。
 
 ## 3. trend_ma_window：实盘是 140
 
@@ -75,12 +75,12 @@
 
 ## 5. 其他观察
 
-- IBKR U16608560（TQQQ）近 21 天每次运行都记录 `runtime_risk_status=unavailable:profile_not_supported`。这是设计如此（运行时风控绑定目前只支持 SOXL），不是故障。
-- IBKR U15998061 的服务环境里 `RUNTIME_TARGET_ENABLED=false`，但 `RUNTIME_TARGET_JSON` 已设置。21 天内没有异常日志，本次没有展开排查。
+- IBKR（TQQQ）近 21 天每次运行都记录 `runtime_risk_status=unavailable:profile_not_supported`。这是设计如此（运行时风控绑定目前只支持 SOXL），不是故障。
+- IBKR SOXL 账户的服务环境里 `RUNTIME_TARGET_ENABLED=false`，但 `RUNTIME_TARGET_JSON` 已设置。21 天内没有异常日志，本次没有展开排查。
 
 ## 6. 后续只读诊断：发布证据包与 Schwab 价格口径（2026-10-11）
 
-用户的 Codex 环境里没有 gcloud 和 yfinance，没法执行转交的提示词。所以改为扩展只读诊断工作流，用部署服务账号执行：IBKR #600（`08fd12a`），运行 38116620189；Schwab #515（`e81cf3c`），运行 38116622385。两个工作流各手动触发一次。两个服务账号都能读 `gs://qsl-runtime-logs-shared`。公开日志里只有哈希、字段名、标签、整数和误差区间，没有金额、持仓或令牌。
+用户的 Codex 环境里没有 gcloud 和 yfinance，没法执行转交的提示词。所以改为扩展只读诊断工作流，用部署服务账号执行：IBKR #600（`08fd12a`），运行 38116620189；Schwab #515（`e81cf3c`），运行 38116622385。两个工作流各手动触发一次。两个服务账号都能读 `gs://<runtime-logs-bucket>`。公开日志里只有哈希、字段名、标签、整数和误差区间，没有金额、持仓或令牌。
 
 **A. config_sha256 口径：没找到证据包。**
 - 桶里共 11326 个对象，名字里都没有这 3 个 release_id（`soxl-schwab-runtime-risk-recovery-20260917`、`soxl-ibkr-runtime-risk-20260917`、`tqqq-ibkr-lkg-restore-20260917`），也没有对应的 evidence/config sha256 前缀。
