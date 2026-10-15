@@ -19,6 +19,18 @@ It is one layer of a multi-repository system:
 
 This repository owns strategy code and metadata. It does not hold broker credentials, submit orders by itself, or replace the snapshot/backtest evidence required before a profile is enabled for live runtime settings.
 
+## Configuration
+
+Export these environment variables before importing or running the offline R3 evidence runner to use existing local files. Relative defaults resolve from the working directory.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `UES_R3_OUTPUT_ROOT` | Offline evidence output directory | Optional | `.local/r3_joint_evidence` |
+| `UES_R3_CONTRACT_PATH` | Local acceptance contract | Optional | `.local/r3_joint_evidence/acceptance-contract.md` |
+| `UES_R3_WORKER_PROMPT_PATH` | Local worker prompt | Optional | `.local/r3_joint_evidence/worker-prompt.md` |
+| `UES_R3_PRIVATE_ROOT` | Private research input root | Optional | `.local/private_research` |
+
+
 ## Strategy profiles
 
 ### Direct runtime strategies

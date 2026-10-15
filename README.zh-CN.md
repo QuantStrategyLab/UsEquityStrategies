@@ -19,6 +19,18 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 
 本仓库负责策略代码和元数据，不保存券商凭据，不直接提交订单，也不替代 live enable 前需要看的 snapshot 和回测证据。
 
+## 配置
+
+Export these environment variables before importing or running the offline R3 evidence runner to use existing local files. Relative defaults resolve from the working directory.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `UES_R3_OUTPUT_ROOT` | Offline evidence output directory | Optional | `.local/r3_joint_evidence` |
+| `UES_R3_CONTRACT_PATH` | Local acceptance contract | Optional | `.local/r3_joint_evidence/acceptance-contract.md` |
+| `UES_R3_WORKER_PROMPT_PATH` | Local worker prompt | Optional | `.local/r3_joint_evidence/worker-prompt.md` |
+| `UES_R3_PRIVATE_ROOT` | Private research input root | Optional | `.local/private_research` |
+
+
 ## 策略 profile
 
 ### 普通 runtime 策略
