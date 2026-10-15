@@ -151,7 +151,7 @@ def _clear_roots(monkeypatch) -> None:
 def test_rejects_extra_authority_path_and_url_without_echoing_values() -> None:
     adapter = _adapter()
     extra = _request(adapter)
-    extra["raw_root"] = "/Users/private/secret-bundle"
+    extra["raw_root"] = "/path/to/worktree/secret-bundle"
     extra["command"] = "curl https://secret.example/order"
     result = adapter.preview(extra)
     encoded = json.dumps(result)
@@ -259,7 +259,7 @@ def test_loader_failures_are_structured_and_redacted(monkeypatch, tmp_path: Path
     calls = _install_engines(monkeypatch, adapter, tmp_path, ledger)
 
     def missing_file(*_args, **_kwargs):
-        raise FileNotFoundError(2, "missing", "/Users/private/secret-bundle/manifest.json")
+        raise FileNotFoundError(2, "missing", "/path/to/worktree/secret-bundle/manifest.json")
 
     monkeypatch.setattr(calls["modules"][0], "_load_inputs", missing_file)
     missing = adapter.preview(_request(adapter))
@@ -268,7 +268,7 @@ def test_loader_failures_are_structured_and_redacted(monkeypatch, tmp_path: Path
     assert "secret-bundle" not in json.dumps(missing)
 
     def explode(*_args, **_kwargs):
-        raise OSError("denied /Users/private/secret-bundle/manifest.json")
+        raise OSError("denied /path/to/worktree/secret-bundle/manifest.json")
 
     monkeypatch.setattr(calls["modules"][0], "_load_inputs", explode)
     failed = adapter.preview(_request(adapter))
@@ -277,7 +277,7 @@ def test_loader_failures_are_structured_and_redacted(monkeypatch, tmp_path: Path
     assert "secret-bundle" not in json.dumps(failed)
 
     def mismatch(*_args, **_kwargs):
-        raise ValueError("R7_RAW_MANIFEST_MISMATCH:/Users/private/secret-bundle")
+        raise ValueError("R7_RAW_MANIFEST_MISMATCH:/path/to/worktree/secret-bundle")
 
     monkeypatch.setattr(calls["modules"][0], "_load_inputs", mismatch)
     coded = adapter.preview(_request(adapter))
