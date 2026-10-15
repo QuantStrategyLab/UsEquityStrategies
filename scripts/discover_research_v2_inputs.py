@@ -29,6 +29,16 @@ MAX_RETRIES = 2
 MATCHES = ("qqqm", "boxx", "regime", "taco", "crisis", "macro", "manifest", "schema", "catalog", "index")
 
 
+class _ListHttpFailure(ValueError):
+    """Retain only a bounded status, never provider text, URLs or headers."""
+
+    def __init__(self, status):
+        self.http_status = status if type(status) is int and 100 <= status <= 599 else None
+        reason = {401: "LIST_UNAUTHENTICATED", 403: "LIST_PERMISSION_DENIED",
+                  404: "LIST_NOT_FOUND"}.get(self.http_status, "LIST_HTTP_FAILED")
+        super().__init__(reason)
+
+
 def _list_page(
     credentials: object,
     token: str | None,
@@ -54,10 +64,8 @@ def _list_page(
                     raise ValueError("LIST_FORMAT_UNRECOGNIZED")
                 return page
         except HTTPError as exc:
-            if exc.code in (401, 403):
-                raise ValueError("LIST_PERMISSION_DENIED") from None
             if exc.code not in (429, 500, 502, 503, 504) or attempt == MAX_RETRIES:
-                raise ValueError("LIST_HTTP_FAILED") from None
+                raise _ListHttpFailure(exc.code) from None
         except (TimeoutError, URLError):
             if attempt == MAX_RETRIES:
                 raise ValueError("LIST_TRANSPORT_FAILED") from None
@@ -649,7 +657,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = discover(lambda token, limit: _list_page(credentials, token, limit))
         code = 0
     except Exception as exc:
-        known = {"LIST_FORMAT_UNRECOGNIZED", "LIST_PERMISSION_DENIED", "LIST_HTTP_FAILED",
+        known = {"LIST_FORMAT_UNRECOGNIZED", "LIST_PERMISSION_DENIED", "LIST_UNAUTHENTICATED",
+                 "LIST_NOT_FOUND", "LIST_HTTP_FAILED",
                  "LIST_TRANSPORT_FAILED", "OUT_OF_SCOPE_OBJECT", "PAGE_BUDGET_OR_FORMAT_INVALID",
                  "PAGE_TOKEN_INVALID"} | EXACT_REASONS | RUNTIME_REASONS
         reason = str(exc) if isinstance(exc, ValueError) and str(exc) in known else (
@@ -665,6 +674,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (mode == "exact_manifest_metadata" and isinstance(exc, _ExactHttpFailure)
                 and type(exc.http_status) is int and 100 <= exc.http_status <= 599):
             payload["http_status"] = exc.http_status
+        if (mode == "discovery" and isinstance(exc, _ListHttpFailure)
+                and type(exc.http_status) is int and 100 <= exc.http_status <= 599):
+            payload["http_status"] = exc.http_status
+            payload["api_operation"] = "storage.objects.list"
         if mode == "discovery" and not reason.startswith("EXACT_") and reason not in RUNTIME_REASONS:
             payload["scope"] = PREFIX
         code = 2
