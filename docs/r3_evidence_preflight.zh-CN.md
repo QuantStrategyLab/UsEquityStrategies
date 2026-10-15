@@ -8,9 +8,9 @@ SOXL 的 R3 回测使用锁定的私有输入数据；数据内容、字节数�
 
 ```bash
 PYTHONPATH=src python scripts/run_r3_from_gcs.py \
-  --gcs-input-prefix gs://qsl-research-evidence-831478360303/research/v1/input/r3 \
-  --contract-uri gs://qsl-research-evidence-831478360303/research/v1/input/r3/acceptance-contract.md \
-  --worker-prompt-uri gs://qsl-research-evidence-831478360303/research/v1/input/r3/worker-prompt.md
+  --gcs-input-prefix gs://<research-evidence-bucket>/research/v1/input/r3 \
+  --contract-uri gs://<research-evidence-bucket>/research/v1/input/r3/acceptance-contract.md \
+  --worker-prompt-uri gs://<research-evidence-bucket>/research/v1/input/r3/worker-prompt.md
 ```
 
 本命令默认只做 staging 和 preflight，不运行回测、不上传结果。它不列举 bucket、不覆盖对象、不删除对象；目标临时目录必须为空，复制使用 `--no-clobber`。合同和 worker prompt 也必须是获准的、哈希匹配的对象，不能由脚本现场生成。
