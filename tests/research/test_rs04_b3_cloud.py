@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from us_equity_strategies.research.rs04_b3_cloud import (
-    cloud_report, inspect_manifest, walk_forward_plan,
+    INPUT_ROOT, RS04_ARCHIVE_SHA256, cloud_report, inspect_manifest, walk_forward_plan,
 )
 
 
@@ -25,6 +25,22 @@ def test_unknown_or_total_return_source_cannot_become_provisional_raw_source():
     inspected = inspect_manifest({"schema": "unrecognised", "adjustment": "all"}, {})
     assert inspected["raw_plus_actions_qualified"] is False
     assert inspected["live_baseline_qualified"] is False
+
+
+def test_registered_archive_identity_does_not_qualify_replay_or_alias_legacy_bytes():
+    legacy = "b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482"
+    for digest, matching in ((RS04_ARCHIVE_SHA256, True), (legacy, False)):
+        def reader(uri):
+            return {"schema_version": "qsl.research.raw_sip_input.v1"}, {
+                "generation": "1", "sha256": digest,
+            }
+        report = cloud_report(execute=True, cloud=True, today=date(2026, 10, 15),
+                              sources=[INPUT_ROOT+"fixture/manifest.json"], reader=reader)
+        assert report["approved_archive"]["matching_metadata_found"] is matching
+        assert report["status"] == "PARKED" and report["acceptance"] == "INSUFFICIENT_EVIDENCE"
+        assert report["real_replay_executed"] is False and report["recommend_shadow"] is False
+        assert "EFFECTIVE_MERGED_LIVE_CONFIG_NOT_BOUND" in report["blockers"]
+        assert report["source_metadata"][0]["raw_plus_actions_qualified"] is False
 
 
 def test_cloud_read_error_preserves_artifact_and_never_echoes_error():
