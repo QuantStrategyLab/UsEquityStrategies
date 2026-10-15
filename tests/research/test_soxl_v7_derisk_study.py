@@ -31,7 +31,7 @@ def test_plugin_union_includes_off_deprecated_noop_options_and_unknown_custom():
 
 
 def test_missing_archive_or_supplied_locator_never_claim_replay_pass_or_shadow():
-    for locator in ("", "gs://qsl-research-evidence-831478360303/research/v2/input/fixture-rs04"):
+    for locator in ("", "gs://research-inputs/research/v2/input/fixture-rs04"):
         r = qualification_report(cloud=True, archive_prefix=locator)
         assert r["status"] == "PARKED" and r["real_bars_read"] == 0
         assert r["real_replay_executed"] is False
@@ -45,6 +45,21 @@ def test_missing_archive_or_supplied_locator_never_claim_replay_pass_or_shadow()
         json.dumps(r, allow_nan=False)
     with pytest.raises(ValueError, match="ARCHIVE_PREFIX_REJECTED"):
         qualification_report(cloud=True, archive_prefix="gs://unapproved-bucket/raw")
+
+
+def test_configured_root_is_shared_with_b3_without_qualifying_an_archive(monkeypatch):
+    root = "gs://synthetic-study-inputs/research/v2/input/"
+    monkeypatch.setenv("RS04_INPUT_ROOT", root)
+    result = qualification_report(cloud=True, archive_prefix=root+"fixture-rs04")
+    assert result["status"] == "PARKED" and result["real_bars_read"] == 0
+    assert result["approved_archive"]["locator_provided"] is True
+    assert result["approved_archive"]["gcs_copy_verified"] is False
+    assert result["baseline_binding"]["effective_config_verified"] is False
+    assert "HISTORICAL_PLUGIN_CONTEXT_BINDINGS_UNAVAILABLE" in result["blockers"]
+    with pytest.raises(ValueError, match="ARCHIVE_PREFIX_REJECTED"):
+        qualification_report(cloud=True, archive_prefix="gs://research-inputs/research/v2/input/fixture-rs04")
+    with pytest.raises(ValueError, match="ARCHIVE_PREFIX_REJECTED"):
+        qualification_report(cloud=True, archive_prefix=root+"fixture/../other")
 
 
 def test_registration_does_not_change_b1_b2_or_v7_window_or_call_weak_holdout_untouched():

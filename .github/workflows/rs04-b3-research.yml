@@ -65,6 +65,7 @@ jobs:
           EXECUTE: ${{ inputs.execute }}
           RS04_AUTH_OUTCOME: ${{ steps.auth.outcome }}
           RS04_SYNTHETIC_OUTCOME: ${{ steps.synthetic.outcome }}
+          RS04_INPUT_ROOT: ${{ vars.RS04_INPUT_ROOT }}
           RS04_ARCHIVE_PREFIX: ${{ inputs.archive_prefix }}
           UX1_RAW_GCS_PREFIX: ${{ vars.UX1_RAW_GCS_PREFIX }}
           UX1_R6_GCS_PREFIX: ${{ vars.UX1_R6_GCS_PREFIX }}
