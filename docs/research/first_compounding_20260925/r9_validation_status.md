@@ -10,7 +10,7 @@
 
 首次采集 run 36244802212 在第一份 QQQ 响应后因 BAR_TIMESTAMP_INVALID 停止，仅留下私有写入探针。修正后 UESP 数据工具 PR #519 已通过必需 CI、审查与保护规则并合入；恢复 run 36246029856 在主分支 7b9d37051aa94f55a3abefe1ac5772c1d58fd110 完成。它复用了旧探针 generation 1790428811648938，未改前缀或重置预算。两次累计供应商请求 13 次、响应 328727 字节；累计存储 43 次操作、581732 字节传输，均低于冻结上限。首次实际报错所涉时间戳未保存，不能断言已查明唯一触发原因。
 
-完整输入私有 URI 前缀为 gs://qsl-research-evidence-831478360303/research/v2/input/r9-temporal-extension-20260926-001/。固定 manifest generation 1790430138012938，SHA-256 d56494f86c9c87d8d118832afb34429f446f71ab4266ac1b781ef0780027484e；12 份六标的 bars/actions 页均按各自 generation 独立读回，字节数和 SHA 匹配 manifest。本地受限副本位于 /Users/lisiyi/Projects/.private-research/r9-frozen-policy-validation-20260926-001/future-input-v1，权限 0700，文件 0600。六份原始日线各 412 根，共同首末为 2025-01-02 / 2026-08-25；六份行动页完整。跨期核对中部分 2024-09 ex_date 的事件具有 2024-10 process_date/支付日，按冻结查询起点返回；不以供应商处理日冒充历史公告日。
+完整输入私有 URI 前缀为 gs://<research-evidence-bucket>/research/v2/input/r9-temporal-extension-20260926-001/。固定 manifest generation 1790430138012938，SHA-256 d56494f86c9c87d8d118832afb34429f446f71ab4266ac1b781ef0780027484e；12 份六标的 bars/actions 页均按各自 generation 独立读回，字节数和 SHA 匹配 manifest。本地受限副本位于 $PRIVATE_RESEARCH_ROOT/r9-frozen-policy-validation-20260926-001/future-input-v1，权限 0700，文件 0600。六份原始日线各 412 根，共同首末为 2025-01-02 / 2026-08-25；六份行动页完整。跨期核对中部分 2024-09 ex_date 的事件具有 2024-10 process_date/支付日，按冻结查询起点返回；不以供应商处理日冒充历史公告日。
 
 新旧重叠期的 QQQ 2024-09-23、2024-12-23 股息存在于新原始页，但 QQQ 只是信号价格输入，从未进入 R7/R8 五证券 owner 行动账本。五个实际持有证券的重叠事件一致。读取器继续核验并保留 QQQ 原始行动页，只不将其股息写入持仓账本；QQQ 若发生拆股则因原始价格信号没有相应单位调整而拒绝。本次 QQQ 页没有拆股。此修正没有更改任何候选信号或资金规则。
 
@@ -50,7 +50,7 @@
 
 ## 复算与结论
 
-结果私有目录为 /Users/lisiyi/Projects/.private-research/r9-frozen-policy-validation-20260926-001/formal-v1。summary.json SHA-256 为 628de89afde2fad718ae6298370e895585d3c4c082452a5c9044b5abeb2ba95f，另有 15 份仅本地受限的逐日 owner 账本。原 2023-03-28 至 2024-12-31 的 15 条前缀各 444 行与已归档 R7/R8 逐行核对后，才从实际持仓、现金、在途款、应收和前一动作续接。每份新账本 412 行，摘要读回一致；账户 NAV 与 owner 资产、现金、待结算、应收相加的最大误差 3.64e-12 USD，逐日费用合计误差为零。增加 QQQ 拆股拒绝后的当前代码对同一冻结输入只读重算，summary SHA 仍完全相同。UES 定向测试 8/8；远端 CI 以 PR #533 当前提交的实际检查为准。Astra 对新增行动账本边界、资金定义和结果声明完成窄审，结论 GO；未读取私有原始数据，不能将其审查当作独立数据复算。
+结果私有目录为 $PRIVATE_RESEARCH_ROOT/r9-frozen-policy-validation-20260926-001/formal-v1。summary.json SHA-256 为 628de89afde2fad718ae6298370e895585d3c4c082452a5c9044b5abeb2ba95f，另有 15 份仅本地受限的逐日 owner 账本。原 2023-03-28 至 2024-12-31 的 15 条前缀各 444 行与已归档 R7/R8 逐行核对后，才从实际持仓、现金、在途款、应收和前一动作续接。每份新账本 412 行，摘要读回一致；账户 NAV 与 owner 资产、现金、待结算、应收相加的最大误差 3.64e-12 USD，逐日费用合计误差为零。增加 QQQ 拆股拒绝后的当前代码对同一冻结输入只读重算，summary SHA 仍完全相同。UES 定向测试 8/8；远端 CI 以 PR #533 当前提交的实际检查为准。Astra 对新增行动账本边界、资金定义和结果声明完成窄审，结论 GO；未读取私有原始数据，不能将其审查当作独立数据复算。
 
 主分析 10 bps：R8 v2 动态政策相对固定 B0 的累计收益低 0.349 个百分点，区间最大回撤低 1.143 个百分点，恢复快 11 会话；实际证券投入也不同，不能只按收益评胜负。配对日对数收益差的年化点估计为 -0.001736；预注册 20 会话块、2000 次、固定种子的条件 bootstrap 95% 区间为 [-0.013134, 0.010759]，跨零。它只描述本段观测序列的敏感性，不是因果优势、未来胜率或可执行的重采样策略。5/15 bps 情景中动态相对 B0 的累计收益分别低 0.327/0.209 个百分点。B2 在这段样本的收益和回撤同时优于 B0，属于描述性观察，不因见过结果而升级为默认政策。费用变化下非单调的净收益受整股、门槛、状态和资金路径影响，不把固定费用情景按旧曲线线性缩放。
 
@@ -68,7 +68,7 @@
 
 源码与依赖：本工作树基线 `55771f45c245d8f5999b7ba1242c77924c7cbe8f`，分支 `codex/post-r9-maturity-20260926-001`。工作区 `.venv` 已用 `uv sync --frozen --extra research` 建立。锁定 QuantPlatformKit `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62`、QuantStrategyPlugins `3416da47580be1537183e378f3ca9efacc6f9b8c`，另装 pytest 9.1.1、ruff 0.15.22。
 
-权威输出根为 `/Users/lisiyi/Projects/.private-research/post-r9-maturity-20260926-003`。目录 0700，文件 0600，只含两条新账本与 summary。summary SHA-256 `e0e5c2e51836edb246e70cd9ea7f4b64def713928aafd4d6933b403a69f793cc`；B0 ledger SHA-256 `68b96ff510bec653c2286d456b719fa680a7a731debd71b0a1bb27b4c57392ba`；dynamic ledger SHA-256 `9ab7b28d0fa9a024c389d49d4eaa3f79adae591cd100d80411f125bf03da832e`。`post-r9-maturity-20260926-001` 与 `002` 是保留的前序运行证据，账本 SHA 与 003 相同，不是权威摘要。最大账户恒等式误差 7.28e-12 USD。两条路径的全部 release observation 都等于法律 settlement date，本窗口 late observation 为 0。
+权威输出根为 `$PRIVATE_RESEARCH_ROOT/post-r9-maturity-20260926-003`。目录 0700，文件 0600，只含两条新账本与 summary。summary SHA-256 `e0e5c2e51836edb246e70cd9ea7f4b64def713928aafd4d6933b403a69f793cc`；B0 ledger SHA-256 `68b96ff510bec653c2286d456b719fa680a7a731debd71b0a1bb27b4c57392ba`；dynamic ledger SHA-256 `9ab7b28d0fa9a024c389d49d4eaa3f79adae591cd100d80411f125bf03da832e`。`post-r9-maturity-20260926-001` 与 `002` 是保留的前序运行证据，账本 SHA 与 003 相同，不是权威摘要。最大账户恒等式误差 7.28e-12 USD。两条路径的全部 release observation 都等于法律 settlement date，本窗口 late observation 为 0。
 
 B0 legacy：累计收益 66.583064305%，最大回撤 11.457141005%，恢复 2025-06-03 / 72 会话，费用 63.1123795 USD，shortage 83。新结算：累计收益 66.258233305%，最大回撤 11.512115253%，恢复 2025-06-04 / 73 会话，费用 67.1387995 USD，shortage 49，release 174。相对 legacy，收益 -0.324831 个百分点，回撤幅度恶化 0.054974 个百分点，恢复晚 1 会话，费用 +4.02642 USD，shortage -34。release-observation 映射首次不同的 trade date 是 2023-10-05；账户状态首次不同的日期是 2023-10-09。
 
@@ -82,13 +82,13 @@ dynamic legacy：累计收益 64.280748316%，最大回撤 10.314437704%，恢�
 
 ```bash
 .venv/bin/python docs/research/first_compounding_20260925/post_r9_settlement_study.py \
-  --raw-root /Users/lisiyi/Projects/.private-research/qqqm-boxx-raw-20260925-001 \
-  --r6-root /Users/lisiyi/Projects/.private-research/soxl-v7-td-single-source-20260926-001 \
-  --materialized /Users/lisiyi/Projects/.private-research/r7-joint-account-20260926/r6_materialized.json \
-  --r7-archive-root /Users/lisiyi/Projects/.private-research/r7-joint-account-20260926/formal-v1 \
-  --r8-archive-root /Users/lisiyi/Projects/.private-research/r8-joint-allocation-20260926/formal-v2 \
-  --r9-archive-root /Users/lisiyi/Projects/.private-research/r9-frozen-policy-validation-20260926-001/formal-v1 \
-  --future-root /Users/lisiyi/Projects/.private-research/r9-frozen-policy-validation-20260926-001/future-input-v1 \
+  --raw-root $PRIVATE_RESEARCH_ROOT/qqqm-boxx-raw-20260925-001 \
+  --r6-root $PRIVATE_RESEARCH_ROOT/soxl-v7-td-single-source-20260926-001 \
+  --materialized $PRIVATE_RESEARCH_ROOT/r7-joint-account-20260926/r6_materialized.json \
+  --r7-archive-root $PRIVATE_RESEARCH_ROOT/r7-joint-account-20260926/formal-v1 \
+  --r8-archive-root $PRIVATE_RESEARCH_ROOT/r8-joint-allocation-20260926/formal-v2 \
+  --r9-archive-root $PRIVATE_RESEARCH_ROOT/r9-frozen-policy-validation-20260926-001/formal-v1 \
+  --future-root $PRIVATE_RESEARCH_ROOT/r9-frozen-policy-validation-20260926-001/future-input-v1 \
   --output-root <新的不存在目录>
 ```
 
