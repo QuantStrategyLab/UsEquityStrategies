@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib import resources
+import json
 from typing import Any
 
 import pandas as pd
@@ -12,6 +14,22 @@ SIGNAL_SOURCE = "derived_indicators/market_history+portfolio_snapshot"
 DEFAULT_SIGNAL_SYMBOLS = ("QQQ", "SPY")
 DEFAULT_TRADE_ALLOCATIONS = {"QQQM": 0.50, "SPLG": 0.50}
 DEFAULT_MANAGED_SYMBOLS = tuple(DEFAULT_TRADE_ALLOCATIONS)
+QNDX_NEW_BUYS_VARIANT = "qqq-dca-qndx-newbuys-202610"
+NASDAQ_EXPOSURE_SYMBOLS = ("QQQ", "QQQM", "QNDX")
+QNDX_NEW_BUYS_CONFIG_PATH = f"package://us_equity_strategies/configs/{QNDX_NEW_BUYS_VARIANT}.json"
+
+
+def load_runtime_parameters(*, config_path=None, logger=None) -> dict[str, object]:
+    """Load the explicitly selected bundled preset; no default activation."""
+    if config_path is None:
+        return {}
+    if str(config_path) != QNDX_NEW_BUYS_CONFIG_PATH:
+        raise ValueError(f"Unsupported DCA config_path; expected {QNDX_NEW_BUYS_CONFIG_PATH}")
+    return json.loads(
+        resources.files("us_equity_strategies").joinpath(
+            f"configs/{QNDX_NEW_BUYS_VARIANT}.json"
+        ).read_text(encoding="utf-8")
+    )
 
 
 @dataclass(frozen=True)
@@ -528,6 +546,7 @@ def build_rebalance_plan(
     signal_symbols=DEFAULT_SIGNAL_SYMBOLS,
     trade_allocations: Mapping[str, object] | None = None,
     managed_symbols=DEFAULT_MANAGED_SYMBOLS,
+    new_buy_execution_symbol: str | None = None,
     base_investment_usd: float = 1000.0,
     max_investment_usd: float | None = None,
     cash_reserve_usd: float = 0.0,
@@ -565,6 +584,17 @@ def build_rebalance_plan(
 ) -> dict[str, object]:
     allocations = _normalize_allocations(trade_allocations or DEFAULT_TRADE_ALLOCATIONS)
     strategy_symbols = tuple(dict.fromkeys((*(_normalize_symbol(s) for s in managed_symbols), *allocations)))
+    if new_buy_execution_symbol is not None:
+        if new_buy_execution_symbol != "QNDX":
+            raise ValueError("new_buy_execution_symbol must be None or 'QNDX'")
+        # Only new contributions change destination. Existing shares keep their
+        # snapshot value as target, including either legacy Nasdaq ETF.
+        routed_allocations: dict[str, float] = {}
+        for symbol, weight in allocations.items():
+            destination = "QNDX" if symbol in ("QQQ", "QQQM") else symbol
+            routed_allocations[destination] = routed_allocations.get(destination, 0.0) + weight
+        allocations = routed_allocations
+        strategy_symbols = tuple(dict.fromkeys((*strategy_symbols, *NASDAQ_EXPOSURE_SYMBOLS)))
     is_window, window_text = _is_in_execution_window(
         as_of,
         cadence=cadence,
@@ -751,6 +781,8 @@ def build_rebalance_plan(
         "strategy_symbols": strategy_symbols,
         "managed_symbols": strategy_symbols,
         "trade_allocations": allocations,
+        "new_buy_execution_symbol": new_buy_execution_symbol,
+        "nasdaq_combined_target_value": sum(target_values.get(s, 0.0) for s in NASDAQ_EXPOSURE_SYMBOLS),
         "signal_symbols": tuple(item.symbol for item in indicators) or tuple(resolved_signal_symbols),
         "signal_description": signal_desc,
         "status_description": status_desc,

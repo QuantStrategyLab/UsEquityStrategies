@@ -55,6 +55,8 @@ Execution platforms consume this package through strategy loaders and runtime me
 
 Use the platform repositories for broker credentials, dry-run/live switches, order submission, and deployment settings.
 
+The opt-in [`qqq-dca-qndx-newbuys-202610` configuration](docs/qqq-dca-qndx-newbuys-202610.md) routes only new Nasdaq DCA contributions to QNDX, retains existing QQQ/QQQM holdings, and keeps QQQ signals. The default remains QQQM; selecting the descriptive alias alone does not enable the switch.
+
 ## QSL architecture role
 
 - **Layer**: `strategy-lib`.

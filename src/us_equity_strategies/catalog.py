@@ -22,6 +22,7 @@ from .ai_extensions import build_default_ai_extension_config
 from .income_layer_defaults import income_layer_default_config
 from .option_overlay import option_overlay_default_config
 from .runtime_allowlist import get_runtime_selectable_profiles
+from .strategies.nasdaq_sp500_smart_dca import QNDX_NEW_BUYS_VARIANT
 from .v7_soxl_profile import (
     SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
     V7_FROZEN_RUNTIME_CONFIG,
@@ -298,6 +299,7 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
     },
     NASDAQ_SP500_SMART_DCA_PROFILE: {
         "signal_symbols": ("QQQ", "SPY"),
+        "new_buy_execution_symbol": None,
         "trade_allocations": {
             "QQQM": 0.50,
             "SPLG": 0.50,
@@ -643,9 +645,9 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyMetadata(
         canonical_profile=NASDAQ_SP500_SMART_DCA_PROFILE,
         display_name="Nasdaq 100 / S&P 500 Smart DCA",
-        description="Buy-only Nasdaq 100 and S&P 500 fixed-amount DCA profile with optional smart sizing gates.",
+        description="Buy-only Nasdaq 100 and S&P 500 DCA; explicit QNDX new-buy routing preserves legacy holdings and QQQ signals.",
         localized_display_names={"zh": "纳指标普定投"},
-        aliases=(),
+        aliases=(QNDX_NEW_BUYS_VARIANT,),
         cadence="monthly",
         asset_scope="nasdaq_100_sp500_etf_dca",
         benchmark="QQQ/SPY",

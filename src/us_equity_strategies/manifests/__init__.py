@@ -5,6 +5,7 @@ from quant_platform_kit.common.strategy_contracts import StrategyManifest
 from us_equity_strategies.ai_extensions import build_default_ai_extension_config
 from us_equity_strategies.income_layer_defaults import income_layer_default_config
 from us_equity_strategies.option_overlay import option_overlay_default_config
+from us_equity_strategies.strategies.nasdaq_sp500_smart_dca import QNDX_NEW_BUYS_VARIANT
 from us_equity_strategies.v7_soxl_profile import (
     SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
     V7_FROZEN_RUNTIME_CONFIG,
@@ -295,11 +296,12 @@ russell_top50_leader_rotation_manifest = _manifest(
 nasdaq_sp500_smart_dca_manifest = _manifest(
     profile=NASDAQ_SP500_SMART_DCA_PROFILE,
     display_name="Nasdaq 100 / S&P 500 Smart DCA",
-    description="Buy-only Nasdaq 100 and S&P 500 fixed-amount DCA profile with optional smart sizing gates.",
-    aliases=(),
+    description="Buy-only Nasdaq 100 and S&P 500 DCA; explicit QNDX new-buy routing preserves legacy holdings and QQQ signals.",
+    aliases=(QNDX_NEW_BUYS_VARIANT,),
     required_inputs=frozenset({"market_history", "portfolio_snapshot"}),
     default_config={
         "signal_symbols": ("QQQ", "SPY"),
+        "new_buy_execution_symbol": None,
         "trade_allocations": {
             "QQQM": 0.50,
             "SPLG": 0.50,
