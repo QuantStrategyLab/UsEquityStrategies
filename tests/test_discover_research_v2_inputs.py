@@ -62,6 +62,48 @@ def test_permission_denied_has_no_retry(monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("status,reason", [
+    (401, "LIST_UNAUTHENTICATED"),
+    (403, "LIST_PERMISSION_DENIED"),
+    (404, "LIST_NOT_FOUND"),
+])
+def test_list_http_failure_preserves_status_and_operation(monkeypatch, capsys, status, reason):
+    import sys
+    from types import ModuleType
+
+    calls = []
+
+    class Credentials:
+        def before_request(self, _request, _method, _url, _headers):
+            pass
+
+    auth = ModuleType("google.auth")
+    auth.default = lambda *, scopes: (Credentials(), "ignored")
+    google = ModuleType("google")
+    google.auth = auth
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.auth", auth)
+
+    def deny(_request, timeout):
+        calls.append(timeout)
+        raise HTTPError("https://private.example", status, "private-response", {}, None)
+
+    fetch = discovery._list_page
+    monkeypatch.setattr(discovery, "urlopen", deny)
+    monkeypatch.setattr(discovery, "_list_page", lambda c, t, limit: fetch(c, t, limit, object))
+    monkeypatch.setattr(discovery.time, "sleep", lambda _: pytest.fail("HTTP_FAILURE_RETRIED"))
+    assert discovery.main([]) == 2
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "status": "PARKED", "reason_code": reason, "http_status": status,
+        "api_operation": "storage.objects.list", "scope": discovery.PREFIX,
+        "execution_authorized": False, "no_order": True,
+    }
+    assert len(calls) == 1
+    assert "private" not in output
+    assert "https://" not in output
+
+
 def test_transient_http_error_retries_twice(monkeypatch):
     calls = []
 
