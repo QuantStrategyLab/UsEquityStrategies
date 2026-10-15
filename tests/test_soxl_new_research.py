@@ -499,7 +499,10 @@ def test_codegen_research_runner_is_docker_only_and_reentrant(tmp_path, monkeypa
     assert "--security-opt=no-new-privileges" in run_command
     assert f"{candidate}:/workspace:ro" in run_command
     assert any(item.endswith(":/driver:ro") for item in run_command)
-    assert "/path/to/worktree/Projects/.worktrees/aab-rsi2-codegen-20260915:/driver:ro" not in run_command
+    assert not any(
+        item.startswith("/Users/") and "/.worktrees/" in item and item.endswith(":/driver:ro")
+        for item in run_command
+    )
     call_count = len(calls)
     assert module._run_codegen_candidate_research(
         candidate, payload=payload, run_root=run_root, source_commit="a" * 40,
