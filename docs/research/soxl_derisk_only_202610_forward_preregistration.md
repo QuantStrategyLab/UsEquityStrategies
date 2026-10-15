@@ -155,6 +155,35 @@ Raw market, account, holdings, decision and fill tapes stay in approved private
 GCS and restricted GitHub-hosted runner temporary storage. Public logs/artifacts
 and local summaries contain only sanitized dates, counts, hashes and statuses.
 
+### Worker orchestration clarification (proposed; not activated)
+
+The proposed operating path is the AI service agent task queue. This
+QuantStrategyLab project uses the existing QuantAIService · Dot application;
+Pigbibi projects use PersonalAIService · Dot. A separately admitted Quant Grok
+worker may be selected for a new task. Grok has read/work permissions for its
+assigned project, no task-submission permission, and no cloud or trading rights.
+One standard Dot application is retained per GitHub owner.
+
+For each fixed session, an independent authorized submitter first sends a bounded
+request task. The assigned worker reads, claims and reports it through
+get_task, claim_task and report_task_result. Only an explicitly authorized cloud
+executor may validate that advisory request and perform the bounded mechanical
+acquisition. A second task lets the worker review sanitized evidence receipts.
+The task service does not itself grant cloud execution or implement this executor.
+No independent scheduled API collector, inference API execution or automatic
+provider failover is part of this operating proposal.
+
+Raw inputs, decisions, hypothetical ledgers and actual retained production records
+remain in the approved private cloud. Worker materials and local/public summaries
+contain only sanitized dates, counts, hashes and statuses. Delayed worker reporting
+must retain its actual time and cannot establish timely acquisition without the
+original immutable evidence. Missing acquisition remains missing under the fixed
+window rules; this clarification cannot validate late historical reconstruction.
+It changes no parameter, comparator, metric, date, missing-data rule or permission,
+and does not unpark the synthetic-only replay. A scientific correction still
+requires a separate prospective registration. Admission, executor qualification,
+all required frozen inputs and explicit execution authorization remain prerequisites.
+
 No schedule, cloud job, dispatch or collector is activated by this PR.
 Actually collecting the observations still requires a separate bounded follow-up:
 
