@@ -43,7 +43,7 @@ BIL 仍有收益、波动和交易成本。窗口和目标记录在回测结果 
 [Moreira–Muir 原论文](https://amoreira2.github.io/alan-moreira.github.io/VolPortfolios_published.pdf)。
 原论文采用上月方差倒数缩放，本候选不是其直接复现，也不能承接其收益结论。
 [Cederburg 等的研究](https://www.lehigh.edu/~xuy219/research/COWY.pdf)提供样本外未系统胜出的反向证据。
-固定作者摘要已接入 AAB；[run35136606479](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/35136606479) 认证通过，因 quota deferred 未执行模型。本候选由人工实现；AI 评审与金融验收仍待完成；旧 NBER 案例仍停止。
+固定作者摘要已接入 AAB；[run35136606479](https://github.com/QuantStrategyLab/PersonalAIService/actions/runs/35136606479) 认证通过，因 quota deferred 未执行模型。本候选由人工实现；AI 评审与金融验收仍待完成；旧 NBER 案例仍停止。
 
 ## 验证与限制
 
