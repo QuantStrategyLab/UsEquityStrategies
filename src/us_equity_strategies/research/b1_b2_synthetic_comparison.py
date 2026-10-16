@@ -137,7 +137,9 @@ def _path_stats(returns: Sequence[float], exposures: Sequence[float | None]) -> 
     return {
         "final_gross_wealth": wealth,
         "mean_log_growth": log_growth / n,
-        "max_drawdown": max_dd,
+        "max_drawdown": -max_dd,
+        "return_basis": "gross_before_costs",
+        "drawdown_sign": "signed_nonpositive_includes_initial_nav",
         "mean_exposure": sum(used) / n,
         "max_exposure": max(used),
         "gross_turnover": turnover,

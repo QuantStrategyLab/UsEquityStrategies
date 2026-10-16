@@ -115,6 +115,15 @@ def test_fixture_dataclasses_have_no_defaults():
         assert all(f.default is dataclasses.MISSING for f in dataclasses.fields(cls))
 
 
+def test_gross_drawdown_has_the_same_signed_definition_and_initial_nav_as_net_report():
+    row = cmp._path_stats([-.2, .25, 0.], [1., 1., 1.])
+    assert row["max_drawdown"] == pytest.approx(-.2)
+    assert row["final_gross_wealth"] == pytest.approx(1.)
+    assert row["mean_log_growth"] == pytest.approx(0., abs=TOL)
+    assert row["return_basis"] == "gross_before_costs"
+    assert row["drawdown_sign"] == "signed_nonpositive_includes_initial_nav"
+
+
 @pytest.mark.parametrize("cap,total,cash,other,expected", [
     (.679, .97, .03, 0., .679),
     (1., .97, .03, 0., .97),
