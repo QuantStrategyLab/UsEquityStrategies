@@ -1,0 +1,20 @@
+name: Advisory Review Health
+on:
+  schedule:
+    - cron: '35 8 * * *'
+  workflow_run:
+    workflows: [Drift Check, Evidence Gate]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  issues: write
+jobs:
+  check:
+    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/review-loop-deadman.yml@feat/advisory-review-closed-loop
+    with:
+      lanes_json: >-
+        [{"workflow":"drift-check.yml","job":"drift","interval_hours":24,"enabled_at":"2026-10-15T00:00:00Z"},
+         {"workflow":"evidence-gate.yml","job":"gate","interval_hours":0}]
+      threshold: '3'
