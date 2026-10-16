@@ -50,6 +50,26 @@ class ExecutionPath:
     scope: str = "DEVELOPMENT_ONLY"
     cost_accounting: str = "at_fill_pre_fill_nav_no_weight_feedback"
 
+    @property
+    def timing_execution(self) -> str:
+        """Canonical report label without changing the A2 model's wire enum."""
+        return "same_close_research_only" if self.timing == "same_close" else self.timing
+
+
+def require_comparable_execution_paths(paths: Sequence[ExecutionPath], *, execution: str = "next_close") -> None:
+    """Reject mixed A2 paths before metric comparison, without granting promotion."""
+    if not paths or execution not in ("next_close", "next_open"):
+        raise ValueError("CAUSAL_EXECUTION_REQUIRED")
+    reference = paths[0]
+    for path in paths:
+        if path.timing_execution != execution:
+            raise ValueError("EXECUTION_TIMING_MISMATCH")
+        if (path.sessions, path.price_basis, path.model_version, path.cost_accounting,
+            path.commission_bps, path.slippage_bps, path.cost_multiplier) != (
+                reference.sessions, reference.price_basis, reference.model_version, reference.cost_accounting,
+                reference.commission_bps, reference.slippage_bps, reference.cost_multiplier):
+            raise ValueError("EXECUTION_COMPARISON_INPUT_MISMATCH")
+
 
 def _finite(value: object, *, positive: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
