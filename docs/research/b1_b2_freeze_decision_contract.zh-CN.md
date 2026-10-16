@@ -176,3 +176,10 @@ PYTHONPATH=src python -m pytest -q tests/research/test_b1_b2_rs04_synthetic_acce
 |`build_unified_net_report`|`b6b51d5c32594c47cc1b3ebc0c1ed226e9db887f`|缺 gross 时 cost drag 为 UNCOMPUTABLE，缺 trials 时 DSR 为 UNCOMPUTABLE；没有 RS-04 角色参数，caller-supplied digest 不是账本证明|
 
 `docs/research/kelly_security_level_ledger_design.zh-CN.md` 仍是设计。在 QPK 提供并经准入的证券级净交易接口之前，RS-04 的现金/费用角色保持上表的并列差分，研究在这一缺口上停在 `QPK_INTERFACE_ABSENT`，不把三列 turnover 相加。
+
+
+## 离线比较的共同上限（2026-10-16）
+
+合成 harness 的 B1 与 B2 现在共用显式 `ScopeLimits`：总名义仓位上限、现金预留和其他既有暴露；产品上限仍取 B1 的同一个 `existing_cap`，不允许 B2 单独绕开。两表的目标上限为 `min(existing_cap, total_gross_cap - other_gross_exposure, 1 - cash_reserve - other_gross_exposure)`。B2 基础暴露先裁切到该上限，再乘回撤因子。任一上限缺失时两表均 `UNCOMPUTABLE`，不补 1、不当现金回测成绩；其他暴露本身已超过预算时停止。
+
+这些是每次决策目标的合成约束；价格漂移、跳空和费用仍可能改变随后权重，不宣称逐时刻实盘保证。实际账户限额来源保持 `NOT_ATTESTED`，本模块不能读取或改变生产限额。回归夹具中的 .679/.97/.03 只复现已报告缺口，不能转成通用默认。完整成交、净成本和输入冻结规范见后续 N6 规范；当前 gross 表不能充当净 CAGR/Calmar 晋级结果。
