@@ -17,12 +17,34 @@ class UsRotationBacktestConfig:
     min_history_days: int = 260
     cost_bps: float = 10.0
     include_current_holdings: bool = False
+    execution_timing: str = "same_close_research_only"
 
 
 @dataclass
 class UsRotationBacktestResult:
     daily_returns: pd.Series
     metrics: dict[str, float | int] = field(default_factory=dict)
+    timing_execution: str = "UNDECLARED"
+    cost_bps: float | None = None
+
+
+def require_comparable_rotation_results(results: Sequence[UsRotationBacktestResult], *,
+                                        execution: str = "next_close") -> None:
+    """Reject mixed research windows/timing/costs before comparing any metrics.
+
+    This checks simulation comparability, never promotion or trading authority.
+    The legacy same-close path is a labeled hypothetical control only.
+    """
+    if not results or execution not in ("next_close", "next_open"):
+        raise ValueError("causal timing and at least one result are required")
+    reference = results[0]
+    for result in results:
+        if result.timing_execution != execution:
+            raise ValueError("execution timing mismatch or research-only same-close control")
+        if not result.daily_returns.index.equals(reference.daily_returns.index):
+            raise ValueError("comparison sessions must match exactly")
+        if result.cost_bps is None or result.cost_bps != reference.cost_bps:
+            raise ValueError("comparison cost assumptions must match exactly")
 
 
 def build_close_matrix(
@@ -126,8 +148,18 @@ def run_etf_rotation_backtest(
     strategy_kwargs: Mapping[str, Any] | None = None,
 ) -> UsRotationBacktestResult:
     settings = config or UsRotationBacktestConfig()
+    if settings.execution_timing not in ("next_close", "next_open", "same_close_research_only"):
+        raise ValueError("execution_timing must be next_close, next_open or same_close_research_only")
     kwargs = dict(strategy_kwargs or {})
     close = build_close_matrix(market_history, universe_symbols=universe_symbols)
+    opens = None
+    if settings.execution_timing == "next_open":
+        if "open" not in market_history.columns:
+            raise ValueError("next_open requires explicit open prices")
+        open_history = market_history.drop(columns="close").rename(columns={"open": "close"})
+        opens = build_close_matrix(open_history, universe_symbols=universe_symbols).reindex(
+            index=close.index, columns=close.columns,
+        )
     if len(close) < int(settings.min_history_days):
         raise ValueError(
             f"market_history requires at least {int(settings.min_history_days)} overlapping trading days"
@@ -165,23 +197,31 @@ def run_etf_rotation_backtest(
                     or math.fsum(selected.values()) > 1.0):
                     raise ValueError("target weights must be finite, non-negative and sum to at most one")
                 pending_target = pd.Series(selected, index=close.columns)
-        if pending_target is not None:
-            # Preserve the close-only lag-one convention: the signal at d close
-            # sets holdings for d -> d+1, with its fee charged in that interval.
-            # This is not proof that a close-derived signal can fill live at d.
-            shares, cash, _fees = _rebalance_holdings(
-                shares, cash, close.iloc[position - 1], pending_target, cost_rate=cost_rate,
-            )
+        if pending_target is not None and settings.execution_timing != "next_close":
+            # The legacy branch fills at the signal close, with fees in the
+            # next interval. The explicit next-open branch instead uses the
+            # following session's open and budgets fees before intraday gains.
+            fill_prices = opens.iloc[position] if opens is not None else close.iloc[position - 1]
+            shares, cash, _fees = _rebalance_holdings(shares, cash, fill_prices, pending_target, cost_rate=cost_rate)
             pending_target = None
         held = shares > 0.0
         prices = close.iloc[position][held]
         if any(not math.isfinite(price) or price <= 0.0 for price in prices):
             raise ValueError("held assets require positive finite mark prices")
         marked_equity = cash + float((shares[held] * prices).sum())
+        if pending_target is not None:
+            # The previous completed-close signal fills only after this day's
+            # old holdings have earned their return. Include terminal fill fees.
+            shares, cash, fees = _rebalance_holdings(
+                shares, cash, close.iloc[position], pending_target, cost_rate=cost_rate,
+            )
+            marked_equity -= fees
+            pending_target = None
         net.iloc[position] = marked_equity / equity - 1.0
         equity = marked_equity
     metrics = compute_backtest_metrics(net)
-    return UsRotationBacktestResult(daily_returns=net, metrics=metrics)
+    return UsRotationBacktestResult(daily_returns=net, metrics=metrics,
+                                   timing_execution=settings.execution_timing, cost_bps=settings.cost_bps)
 
 
 __all__ = [
@@ -190,4 +230,5 @@ __all__ = [
     "build_close_matrix",
     "compute_backtest_metrics",
     "run_etf_rotation_backtest",
+    "require_comparable_rotation_results",
 ]

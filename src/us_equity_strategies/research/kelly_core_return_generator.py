@@ -98,6 +98,11 @@ class CorePath:
     first_signal: date | None = None
     close_fill_turnover: tuple[float, ...] = ()  # actual close fills / pre-fill NAV; opt-in measurement only
 
+    @property
+    def timing_execution(self) -> str:
+        """Canonical report label; legacy serialization and path hashes stay intact."""
+        return "next_close"
+
     def window(self, start: date, end: date) -> CorePath:
         idx = [i for i, d in enumerate(self.sessions) if start <= d <= end]
         if not idx or self.sessions[idx[0]] != start or self.sessions[idx[-1]] != end:
