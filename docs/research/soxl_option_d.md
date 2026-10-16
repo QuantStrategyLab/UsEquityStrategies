@@ -27,3 +27,25 @@ Caps facts concern all published hard caps / cash floor. Unrestorable caps, inte
 QPK `StrategyRiskStateIdentity` keeps strategy / logical account / candidate / config identities. Policy and overlay hashes remain distinct state fields; calendar and full session-fact bytes are hashed. Changing any binding within a chain is rejected. The existing QPK `StrategyRiskStateStore` persists these transitions create-only; no new state storage framework, runtime gate or environment variable is introduced. Explicit callers must use a new identity for independent research chains and retain the same frozen calendar on restart.
 
 Rollback: revert the new module, tests and this document by a normal new commit, or stop explicitly calling the research function. Preserve existing research evidence, hard-latch history and all independent platform protections. No candidate JSON bytes are rewritten.
+
+## Default-OFF replay
+
+`research.soxl_option_d_replay.replay_option_d(baseline_report, ...)` defaults `option_d_research_replay_enabled=False` and returns the same baseline object without reading observations. Explicit enable adds an `option_d_replay` appendix. Existing holdings and `combined_scale` stay unchanged. `requested_new_risk_usd` is an optional simulated new-risk budget; S0/HARD multiply it by zero, S1 by .5, and S2 by 1. This never forms order quantities. No broker, executor, client or cloud-store argument is accepted, and any mode other than `RESEARCH_ONLY` is rejected.
+
+The opt-in consumer expands absent calendar rows into missing facts, including a missing leading prefix. Set `through_session` to include trailing missing sessions; without it evaluation ends at the last supplied observation. Duplicate, unordered and non-session rows are rejected. Passing `existing_transitions` validates the QPK chain and reproduces the entire frozen input prefix before accepting a restart. Returned QPK transitions can be appended to the existing create-only store by an explicit local research caller; the replay itself writes no storage.
+
+For local files, run:
+
+```bash
+# OFF: copies the original bytes, even preserving whitespace.
+PYTHONPATH=src python scripts/run_soxl_option_d_replay.py --baseline-report baseline.json
+
+# Explicit offline opt-in; these are frozen local artifacts, not runtime config.
+PYTHONPATH=src python scripts/run_soxl_option_d_replay.py \
+  --baseline-report baseline.json --option-d-research-replay-enabled \
+  --input input.json --config config.json --policy policy.json --overlay overlay.md
+```
+
+The manifest contains `identity` (QPK fields), `calendar_start`, `calendar_end`, and ordered `observations` (SessionFacts objects, with optional HaltEvidence). Optional fields are `through_session` and `requested_new_risk_usd`. Other fields are rejected. `config_sha256` must match the config bytes; policy/overlay bytes are independently hashed without rewriting them. The enabled CLI needs the research environment's `pandas_market_calendars`; the default OFF CLI needs only Python and the baseline file. This explicit script is not registered in the production entrypoint/catalog and updates no environment settings.
+
+Replay rollback: leave the enable parameter false, or revert the replay module/script/tests and this documentation extension by a normal commit. Preserve existing evidence and all independent runtime controls.
