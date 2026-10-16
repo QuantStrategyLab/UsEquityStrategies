@@ -79,6 +79,27 @@ class B2Fixture:
     ladder_half_until: float
 
 
+@dataclass(frozen=True)
+class ScopeLimits:
+    """Caller-supplied comparison constraints, never a production risk policy."""
+    total_gross_cap: float | None
+    cash_reserve: float | None
+    other_gross_exposure: float | None
+
+
+def _effective_cap(existing_cap: float | None, limits: ScopeLimits) -> float | None:
+    values = (existing_cap, limits.total_gross_cap, limits.cash_reserve, limits.other_gross_exposure)
+    if any(v is None for v in values):
+        return None
+    if any(isinstance(v, bool) or not isinstance(v, (int, float))
+           or not math.isfinite(v) or not 0.0 <= v <= 1.0 for v in values):
+        raise PreparationStop("SCOPE_LIMITS_INVALID")
+    remaining = min(limits.total_gross_cap, 1.0 - limits.cash_reserve) - limits.other_gross_exposure
+    if remaining < 0:
+        raise PreparationStop("OTHER_EXPOSURE_EXCEEDS_SCOPE_BUDGET")
+    return min(existing_cap, remaining)
+
+
 def synthetic_returns(*, seed: int, sessions: int, regimes: Sequence[tuple[float, float]],
                       regime_length: int) -> tuple[float, ...]:
     """Deterministic regime-switching Gaussian simple returns. Synthetic, not market data."""
@@ -137,7 +158,8 @@ def _ewma_forecasts(returns: Sequence[float], fx: B1Fixture) -> list[float | Non
     return out
 
 
-def b1_exposures(returns: Sequence[float], fx: B1Fixture) -> dict[str, list[float | None]]:
+def b1_exposures(returns: Sequence[float], fx: B1Fixture, *, limits: ScopeLimits) -> dict[str, list[float | None]]:
+    cap = _effective_cap(fx.existing_cap, limits)
     if fx.c_for_vol_target_row not in ALLOWED_C:
         raise PreparationStop("C_NOT_IN_ALLOWED_SET")
     if type(fx.ewma_warmup) is not int or fx.ewma_warmup < 1:
@@ -154,17 +176,22 @@ def b1_exposures(returns: Sequence[float], fx: B1Fixture) -> dict[str, list[floa
                 target_vol=fx.target_vol, forecast_vol=forecasts[t]),
         }
         for name, kw in calls.items():
-            res = compose_exposure(existing_cap=fx.existing_cap, **kw)
+            res = compose_exposure(existing_cap=cap, **kw)
             rows[name].append(res["exposure"])
     return rows
 
 
-def b2_exposures(returns: Sequence[float], fx: B2Fixture) -> dict[str, list[float]]:
+def b2_exposures(returns: Sequence[float], fx: B2Fixture, *, existing_cap: float | None,
+                 limits: ScopeLimits) -> dict[str, list[float | None]]:
     """Each row tracks its own gross wealth; the factor at t uses wealth through t - 1."""
-    base = float(fx.base_exposure)
-    if not 0.0 <= base <= 1.0:
+    base = fx.base_exposure
+    if isinstance(base, bool) or not isinstance(base, (int, float)) or not math.isfinite(base) or not 0.0 <= base <= 1.0:
         raise PreparationStop("BASE_EXPOSURE_INVALID")
-    rows: dict[str, list[float]] = {}
+    cap = _effective_cap(existing_cap, limits)
+    if cap is None:
+        return {name: [None] * len(returns) for name in B2_ROWS}
+    base = min(base, cap)
+    rows: dict[str, list[float | None]] = {}
     for name in B2_ROWS:
         wealth, peak, path = 1.0, 1.0, []
         for r in returns:
@@ -184,6 +211,7 @@ def b2_exposures(returns: Sequence[float], fx: B2Fixture) -> dict[str, list[floa
 
 
 def run_comparison(returns: Sequence[float], *, b1: B1Fixture, b2: B2Fixture,
+                   limits: ScopeLimits,
                    requested_rows: Sequence[str] | None = None) -> dict[str, object]:
     """Report B1 and B2 tables separately. Never crosses B1 rows with B2 rows."""
     requested = tuple(requested_rows) if requested_rows is not None else B1_ROWS + B2_ROWS
@@ -194,17 +222,22 @@ def run_comparison(returns: Sequence[float], *, b1: B1Fixture, b2: B2Fixture,
             raise PreparationStop("ROW_NOT_REGISTERED:" + name)
     if not returns:
         raise PreparationStop("SYNTHETIC_SHAPE_INVALID")
-    b1_paths = b1_exposures(returns, b1)
-    b2_paths = b2_exposures(returns, b2)
+    if any(isinstance(r, bool) or not isinstance(r, (int, float)) or not math.isfinite(r) or r <= -1 for r in returns):
+        raise PreparationStop("RETURN_INVALID")
+    cap = _effective_cap(b1.existing_cap, limits)
+    b1_paths = b1_exposures(returns, b1, limits=limits)
+    b2_paths = b2_exposures(returns, b2, existing_cap=b1.existing_cap, limits=limits)
     b1_table: dict[str, Mapping[str, object]] = {}
     for name in B1_ROWS:
         if name not in requested:
             continue
-        if b1.existing_cap is None:
-            b1_table[name] = {"status": "UNCOMPUTABLE", "reason_code": "CAP_NOT_ATTESTED"}
+        if cap is None:
+            b1_table[name] = {"status": "UNCOMPUTABLE", "reason_code": "SCOPE_LIMITS_NOT_ATTESTED"}
         else:
             b1_table[name] = _path_stats(returns, b1_paths[name])
-    b2_table = {n: _path_stats(returns, b2_paths[n]) for n in B2_ROWS if n in requested}
+    b2_table = {n: (_path_stats(returns, b2_paths[n]) if cap is not None else
+                    {"status": "UNCOMPUTABLE", "reason_code": "SCOPE_LIMITS_NOT_ATTESTED"})
+                for n in B2_ROWS if n in requested}
     return {
         **_COMMON,
         "b1": b1_table,
