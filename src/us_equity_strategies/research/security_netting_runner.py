@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -82,6 +82,9 @@ def run_offline_security_netting(
         raise ValueError("QPK_SECURITY_NETTING_REQUIRED") from exc
     if type(spec) is not SecurityNettingSpec:
         raise ValueError("NETTING_SPEC_INVALID")
+    # Frozen dataclass fields can still contain a caller-owned mutable dict.
+    # Snapshot rates and rerun QPK validation before any fee enters the ledger.
+    spec = replace(spec, bps_per_side=dict(spec.bps_per_side))
     if (any(not isinstance(s, str) or not s for s in spec.cash_like_symbols)
             or len(set(spec.cash_like_symbols)) != len(spec.cash_like_symbols)):
         raise ValueError("CASH_LIKE_SYMBOLS_INVALID")

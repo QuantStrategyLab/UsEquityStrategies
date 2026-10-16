@@ -218,3 +218,11 @@ def test_no_trade_is_not_charged_and_empty_inner_book_can_drift():
 def test_invalid_cash_like_labels(symbols):
     with pytest.raises(ValueError, match="CASH_LIKE_SYMBOLS_INVALID"):
         run([session()], spec=spec(cash_like_symbols=symbols))
+
+
+def test_mutated_fee_mapping_cannot_credit_cash():
+    model = spec()
+    # QPK freezes attribute assignment, not the caller-owned rate dictionary.
+    model.bps_per_side["A"] = -100.
+    with pytest.raises(ValueError, match="BPS_INVALID"):
+        run([session()], spec=model)
