@@ -98,6 +98,8 @@ BASE_RUNTIME_ADAPTERS: dict[str, StrategyRuntimeAdapter] = {
     ),
     NASDAQ_SP500_SMART_DCA_PROFILE: StrategyRuntimeAdapter(
         status_icon=nasdaq_sp500_smart_dca_strategy.STATUS_ICON,
+        runtime_parameter_loader=nasdaq_sp500_smart_dca_strategy.load_runtime_parameters,
+        artifact_contract=StrategyArtifactContract(config_source_policy="env_only"),
         portfolio_input_name="portfolio_snapshot",
         available_capabilities=frozenset({"fractional_share_execution"}),
         runtime_policy=StrategyRuntimePolicy(signal_effective_after_trading_days=0),

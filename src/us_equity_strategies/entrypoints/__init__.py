@@ -1902,6 +1902,30 @@ mega_cap_leader_rotation_strategy.compute_signals.__doc__ = (
 )
 
 
+def _apply_dca_new_buy_risk_gate(decision: StrategyDecision, ctx: StrategyContext) -> StrategyDecision:
+    """Check real targets and the combined Nasdaq exposure with unchanged caps.
+
+    Aggregated targets are risk-check inputs only, never execution targets.
+    Each equivalent ticker's existing cap must cover the entire exposure.
+    The opt-in path requires platform-supplied, verified capital evidence.
+    """
+    decision = apply_risk_gate(decision, ctx=ctx, enforce_value_target_exposure=True)
+    if decision.diagnostics.get("risk_gate") != "APPROVE" or not decision.positions:
+        return decision
+    symbols = nasdaq_sp500_smart_dca_strategy.NASDAQ_EXPOSURE_SYMBOLS
+    combined_value = sum(float(p.target_value or 0.0) for p in decision.positions if p.symbol in symbols)
+    other_positions = tuple(p for p in decision.positions if p.symbol not in symbols)
+    for symbol in symbols:
+        combined = replace(
+            decision,
+            positions=(*other_positions, PositionTarget(symbol=symbol, target_value=combined_value)),
+        )
+        checked = apply_risk_gate(combined, ctx=ctx, enforce_value_target_exposure=True)
+        if checked.diagnostics.get("risk_gate") != "APPROVE":
+            return checked
+    return decision
+
+
 def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
     config = merge_runtime_config(nasdaq_sp500_smart_dca_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
@@ -1967,6 +1991,8 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         "managed_symbols": plan["managed_symbols"],
         "signal_symbols": plan["signal_symbols"],
         "trade_allocations": plan["trade_allocations"],
+        "new_buy_execution_symbol": plan["new_buy_execution_symbol"],
+        "nasdaq_combined_target_value": plan["nasdaq_combined_target_value"],
         "target_values": plan["target_values"],
         "execution_annotations": {
             "trade_threshold_value": plan["min_investment_usd"],
@@ -2011,7 +2037,10 @@ def evaluate_nasdaq_sp500_smart_dca(ctx: StrategyContext) -> StrategyDecision:
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
-    decision = apply_risk_gate(decision, ctx=ctx)
+    if plan["new_buy_execution_symbol"] is not None:
+        decision = _apply_dca_new_buy_risk_gate(decision, ctx)
+    else:
+        decision = apply_risk_gate(decision, ctx=ctx)
     record_strategy_decision(
         ctx,
         decision,

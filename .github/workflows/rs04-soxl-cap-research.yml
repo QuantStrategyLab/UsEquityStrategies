@@ -1,0 +1,61 @@
+name: RS-04 SOXL Cap Research
+run-name: RS-04 SOXL cap comparison (one attempt)
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcs_input_prefix:
+        description: Exact approved RS-04 archive copy under the existing research input bucket
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rs04-soxl-cap-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RS04_ARCHIVE_GCS_PREFIX: ${{ inputs.gcs_input_prefix }}
+    steps:
+      - name: Checkout reviewed research source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Validate the exact archive location before authentication
+        run: python3 scripts/rs04_soxl_cap_research.py --preflight | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash --noprofile --norc -eo pipefail {0}
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install an isolated research runtime
+        run: |
+          set -euo pipefail
+          python -m pip install .
+          python -m pip install --force-reinstall \
+            'quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@b6b51d5c32594c47cc1b3ebc0c1ed226e9db887f'
+          python -m pip check
+      - name: Run synthetic acceptance before any data read
+        run: python -m unittest discover -s tests -p test_rs04_soxl_cap_research.py -v
+      - name: Authenticate with the existing read-only research identity
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+      - name: Compare fixed caps and emit only aggregate research metrics
+        run: |
+          set -euo pipefail
+          umask 077
+          PYTHONPATH=src python scripts/rs04_soxl_cap_research.py | tee -a "$GITHUB_STEP_SUMMARY"

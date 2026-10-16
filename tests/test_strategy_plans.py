@@ -185,7 +185,7 @@ class StrategyPlanMetadataTest(unittest.TestCase):
             positions=[SimpleNamespace(symbol="BOXX", market_value=150000.0, quantity=1000)],
             total_equity=150000.0,
             buying_power=20000.0,
-            metadata={"account_ids": ["U1234567"]},
+            metadata={"account_ids": ["U00000001"]},
         )
 
         plan = build_tqqq_plan(

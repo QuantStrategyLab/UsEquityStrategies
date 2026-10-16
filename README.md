@@ -19,6 +19,18 @@ It is one layer of a multi-repository system:
 
 This repository owns strategy code and metadata. It does not hold broker credentials, submit orders by itself, or replace the snapshot/backtest evidence required before a profile is enabled for live runtime settings.
 
+## Configuration
+
+Export these environment variables before importing or running the offline R3 evidence runner to use existing local files. Relative defaults resolve from the working directory.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `UES_R3_OUTPUT_ROOT` | Offline evidence output directory | Optional | `.local/r3_joint_evidence` |
+| `UES_R3_CONTRACT_PATH` | Local acceptance contract | Optional | `.local/r3_joint_evidence/acceptance-contract.md` |
+| `UES_R3_WORKER_PROMPT_PATH` | Local worker prompt | Optional | `.local/r3_joint_evidence/worker-prompt.md` |
+| `UES_R3_PRIVATE_ROOT` | Private research input root | Optional | `.local/private_research` |
+
+
 ## Strategy profiles
 
 ### Direct runtime strategies
@@ -54,6 +66,8 @@ Research-only profiles may stay in code for reproducibility and future review, b
 Execution platforms consume this package through strategy loaders and runtime metadata. Current downstream platforms: CharlesSchwabPlatform, InteractiveBrokersPlatform, LongBridgePlatform, and FirstradePlatform.
 
 Use the platform repositories for broker credentials, dry-run/live switches, order submission, and deployment settings.
+
+The opt-in [`qqq-dca-qndx-newbuys-202610` configuration](docs/qqq-dca-qndx-newbuys-202610.md) routes only new Nasdaq DCA contributions to QNDX, retains existing QQQ/QQQM holdings, and keeps QQQ signals. The default remains QQQM; selecting the descriptive alias alone does not enable the switch.
 
 ## QSL architecture role
 
