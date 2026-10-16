@@ -7,6 +7,7 @@ import pandas as pd
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 
+from .smart_dca_research import _annotate_investment_risk, _signal_history_before_execution
 from us_equity_strategies.strategies.ibit_smart_dca import build_rebalance_plan
 
 
@@ -35,17 +36,6 @@ def _close_series(values: Any) -> pd.Series:
     return series.sort_index()
 
 
-def _max_drawdown(values: list[float]) -> float:
-    peak = 0.0
-    max_dd = 0.0
-    for value in values:
-        peak = max(peak, float(value))
-        if peak <= 0.0:
-            continue
-        max_dd = max(max_dd, 1.0 - float(value) / peak)
-    return float(max_dd)
-
-
 def _portfolio(as_of: pd.Timestamp, *, cash: float, shares: float, price: float) -> PortfolioSnapshot:
     return PortfolioSnapshot(
         as_of=as_of.to_pydatetime(),
@@ -66,7 +56,7 @@ def _run_path(
     start_date: pd.Timestamp | None,
     plan_overrides: dict[str, object],
 ) -> DcaBacktestResult:
-    dates = sorted(set(signal_prices.index).intersection(set(trade_prices.index)))
+    dates = list(trade_prices.index)
     if start_date is not None:
         start = pd.Timestamp(start_date).normalize()
         dates = [date for date in dates if pd.Timestamp(date).normalize() >= start]
@@ -76,7 +66,7 @@ def _run_path(
     invested = 0.0
     last_contribution_month = ""
     traded_months: set[str] = set()
-    equity_curve: list[float] = []
+    equity_curve: list[dict[str, object]] = []
     trades: list[dict[str, object]] = []
     uses_smart_multiplier = plan_overrides.get("smart_multiplier_enabled", True) is not False
 
@@ -90,7 +80,7 @@ def _run_path(
             last_contribution_month = month_key
 
         if month_key not in traded_months:
-            history_to_date = signal_prices.loc[signal_prices.index <= date]
+            history_to_date = _signal_history_before_execution(signal_prices, date)
             if len(history_to_date) >= 252 or not uses_smart_multiplier:
                 plan = build_rebalance_plan(
                     lambda _client, _symbol: history_to_date,
@@ -98,7 +88,7 @@ def _run_path(
                     as_of=date,
                     min_investment_usd=0.0,
                     cash_reserve_usd=0.0,
-                    **plan_overrides,
+                    **{"base_investment_usd": monthly_contribution_usd, **plan_overrides},
                 )
                 if plan["actionable"]:
                     current_value = shares * price
@@ -124,7 +114,11 @@ def _run_path(
                 elif plan["skip_reason"] != "outside_execution_window":
                     traded_months.add(month_key)
 
-        equity_curve.append(cash + shares * price)
+        equity_curve.append({
+            "date": date.date().isoformat(),
+            "equity": cash + shares * price,
+            "contributions": contributions,
+        })
 
     final_price = float(trade_prices.loc[dates[-1]]) if dates else 0.0
     terminal_value = cash + shares * final_price
@@ -135,7 +129,7 @@ def _run_path(
         shares=float(shares),
         contributions=float(contributions),
         invested=float(invested),
-        max_drawdown=_max_drawdown(equity_curve),
+        max_drawdown=_annotate_investment_risk(equity_curve)[0],
         trades=tuple(trades),
     )
 
@@ -153,8 +147,8 @@ def compare_smart_vs_fixed_dca(
     trade_series = _close_series(trade_prices)
     overrides = dict(plan_overrides or {})
     common_start = pd.Timestamp(start_date).normalize() if start_date is not None else None
-    if align_start_after_smart_warmup and len(signal_series) >= 252:
-        warmup_start = pd.Timestamp(signal_series.index[251]).normalize()
+    if align_start_after_smart_warmup and len(signal_series) > 252:
+        warmup_start = pd.Timestamp(signal_series.index[252]).normalize()
         common_start = max(common_start, warmup_start) if common_start is not None else warmup_start
     smart = _run_path(
         name="smart",

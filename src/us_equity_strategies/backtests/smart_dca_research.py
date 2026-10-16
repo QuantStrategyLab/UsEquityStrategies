@@ -1036,6 +1036,11 @@ def _candidate_multiplier(
     raise ValueError(f"unsupported smart DCA rule_type: {candidate.rule_type}")
 
 
+def _signal_history_before_execution(prices, execution_date: pd.Timestamp):
+    """Research signals must be observable before the execution session."""
+    return prices.loc[prices.index < execution_date]
+
+
 def _max_drawdown(values: list[float]) -> float:
     peak = 0.0
     max_dd = 0.0
@@ -1291,7 +1296,7 @@ def _run_path(
                 metrics: dict[str, object] = {}
             else:
                 assert signal_prices is not None
-                history = signal_prices.loc[signal_prices.index < date]
+                history = _signal_history_before_execution(signal_prices, date)
                 multiplier, regime, metrics = _candidate_multiplier(candidate, history, as_of=date)
             last_metrics = dict(metrics)
 
