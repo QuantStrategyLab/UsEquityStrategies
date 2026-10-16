@@ -8,7 +8,7 @@ Signed session loss is `E0 + deposits - withdrawals - E_t`. Keep the sign for lo
 
 `E_halt` is equity at the **soft-halt trigger instant**, and `cluster_loss` is a **positive loss amount**. G6 is `E_t >= E_halt + .5 * cluster_loss`; the former minus sign and `OR E_t >= E_halt` are superseded. For 1700 / 300, the boundary is 1850. In the implementation, recovery equity subtracts verified cumulative external flows since the trigger, so deposits cannot manufacture recovery. Cumulative flows must share one fixed ledger origin.
 
-`HaltEvidence` supplies the trigger equity, positive loss, cluster interval and frozen source hash. The state machine never guesses the loss cluster from the three-day counter. It freezes the reference at the trigger; S1 loss/daily-breach fallback requires fresh trigger facts. Missing reference facts fail G6 and cannot recover. This is intentional: a losing streak alone does not establish a dollar loss cluster.
+`HaltEvidence` supplies the trigger equity, positive loss, cluster interval, frozen source hash and `trigger_net_flows` (cumulative verified flows at the same trigger instant). Never substitute the session-end flow level: deposits after an intraday trigger must still be deducted from recovery equity. The state machine never guesses the loss cluster from the three-day counter. It freezes the reference at the trigger; S1 loss/daily-breach fallback requires fresh trigger facts. Missing reference facts fail G6 and cannot recover. This is intentional: a losing streak alone does not establish a dollar loss cluster.
 
 ## Clock and evaluation
 

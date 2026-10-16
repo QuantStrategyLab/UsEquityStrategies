@@ -112,6 +112,7 @@ class HaltEvidence:
     cluster_start: str
     cluster_end: str
     source_sha256: str
+    trigger_net_flows: float
 
     def __post_init__(self):
         for d in (self.trigger_session, self.cluster_start, self.cluster_end):
@@ -122,6 +123,9 @@ class HaltEvidence:
         if not self.cluster_start <= self.cluster_end <= self.trigger_session:
             raise ValueError("invalid loss-cluster interval")
         _sha(self.source_sha256)
+        _money(self.trigger_net_flows)
+        if self.trigger_net_flows is None:
+            raise ValueError("halt evidence requires trigger-instant cumulative flows")
 
 
 @dataclass(frozen=True)
@@ -255,7 +259,7 @@ def advance_option_d(
             if facts.session != ref.trigger_session or not qualified:
                 raise ValueError("new halt evidence requires qualified trigger-session facts")
             state.update(halt_equity=ref.equity, cluster_loss=ref.cluster_loss,
-                         halt_cumulative_net_flows=facts.cumulative_net_flows, halt_evidence=asdict(ref))
+                         halt_cumulative_net_flows=ref.trigger_net_flows, halt_evidence=asdict(ref))
 
     if breached:
         state["daily_latched"] = True

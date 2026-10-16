@@ -34,7 +34,7 @@ def facts(day, opening=2000, closing=2000, **kwargs):
 
 
 def evidence(day, equity=1700, loss=300):
-    return HaltEvidence(day, equity, loss, "2026-10-01", day, "d" * 64)
+    return HaltEvidence(day, equity, loss, "2026-10-01", day, "d" * 64, 0)
 
 
 def chain(rows, b=None):
@@ -211,7 +211,7 @@ def test_caps_or_flow_unknown_blocks_recovery():
 def test_holidays_and_halfday_count_for_c_and_k():
     b=binding("2026-11-20","2026-11-30")
     rows=[facts("2026-11-20",2000,1900),facts("2026-11-23",1900,1800),
-          facts("2026-11-24",1800,1700,halt_evidence=HaltEvidence("2026-11-24",1700,300,"2026-11-20","2026-11-24","d"*64)),
+          facts("2026-11-24",1800,1700,halt_evidence=HaltEvidence("2026-11-24",1700,300,"2026-11-20","2026-11-24","d"*64,0)),
           facts("2026-11-25",1700,1850),facts("2026-11-27",1850,1850)]
     s=chain(rows,b)[-1].state
     assert s["completed_since_halt"] == 2 and s["non_loss_streak"] == 2 and s["step"] == "S1"
@@ -227,3 +227,14 @@ def test_repeated_three_loss_cluster_restarts_reference_and_clock():
 def test_unknown_session_does_not_join_separated_losses_into_known_streak():
     rows=[facts("2026-10-01",2000,1990),facts("2026-10-02",1990,1980),SessionFacts("2026-10-05"),facts("2026-10-06",1980,1970)]
     assert chain(rows)[-1].state["loss_streak"] == 1
+
+
+def test_trigger_day_deposit_after_halt_cannot_manufacture_g6_recovery():
+    # Loss from 1800 to 1700 triggers, then a 100 deposit raises the close to 1800.
+    rows=loss_cluster()
+    rows[2]=replace(rows[2],equity_end=1800,deposits=100,cumulative_net_flows=100,
+                    halt_evidence=replace(rows[2].halt_evidence,trigger_net_flows=0))
+    rows += [replace(facts("2026-10-06",1800,1850),cumulative_net_flows=100),
+             replace(facts("2026-10-07",1850,1850),cumulative_net_flows=100)]
+    s=chain(rows)[-1].state
+    assert s["recovery_equity"] == 1750 and not s["gates"]["G6"] and s["step"] == "S0"
