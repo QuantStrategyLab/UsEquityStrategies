@@ -149,6 +149,57 @@ jobs:
               assert skipped == 0, f"required execution tests skipped: {filename}: {skipped}"
           PY
 
+  research-security-netting-consumer:
+    # Synthetic offline ledger only; production pins and existing research
+    # environments keep their identities. No research data or cloud job dispatch.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QPK_SECURITY_NETTING_SHA: ec26c1e94c8e06d758520711eba6b7d4603597ee
+      UES_REQUIRE_SECURITY_NETTING: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install isolated security-netting overlay
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+          python -m pip install --force-reinstall \
+            "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@${QPK_SECURITY_NETTING_SHA}"
+          python -m pip check
+          python - <<'PY'
+          import json, os
+          from importlib.metadata import distribution
+          from quant_platform_kit.research_stats.security_netting import SECURITY_NETTING_VERSION
+          installed = json.loads(distribution("quant-platform-kit").read_text("direct_url.json"))
+          assert installed["vcs_info"]["commit_id"] == os.environ["QPK_SECURITY_NETTING_SHA"]
+          assert SECURITY_NETTING_VERSION == "security_level_netting_v1"
+          print("Immutable research-only security-netting overlay verified.")
+          PY
+
+      - name: Run synthetic ledger and runtime-boundary acceptance
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m pytest -q -rs \
+            tests/research/test_security_netting_runner.py \
+            tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("security-netting-tests.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert any("cash_funded_hand_math_and_fee_feedback" in c.attrib["name"] for c in cases)
+          assert any("seeded_sessions_reconcile_with_fee_feedback" in c.attrib["name"] for c in cases)
+          assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
+          print("Synthetic net ledger executed with no skipped or failed cases.")
+          PY
+
   research-unified-net-consumer:
     # Explicit CLI/report acceptance only. Existing production pins and both
     # other research overlay environments keep their prior identities.
