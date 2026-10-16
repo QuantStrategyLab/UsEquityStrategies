@@ -139,16 +139,32 @@ def strict_rebalance(candidate: Ledger, proposed: Mapping, baseline: Ledger,
     approximation; intraday/broker execution parity is NOT established. A partial
     fill or gap leaving excess actual exposure raises and invalidates the path.
     """
-    baseline_nav, candidate_nav = baseline.nav(prices), candidate.nav(prices)
+    baseline_nav = baseline.nav(prices)
     reference = book_weights(baseline, prices)
-    targets = clamp_targets(proposed, reference, baseline_nav=baseline_nav,
-                            candidate_nav=candidate_nav, reserve=reserve)
-    fees = candidate.rebalance(targets, prices, profile="SOXL", cost_multiplier=cost_multiplier)
-    actual_nav = candidate.nav(prices)
-    assert_exposure(book_weights(candidate, prices), reference,
+    # Price both books after fees before deciding whether another cap is needed.
+    # Clamping to the baseline's rounded holdings before our own fee-aware fill
+    # sizes identical books twice and needlessly removes whole shares.
+    targets = _weights(proposed)
+    filled = deepcopy(candidate)
+    fees = filled.rebalance(targets, prices, profile="SOXL", cost_multiplier=cost_multiplier)
+    actual_nav = filled.nav(prices)
+    actual = book_weights(filled, prices)
+    bounded = clamp_targets(actual, reference, baseline_nav=baseline_nav,
+                            candidate_nav=actual_nav, reserve=reserve)
+    if (any(w > bounded.get(s, 0.)+TOLERANCE for s, w in actual.items())
+            or filled.cash < reserve*actual_nav-1e-7):
+        targets = clamp_targets(targets, reference, baseline_nav=baseline_nav,
+                                candidate_nav=actual_nav, reserve=reserve)
+        # Recompute the constrained fill from the original pre-fee book, so
+        # provisional trades neither charge fees nor change settled cash twice.
+        filled = deepcopy(candidate)
+        fees = filled.rebalance(targets, prices, profile="SOXL", cost_multiplier=cost_multiplier)
+        actual_nav = filled.nav(prices)
+    assert_exposure(book_weights(filled, prices), reference,
                     baseline_nav=baseline_nav, candidate_nav=actual_nav)
-    if candidate.cash < reserve*actual_nav-1e-7:
+    if filled.cash < reserve*actual_nav-1e-7:
         raise ValueError("CASH_RESERVE_INVARIANT")
+    candidate.cash, candidate.quantity, candidate.last_fills = filled.cash, filled.quantity, filled.last_fills
     return fees
 
 
