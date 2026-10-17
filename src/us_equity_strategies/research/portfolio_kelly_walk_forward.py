@@ -527,8 +527,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
 
     Optional ``risk_budget`` requires explicit policy and asset_risk_specs. Its
     cash symbol represents inner residual cash, never a traded security. This
-    prebuilt schedule cannot supply the runner's per-session current net book,
-    so an enabled turnover limit is rejected rather than assessed against {}.
+    turnover gate uses the runner's fill-session pre-trade/pre-fee net book.
+    Its current marks are not information available at the prior decision.
     """
     from dataclasses import asdict, replace
     from pathlib import Path
@@ -542,7 +542,7 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     from quant_platform_kit.strategy_lifecycle.performance_store import SCHEMA_VERSION, PerformanceStore
 
     from us_equity_strategies.research.security_netting_runner import (
-        NettingSession, run_offline_security_netting,
+        RS06_TURNOVER_CURRENT_BOOK_BASIS, NettingSession, run_offline_security_netting,
     )
 
     if len(cs) != 1 or len(ms) != 1 or tuple(multipliers) != (1.,):
@@ -564,6 +564,7 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     if request["end_target"] is not None and request["end_target"] != {}:
         raise ValueError("NETTING_END_TARGET_INVALID")
     budget_config = None
+    turnover_context = None
     if "risk_budget" in request:
         from us_equity_strategies.portfolio_risk_budget import (
             PortfolioAssetRiskSpec, PortfolioRiskBudgetPolicy, assess_portfolio_risk_budget,
@@ -592,7 +593,10 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         except (TypeError, ValueError, KeyError) as exc:
             raise ValueError("NETTING_RISK_BUDGET_INVALID") from exc
         if policy.max_one_way_risk_turnover is not None:
-            raise ValueError("NETTING_RISK_BUDGET_CURRENT_NET_BOOK_UNAVAILABLE")
+            budget_config["turnover_current_book_basis"] = RS06_TURNOVER_CURRENT_BOOK_BASIS
+            turnover_context = {"policy": policy, "asset_risk_specs": risk_specs,
+                                "synthetic": envelope["synthetic"],
+                                "valuation_basis": RS06_TURNOVER_CURRENT_BOOK_BASIS}
     periods = request["periods_per_year"]
     if type(periods) is not int or periods <= 0:
         raise ValueError("NETTING_PERIODS_INVALID")
@@ -747,6 +751,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
             for field, values in (("security_start", previous_values), ("security_pnl", pnl),
                                   ("security_pre", pre_values), ("security_end", end_values), ("net_trades", trades)):
                 securities(row[field], values)
+            if turnover_context is not None:
+                securities(row["inner_target"], {a: value / (day.nav + day.fees) for a, value in end_values.items()})
             cash = row["virtual_cash_end"]
             if set(cash) != {spec.inner_residual_role, "outer_cash_leg"}:
                 raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
@@ -853,7 +859,7 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         schedule = [dict(weights) for _ in range(te1 - te0)]
         if request["end_target"] is not None:
             schedule[-1] = dict(request["end_target"])
-        if budget_config is not None:
+        if budget_config is not None and turnover_context is None:
             for i, target in enumerate(schedule):
                 assessed = assess_portfolio_risk_budget(
                     target_weights={**target, policy.cash_symbol: max(0., 1. - sum(target.values()))},
@@ -868,7 +874,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                     for i, ((d, prior), target) in enumerate(zip(decisions, schedule), start=te0)]
         net = run_offline_security_netting(
             sessions, initial_nav=initial_nav, initial_f=1., initial_inner_weights={}, spec=spec,
-            fee_cash_role=request["fee_cash_role"], execution_timing="next_close", report_periods_per_year=periods)
+            fee_cash_role=request["fee_cash_role"], execution_timing="next_close", report_periods_per_year=periods,
+            **({"rs06_risk_budget": turnover_context} if turnover_context is not None else {}))
         # Verify report and ledger identity before mapping public metrics. No
         # virtual cost_stress and no second fee subtraction on this branch.
         from quant_platform_kit.research_stats.unified_report import build_unified_net_report

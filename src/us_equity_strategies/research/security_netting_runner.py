@@ -21,6 +21,8 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
+RS06_TURNOVER_CURRENT_BOOK_BASIS = "RS06_SYNTHETIC_FILL_SESSION_PRE_TRADE_PRE_FEE_NET_NAV_V1"
+
 
 @dataclass(frozen=True)
 class NettingSession:
@@ -64,6 +66,7 @@ def run_offline_security_netting(
     sessions: Sequence[NettingSession], *, initial_nav: float, initial_f: float,
     initial_inner_weights: Mapping[str, float], spec: Any, fee_cash_role: str,
     execution_timing: str | None = None, report_periods_per_year: int | None = None,
+    rs06_risk_budget: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Replay one composed sleeve with explicit cash funding; no data or order I/O.
 
@@ -78,6 +81,10 @@ def run_offline_security_netting(
     first decision is the caller's pre-window anchor. Calendar completeness and
     real signal availability remain unverified. Omitting both keeps the original
     result and dependency requirements; no annualization policy is inferred.
+
+    ``rs06_risk_budget`` is only the explicit synthetic single-unit RS06
+    f=1/zero-cash-return context. Its gate uses fill-session marks, not prior
+    decision information; it establishes no real currency/FX qualification.
     """
     report_builder = None
     if execution_timing is not None or report_periods_per_year is not None:
@@ -121,6 +128,36 @@ def run_offline_security_netting(
     compose_security_targets(f=initial_f, inner_weights=initial_inner_weights, spec=spec)
     if not sessions:
         raise ValueError("SESSIONS_REQUIRED")
+    budget_policy = None
+    if rs06_risk_budget is not None:
+        from us_equity_strategies.portfolio_risk_budget import (
+            PortfolioAssetRiskSpec, PortfolioRiskBudgetPolicy, assess_portfolio_risk_budget,
+        )
+
+        if (not isinstance(rs06_risk_budget, Mapping)
+                or set(rs06_risk_budget) != {"policy", "asset_risk_specs", "synthetic", "valuation_basis"}
+                or rs06_risk_budget["synthetic"] is not True
+                or rs06_risk_budget["valuation_basis"] != RS06_TURNOVER_CURRENT_BOOK_BASIS
+                or initial_f != 1. or spec.outer_cash_mode != "separate" or spec.cash_like_symbols
+                or fee_cash_role != spec.inner_residual_role or execution_timing != "next_close"):
+            raise ValueError("NETTING_RISK_BUDGET_SYNTHETIC_SCOPE_REQUIRED")
+        budget_policy = rs06_risk_budget["policy"]
+        risk_specs = rs06_risk_budget["asset_risk_specs"]
+        try:
+            if type(budget_policy) is not PortfolioRiskBudgetPolicy or not isinstance(risk_specs, Mapping):
+                raise ValueError("policy/spec")
+            budget_policy = replace(budget_policy, max_symbol_weights=dict(budget_policy.max_symbol_weights),
+                                    max_underlying_effective_exposure=dict(budget_policy.max_underlying_effective_exposure))
+            risk_specs = dict(risk_specs)
+            cash_symbol = budget_policy.cash_symbol
+            if (budget_policy.max_one_way_risk_turnover is None or cash_symbol in spec.bps_per_side
+                    or set(risk_specs) != set(spec.bps_per_side) | {cash_symbol}
+                    or any(type(v) is not PortfolioAssetRiskSpec for v in risk_specs.values())
+                    or risk_specs[cash_symbol].is_cash is not True
+                    or any(risk_specs[s].is_cash is not False for s in spec.bps_per_side)):
+                raise ValueError("cash/security mapping")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("NETTING_RISK_BUDGET_INVALID") from exc
     inner = {s: nav * initial_f * w for s, w in initial_inner_weights.items()}
     inner_cash = nav * initial_f * max(0., 1 - sum(initial_inner_weights.values()))
     outer = nav * (1 - initial_f)
@@ -163,13 +200,37 @@ def run_offline_security_netting(
         pre_nav = inner_total + outer_pre
         if not math.isfinite(pre_nav) or pre_nav <= 0:
             raise ValueError("NAV_INVALID")
+        effective_target = row.inner_target
+        if budget_policy is not None:
+            if row.f_target != 1. or cash_return != 0. or outer_pre != 0.:
+                raise ValueError("NETTING_RISK_BUDGET_SYNTHETIC_SCOPE_REQUIRED")
+            # Same loop/book after held returns and all previous fees, before
+            # this fill's fee. Never a previous target or a cost-free replay.
+            if (not set(security_pre).issubset(spec.bps_per_side)
+                    or any(not math.isfinite(v) or v < 0. for v in security_pre.values())
+                    or not math.isfinite(inner_cash) or inner_cash < 0.
+                    or abs(sum(security_pre.values()) + inner_cash - pre_nav) > 1e-10 * max(1., pre_nav)):
+                raise ValueError("NETTING_RISK_BUDGET_CURRENT_BOOK_INVALID")
+            current = {s: value / pre_nav for s, value in security_pre.items()}
+            current[cash_symbol] = inner_cash / pre_nav
+            if (not isinstance(effective_target, Mapping)
+                    or not set(effective_target).issubset(spec.bps_per_side)):
+                raise ValueError("NETTING_RISK_BUDGET_TARGET_INVALID")
+            proposal = {s: _finite(w, "NETTING_RISK_BUDGET_TARGET_INVALID") for s, w in effective_target.items()}
+            proposal[cash_symbol] = max(0., 1. - sum(proposal.values()))
+            assessed = assess_portfolio_risk_budget(
+                target_weights=proposal, current_weights=current,
+                asset_risk_specs=risk_specs, policy=budget_policy)
+            if assessed["status"] not in ("APPROVE", "REDUCE"):
+                raise ValueError("NETTING_RISK_BUDGET_PARKED:" + ";".join(assessed["reason_codes"]))
+            effective_target = {s: w for s, w in assessed["recommended_target_weights"].items() if s != cash_symbol}
         result = net_security_session(f_pre=inner_total / pre_nav, inner_pre=inner_pre,
-                                      f_target=row.f_target, inner_target=row.inner_target, spec=spec)
+                                      f_target=row.f_target, inner_target=effective_target, spec=spec)
         trades = {s: w * pre_nav for s, w in result.net_trades.items()}
         fee_by_security = {s: abs(value) * spec.bps_per_side[s] * spec.multiplier / 10_000
                            for s, value in trades.items()}
         fees = result.cost_fraction * pre_nav
-        inner = {s: pre_nav * row.f_target * w for s, w in row.inner_target.items()}
+        inner = {s: pre_nav * row.f_target * w for s, w in effective_target.items()}
         inner_cash = pre_nav * result.role_weights[spec.inner_residual_role]
         outer = pre_nav * (1 - row.f_target)
         cash_before_fee = _cash(inner_cash, outer, spec)
@@ -205,7 +266,7 @@ def run_offline_security_netting(
             "net_trades": trades, "security_end": security_end,
             "virtual_cash_end": cash_end, "role_weights": dict(result.role_weights),
             "f_pre": inner_total / pre_nav, "inner_pre": inner_pre,
-            "f_target": row.f_target, "inner_target": dict(row.inner_target),
+            "f_target": row.f_target, "inner_target": dict(effective_target),
             "fee_cash_role": fee_cash_role, "fee_by_security": fee_by_security, "fees": fees,
             "nav_end": nav, "gross_return": pre_nav / nav_start - 1,
             "net_return": nav / nav_start - 1,
