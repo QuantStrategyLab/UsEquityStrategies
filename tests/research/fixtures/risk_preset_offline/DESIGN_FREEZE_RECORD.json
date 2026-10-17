@@ -1,0 +1,33 @@
+{
+  "record_type": "EXACT_BUNDLE_JOINT_DESIGN_FREEZE",
+  "recorded_at_utc": "2026-10-17T12:13:06.860384+00:00",
+  "authority": "Main-thread delegation explicitly accepts exact digest bundle and authorizes only minimal pure offline validator plus F0-F7 synthetic tests, independent local branch/commit and review; no push.",
+  "review": {
+    "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-3/risk_profile_design/RELEASE7_THREE_CLARIFICATIONS_REVIEW.json",
+    "sha256": "96f744f1488fc5688072d6fd9fa6325f73ad38bccc9bd869b84a2fb645cf3c26"
+  },
+  "artifacts": {
+    "candidate": {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-2/qsl_six_lines_20261017/release7/contracts/OFFLINE_CONTRACT_CANDIDATE.json",
+      "sha256": "547b2de228c1a3641adf2bb756a47ad3cb69f10a9e45b583bbb3728accc5cf98"
+    },
+    "f0": {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-2/qsl_six_lines_20261017/release7/contracts/UNCONFIGURED_FIXTURE.json",
+      "sha256": "749438cd749ff2ae3e2ee4cb8c2e9e9117825cfc14637404604279ab19b99252"
+    },
+    "sidecar": {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-2/qsl_six_lines_20261017/release7/contracts/OFFLINE_VALIDATOR_INPUTS.json",
+      "sha256": "0a9c31e85e98e35393f932d2e2026f49a95fce5782c351446aaa29f726d70352"
+    }
+  },
+  "frozen_source_bytes_unchanged": true,
+  "legacy_candidate_flags_preserved_as_historical": true,
+  "followon_test_authorization": {
+    "F1_F7_materialization": "Explicit fixture-only synthetic numbers, definitions, windows, source/evidence and UTC clocks are allowed in tests; no recommended values or production defaults.",
+    "new_algorithm": false,
+    "consumer_or_executor": false,
+    "production": false,
+    "push": false,
+    "bayesian_B4": "DEFERRED by latest user instruction; no new design or implementation."
+  }
+}

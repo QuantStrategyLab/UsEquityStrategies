@@ -1,0 +1,33 @@
+{
+  "fixture_manifest": {
+    "schema_version": "qsl.risk_preset.offline.v1-candidate",
+    "fixtures": {
+      "unconfigured-research-fixture": {
+        "scope": {
+          "layer": "RESEARCH",
+          "synthetic": true,
+          "fixture_id": "unconfigured-research-fixture",
+          "strategy_profile": null,
+          "strategy_revision": null
+        },
+        "allowed_definition_refs": [],
+        "allowed_evidence_key_digests": {},
+        "asset_ids": [],
+        "currency_ids": []
+      }
+    },
+    "missing_parameter_keys": [
+      "PRESET_SELECTION",
+      "COMPLETE_DEFINITION",
+      "STRATEGY_SCOPE_BINDING",
+      "MODEL_BINDING",
+      "COMMON_FRACTION",
+      "INPUT_SEMANTICS",
+      "CONSTRAINT_VALUES",
+      "DEFINITION_WINDOW",
+      "QUALIFICATION_RULES"
+    ]
+  },
+  "evidence_table": {},
+  "fixture_clock": null
+}
