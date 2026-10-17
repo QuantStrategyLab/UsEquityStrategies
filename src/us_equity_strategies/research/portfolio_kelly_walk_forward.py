@@ -524,6 +524,11 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     cash. Fraction c is NOT outer f. Cash return must be zero because #624's
     inner residual is non-interest-bearing. Close prices mark fractional shares
     in dollars; trades and fees are dollars, returns signed decimal fractions.
+
+    Optional ``risk_budget`` requires explicit policy and asset_risk_specs. Its
+    cash symbol represents inner residual cash, never a traded security. This
+    prebuilt schedule cannot supply the runner's per-session current net book,
+    so an enabled turnover limit is rejected rather than assessed against {}.
     """
     from dataclasses import asdict, replace
     from pathlib import Path
@@ -558,6 +563,36 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         raise ValueError("NETTING_FEE_ROLE_INVALID")
     if request["end_target"] is not None and request["end_target"] != {}:
         raise ValueError("NETTING_END_TARGET_INVALID")
+    budget_config = None
+    if "risk_budget" in request:
+        from us_equity_strategies.portfolio_risk_budget import (
+            PortfolioAssetRiskSpec, PortfolioRiskBudgetPolicy, assess_portfolio_risk_budget,
+        )
+
+        supplied = request["risk_budget"]
+        if not isinstance(supplied, Mapping) or set(supplied) != {"policy", "asset_risk_specs"}:
+            raise ValueError("NETTING_RISK_BUDGET_NOT_CONFIGURED")
+        policy, risk_specs = supplied["policy"], supplied["asset_risk_specs"]
+        if type(policy) is not PortfolioRiskBudgetPolicy or not isinstance(risk_specs, Mapping):
+            raise ValueError("NETTING_RISK_BUDGET_NOT_CONFIGURED")
+        try:
+            # Frozen dataclasses may still contain caller-owned mutable maps.
+            policy = replace(policy, max_symbol_weights=dict(policy.max_symbol_weights),
+                             max_underlying_effective_exposure=dict(policy.max_underlying_effective_exposure))
+            risk_specs = dict(risk_specs)
+            if (policy.cash_symbol in assets or set(risk_specs) != set(assets) | {policy.cash_symbol}
+                    or any(type(v) is not PortfolioAssetRiskSpec for v in risk_specs.values())
+                    or risk_specs[policy.cash_symbol].is_cash is not True
+                    or any(risk_specs[a].is_cash is not False for a in assets)):
+                raise ValueError("cash/security mapping")
+            budget_config = {"policy": asdict(policy),
+                             "asset_risk_specs": {a: asdict(v) for a, v in risk_specs.items()},
+                             "cash_representation": spec.inner_residual_role}
+            _candidate_digest(budget_config)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ValueError("NETTING_RISK_BUDGET_INVALID") from exc
+        if policy.max_one_way_risk_turnover is not None:
+            raise ValueError("NETTING_RISK_BUDGET_CURRENT_NET_BOOK_UNAVAILABLE")
     periods = request["periods_per_year"]
     if type(periods) is not int or periods <= 0:
         raise ValueError("NETTING_PERIODS_INVALID")
@@ -598,6 +633,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
               "fee_cash_role": request["fee_cash_role"], "calendar_id": request["calendar_id"],
               "periods_per_year": periods, "execution": "next_close", "initial_f": 1.,
               "inner_units": "one_strategy_one_security_fractional_shares", "outer_cash_return": 0.}
+    if budget_config is not None:
+        config["risk_budget"] = budget_config
     input_sha = _candidate_digest({"dates": [d.isoformat() for d in dates], "returns": rets,
                                    "cash": cash, "prices": prices,
                                    "decisions": [[d.isoformat(), p.isoformat()] for d, p in decisions]})
@@ -610,6 +647,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                 "source_revision": source, "input_sha256": input_sha, "config_sha256": config_sha,
                 "synthetic": True, "no_order": True, "live_ready": False,
                 "promotion_eligible": False, "budget_effect": "NONE"}
+    if budget_config is not None:
+        identity["risk_budget"] = budget_config
     identity = json.loads(json.dumps(identity, allow_nan=False))
     cost_inputs = {**{a + "_bps_per_side": float(spec.bps_per_side[a]) for a in assets}, "multiplier": 1.}
     started = ResearchTrialRecord(
@@ -814,6 +853,17 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         schedule = [dict(weights) for _ in range(te1 - te0)]
         if request["end_target"] is not None:
             schedule[-1] = dict(request["end_target"])
+        if budget_config is not None:
+            for i, target in enumerate(schedule):
+                assessed = assess_portfolio_risk_budget(
+                    target_weights={**target, policy.cash_symbol: max(0., 1. - sum(target.values()))},
+                    asset_risk_specs=risk_specs, policy=policy)
+                if assessed["status"] not in ("APPROVE", "REDUCE"):
+                    raise ValueError("NETTING_RISK_BUDGET_PARKED:" + ";".join(assessed["reason_codes"]))
+                # Follow the assessor's recommendation, including APPROVE's
+                # epsilon filtering. The runner owns the same virtual residual.
+                schedule[i] = {a: w for a, w in assessed["recommended_target_weights"].items()
+                               if a != policy.cash_symbol}
         sessions = [NettingSession(d, prior, 1., target, {a: rets[a][i] for a in assets}, 0.)
                     for i, ((d, prior), target) in enumerate(zip(decisions, schedule), start=te0)]
         net = run_offline_security_netting(
@@ -852,13 +902,15 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         backtest = candidate_result(ledger, public)
         terminal = replace(started, status=ResearchTrialStatus.SUCCEEDED, actual_params=params,
                            run_id=request["run_id"], param_version=1)
-    except ValueError:
+    except ValueError as exc:
+        reason = (str(exc) if budget_config is not None and str(exc).startswith("NETTING_RISK_BUDGET_")
+                  else "NETTING_INPUT_OR_LEDGER_REJECTED")
         try:
             store_call(store.save_research_trial, replace(started, status=ResearchTrialStatus.REJECTED,
                                               reason_code="netting_input_or_ledger_rejected"))
         except Exception:
             return {**response, "status": "UNKNOWN", "reason_code": "REJECTION_RECEIPT_UNCERTAIN"}
-        return {**response, "status": "REJECTED", "reason_code": "NETTING_INPUT_OR_LEDGER_REJECTED"}
+        return {**response, "status": "REJECTED", "reason_code": reason}
     payload = {**response, "status": "SUCCEEDED", "candidate": backtest.to_dict(),
                "trial": terminal.to_dict(), "research_ledger": ledger.to_dict(), "netting": net,
                "readback": "REOPENED_EXACT_TRIAL_RUN_INPUT_CONFIG_SOURCE_COST_CALENDAR_PERIODS",
