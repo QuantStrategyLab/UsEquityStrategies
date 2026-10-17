@@ -735,3 +735,241 @@ def test_r2_followup_book_fields_checked_against_authoritative_ledger(tmp_path, 
         monkeypatch.setattr(PerformanceStore, method, denied)
     no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
     assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+
+def synthetic_budget(**limits):
+    """Explicit engineering fixture values, never a production risk preset."""
+    from us_equity_strategies.portfolio_risk_budget import (
+        PortfolioAssetRiskSpec, PortfolioRiskBudgetPolicy,
+    )
+    policy = dict(cash_symbol='SYNTHETIC_CASH', max_effective_risk_exposure=100.,
+                  max_symbol_weights={}, max_underlying_effective_exposure={})
+    policy.update(limits)
+    return dict(policy=PortfolioRiskBudgetPolicy(**policy), asset_risk_specs={
+        'A': PortfolioAssetRiskSpec('A', 3., 'SYNTHETIC_RISK'),
+        'B': PortfolioAssetRiskSpec('B', 1., 'SYNTHETIC_RISK'),
+        'SYNTHETIC_CASH': PortfolioAssetRiskSpec('SYNTHETIC_CASH', 1., 'USD_CASH', True),
+    })
+
+
+def test_budget_default_off_never_assesses_or_changes_identity(tmp_path, monkeypatch):
+    from us_equity_strategies import portfolio_risk_budget as budget
+
+    def forbidden(**kwargs):
+        pytest.fail('budget assessor invoked without explicit opt-in')
+
+    monkeypatch.setattr(budget, 'assess_portfolio_risk_budget', forbidden)
+    args = fixture_args(tmp_path)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    assert 'risk_budget' not in result['binding']
+    assert result['netting']['ledger'][0]['inner_target'] == result['folds'][0]['portfolio_fit']['weights']['0.25']['qp']
+    assert result['netting']['ledger'][-1]['inner_target'] == {}
+
+
+@pytest.mark.parametrize('unconfigured', [None, {}, {'policy': None},
+    {'request_status': 'NOT_CONFIGURED', 'requested': None, 'final_constraints': None}])
+def test_budget_explicit_unconfigured_never_falls_back(tmp_path, unconfigured):
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = unconfigured
+    with pytest.raises(ValueError, match='NETTING_RISK_BUDGET'):
+        pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert not args['netting_candidate']['local_root'].exists()
+
+
+@pytest.mark.parametrize('change', ['missing_security', 'cash_collision', 'cash_security', 'declared_current'])
+def test_budget_rejects_unmapped_or_arbitrary_book(tmp_path, change):
+    from dataclasses import replace
+    args = fixture_args(tmp_path)
+    budget = synthetic_budget()
+    if change == 'missing_security':
+        del budget['asset_risk_specs']['B']
+    elif change == 'cash_collision':
+        budget['policy'] = replace(budget['policy'], cash_symbol='A')
+    elif change == 'cash_security':
+        budget['asset_risk_specs']['A'] = replace(budget['asset_risk_specs']['A'], is_cash=True)
+    else:
+        budget['current_weights'] = {'SYNTHETIC_CASH': 1.}
+    args['netting_candidate']['risk_budget'] = budget
+    with pytest.raises(ValueError, match='NETTING_RISK_BUDGET'):
+        pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert not args['netting_candidate']['local_root'].exists()
+
+
+@pytest.mark.parametrize('limits,expected_status', [({}, 'APPROVE'),
+    ({'max_effective_risk_exposure': .05}, 'REDUCE'),
+    ({'max_symbol_weights': {'A': .005}}, 'REDUCE'),
+    ({'max_underlying_effective_exposure': {'SYNTHETIC_RISK': .05}}, 'REDUCE')])
+def test_budget_actual_target_uses_assessor_and_virtual_cash(tmp_path, monkeypatch, limits, expected_status):
+    from dataclasses import asdict
+    from us_equity_strategies import portfolio_risk_budget as budgets
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    budget = synthetic_budget(**limits)
+    args['netting_candidate']['risk_budget'] = budget
+    original_assess = budgets.assess_portfolio_risk_budget
+    original_run = runner.run_offline_security_netting
+    assessments, actual_sessions = [], []
+
+    def assess(**kwargs):
+        result = original_assess(**kwargs)
+        assessments.append((kwargs['target_weights'], result))
+        return result
+
+    def replay(sessions, **kwargs):
+        actual_sessions.extend(sessions)
+        return original_run(sessions, **kwargs)
+
+    monkeypatch.setattr(budgets, 'assess_portfolio_risk_budget', assess)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', replay)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    assert len(assessments) == len(actual_sessions) == 5
+    assert assessments[0][1]['status'] == expected_status
+    fitted = result['folds'][0]['portfolio_fit']['weights']['0.25']['qp']
+    assert assessments[0][0] == {**fitted, 'SYNTHETIC_CASH': 1.-sum(fitted.values())}
+    for (target, assessed), session, row in zip(assessments, actual_sessions, result['netting']['ledger'], strict=True):
+        recommended = assessed['recommended_target_weights']
+        securities = {s:w for s,w in recommended.items() if s != 'SYNTHETIC_CASH'}
+        assert session.inner_target == row['inner_target'] == securities
+        assert sum(securities.values()) + recommended.get('SYNTHETIC_CASH', 0.) == pytest.approx(1.)
+        assert 'SYNTHETIC_CASH' not in row['security_end']
+        assert row['virtual_cash_end']['inner_residual_cash'] == pytest.approx(
+            row['nav_pre_trade']*recommended.get('SYNTHETIC_CASH', 0.) - row['fees'])
+    # The explicit existing liquidation override is assessed as all cash too.
+    assert assessments[-1][0] == {'SYNTHETIC_CASH': 1.}
+    assert actual_sessions[-1].inner_target == {}
+    bound = result['binding']['risk_budget']
+    assert bound['policy'] == asdict(budget['policy'])
+    assert bound['asset_risk_specs'] == {s:asdict(v) for s,v in budget['asset_risk_specs'].items()}
+    assert result['trial']['param_set_id'] == result['binding']['config_sha256']
+    assert not result['live_ready'] and result['budget_effect'] == 'NONE'
+
+
+def test_budget_parked_after_override_never_becomes_successful_liquidation(tmp_path, monkeypatch):
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    fit = pw.fit_portfolio_kelly(('A', 'B'), {s:[v for _,v in rows[:120]] for s,rows in args['asset_returns']},
+                                [0.]*120, (.25,), ('qp',))
+    # Earlier fitted residual fits this fixture cap; the final all-cash override does not.
+    cap = 1.-sum(fit['weights']['0.25']['qp'].values())/2.
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_symbol_weights={'SYNTHETIC_CASH': cap})
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('PARKED empty recommendation reached netting')
+
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(result)
+    assert result['status'] == 'REJECTED'
+    assert result['reason_code'].startswith('NETTING_RISK_BUDGET_PARKED:')
+    assert 'symbol weight limit' in result['reason_code']
+    terminal = open_store(args).load_research_trial('us_equity', 'rs06_synthetic_netting', result['trial_id'])
+    assert terminal.status.value == 'rejected' and terminal.reason_code == 'netting_input_or_ledger_rejected'
+    assert not list(args['netting_candidate']['local_root'].rglob('ledger.json'))
+    assert not list(args['netting_candidate']['local_root'].rglob('backtest*.json'))
+
+
+def test_budget_turnover_needs_actual_per_session_net_book(tmp_path, monkeypatch):
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_one_way_risk_turnover=.1)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('unsupported turnover request reached fitting')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    with pytest.raises(ValueError, match='NETTING_RISK_BUDGET_CURRENT_NET_BOOK_UNAVAILABLE'):
+        pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert not args['netting_candidate']['local_root'].exists()
+
+
+@pytest.mark.parametrize('change', ['policy', 'look_through', 'enable', 'disable'])
+def test_budget_recovery_identity_cannot_adopt_different_assessment(tmp_path, monkeypatch, change):
+    from dataclasses import replace
+    args = fixture_args(tmp_path)
+    budget = synthetic_budget()
+    if change != 'enable':
+        args['netting_candidate']['risk_budget'] = budget
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    if change == 'policy':
+        budget['policy'] = replace(budget['policy'], max_effective_risk_exposure=99.)
+    elif change == 'look_through':
+        budget['asset_risk_specs']['A'] = replace(budget['asset_risk_specs']['A'], effective_exposure_factor=2.)
+    elif change == 'enable':
+        args['netting_candidate']['risk_budget'] = budget
+    else:
+        del args['netting_candidate']['risk_budget']
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('budget identity conflict recomputed fit')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(result)
+    assert result['status'] == 'REJECTED' and result['reason_code'] == 'NETTING_CANDIDATE_IDENTITY_MISMATCH'
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+
+def test_budget_same_identity_recovers_without_refit_or_netting(tmp_path, monkeypatch):
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_effective_risk_exposure=.05)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('budgeted receipt was replayed')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    assert pw.evaluate_portfolio_kelly_walk_forward(**args) == {**first, 'recovered': True}
+
+
+def test_budget_approve_follows_epsilon_filtered_recommendation(tmp_path, monkeypatch):
+    args = fixture_args(tmp_path, bps=0.)
+    args['netting_candidate']['risk_budget'] = synthetic_budget()
+    original = pw.fit_portfolio_kelly
+
+    def fitted(*args, **kwargs):
+        result = original(*args, **kwargs)
+        result['weights']['0.25']['qp'] = {'A': 1., 'B': 5e-13}
+        return result
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', fitted)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    assert result['netting']['ledger'][0]['inner_target'] == {'A': 1.}
+
+
+def test_budget_snapshots_applied_mutable_limit_maps(tmp_path, monkeypatch):
+    args = fixture_args(tmp_path)
+    budget = synthetic_budget(max_symbol_weights={'A': .005})
+    args['netting_candidate']['risk_budget'] = budget
+    original = pw.fit_portfolio_kelly
+
+    def fitted(*args, **kwargs):
+        budget['policy'].max_symbol_weights['A'] = 1.
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', fitted)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    assert result['binding']['risk_budget']['policy']['max_symbol_weights'] == {'A': .005}
+    assert result['netting']['ledger'][0]['inner_target']['A'] == pytest.approx(.005)
+
+
+def test_budget_invalid_policy_retains_assessor_rejection(tmp_path, monkeypatch):
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_effective_risk_exposure=-1.)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('invalid policy reached netting')
+
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(result)
+    assert result['reason_code'] == 'NETTING_RISK_BUDGET_PARKED:invalid maximum effective risk exposure'
