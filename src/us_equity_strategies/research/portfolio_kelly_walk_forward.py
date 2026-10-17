@@ -490,6 +490,28 @@ def _candidate_digest(value: Any) -> str:
                                      allow_nan=False).encode()).hexdigest()
 
 
+def _check_netting_store(root: Any) -> None:
+    """Reject links and escapes in this dedicated local trial, before store I/O."""
+    try:
+        if any(p.is_symlink() for p in (root, *root.parents)):
+            raise ValueError("NETTING_STORE_SYMLINK")
+        resolved_root = root.resolve()
+        pending = [root]
+        while pending:
+            path = pending.pop()
+            if path.is_symlink():
+                raise ValueError("NETTING_STORE_SYMLINK")
+            if not path.resolve().is_relative_to(resolved_root):
+                raise ValueError("NETTING_STORE_PATH_ESCAPE")
+            if path.exists():
+                if path.is_dir():
+                    pending.extend(path.iterdir())
+                elif not path.is_file() or path == root:
+                    raise ValueError("NETTING_STORE_PATH_INVALID")
+    except OSError as exc:
+        raise ValueError("NETTING_STORE_PATH_UNREADABLE") from exc
+
+
 def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: Sequence[date],
                    rets: Mapping[str, Sequence[float]], cash: Sequence[float], plan: WalkForwardPlan,
                    cs: Sequence[float], ms: Sequence[str], base_bps: float,
@@ -512,7 +534,7 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         BacktestResult, ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark,
         ResearchTrialRecord, ResearchTrialStatus,
     )
-    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from quant_platform_kit.strategy_lifecycle.performance_store import SCHEMA_VERSION, PerformanceStore
 
     from us_equity_strategies.research.security_netting_runner import (
         NettingSession, run_offline_security_netting,
@@ -569,6 +591,7 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     root = raw_root.resolve()
     if not root.is_relative_to(Path(gettempdir()).resolve()) or root == Path(gettempdir()).resolve():
         raise ValueError("NETTING_EXPLICIT_TEMP_STORE_REQUIRED")
+    _check_netting_store(root)
     store = PerformanceStore(local_root=root, cloud_bucket="")
     config = {"method": ms[0], "fraction": cs[0], "plan": asdict(plan), "spec": asdict(spec),
               "initial_nav": initial_nav, "end_target": request["end_target"],
@@ -609,6 +632,37 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
             source_revision=source, cost_model=started.cost_source, cost_inputs=cost_inputs,
             calendar_id=started.calendar_id, periods_per_year=periods)
 
+    def store_call(method: Any, *args: Any, **kwargs: Any) -> Any:
+        _check_netting_store(root)
+        return method(*args, **kwargs)
+
+    receipt_key = store._research_key(started.domain, started.strategy_profile, started.trial_id, "receipt")
+
+    def record_digests(terminal: Any, *, before_terminal: bool = False) -> dict:
+        keys = {name: store._research_key(started.domain, started.strategy_profile, started.trial_id, name)
+                for name in ("started", "ledger", "terminal")}
+        keys["backtest"] = store._backtest_key(candidate_result_placeholder)
+        digests = {}
+        for name, key in keys.items():
+            _check_netting_store(root)
+            data = ({**terminal.to_dict(), "schema_version": SCHEMA_VERSION}
+                    if before_terminal and name == "terminal"
+                    else json.loads((root / key).read_text(encoding="utf-8")))
+            digests[name] = _candidate_digest(data)
+        return digests
+
+    # Only the existing run-based key is needed before the result is written.
+    candidate_result_placeholder = BacktestResult(
+        started.strategy_profile, started.domain, config_sha, {}, run_id=request["run_id"])
+
+    def acceptance_binding(payload: dict) -> dict:
+        return {**identity, "report_sha256": _candidate_digest(payload["netting"]["unified_net_report"]),
+                "netting_sha256": _candidate_digest(payload["netting"]),
+                "ledger_sha256": _candidate_digest(payload["research_ledger"]),
+                "result_sha256": _candidate_digest(payload["candidate"]),
+                "trial_sha256": _candidate_digest(payload["trial"]),
+                "folds_sha256": _candidate_digest(payload["folds"])}
+
     def read_success(reopened: Any, terminal: Any) -> dict:
         if (terminal is None or terminal.status is not ResearchTrialStatus.SUCCEEDED
                 or terminal.run_id != request["run_id"] or terminal.param_version != 1
@@ -621,9 +675,9 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         saved_start = root / reopened._research_key(started.domain, started.strategy_profile, started.trial_id, "started")
         if not saved_start.is_file():
             raise ValueError("NETTING_STARTED_MISSING")
-        ledger = reopened.load_research_ledger(started.domain, started.strategy_profile, started.trial_id,
+        ledger = store_call(reopened.load_research_ledger,started.domain, started.strategy_profile, started.trial_id,
                                                request["run_id"], 1)
-        backtest = reopened.load_backtest_by_run_id(started.domain, started.strategy_profile,
+        backtest = store_call(reopened.load_backtest_by_run_id,started.domain, started.strategy_profile,
                                                     request["run_id"], param_version=1)
         if ledger is None or backtest is None:
             raise ValueError("NETTING_CANDIDATE_PAIR_MISSING")
@@ -638,12 +692,25 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         expected = _candidate_public_metrics([d.daily_return for d in ledger.days], periods)
         if backtest.to_dict() != candidate_result(ledger, expected).to_dict():
             raise ValueError("NETTING_PUBLIC_METRIC_MISMATCH")
-        return {**response, "status": "SUCCEEDED", "candidate": backtest.to_dict(),
-                "trial": terminal.to_dict(), "research_ledger": ledger.to_dict(),
-                "readback": "REOPENED_EXACT_TRIAL_RUN_INPUT_CONFIG_SOURCE_COST_CALENDAR_PERIODS"}
+        _check_netting_store(root)
+        try:
+            receipt = json.loads((root / receipt_key).read_text(encoding="utf-8"))
+            body = {"payload": receipt["payload"], "record_digests": receipt["record_digests"]}
+            payload = body["payload"]
+            if (set(receipt) != {"payload", "record_digests", "sha256"}
+                    or receipt["sha256"] != _candidate_digest(body)
+                    or body["record_digests"] != record_digests(terminal)
+                    or payload["binding"] != identity or payload["status"] != "SUCCEEDED"
+                    or payload["candidate"] != backtest.to_dict() or payload["trial"] != terminal.to_dict()
+                    or payload["research_ledger"] != ledger.to_dict()
+                    or payload["acceptance_binding"] != acceptance_binding(payload)):
+                raise ValueError("NETTING_RECEIPT_MISMATCH")
+        except (OSError, KeyError, TypeError) as exc:
+            raise ValueError("NETTING_RECEIPT_MISSING_OR_INCOMPLETE") from exc
+        return payload
 
     try:
-        previous = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
+        previous = store_call(store.load_research_trial,started.domain, started.strategy_profile, started.trial_id)
         if previous is not None:
             if replace(previous, status=ResearchTrialStatus.STARTED, actual_params=None,
                        run_id=None, param_version=None, reason_code="") != started:
@@ -656,8 +723,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         # fresh attempt; never overwrite it or hide it behind a new key.
         if root.exists() and any(root.rglob("*.json")):
             raise ValueError("NETTING_STORE_INCOMPLETE_OR_CORRUPT")
-        store.save_research_trial(started)
-        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != started:
+        store_call(store.save_research_trial, started)
+        if store_call(store.load_research_trial, started.domain, started.strategy_profile, started.trial_id) != started:
             return {**response, "status": "UNKNOWN", "reason_code": "STARTED_RECEIPT_UNCERTAIN"}
     except ValueError as exc:
         return {**response, "status": "REJECTED", "reason_code": str(exc)}
@@ -710,27 +777,36 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                            run_id=request["run_id"], param_version=1)
     except ValueError:
         try:
-            store.save_research_trial(replace(started, status=ResearchTrialStatus.REJECTED,
+            store_call(store.save_research_trial, replace(started, status=ResearchTrialStatus.REJECTED,
                                               reason_code="netting_input_or_ledger_rejected"))
         except Exception:
             return {**response, "status": "UNKNOWN", "reason_code": "REJECTION_RECEIPT_UNCERTAIN"}
         return {**response, "status": "REJECTED", "reason_code": "NETTING_INPUT_OR_LEDGER_REJECTED"}
+    payload = {**response, "status": "SUCCEEDED", "candidate": backtest.to_dict(),
+               "trial": terminal.to_dict(), "research_ledger": ledger.to_dict(), "netting": net,
+               "readback": "REOPENED_EXACT_TRIAL_RUN_INPUT_CONFIG_SOURCE_COST_CALENDAR_PERIODS",
+               "folds": [{"train_start": dates[tr0].isoformat(), "train_end": dates[tr1 - 1].isoformat(),
+                          "test_start": dates[te0].isoformat(), "test_end": dates[te1 - 1].isoformat(),
+                          "portfolio_fit": fit}]}
+    payload["acceptance_binding"] = acceptance_binding(payload)
     try:
-        store.save_backtest_result(backtest)
-        store.save_research_ledger(ledger)
-        store.save_research_trial(terminal)
+        # Store and return the same JSON representation, including None/statuses.
+        payload = json.loads(json.dumps(payload, allow_nan=False))
+        store_call(store.save_backtest_result, backtest)
+        store_call(store.save_research_ledger, ledger)
+        body = {"payload": payload, "record_digests": record_digests(terminal, before_terminal=True)}
+        # Existing QPK exclusive-create/fsync primitive; one local immutable
+        # receipt in the same trial. No report in params or QPK schema change.
+        store_call(store._create_same, receipt_key, {**body, "sha256": _candidate_digest(body)})
+        # Receipt first: lost receipt ack leaves STARTED/UNKNOWN. Lost terminal
+        # ack can recover only after the full receipt + all records match.
+        store_call(store.save_research_trial, terminal)
         reopened = PerformanceStore(local_root=root, cloud_bucket="")
-        observed = reopened.load_research_trial(started.domain, started.strategy_profile, started.trial_id,
-                                                run_id=request["run_id"], param_version=1)
-        output = read_success(reopened, observed)
+        observed = store_call(reopened.load_research_trial, started.domain, started.strategy_profile, started.trial_id,
+                              run_id=request["run_id"], param_version=1)
+        return read_success(reopened, observed)
     except Exception:
         return {**response, "status": "UNKNOWN", "reason_code": "STORE_RECEIPT_UNCERTAIN"}
-    return {**output, "netting": net, "folds": [{"train_start": dates[tr0].isoformat(),
-            "train_end": dates[tr1 - 1].isoformat(), "test_start": dates[te0].isoformat(),
-            "test_end": dates[te1 - 1].isoformat(), "portfolio_fit": fit}],
-            "acceptance_binding": {**identity, "report_sha256": _candidate_digest(net["unified_net_report"]),
-                                   "ledger_sha256": _candidate_digest(ledger.to_dict()),
-                                   "result_sha256": _candidate_digest(backtest.to_dict())}}
 
 
 def _candidate_public_metrics(net_returns: Sequence[float], periods: int, *, report: dict | None = None) -> dict:

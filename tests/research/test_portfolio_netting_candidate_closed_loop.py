@@ -1,14 +1,26 @@
 """One synthetic RS06 fit -> actual net book -> exact local candidate readback."""
+import importlib.util
+import os
 from datetime import date, timedelta
 
 import pytest
-from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec
 
 from us_equity_strategies.research import portfolio_kelly_walk_forward as pw
 from us_equity_strategies.research.fractional_kelly_walk_forward_plan import WalkForwardPlan
 
 
+try:
+    NETTING_AVAILABLE = importlib.util.find_spec("quant_platform_kit.research_stats.security_netting") is not None
+except ModuleNotFoundError:
+    NETTING_AVAILABLE = False
+pytestmark = pytest.mark.skipif(
+    not NETTING_AVAILABLE and os.environ.get("UES_REQUIRE_SECURITY_NETTING") != "1",
+    reason="production QPK pin lacks research-only security netting",
+)
+
+
 def fixture_args(tmp_path, *, bps=100., test_sessions=5):
+    from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec
     dates = []
     day = date(2025, 1, 2)
     while len(dates) < 121 + test_sessions:
@@ -126,7 +138,9 @@ def test_success_conservation_public_metrics_and_actual_caller_only(tmp_path, mo
     assert net['final_nav'] != pytest.approx(1000.*math.prod(1.+r['net_return']-r['fees']/r['nav_start'] for r in net['ledger']))
     report = net['unified_net_report']
     expected = unified_report.build_unified_net_report(net['net_returns'], gross_returns=net['gross_returns'], periods_per_year=252).to_dict()
-    assert report == expected and report['observations'] == 5
+    # The immutable receipt uses JSON arrays for tuple-valued report details.
+    import json
+    assert report == json.loads(json.dumps(expected)) and report['observations'] == 5
     metrics = {m['name']: m for m in report['metrics']}
     candidate = result['candidate']
     assert candidate['cagr'] == metrics['net_cagr']['value']
@@ -389,3 +403,201 @@ def test_store_symlink_rejected_before_write(tmp_path):
     with pytest.raises(ValueError, match='STORE_SYMLINK'):
         pw.evaluate_portfolio_kelly_walk_forward(**args)
     assert not (tmp_path/'actual'/'candidate').exists()
+
+
+def test_r2_fee_cashflow_counterexample_rejected(tmp_path, monkeypatch):
+    import json
+    args = fixture_args(tmp_path)
+    original = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert original['status'] == 'SUCCEEDED'
+    path = next(args['netting_candidate']['local_root'].rglob('ledger.json'))
+    data = json.loads(path.read_text())
+    assert sum(day['fees'] for day in data['days']) > 0
+    for day in data['days']:
+        day['trade_net_cashflow'] -= day['fees']
+        day['fees'] = 0.
+    path.write_text(json.dumps(data))
+
+    def forbidden(*a, **kw):
+        pytest.fail('recovery recomputed fit')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+
+
+def test_r2_recovery_returns_entire_original_report_and_binding(tmp_path, monkeypatch):
+    args = fixture_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+
+    def forbidden(*a, **kw):
+        pytest.fail('recovery recomputed fit')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    again = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert again['status'] == 'SUCCEEDED'
+    for key in ('netting', 'acceptance_binding', 'research_ledger', 'candidate', 'trial', 'folds'):
+        assert again[key] == first[key]
+    assert next(args['netting_candidate']['local_root'].rglob('receipt.json')).is_file()
+
+
+@pytest.mark.parametrize('phase', ['first', 'recovery'])
+@pytest.mark.parametrize('component', ['research_trial', 'backtest', 'trial_directory', 'result_directory', 'started', 'ledger', 'terminal', 'receipt', 'result'])
+def test_r3_all_existing_store_links_rejected_before_io(tmp_path, monkeypatch, phase, component):
+    from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    args = fixture_args(tmp_path)
+    if phase == 'recovery':
+        assert pw.evaluate_portfolio_kelly_walk_forward(**args)['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    store = open_store(args)
+    trial_dir = root / store._research_key('us_equity', 'rs06_synthetic_netting', 'synthetic-rs06-one', 'started')
+    result_path = root / store._backtest_key(BacktestResult('rs06_synthetic_netting', 'us_equity', 'x', {}, run_id='synthetic-rs06-run'))
+    paths = {'research_trial':root/'research_trial', 'backtest':root/'backtest', 'trial_directory':trial_dir.parent,
+             'result_directory':result_path.parent, 'started':trial_dir, 'ledger':trial_dir.with_name('ledger.json'),
+             'terminal':trial_dir.with_name('terminal.json'), 'receipt':trial_dir.with_name('receipt.json'), 'result':result_path}
+    link = paths[component]
+    link.parent.mkdir(parents=True, exist_ok=True)
+    outside = tmp_path/'outside-store'
+    outside.mkdir()
+    if link.exists():
+        link.rename(outside/'original')
+    # Broken final links and links into the same approved job are both denied.
+    target = outside if component in ('research_trial', 'backtest', 'trial_directory', 'result_directory') else outside/'record.json'
+    link.symlink_to(target, target_is_directory=component in ('research_trial', 'backtest', 'trial_directory', 'result_directory'))
+    reads = []
+
+    def forbidden(*a, **kw):
+        reads.append(True)
+        pytest.fail('store I/O occurred before rejecting an existing symlink')
+
+    monkeypatch.setattr(PerformanceStore, 'load_research_trial', forbidden)
+    with pytest.raises(ValueError, match='NETTING_STORE_'):
+        pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert reads == []
+    assert not (outside/'record.json').exists()
+
+
+@pytest.mark.parametrize('record', ['started', 'terminal', 'ledger', 'backtest', 'receipt'])
+@pytest.mark.parametrize('damage', ['missing', 'extra_content', 'identity'])
+def test_r2_all_record_and_receipt_content_bound(tmp_path, monkeypatch, record, damage):
+    import json
+    args = fixture_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    path = next(root.rglob('backtest*.json' if record == 'backtest' else record+'.json'))
+    if damage == 'missing':
+        path.unlink()
+    else:
+        data = json.loads(path.read_text())
+        if damage == 'extra_content':
+            data['unexpected_content'] = 'changed'
+        elif record == 'receipt':
+            data['payload']['binding']['run_id'] += '-wrong'
+            body = {k:data[k] for k in ('payload', 'record_digests')}
+            data['sha256'] = pw._candidate_digest(body)
+        else:
+            data['input_id' if record in ('started', 'terminal', 'ledger') else 'source_revision'] = 'wrong'
+        path.write_text(json.dumps(data))
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+    def forbidden(*a, **kw):
+        pytest.fail('tampered trial was recomputed')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+
+@pytest.mark.parametrize('section', ['report', 'net_book', 'candidate', 'original_state', 'binding'])
+def test_r2_receipt_payload_tamper_rejected(tmp_path, monkeypatch, section):
+    import json
+    args = fixture_args(tmp_path)
+    assert pw.evaluate_portfolio_kelly_walk_forward(**args)['status'] == 'SUCCEEDED'
+    path = next(args['netting_candidate']['local_root'].rglob('receipt.json'))
+    receipt = json.loads(path.read_text())
+    payload = receipt['payload']
+    if section == 'report':
+        payload['netting']['unified_net_report']['metrics'][0]['value'] += .1
+    elif section == 'net_book':
+        payload['netting']['ledger'][0]['fees'] = 0.
+    elif section == 'candidate':
+        payload['candidate']['cagr'] = .99
+    elif section == 'original_state':
+        metric = next(m for m in payload['netting']['unified_net_report']['metrics'] if m['name'] == 'deflated_sharpe_ratio')
+        assert metric['value'] is None and metric['status'] == 'UNCOMPUTABLE'
+        metric.update(value=0., status='COMPUTED', reason_code=None)
+    else:
+        payload['acceptance_binding']['input_sha256'] = '0'*64
+    # Even a rehashed outer envelope cannot hide a changed bound component.
+    receipt['sha256'] = pw._candidate_digest({k:receipt[k] for k in ('payload', 'record_digests')})
+    path.write_text(json.dumps(receipt))
+
+    def forbidden(*a, **kw):
+        pytest.fail('tampered receipt was recomputed')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+
+
+@pytest.mark.parametrize('boundary', ['receipt_ack', 'partial_receipt', 'terminal_before_write'])
+def test_r2_receipt_ack_and_terminal_order_remain_unknown(tmp_path, monkeypatch, boundary):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    args = fixture_args(tmp_path)
+    create = PerformanceStore._create_same
+    terminal = PerformanceStore.save_research_trial
+
+    def create_lost(self, key, payload):
+        if key.endswith('/receipt.json'):
+            if boundary == 'partial_receipt':
+                path = self.local_root/key
+                with path.open('x') as handle:
+                    handle.write('{')
+            else:
+                create(self, key, payload)
+            raise OSError('synthetic receipt write or acknowledgement uncertain')
+        create(self, key, payload)
+
+    def terminal_lost(self, record):
+        if record.status.value == 'succeeded':
+            raise OSError('synthetic terminal not written after complete receipt')
+        terminal(self, record)
+
+    if boundary == 'terminal_before_write':
+        monkeypatch.setattr(PerformanceStore, 'save_research_trial', terminal_lost)
+    else:
+        monkeypatch.setattr(PerformanceStore, '_create_same', create_lost)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(first)
+    assert first['status'] == 'UNKNOWN'
+    root = args['netting_candidate']['local_root']
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    assert next(root.rglob('receipt.json')).is_file()
+    assert not list(root.rglob('terminal.json'))
+
+    def forbidden(*a, **kw):
+        pytest.fail('uncertain receipt retried a write or replay')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(PerformanceStore, 'save_research_trial', forbidden)
+    monkeypatch.setattr(PerformanceStore, '_create_same', forbidden)
+    again = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(again)
+    assert again['status'] == 'UNKNOWN' and again['trial_id'] == first['trial_id']
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+
+def test_r2_receipt_exclusive_create_is_immutable(tmp_path):
+    import json
+    args = fixture_args(tmp_path)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    store = open_store(args)
+    path = next(store.local_root.rglob('receipt.json'))
+    original = path.read_bytes()
+    changed = json.loads(original)
+    changed['payload']['netting']['final_nav'] += 1.
+    with pytest.raises(ValueError):
+        store._create_same(str(path.relative_to(store.local_root)), changed)
+    assert path.read_bytes() == original

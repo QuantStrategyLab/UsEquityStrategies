@@ -214,7 +214,11 @@ jobs:
           for required in ("success_actual_fee_cash", "success_conservation_public_metrics",
                            "unknown_write_success_response_lost", "recovery_missing_or_tampered",
                            "recovery_identity_mismatch", "reject_fee_cash_insufficient",
-                           "default_off_structure", "zero_drawdown_and_uncomputable"):
+                           "default_off_structure", "zero_drawdown_and_uncomputable",
+                           "r2_fee_cashflow_counterexample", "r2_recovery_returns_entire",
+                           "r2_all_record_and_receipt_content_bound", "r2_receipt_payload_tamper",
+                           "r2_receipt_ack_and_terminal_order", "r2_receipt_exclusive_create",
+                           "r3_all_existing_store_links"):
               assert any(required in c.attrib["name"] for c in candidate_cases), required
           assert not any(list(c.iter(tag)) for c in candidate_cases for tag in ("skipped", "failure", "error"))
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
