@@ -14,6 +14,7 @@ the next session drifts the actual post-fee book, including the depleted cash.
 """
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -62,6 +63,7 @@ def _cash(inner_cash: float, outer: float, spec: Any) -> dict[str, float]:
 def run_offline_security_netting(
     sessions: Sequence[NettingSession], *, initial_nav: float, initial_f: float,
     initial_inner_weights: Mapping[str, float], spec: Any, fee_cash_role: str,
+    execution_timing: str | None = None, report_periods_per_year: int | None = None,
 ) -> dict[str, Any]:
     """Replay one composed sleeve with explicit cash funding; no data or order I/O.
 
@@ -69,7 +71,27 @@ def run_offline_security_netting(
     not an independently rerun cost-free counterfactual. Role weights overlap
     securities for inner cash-like assets and merged outer cash: never sum the
     role columns into NAV. Only ``security_end`` + ``virtual_cash_end`` sum to NAV.
+
+    Explicit ``execution_timing="next_close"`` and ``report_periods_per_year``
+    opt into QPK's compounding report on the actual post-fee ledger returns.
+    Decisions must then use the immediately preceding supplied session; the
+    first decision is the caller's pre-window anchor. Calendar completeness and
+    real signal availability remain unverified. Omitting both keeps the original
+    result and dependency requirements; no annualization policy is inferred.
     """
+    report_builder = None
+    if execution_timing is not None or report_periods_per_year is not None:
+        if execution_timing != "next_close" or report_periods_per_year is None:
+            raise ValueError("EXPLICIT_NEXT_CLOSE_REPORT_REQUIRED")
+        try:
+            from quant_platform_kit.research_stats.unified_report import (
+                build_unified_net_report,
+            )
+        except ImportError as exc:
+            raise ValueError("QPK_NET_COMPOUNDING_REQUIRED") from exc
+        if "periods_per_year" not in inspect.signature(build_unified_net_report).parameters:
+            raise ValueError("QPK_NET_COMPOUNDING_REQUIRED")
+        report_builder = build_unified_net_report
     try:
         from quant_platform_kit.research_stats.security_netting import (
             SECURITY_NETTING_VERSION,
@@ -111,6 +133,8 @@ def run_offline_security_netting(
             raise ValueError("SESSION_ORDER_INVALID")
         if type(row.decision_session) is not date or row.decision_session >= row.session:
             raise ValueError("DECISION_NOT_PRIOR")
+        if report_builder is not None and previous is not None and row.decision_session != previous:
+            raise ValueError("NEXT_CLOSE_DECISION_SESSION_MISMATCH")
         previous = row.session
         if not isinstance(row.security_returns, Mapping):
             raise ValueError("RETURN_INVALID")
@@ -191,7 +215,7 @@ def run_offline_security_netting(
             "turnover_columns_summable": result.turnover_columns_summable,
             "reconciliation_errors": errors,
         })
-    return {
+    output = {
         "scope": "OFFLINE_RESEARCH_ONLY", "no_order": True, "live_ready": False,
         "input_provenance": "CALLER_SUPPLIED_NOT_VERIFIED", "version": SECURITY_NETTING_VERSION,
         "fill_convention": "prior_decision_close_fill_after_held_book_return",
@@ -204,3 +228,19 @@ def run_offline_security_netting(
         "gross_returns": [r["gross_return"] for r in ledger],
         "net_returns": [r["net_return"] for r in ledger], "ledger": ledger,
     }
+    if report_builder is not None:
+        output["timing"] = {"execution": execution_timing}
+        output["unified_net_report"] = report_builder(
+            output["net_returns"], gross_returns=output["gross_returns"],
+            periods_per_year=report_periods_per_year,
+        ).to_dict()
+        output["unified_net_report_basis"] = {
+            "sessions": [r["session"] for r in ledger],
+            "observation_unit": "SESSION_SIMPLE_NET_RETURN", "return_unit": "SIGNED_DECIMAL_FRACTION",
+            "periods_per_year": report_periods_per_year, "initial_nav_is_return_observation": False,
+            "zero_return_sessions": "INCLUDED", "costs_deducted_again": False,
+            "calendar_and_signal_availability_verified": False,
+            "gross_counterfactual": "NOT_SUPPLIED", "asset_benchmark": None,
+            "benchmark_alignment_count": None, "benchmark_dropped_count": None,
+        }
+    return output
