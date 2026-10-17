@@ -265,9 +265,11 @@ def _inspect(packet, manifest, evidence, clock):
         if weights:
             _require(sum(value.values()) <= 1, path, "WEIGHTS_NOT_FULLY_FUNDED")
 
-    def constraints(value, definition, path):
+    def constraints(value, definition, path, *, observation=False):
         _object(value, _CONSTRAINTS, path)
-        _require(type(value["cash_symbol"]) is str and value["cash_symbol"] in assets,
+        complete = value["cash_symbol"] is not None
+        _require((observation and value["cash_symbol"] is None)
+                 or (type(value["cash_symbol"]) is str and value["cash_symbol"] in assets),
                  path + ".cash_symbol", "CASH_IDENTIFIER_REQUIRED")
         semantics = definition["input_semantics"]
         basis = {"kind": "SYNTHETIC_NAV", "fixture_id": scope["fixture_id"],
@@ -284,10 +286,16 @@ def _inspect(packet, manifest, evidence, clock):
             for item in items:
                 label = path + "." + field
                 _object(item, "mode value unit denominator source_ref", label)
+                mode = item["mode"]
+                _require(mode in ("ENABLED", "DISABLED", "UNSPECIFIED"), label, "LIMIT_MODE")
                 _require(item["unit"] == unit, label, "UNIT_MISMATCH")
-                _require(_same(item["denominator"], basis), label, "DENOMINATOR_MISMATCH")
+                unknown = observation and mode == "UNSPECIFIED"
+                if not (unknown and item["denominator"] is None):
+                    _require(_same(item["denominator"], basis), label, "DENOMINATOR_MISMATCH")
                 source = item["source_ref"]
-                if type(source) is dict:
+                if unknown and source is None:
+                    pass
+                elif type(source) is dict:
                     _object(source, "preset_id config_version", label)
                     _require(source == {"preset_id": definition["preset_id"], "config_version": definition["config_version"]},
                              label, "CONSTRAINT_SOURCE_MISMATCH")
@@ -296,17 +304,17 @@ def _inspect(packet, manifest, evidence, clock):
                     _object(record["source"], _SOURCE, label)
                     _require(record["effective"] == _definition_ref(definition)
                              and record["source"]["input_sha256"] == semantics["input_sha256"], label, "CONSTRAINT_SOURCE_MISMATCH")
-                mode = item["mode"]
-                _require(mode in ("ENABLED", "DISABLED", "UNSPECIFIED"), label, "LIMIT_MODE")
                 if mode == "DISABLED":
                     _require(field == "max_one_way_risk_turnover" and item["value"] is None, label, "REQUIRED_CAP_NOT_DISABLED")
                 elif mode == "UNSPECIFIED":
                     _require(item["value"] is None, label, "LIMIT_MODE")
-                    raise _Issue(label, "INCOMPLETE_DEFINITION")
+                    _require(observation, label, "INCOMPLETE_DEFINITION")
+                    complete = False
                 else:
                     positive = field in ("max_effective_risk_exposure", "max_symbol_weights", "max_underlying_effective_exposure", "max_one_way_risk_turnover")
                     upper = 1 if field in ("max_symbol_weights", "max_one_way_risk_turnover", "min_available_cash_weight") else None
                     _number(item["value"], label, maximum=upper, positive=positive)
+        return complete
 
     fractions = []
     for definition in definitions:
@@ -428,20 +436,22 @@ def _inspect(packet, manifest, evidence, clock):
         binding = _object(final["binding"], "effective_definition_ref scope input_sha256", "final_constraints.binding")
         _require(_same(binding, {"effective_definition_ref": effective, "scope": scope, "input_sha256": source["input_sha256"]}),
                  "final_constraints.binding", "FINAL_BINDING_MISMATCH")
-        _require(final["completeness"] == "COMPLETE", "final_constraints", "COMPLETE_LIMITS_REQUIRED")
-        constraints(final["items"], definition, "final_constraints.items")
-        _require(final["items"]["cash_symbol"] == definition["constraints"]["cash_symbol"], "final_constraints.items", "CASH_IDENTIFIER_MISMATCH")
+        _require(final["completeness"] in ("COMPLETE", "PARTIAL", "MISSING"), "final_constraints", "FINAL_COMPLETENESS")
+        limits_complete = constraints(final["items"], definition, "final_constraints.items", observation=True)
+        if final["items"]["cash_symbol"] is not None:
+            _require(final["items"]["cash_symbol"] == definition["constraints"]["cash_symbol"], "final_constraints.items", "CASH_IDENTIFIER_MISMATCH")
         for field in _UNITS:
             policy, actual = definition["constraints"][field], final["items"][field]
             if field in ("max_symbol_weights", "max_underlying_effective_exposure"):
-                _require(policy.keys() <= actual.keys(), "final_constraints.items", "COMPLETE_LIMITS_REQUIRED")
-                pairs = [(policy[k], actual[k]) for k in policy]
+                limits_complete = limits_complete and policy.keys() <= actual.keys()
+                pairs = [(policy[k], actual[k]) for k in policy if k in actual]
             else:
                 pairs = [(policy, actual)]
             for cap, limit in pairs:
-                if cap["mode"] == "ENABLED":
+                if cap["mode"] == "ENABLED" and limit["mode"] != "UNSPECIFIED":
                     _require(limit["mode"] == "ENABLED" and (limit["value"] >= cap["value"] if field == "min_available_cash_weight"
                                                              else limit["value"] <= cap["value"]), "final_constraints.items", "FINAL_LIMIT_LOOSENED")
+        _require(final["completeness"] != "COMPLETE" or limits_complete, "final_constraints", "COMPLETE_LIMITS_REQUIRED")
         seen = set()
         for row in upstream:
             _object(row, "stage subject status reason_codes evidence_ref", "upstream.item")
@@ -470,7 +480,8 @@ def _inspect(packet, manifest, evidence, clock):
                 _number(metrics[field], "metrics." + field)
         qualified = record["qualification"] == "QUALIFIED"
         if assessment["status"] == "APPROVE":
-            _require(qualified and assessment["risk_scalar"] is not None and assessment["recommended_target_weights"] is not None
+            _require(final["completeness"] == "COMPLETE" and qualified
+                     and assessment["risk_scalar"] is not None and assessment["recommended_target_weights"] is not None
                      and all(v is not None for v in metrics.values()), "risk_assessment", "APPROVE_REQUIRES_COMPLETE_QUALIFIED_INPUT")
         age = (now - instants["observed_at"]).total_seconds()
         expected = ("UNKNOWN" if not qualified else "STALE" if now >= instants["valid_until"]

@@ -564,3 +564,169 @@ def test_F7_nested_parked_and_unknown_raw_status_reasons_preserved():
     packet["upstream"].append(deepcopy(packet["upstream"][0]))
     seal_observation(packet, context)
     rejected(packet, context)
+
+
+def partial_observation(qualification="UNKNOWN"):
+    """R1: complete definitions, but one honestly missing observed symbol cap."""
+    packet, context = synthetic(effective=True)
+    packet["final_constraints"]["completeness"] = "PARTIAL"
+    packet["final_constraints"]["items"]["max_symbol_weights"] = {}
+    packet["freshness"] = "FRESH" if qualification == "QUALIFIED" else "UNKNOWN"
+    assessment = packet["risk_assessment"]
+    assessment.update(status="PARKED", reason_codes=["FIXTURE_FINAL_LIMIT_MISSING"],
+                      risk_scalar=0.0, recommended_target_weights=None,
+                      metrics={key: None for key in assessment["metrics"]})
+    packet["upstream"][0].update(status="PARKED", reason_codes=["FIXTURE_FINAL_LIMIT_MISSING"])
+    seal_observation(packet, context, qualification)
+    return packet, context
+
+
+@pytest.mark.parametrize("qualification", ["UNKNOWN", "QUALIFIED"])
+def test_F5_R1_partial_parked_old_effective_with_new_unknown_request(qualification):
+    packet, context = partial_observation(qualification)
+    accepted(packet, context)
+    assert packet["requested"] != packet["effective"]
+    assert packet["request_status"]["status"] == "UNKNOWN"
+    assert packet["final_constraints"]["completeness"] == "PARTIAL"
+    assert packet["risk_assessment"]["reason_codes"] == ["FIXTURE_FINAL_LIMIT_MISSING"]
+    assert packet["risk_assessment"]["risk_scalar"] == 0.0
+    assert packet["risk_assessment"]["recommended_target_weights"] is None
+    assert all(value is None for value in packet["risk_assessment"]["metrics"].values())
+
+
+def test_F5_R1_partial_historical_observation_is_not_current_effective():
+    packet, context = partial_observation()
+    empty = f0()[0]
+    for key in (*OBSERVATION_FIELDS, "freshness"):
+        if key != "scope":
+            packet[key] = deepcopy(empty[key])
+    context["fixture_clock"] = "2030-03-01T00:00:00Z"
+    accepted(packet, context)
+    assert packet["effective"] is None and packet["freshness"] == "MISSING"
+    assert context["evidence_table"]["obs-old"]["final_constraints"]["completeness"] == "PARTIAL"
+
+
+def test_F5_R1_stale_partial_observation_is_separate_from_policy_expiry():
+    packet, context = partial_observation("QUALIFIED")
+    context["fixture_clock"] = "2030-01-03T00:00:00Z"
+    packet["freshness"] = "STALE"
+    accepted(packet, context)
+    context["fixture_clock"] = WINDOW["expires_at"]
+    rejected(packet, context, "OBSERVATION_CAUSALITY_OR_POLICY_WINDOW")
+
+
+@pytest.mark.parametrize("claim", ["COMPLETE", "APPROVE"])
+def test_F6_R1_partial_cannot_claim_complete_or_approve(claim):
+    packet, context = partial_observation("QUALIFIED")
+    if claim == "COMPLETE":
+        packet["final_constraints"]["completeness"] = "COMPLETE"
+    else:
+        # Other approval inputs are known, so only the partial limits block it.
+        packet["risk_assessment"] = deepcopy(synthetic(effective=True)[0]["risk_assessment"])
+    seal_observation(packet, context)
+    before = deepcopy((packet, context))
+    rejected(packet, context, "COMPLETE_LIMITS_REQUIRED" if claim == "COMPLETE" else "APPROVE_REQUIRES_COMPLETE_QUALIFIED_INPUT")
+    assert (packet, context) == before
+
+
+@pytest.mark.parametrize("field,value,code", [
+    ("unit", "PERCENT", "UNIT_MISMATCH"),
+    ("source_ref", {"preset_id": "fixture-preset", "config_version": "new"}, "CONSTRAINT_SOURCE_MISMATCH"),
+    ("denominator", None, "DENOMINATOR_MISMATCH"),
+    ("value", True, "FINITE_NUMBER_REQUIRED"),
+    ("value", -1, "NUMBER_DOMAIN"),
+    ("value", 3.0, "FINAL_LIMIT_LOOSENED"),
+    ("mode", "DISABLED", "REQUIRED_CAP_NOT_DISABLED"),
+])
+def test_F6_R1_supplied_partial_caps_still_checked(field, value, code):
+    packet, context = partial_observation()
+    cap = packet["final_constraints"]["items"]["max_effective_risk_exposure"]
+    cap[field] = value
+    if field == "mode":
+        cap["value"] = None
+    seal_observation(packet, context, "UNKNOWN")
+    rejected(packet, context, code)
+
+
+def test_F6_R1_retained_partial_map_cap_cannot_be_looser():
+    packet, context = partial_observation()
+    items = packet["final_constraints"]["items"]
+    items["max_symbol_weights"] = deepcopy(packet["definitions"][0]["constraints"]["max_symbol_weights"])
+    items["max_underlying_effective_exposure"] = {}
+    items["max_symbol_weights"]["TEST_RISK"]["value"] = 0.9
+    seal_observation(packet, context, "UNKNOWN")
+    rejected(packet, context, "FINAL_LIMIT_LOOSENED")
+
+
+@pytest.mark.parametrize("fault", ["expired_policy", "absent", "tampered", "unadmitted", "request", "effective", "input", "scope"])
+def test_F6_R1_partial_observation_keeps_evidence_and_binding_guards(fault):
+    packet, context = partial_observation()
+    if fault == "expired_policy":
+        context["fixture_clock"] = WINDOW["expires_at"]
+    elif fault == "absent":
+        context["evidence_table"] = {}
+    elif fault == "tampered":
+        context["evidence_table"]["obs-old"]["qualification"] = "QUALIFIED"
+    elif fault == "unadmitted":
+        entry_of(packet, context)["allowed_evidence_key_digests"] = {}
+    elif fault == "request":
+        acknowledge(packet, context, "REJECTED")
+        record = context["evidence_table"]["request"]
+        record["requested"] = deepcopy(packet["effective"])
+        entry_of(packet, context)["allowed_evidence_key_digests"]["request"] = digest(record)
+    elif fault == "effective":
+        packet["effective"] = deepcopy(packet["requested"])
+    else:
+        binding = packet["final_constraints"]["binding"]
+        if fault == "input":
+            binding["input_sha256"] = "0" * 64
+        else:
+            binding["scope"]["strategy_revision"] = "other-fixture-revision"
+        seal_observation(packet, context, "UNKNOWN")
+    before = deepcopy((packet, context))
+    rejected(packet, context)
+    assert (packet, context) == before
+
+
+@pytest.mark.parametrize("completeness", ["PARTIAL", "MISSING"])
+def test_F6_R1_unknown_final_limit_uses_existing_unspecified_wire(completeness):
+    packet, context = partial_observation()
+    final = packet["final_constraints"]
+    final["completeness"] = completeness
+    fields = ("max_effective_risk_exposure",) if completeness == "PARTIAL" else (
+        "max_effective_risk_exposure", "max_one_way_risk_turnover", "min_available_cash_weight", "max_security_gross", "max_security_net")
+    if completeness == "MISSING":
+        final["items"]["cash_symbol"] = None
+        final["items"]["max_underlying_effective_exposure"] = {}
+    for field in fields:
+        final["items"][field].update(mode="UNSPECIFIED", value=None, denominator=None, source_ref=None)
+    seal_observation(packet, context, "UNKNOWN")
+    accepted(packet, context)
+    final["completeness"] = "COMPLETE"
+    seal_observation(packet, context, "UNKNOWN")
+    rejected(packet, context, "COMPLETE_LIMITS_REQUIRED")
+
+
+def test_F6_R1_unspecified_observed_limit_still_checks_supplied_source():
+    packet, context = partial_observation()
+    cap = packet["final_constraints"]["items"]["max_effective_risk_exposure"]
+    cap.update(mode="UNSPECIFIED", value=None)
+    cap["source_ref"]["config_version"] = "new"
+    seal_observation(packet, context, "UNKNOWN")
+    rejected(packet, context, "CONSTRAINT_SOURCE_MISMATCH")
+
+
+def test_F6_R1_immutable_definition_still_rejects_unspecified_cap():
+    packet, context = partial_observation()
+    packet["definitions"][0]["constraints"]["max_effective_risk_exposure"].update(mode="UNSPECIFIED", value=None)
+    rehash(packet, context, 0)
+    rejected(packet, context, "INCOMPLETE_DEFINITION")
+
+
+def test_F7_R1_partial_unknown_raw_assessment_is_preserved():
+    packet, context = partial_observation()
+    packet["risk_assessment"]["status"] = "FUTURE_UNKNOWN_ASSESSMENT"
+    seal_observation(packet, context, "UNKNOWN")
+    accepted(packet, context)
+    assert packet["risk_assessment"]["status"] == "FUTURE_UNKNOWN_ASSESSMENT"
+    assert packet["execution_authorized"] is False

@@ -39,7 +39,7 @@ packet 固定为 candidate 的 17 个字段。scope 必须精确匹配 manifest 
   本地测试形式只支持 `SYNTHETIC_SIMPLE_RETURNS` 与 `SYNTHETIC_CASH_SECURITY`。
   不解释收益序列、NAV 或现金证券，不执行 FX；`capital_basis.fx_ref` 必须 null。
 - constraints 使用冻结表的八个键；`cash_symbol` 是已许可资产字符串。其他键是 LimitItem，
-  两种逐项 cap 使用已许可资产或底层键的 map。空 map 是显式无逐项项，不补造 cap。
+  两种逐项 cap 使用已许可资产或底层键的 map。定义中的空 map 不补造 cap；观察中缺少定义已有的 map 项表示限制未知。
   LimitItem 固定为 `mode,value,unit,denominator,source_ref`。单位和数值范围严格遵循冻结表。
   只有 turnover 允许 DISABLED/null；UNSPECIFIED/null 被识别为未完成配置，不能进入完整定义。
 - denominator 固定为 `{kind:"SYNTHETIC_NAV",fixture_id,input_sha256,asof,baseline_ref}`，精确绑定
@@ -79,9 +79,18 @@ capital/input 的 asof 必须精确绑定。QUALIFIED 且 age ≤ 显式阈值�
 超过观察阈值或 valid_until 为 STALE，未知/未通过资格为 UNKNOWN。策略本身到期不能仍为当前 effective，
 其完整历史证据可以保留。请求窗口只检查顺序，不拿新请求窗口覆盖旧观察窗口。
 
-effective 必须有完整观察证据、明确资本基础和 COMPLETE 最终限制。最终限制绑定 effective/scope/input，
+effective 必须有独立许可的观察证据和明确资本基础；完整定义与观察的完整性分别检查。
+最终观察允许 COMPLETE/PARTIAL/MISSING，并绑定同一 effective/scope/input。当前观察和历史记录均可如实保留
+PARTIAL/MISSING 的 PARKED 或未知非批准状态。已有值仍须满足类型、单位、来源、分母和数值范围，
 不得放松已声明 cap 或现金下限；可增加已许可的更严格项。校验器不计算约束交集或预算。
-APPROVE 需要已知的 scalar、目标、metrics 与 QUALIFIED 输入。APPLIED+STALE 不表示准备就绪。
+
+局部缺项表示沿用固定八个键：逐项 cap map 可省略未知项；未知标量限制使用原 LimitItem 的
+`mode=UNSPECIFIED,value=null`，unit 仍为固定单位，未知 denominator/source_ref 可显式 null，
+已提供的分母或来源仍须正确绑定。未知现金标识使用 `cash_symbol=null`。MISSING 可用这些形式保留全部未知项，
+不接受省掉固定顶层键或改用新包装。定义不接受这些未完成值，也不会从完整定义补齐最终观察。
+缺失任何必需项或含 UNSPECIFIED 的观察不能标 COMPLETE；PARTIAL/MISSING 不能 APPROVE，
+即使已有目标或指标。APPROVE 还需要已知的 scalar、目标、metrics 与 QUALIFIED 输入。
+请求、原始状态/原因、显式零、null 指标与 freshness 不被改写。APPLIED+STALE 不表示准备就绪。
 upstream 的 stage+subject 唯一，原始状态/原因逐项保留；外层 COMPUTED/SUCCEEDED 不消除内部 PARKED
 或未知状态。任何校验通过都不推导交易、清仓或提升风险的权限。
 
