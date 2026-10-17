@@ -1,0 +1,511 @@
+{
+  "candidate_status": "PROPOSED_FOR_JOINT_FREEZE_NOT_IMPLEMENTED",
+  "candidate_schema_version": "qsl.risk_preset.offline.v1-candidate",
+  "created_at": "2026-10-17T11:41:52.570608+00:00",
+  "source_refs": [
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-2/qsl_six_lines_20261017/release5/risk_presets_design/CONTRACT_PROPOSAL.json",
+      "sha256": "eeef99f00c3b28e8f518425075d14f95c1214681668b8d9cedbd4cc3da7f4fb3"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-3/risk_profile_design/CONTRACT_ALIGNMENT.json",
+      "sha256": "25d37134438e60d04f56c418d3d7eb4212cdcf2ed3454aa19a4c830044cae944"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-3/risk_profile_design/RELEASE7_CROSS_REVIEW.json",
+      "sha256": "9a8576c9be30eb049055b36864ad165164e1f3e64870d4400901ee9eb26a34bb"
+    }
+  ],
+  "scope_narrowing": "Supersedes broad account/PAPER/PRODUCTION/aggregate ideas only for this first offline research contract; prior documents retained unchanged. No real account identity is accepted.",
+  "jointly_frozen": false,
+  "consumer_implemented": false,
+  "parameter_values_provided": false,
+  "effective_time_defaults": false,
+  "services_or_urls_created": false,
+  "gap_resolutions": [
+    {
+      "id": "G1",
+      "source_topic": "Unselected versus missing readback",
+      "resolution": "允许 requested=null；无选择或必要参数不全均为 NOT_CONFIGURED。已选择但未形成完整定义时 requested={preset_id,definition_ref:null}，不造版本/hash。"
+    },
+    {
+      "id": "G2",
+      "source_topic": "Adoption status subject and old effective",
+      "resolution": "status 始终说明同一 envelope 的当前 requested 采用结果；不是全局运行状态。新请求未配置/未采用/拒绝时，可独立保留同一合成scope、仍在窗口内且有证据的旧 effective；不复制 requested。"
+    },
+    {
+      "id": "G3",
+      "source_topic": "Final constraints and timing identity",
+      "resolution": "requested/effective 均通过 definition_ref 在同一离线 definitions 中查各自不可变定义和窗口；timing 只保留观测时间。final_constraints 显式绑定实际 effective 定义、合成scope和input_sha256，并声明完整性。"
+    },
+    {
+      "id": "G4",
+      "source_topic": "Namespaced multi-stage results",
+      "resolution": "upstream 改为按 stage/subject 命名的数组；保留RS06、每fold、预算和strict结果及原状态/原因。risk_assessment 单列；外层成功不抹去内部失败。"
+    },
+    {
+      "id": "G5",
+      "source_topic": "Units, numeric wire and disabled constraints",
+      "resolution": "数值使用严格有限 JSON number，拒绝bool/NaN/Inf；比例为decimal ratio。每个quantity含unit、denominator和source_ref。ENABLED/DISABLED/UNSPECIFIED 分开，null不代表零或无限制。"
+    },
+    {
+      "id": "G6",
+      "source_topic": "Scope mapping and aggregate coverage",
+      "resolution": "首批仅 layer=RESEARCH + synthetic=true +本地allowlisted fixture_id；删除实际账户映射。scope/资本元数据不接受account_id、broker_account、platform或target_name等真实账户入口；PAPER/PRODUCTION与跨账户聚合均不在本合同。"
+    },
+    {
+      "id": "G7",
+      "source_topic": "Transport, definition lookup and consumers",
+      "resolution": "交付单个离线packet：definitions +原命名readback字段；共同fixture与同一candidate版本。没有URL、新服务或QRS偏好接口接线，未知消费者不伪造effective。"
+    },
+    {
+      "id": "G8",
+      "source_topic": "Frozen schema and user parameters",
+      "resolution": "只提议结构版本；三档数值、共同c、定义窗口和时效资格均不设默认。缺任一必要项显式NOT_CONFIGURED。所有参数与适用范围不自动生效。"
+    }
+  ],
+  "field_table": [
+    {
+      "field": "schema_version",
+      "type": "candidate identifier, proposed only",
+      "rule": "one version for packet and UI; no version inferred from old QRS or audit schema"
+    },
+    {
+      "field": "definitions",
+      "type": "array<immutable complete definition>",
+      "rule": "local lookup only; complete definition contains config_version,preset_id,scope,model_binding,input_semantics,constraints,window,qualification_rules,content_sha256; incomplete selections have no fabricated definition hash"
+    },
+    {
+      "field": "requested",
+      "type": "null | {preset_id, definition_ref:null|{config_version,content_sha256}}",
+      "rule": "null = no selection; null definition_ref = selection without complete configured parameters"
+    },
+    {
+      "field": "effective",
+      "type": "null | {preset_id,definition_ref:{config_version,content_sha256}}",
+      "rule": "only independently confirmed synthetic consumer reference; same scope, actual source/input binding, own definition/window; never a copy of requested. Expired definitions are not kept as currently effective; retain history only in evidence."
+    },
+    {
+      "field": "scope",
+      "type": "{layer:RESEARCH,synthetic:true,fixture_id,strategy_profile:null|string,strategy_revision:null|string}",
+      "rule": "fixture_id is a local manifest allowlist key, not arbitrary user input; no real account identifiers or account resolver; missing required strategy binding => NOT_CONFIGURED"
+    },
+    {
+      "field": "request_status",
+      "type": "{status:NOT_CONFIGURED|NOT_APPLIED|APPLIED|REJECTED|UNKNOWN,reason_codes:string[],missing_parameters:MissingParameterKey[],processed_at:UTC timestamp|null,evidence_key:string|null}",
+      "rule": "Replaces old flat status/reason_codes/missing_parameters; subject is current requested. Time/evidence belongs to request handling only. No duplicate top-level status."
+    },
+    {
+      "field": "freshness",
+      "type": "FRESH | STALE | MISSING | UNKNOWN",
+      "rule": "Only effective-observation freshness. Missing effective observation => MISSING; qualification/clock unknown => UNKNOWN or validation issue, never system-time fallback. Independent from new request_status."
+    },
+    {
+      "field": "upstream",
+      "type": "array<{stage,subject,status,reason_codes,evidence_ref}>",
+      "rule": "one record per material stage/fold, unique stage+subject; preserve raw namespaces/unknown values. No outer COMPUTED/SUCCEEDED override. All values belong to the same effective observation/input, never to a different pending request."
+    },
+    {
+      "field": "source",
+      "type": "null | {consumer,mode,ues_revision,qpk_revision,evaluator_version,input_sha256,evidence_ref}",
+      "rule": "Effective observation only, with actual supplied revisions/input/evidence binding. Not the new request acknowledgement. No effective => null; no Git-main/version substitution."
+    },
+    {
+      "field": "timing",
+      "type": "{observed_at,asof,available_at,valid_until}: timestamp|null",
+      "rule": "Effective observation only: observed_at/asof/available_at/valid_until. Request processing time lives solely in request_status.processed_at. Definition windows remain per-reference lookups; never generated_at/Date.now fallback."
+    },
+    {
+      "field": "capital_basis",
+      "type": "null | {fixture_id,denominator_kind:SYNTHETIC_NAV,nav_value,currency,asof,coverage,fx_ref}",
+      "rule": "synthetic fixture only; no account_id/real balances/real FX; no NAV/currency/FX default. All ratio denominators bind this exact input/window. All values belong to the same effective observation/input, never to a different pending request."
+    },
+    {
+      "field": "final_constraints",
+      "type": "null | {binding:{effective_definition_ref,scope,input_sha256},completeness:COMPLETE|PARTIAL|MISSING,items:closed key-dependent object per field_type_unit_denominator_table}",
+      "rule": "never requested limits mislabeled final. No effective => null; missing required limits/source/input cannot be COMPLETE or risk APPROVE. Window comes from bound effective definition. Numeric items use LimitItem, cash_symbol uses the separate identifier type; bind the same effective observation."
+    },
+    {
+      "field": "risk_assessment",
+      "type": "null | {status,reason_codes,risk_scalar,recommended_target_weights,metrics}",
+      "rule": "existing budget raw status APPROVE/REDUCE/PARKED preserved; quantities use frozen units/basis. PARKED/REDUCE are research assessments, not executed orders or liquidation. All values belong to the same effective observation/input, never to a different pending request."
+    },
+    {
+      "field": "explanation",
+      "type": "short bounded display text",
+      "rule": "only approved fixture-derived explanation; no account identifiers or internal deployment progress"
+    },
+    {
+      "field": "display_only / execution_authorized / research_boundary",
+      "type": "true / false / {synthetic:true,no_order:true,live_ready:false,budget_effect:NONE}",
+      "rule": "no action, deployment, approval, or risk-increase semantics"
+    }
+  ],
+  "definition_ref_rule": "preset_id plus exact definition_ref resolves one complete packet-local definition. Requested and effective may resolve different definitions/windows. Hash excludes its own hash/readback/display state; canonical JSON sorted compact allow_nan=False, preserving meaningful array order. Digest proves integrity only.",
+  "scope_rules": {
+    "layer_const": "RESEARCH",
+    "synthetic_const": true,
+    "fixture_allowlist_only": true,
+    "forbidden_real_identity_keys": [
+      "account_id",
+      "broker_account",
+      "account_number",
+      "platform",
+      "target_name"
+    ],
+    "additional_scope_properties": false,
+    "no_account_registry_lookup": true,
+    "aggregate_projection": "DEFERRED_NOT_IN_FIRST_CONTRACT",
+    "strategy_binding_missing": "NOT_CONFIGURED",
+    "allowed_fixture_ids_for_this_candidate": [
+      "unconfigured-research-fixture"
+    ],
+    "all_scope_values_must_match_reviewed_fixture_manifest": true,
+    "strategy_binding_from_fixture_only": true
+  },
+  "quantity_wire": {
+    "shape": {
+      "mode": "ENABLED | DISABLED | UNSPECIFIED",
+      "value": "finite JSON number | null",
+      "unit": "fixed by the closed numeric constraint field table",
+      "denominator": "typed synthetic basis ref | null",
+      "source_ref": "packet-local evidence/definition ref | null"
+    },
+    "rules": [
+      "ENABLED requires explicitly supplied finite value, known unit/denominator/source; no default conversion",
+      "DISABLED requires an explicitly allowed optional constraint and an explicit definition; value=null",
+      "UNSPECIFIED requires value=null and yields NOT_CONFIGURED for a necessary parameter",
+      "JSON bool is not a numeric value; NaN/Infinity and noncanonical percent strings are rejected",
+      "Unknown or missing does not mean zero/no limit; UI does not multiply c/scalar or recalculate weights/fees/returns"
+    ],
+    "applies_only_to": "Numeric constraint LimitItem values; not identifiers, bare NAV, scalar, weights, or all arbitrary packet fields",
+    "identifier_exclusion": "cash_symbol is string|null, never {mode,value,unit,...}"
+  },
+  "units": "The field_type_unit_denominator_table is the sole wire/unit/basis definition; no alternate numeric identifier wrapper, dynamic registry or unit inference.",
+  "constraints": {
+    "existing_separate_budget_fields": [
+      "cash_symbol",
+      "max_effective_risk_exposure",
+      "max_symbol_weights",
+      "max_underlying_effective_exposure",
+      "max_one_way_risk_turnover"
+    ],
+    "proposed_missing_consumers": [
+      "min_available_cash_weight",
+      "max_security_gross",
+      "max_security_net"
+    ],
+    "values": "NONE_PROVIDED; no three-tier defaults",
+    "disabled": "Only explicitly disabled optional max_one_way_risk_turnover; identifiers and required caps cannot use DISABLED",
+    "cash_bridge": "virtual residual vs tradable cash security must be explicit; no cash ETF mapped to free zero-return cash; unsupported consumer => CAPABILITY_MISSING",
+    "identifier_wire": "cash_symbol:string|null, separate from numeric LimitItem"
+  },
+  "status_precedence": [
+    "forbidden scope/malformed wire => validator rejection with issues, no implicit lookup",
+    "missing selection/required configuration => request_status.status=NOT_CONFIGURED",
+    "complete request without request acknowledgement => request_status.status=UNKNOWN, regardless of a separately retained old effective",
+    "confirmed handling results NOT_APPLIED/APPLIED/REJECTED are only for the exact requested selection; their processed_at/evidence_key are separate",
+    "effective observation fields are resolved independently; missing effective=>MISSING/null, stale effective=>STALE, unknown raw observation state preserved",
+    "validator cannot invent processing/observation times or rewrite old effective from new request state"
+  ],
+  "old_effective_rule": "Request state is only request_status. A new UNKNOWN/REJECTED/NOT_APPLIED/NOT_CONFIGURED request may coexist with an independently evidenced old effective and its own FRESH/STALE/UNKNOWN observation. Sole source/timing/capital/upstream/assessment/final limits refer to that old observation. No new-request success. Expired policy reference is not current effective; its historical evidence may remain in the supplied sidecar.",
+  "parameter_rule": "Do not choose common c, numeric caps, enabled constraints, effective_from/expires_at or freshness thresholds. No complete configured/effective fixtures are fabricated this round. Missing parameter means NOT_CONFIGURED.",
+  "c_definition": "same existing RS06 quadratic approximation mu^T w - w^T Sigma w/(2c); clip_scale uses c*Sigma^-1*mu once. c is not a capital exposure cap, is common across presets, and remains unset. No Bayesian or new solver.",
+  "upstream_rule": "preserve stage/subject raw statuses and reasons; assessment and adoption are separate; failure never becomes permission",
+  "dependency_rule": "Use actual fixed QPK revision/source evidence after an explicitly scoped dependency adoption. fe0f404 is local reviewed fix, not a published version; old f6 not changed. Do not force UES tests into an old production pin or relabel overlays as installation.",
+  "transport": "Single offline packet + one reviewed validator-input sidecar passed as parsed objects. No URL/service, no filesystem lookup inside validator. No new risk algorithm or product implementation.",
+  "planned_offline_acceptance": [
+    {
+      "id": "F0",
+      "family": "Unset packet",
+      "available_now": true,
+      "expected": "Existing UNCONFIGURED fixture: NOT_CONFIGURED/MISSING, requested/effective/source/timing/capital/final/assessment unknown, no numeric/time defaults, fixed research guards.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F1",
+      "family": "Selected but incomplete",
+      "available_now": "Can be specified without defaults; fixture admission must be explicit",
+      "expected": "Known selected preset with definition_ref:null and parameterized missing c/constraints/window/model/qualification. NOT_CONFIGURED+VALUES_UNSPECIFIED+agreed missing keys, no fabricated definition/hash.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F2",
+      "family": "Closed shape, scope and authority rejection",
+      "available_now": "Mutation cases of F0 can be specified now",
+      "expected": "Unknown structural fields/raw broker keys, PAPER/PRODUCTION, unlisted fixture or mismatched strategy scope, execution authority true all rejected before consumer/account/path lookup.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F3",
+      "family": "Quantity modes and domains",
+      "available_now": "After B2; explicit synthetic values supplied by shared fixture, never defaults",
+      "expected": "Legal confirmed zero remains zero; allowed optional DISABLED is distinct from UNSPECIFIED/unknown; bool/nonfinite/percent-string/wrong unit/domain rejected; no inference of unlimited/capital share.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F4",
+      "family": "Complete request without consumer",
+      "available_now": "After explicit complete synthetic definition/window/clock parameters are supplied",
+      "expected": "UNKNOWN/MISSING+READBACK_MISSING, effective null. No APPLIED from a requested label or digest.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F5",
+      "family": "Requested/effective/window/freshness matrix",
+      "available_now": "After B1/B3 and explicit reviewed inputs",
+      "expected": "New missing/pending/rejected/unknown request with old effective, each own definition window; expired old not current; APPLIED+STALE not readiness; timestamp relations and unknown qualifications cannot use defaults.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F6",
+      "family": "Definition/effective/input/source/final constraint bindings",
+      "available_now": "After B2/B3 and explicit reviewed inputs",
+      "expected": "Wrong policy ref/hash/scope/input/source or partial/unknown hard limits cannot produce COMPLETE final constraints or risk APPROVE. Actual revision evidence not replaced by Git main/overlay labels; no QPK import/probe required for this contract fixture.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    },
+    {
+      "id": "F7",
+      "family": "Stage failures and unknown observational states",
+      "available_now": "After stage/evidence reference data are explicitly reviewed",
+      "expected": "RS06 COMPUTED/strict SUCCEEDED with fold PARKED, budget rejection or unknown raw status preserves each stage and reason. Adoption status is independent; no green trading permission or liquidation inferred.",
+      "request_state_path": "request_status.status",
+      "observation_freshness_path": "freshness (effective observation only)"
+    }
+  ],
+  "not_done": [
+    "parameter implementation",
+    "backend consumer implementation",
+    "UI implementation",
+    "production scope",
+    "PAPER scope",
+    "real account mapping",
+    "cross-account aggregation",
+    "new service",
+    "new model",
+    "push/PR/merge/deploy",
+    "DeepSeek send"
+  ],
+  "closed_shape": {
+    "packet_fields": [
+      "schema_version",
+      "definitions",
+      "requested",
+      "request_status",
+      "effective",
+      "scope",
+      "freshness",
+      "upstream",
+      "source",
+      "timing",
+      "capital_basis",
+      "final_constraints",
+      "risk_assessment",
+      "explanation",
+      "display_only",
+      "execution_authorized",
+      "research_boundary"
+    ],
+    "reject_unknown_structural_fields": true,
+    "scope_fields": [
+      "layer",
+      "synthetic",
+      "fixture_id",
+      "strategy_profile",
+      "strategy_revision"
+    ],
+    "capital_basis_fields": [
+      "fixture_id",
+      "denominator_kind",
+      "nav_value",
+      "currency",
+      "asof",
+      "coverage",
+      "fx_ref"
+    ],
+    "no_real_identity_or_raw_broker_blob_anywhere": true,
+    "evidence_ref_rule": "opaque key in the reviewed local fixture manifest only; not an arbitrary file path/URL",
+    "text_rule": "fixed fixture-derived text only; never echo arbitrary account/user payload",
+    "scope_value_rule": "only the reviewed manifest fixture id; synthetic=true alone is insufficient proof",
+    "request_status_fields": [
+      "status",
+      "reason_codes",
+      "missing_parameters",
+      "processed_at",
+      "evidence_key"
+    ],
+    "forbidden_legacy_aliases": [
+      "status",
+      "reason_codes",
+      "missing_parameters"
+    ]
+  },
+  "validation_boundary": "Design only. Closed-shape/fixture allowlist and numeric/status behavior are proposed requirements, not implemented runtime guards. Only JSON/reference/static invariants were checked.",
+  "clarifications": {
+    "B1": "request_status collects old flat status/reason_codes/missing_parameters plus processed_at/evidence_key; no duplicate global status alias. Sole freshness/source/timing/capital_basis/upstream/risk_assessment/final_constraints are bound to the effective observation only. New request UNKNOWN can coexist with qualified old effective FRESH without success for the new request.",
+    "B2": "cash_symbol is an identifier outside numeric LimitItem. NAV/scalar/weights are bare finite JSON numbers (or a bare numeric map), with one closed field-unit-basis table. Numeric LimitItem applies only to numeric constraints.",
+    "B3": "validator receives already-parsed fixture_manifest, evidence_table and fixture_clock as explicit keyword inputs. No file/URL/env/system-time lookup. Only one tiny reviewed sidecar for the existing unconfigured fixture is supplied now."
+  },
+  "observation_subject_rule": {
+    "request": "requested + request_status only; request_status.processed_at/evidence_key refer to request handling, never to effective data",
+    "effective_snapshot_fields": [
+      "freshness",
+      "source",
+      "timing",
+      "capital_basis",
+      "upstream",
+      "risk_assessment",
+      "final_constraints"
+    ],
+    "binding": "all effective snapshot fields resolve the same effective definition_ref, synthetic scope and source.input_sha256/effective observation evidence key",
+    "no_effective": "effective=null => source/capital_basis/final_constraints/risk_assessment=null, upstream=[], timing values null, freshness=MISSING; request_status may independently be NOT_CONFIGURED/UNKNOWN/REJECTED",
+    "old_effective": "new request NOT_CONFIGURED/NOT_APPLIED/REJECTED/UNKNOWN does not erase a separately evidenced, nonexpired old effective. Old observation can be FRESH/STALE/UNKNOWN on its own proof; no success inferred for new request."
+  },
+  "missing_parameter_keys": {
+    "kind": "closed logical enum, intentionally not JSON pointers",
+    "values": {
+      "PRESET_SELECTION": "No explicit preset selection",
+      "COMPLETE_DEFINITION": "No complete immutable definition_ref",
+      "STRATEGY_SCOPE_BINDING": "Synthetic strategy profile/revision not explicitly bound",
+      "MODEL_BINDING": "Actual model/source revisions not supplied",
+      "COMMON_FRACTION": "Common fractional c not supplied",
+      "INPUT_SEMANTICS": "Input/cash/return semantics not fully supplied",
+      "CONSTRAINT_VALUES": "Necessary constraints not supplied",
+      "DEFINITION_WINDOW": "Explicit applicability window not supplied",
+      "QUALIFICATION_RULES": "Freshness/input qualification rules not supplied"
+    },
+    "unknown_key": "validation issue; do not invent a path or ignore it"
+  },
+  "field_type_unit_denominator_table": [
+    {
+      "field": "definitions[].constraints.cash_symbol / final_constraints.items.cash_symbol",
+      "wire": "string|null (identifier, no numeric wrapper)",
+      "unit": "ASSET_ID (identifier category only)",
+      "denominator": "NONE",
+      "domain": "exact synthetic asset key from explicit fixture manifest; missing=null => configuration incomplete; DISABLED not applicable"
+    },
+    {
+      "field": "capital_basis.nav_value",
+      "wire": "finite JSON number|null, bare value",
+      "unit": "CURRENCY_AMOUNT; currency=capital_basis.currency",
+      "denominator": "NONE (absolute amount)",
+      "domain": "provided NAV must be positive; zero/negative invalid; missing null, never default zero"
+    },
+    {
+      "field": "risk_assessment.risk_scalar",
+      "wire": "finite JSON number|null, bare value",
+      "unit": "DIMENSIONLESS_SCALE",
+      "denominator": "NONE",
+      "domain": "existing reducing scalar in [0,1], zero legal; distinct from common c and from a capital exposure"
+    },
+    {
+      "field": "risk_assessment.recommended_target_weights / metrics.nominal_weight",
+      "wire": "null | map<manifest asset id,finite JSON number> (bare numeric map)",
+      "unit": "PORTFOLIO_WEIGHT",
+      "denominator": "same effective synthetic NAV/input/window",
+      "domain": "existing long-only fully-funded semantics: individual [0,1], sum<=1; explicit zero preserved; no null components or UI renormalization"
+    },
+    {
+      "field": "metrics.effective_risk_exposure / metrics.underlying_effective_exposure",
+      "wire": "finite JSON number|null / map<manifest underlying id,finite JSON number>|null",
+      "unit": "LOOKTHROUGH_NAV_RATIO",
+      "denominator": "same effective synthetic NAV/input/window",
+      "domain": "nonnegative, may exceed one; no leverage-factor multiplication of returns"
+    },
+    {
+      "field": "metrics.one_way_risk_turnover",
+      "wire": "finite JSON number|null, bare value",
+      "unit": "ONE_WAY_RISK_BUY_WEIGHT",
+      "denominator": "same explicitly frozen synthetic NAV/baseline",
+      "domain": "nonnegative sum of positive noncash weight increases, not two-sided traded notional"
+    },
+    {
+      "field": "numeric constraint max_effective_risk_exposure / max_underlying_effective_exposure",
+      "wire": "LimitItem / map<manifest underlying id,LimitItem>",
+      "unit": "LOOKTHROUGH_NAV_RATIO",
+      "denominator": "same effective synthetic NAV/input/window",
+      "domain": "ENABLED explicitly positive; no DISABLED for required caps; UNSPECIFIED null"
+    },
+    {
+      "field": "numeric constraint max_symbol_weights",
+      "wire": "map<manifest asset id,LimitItem>",
+      "unit": "PORTFOLIO_WEIGHT",
+      "denominator": "same effective synthetic NAV/input/window",
+      "domain": "existing enabled caps in (0,1]; zero is not silently disabled"
+    },
+    {
+      "field": "numeric constraint max_one_way_risk_turnover",
+      "wire": "LimitItem",
+      "unit": "ONE_WAY_RISK_BUY_WEIGHT",
+      "denominator": "same synthetic NAV/baseline",
+      "domain": "ENABLED in (0,1]; only this optional constraint permits explicit DISABLED with null value; UNSPECIFIED remains distinct"
+    },
+    {
+      "field": "numeric constraint min_available_cash_weight / max_security_gross / max_security_net",
+      "wire": "LimitItem (proposed fields, consumers still missing)",
+      "unit": "SPENDABLE_CASH_NAV_RATIO / SECURITY_GROSS_NAV_RATIO / SECURITY_NET_NAV_RATIO",
+      "denominator": "same effective synthetic NAV/input/window",
+      "domain": "cash minimum [0,1], nominal gross/net nonnegative under retained long-only mandate; no chosen values or automatic leverage authority"
+    },
+    {
+      "field": "definitions[].model_binding.fraction",
+      "wire": "finite JSON number|null, bare value",
+      "unit": "FRACTIONAL_KELLY_COEFFICIENT",
+      "denominator": "NONE",
+      "domain": "must match explicitly frozen preregistration and retained c<=0.5 boundary; this candidate selects no value"
+    },
+    {
+      "field": "request_status.processed_at / timing.* / definition.window.* / fixture_clock",
+      "wire": "UTC timezone-bearing timestamp|null",
+      "unit": "UTC_INSTANT",
+      "denominator": "NONE",
+      "domain": "only explicit supplied values; null never becomes current time or artifact generated_at"
+    }
+  ],
+  "validator_inputs": {
+    "design_signature": "validate_packet(packet, *, fixture_manifest, evidence_table, fixture_clock)",
+    "io": "pure input inspection only; no path/URL/env/system clock/QPK import/consumer calls",
+    "fixture_manifest": "already-parsed reviewed sidecar table: exact fixture scope, allowed definition refs, asset/currency keys, evidence keys with expected canonical record digests, closed missing-parameter key enum",
+    "evidence_table": "already-parsed map<opaque evidence key,typed record>; REQUEST_STATE binds requested+request_status and processed_at; EFFECTIVE_OBSERVATION binds effective ref/scope/input/source/timing/capital/upstream/assessment/final constraints",
+    "fixture_clock": "explicit UTC instant for nonempty window/freshness predicates; explicit null permitted only when no time predicate is required (F0). Never infer now/generated_at.",
+    "resolution": "definition_ref resolves only in packet definitions and sidecar-admitted reference set; evidence_key/source_ref resolves only in evidence_table and admitted key+digest map; unknown refs rejected without IO",
+    "missing_context": "missing required sidecar/key or clock for a time predicate => validation issue and not accepted; do not rewrite packet request status or synthesize freshness",
+    "result_boundary": "validator later returns validity/issues only; it does not apply configuration, create observation, run risk calculation or repair the input packet",
+    "canonical_record_digest": "SHA-256 of UTF-8 compact sorted-key JSON, ensure_ascii=True, allow_nan=False; evidence record has no self-digest field. Compare only with the explicitly supplied manifest map."
+  },
+  "parameterized_expected_case_B1": {
+    "preconditions": [
+      "caller explicitly supplies complete synthetic new requested R and a distinct old effective E",
+      "E is within its own policy window at supplied fixture_clock and E observation independently qualifies FRESH",
+      "there is no acknowledgement for R; no values or times are manufactured here"
+    ],
+    "expected": {
+      "requested": "R unchanged",
+      "request_status.status": "UNKNOWN",
+      "request_status.processed_at": "null unless an explicit REQUEST_STATE observation supplies its processing time",
+      "effective": "E unchanged",
+      "freshness": "FRESH",
+      "source/timing/capital_basis/upstream/risk_assessment/final_constraints": "only E observation and E input binding",
+      "new_request_success": false
+    },
+    "materialization": "F5 prescription only; nonempty numeric/window data remain to be explicitly supplied and admitted, not fabricated"
+  },
+  "fixture_family_rule": "Exactly F0-F7 from task-3. Only F0 concrete now; all complete/nonempty success data await explicit reviewed synthetic parameters/evidence/clock, never defaults.",
+  "clarification_source": {
+    "path": "/Users/lisiyi/Documents/Codex/2026-10-17/task-3/risk_profile_design/RELEASE7_CROSS_REVIEW.json",
+    "sha256": "9a8576c9be30eb049055b36864ad165164e1f3e64870d4400901ee9eb26a34bb",
+    "addresses": [
+      "B1",
+      "B2",
+      "B3"
+    ],
+    "joint_freeze_still_pending": true
+  }
+}

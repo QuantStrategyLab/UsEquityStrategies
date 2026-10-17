@@ -1,0 +1,54 @@
+{
+  "schema_version": "qsl.risk_preset.offline.v1-candidate",
+  "definitions": [],
+  "requested": null,
+  "request_status": {
+    "status": "NOT_CONFIGURED",
+    "reason_codes": [
+      "PRESET_NOT_SELECTED",
+      "VALUES_UNSPECIFIED"
+    ],
+    "missing_parameters": [
+      "PRESET_SELECTION",
+      "COMPLETE_DEFINITION",
+      "STRATEGY_SCOPE_BINDING",
+      "MODEL_BINDING",
+      "COMMON_FRACTION",
+      "INPUT_SEMANTICS",
+      "CONSTRAINT_VALUES",
+      "DEFINITION_WINDOW",
+      "QUALIFICATION_RULES"
+    ],
+    "processed_at": null,
+    "evidence_key": null
+  },
+  "effective": null,
+  "scope": {
+    "layer": "RESEARCH",
+    "synthetic": true,
+    "fixture_id": "unconfigured-research-fixture",
+    "strategy_profile": null,
+    "strategy_revision": null
+  },
+  "freshness": "MISSING",
+  "upstream": [],
+  "source": null,
+  "timing": {
+    "observed_at": null,
+    "asof": null,
+    "available_at": null,
+    "valid_until": null
+  },
+  "capital_basis": null,
+  "final_constraints": null,
+  "risk_assessment": null,
+  "explanation": "研究预设尚未配置。",
+  "display_only": true,
+  "execution_authorized": false,
+  "research_boundary": {
+    "synthetic": true,
+    "no_order": true,
+    "live_ready": false,
+    "budget_effect": "NONE"
+  }
+}
