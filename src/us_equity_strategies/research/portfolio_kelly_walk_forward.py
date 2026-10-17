@@ -267,7 +267,10 @@ def evaluate_portfolio_kelly_walk_forward(
     real_data: PortfolioRealDataAuthorization | None = None,
     report_context: Mapping[str, Any] | None = None,
     bootstrap_seed: int | None = None,
+    netting_candidate: Mapping[str, Any] | None = None,
 ) -> dict:
+    if netting_candidate is not None and synthetic is not True:
+        raise ValueError("NETTING_SYNTHETIC_ONLY")
     if synthetic is True:
         if real_data is not None:
             raise ValueError("REAL_DATA_AUTHORIZATION_WITH_SYNTHETIC")
@@ -323,6 +326,12 @@ def evaluate_portfolio_kelly_walk_forward(
         "evaluator_version": EVALUATOR_VERSION, "kelly_ready_role": "CAP_NOTE_ONLY_NEVER_RAISES_BUDGET",
         "budget_effect": "NONE", "full_kelly_allowed": False, "leverage_allowed": False, "short_allowed": False,
     }
+    if netting_candidate is not None:
+        if asset_turnover is not None or benchmark_returns or report_context is not None or bootstrap_seed is not None:
+            raise ValueError("NETTING_SINGLE_SECURITY_FIXTURE_ONLY")
+        return _net_candidate(request=netting_candidate, assets=assets, dates=dates, rets=rets, cash=cash,
+                              plan=plan, cs=cs, ms=ms, base_bps=base_bps, multipliers=multipliers,
+                              envelope=envelope)
     stats = rs04._stats_module()
     if stats is None:
         return {**envelope, "status": STATUS_UNCOMPUTABLE, "reason_code": rs04.UNAVAILABLE}
@@ -472,6 +481,276 @@ def evaluate_portfolio_kelly_walk_forward(
         result["backtest_report"] = _build_report(stats, result, report_context, dates, folds, base_bps,
                                                   multipliers, trial_sha, len(sizing))
     return result
+
+
+# ---------------- single synthetic actual-net candidate ----------------
+
+def _candidate_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: Sequence[date],
+                   rets: Mapping[str, Sequence[float]], cash: Sequence[float], plan: WalkForwardPlan,
+                   cs: Sequence[float], ms: Sequence[str], base_bps: float,
+                   multipliers: Sequence[float], envelope: dict) -> dict:
+    """Thin RS06 adapter, one fixture trial. Never a research search or live entry.
+
+    Each input strategy is exactly one synthetic security, with price-only total
+    returns and no internal turnover. ``f=1`` allocates the whole book to the
+    inner sleeve; fitted Kelly weights are its security weights, with residual
+    cash. Fraction c is NOT outer f. Cash return must be zero because #624's
+    inner residual is non-interest-bearing. Close prices mark fractional shares
+    in dollars; trades and fees are dollars, returns signed decimal fractions.
+    """
+    from dataclasses import asdict, replace
+    from pathlib import Path
+    from tempfile import gettempdir
+
+    from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        BacktestResult, ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark,
+        ResearchTrialRecord, ResearchTrialStatus,
+    )
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
+    from us_equity_strategies.research.security_netting_runner import (
+        NettingSession, run_offline_security_netting,
+    )
+
+    if len(cs) != 1 or len(ms) != 1 or tuple(multipliers) != (1.,):
+        raise ValueError("NETTING_SINGLE_CANDIDATE_REQUIRED")
+    folds = plan.folds(len(dates))
+    if len(folds) != 1 or folds[0][3] != len(dates):
+        raise ValueError("NETTING_ONE_COMPLETE_FOLD_REQUIRED")
+    tr0, tr1, te0, te1 = folds[0]
+    if any(cash):
+        raise ValueError("NETTING_ZERO_RESIDUAL_CASH_RETURN_REQUIRED")
+    spec = request["spec"]
+    if (type(spec) is not SecurityNettingSpec or spec.outer_cash_mode != "separate"
+            or spec.cash_like_symbols or set(spec.bps_per_side) != set(assets)
+            or any(v != base_bps for v in spec.bps_per_side.values()) or spec.multiplier != 1.):
+        raise ValueError("NETTING_COST_OR_SECURITY_IDENTITY_MISMATCH")
+    spec = replace(spec, bps_per_side=dict(spec.bps_per_side))
+    if request["fee_cash_role"] != spec.inner_residual_role:
+        raise ValueError("NETTING_FEE_ROLE_INVALID")
+    if request["end_target"] is not None and request["end_target"] != {}:
+        raise ValueError("NETTING_END_TARGET_INVALID")
+    periods = request["periods_per_year"]
+    if type(periods) is not int or periods <= 0:
+        raise ValueError("NETTING_PERIODS_INVALID")
+    initial_nav = rs04._finite(request["initial_nav"], "INITIAL_NAV_INVALID")
+    if initial_nav <= 0:
+        raise ValueError("INITIAL_NAV_INVALID")
+    source = request["source_revision"]
+    if not isinstance(source, str) or len(source) != 40 or any(c not in "0123456789abcdef" for c in source):
+        raise ValueError("NETTING_SOURCE_INVALID")
+    prices = {}
+    if set(request["close_prices"]) != set(assets):
+        raise ValueError("NETTING_PRICE_IDENTITY_MISMATCH")
+    for a in assets:
+        rows = request["close_prices"][a]
+        if tuple(d for d, _ in rows) != tuple(dates):
+            raise ValueError("NETTING_PRICE_SESSIONS_INVALID")
+        vals = tuple(rs04._finite(v, "NETTING_PRICE_INVALID") for _, v in rows)
+        if any(v <= 0 for v in vals):
+            raise ValueError("NETTING_PRICE_INVALID")
+        if any(not math.isclose(vals[i] / vals[i - 1] - 1, rets[a][i], rel_tol=1e-10, abs_tol=1e-12)
+               for i in range(1, len(dates))):
+            raise ValueError("NETTING_PRICE_RETURN_MISMATCH")
+        prices[a] = vals
+    decisions = tuple(request["decision_sessions"])
+    expected_decisions = tuple(zip(dates[te0:te1], dates[te0 - 1:te1 - 1]))
+    if decisions != expected_decisions or dates[tr1 - 1] > decisions[0][1]:
+        raise ValueError("NETTING_DECISION_NOT_PRIOR_SUPPLIED_SESSION")
+    raw_root = Path(request["local_root"]).absolute()
+    if any(p.is_symlink() for p in (raw_root, *raw_root.parents)):
+        raise ValueError("NETTING_STORE_SYMLINK")
+    root = raw_root.resolve()
+    if not root.is_relative_to(Path(gettempdir()).resolve()) or root == Path(gettempdir()).resolve():
+        raise ValueError("NETTING_EXPLICIT_TEMP_STORE_REQUIRED")
+    store = PerformanceStore(local_root=root, cloud_bucket="")
+    config = {"method": ms[0], "fraction": cs[0], "plan": asdict(plan), "spec": asdict(spec),
+              "initial_nav": initial_nav, "end_target": request["end_target"],
+              "fee_cash_role": request["fee_cash_role"], "calendar_id": request["calendar_id"],
+              "periods_per_year": periods, "execution": "next_close", "initial_f": 1.,
+              "inner_units": "one_strategy_one_security_fractional_shares", "outer_cash_return": 0.}
+    input_sha = _candidate_digest({"dates": [d.isoformat() for d in dates], "returns": rets,
+                                   "cash": cash, "prices": prices,
+                                   "decisions": [[d.isoformat(), p.isoformat()] for d, p in decisions]})
+    config_sha = _candidate_digest(config)
+    identity = {"candidate_id": request["candidate_id"], "trial_id": request["trial_id"],
+                "run_id": request["run_id"], "calendar_id": request["calendar_id"],
+                "periods_per_year": periods, "cost_source": "security_level_netting_v1",
+                "cost_spec": asdict(spec), "initial_session_date": dates[te0 - 1].isoformat(),
+                "window_end": dates[te1 - 1].isoformat(),
+                "source_revision": source, "input_sha256": input_sha, "config_sha256": config_sha,
+                "synthetic": True, "no_order": True, "live_ready": False,
+                "promotion_eligible": False, "budget_effect": "NONE"}
+    identity = json.loads(json.dumps(identity, allow_nan=False))
+    cost_inputs = {**{a + "_bps_per_side": float(spec.bps_per_side[a]) for a in assets}, "multiplier": 1.}
+    started = ResearchTrialRecord(
+        trial_id=request["trial_id"], domain="us_equity", strategy_profile="rs06_synthetic_netting",
+        status=ResearchTrialStatus.STARTED, candidate_config_id=request["candidate_id"], actual_params=None,
+        param_set_id=config_sha, source_revision=source, input_id=input_sha,
+        window_start=dates[te0 - 1], window_end=dates[te1 - 1], calendar_id=request["calendar_id"],
+        periods_per_year=periods, cost_source="security_level_netting_v1", cost_inputs=cost_inputs,
+        reason_code="", synthetic=True, run_id=None, param_version=None, research_identity=identity)
+    params = {"method": ms[0], "fraction": cs[0], "synthetic": True, "no_order": True,
+              "live_ready": False, "promotion_eligible": False, "budget_effect": "NONE"}
+    response = {**envelope, "binding": identity, "trial_id": started.trial_id}
+
+    def candidate_result(ledger: Any, public: dict) -> Any:
+        return BacktestResult(
+            strategy_profile=started.strategy_profile, domain=started.domain, param_set_id=config_sha,
+            params={**params, "research_identity": identity}, **public, total_return=ledger.total_return,
+            start_date=ledger.window_start, end_date=ledger.window_end, observation_count=ledger.observation_count,
+            run_id=request["run_id"], source_script=__name__ + ".evaluate_portfolio_kelly_walk_forward",
+            source_revision=source, cost_model=started.cost_source, cost_inputs=cost_inputs,
+            calendar_id=started.calendar_id, periods_per_year=periods)
+
+    def read_success(reopened: Any, terminal: Any) -> dict:
+        if (terminal is None or terminal.status is not ResearchTrialStatus.SUCCEEDED
+                or terminal.run_id != request["run_id"] or terminal.param_version != 1
+                or terminal.actual_params != params
+                or replace(terminal, status=ResearchTrialStatus.STARTED, actual_params=None,
+                           run_id=None, param_version=None, reason_code="") != started):
+            raise ValueError("NETTING_CANDIDATE_IDENTITY_MISMATCH")
+        # QPK permits a terminal without a started object; this caller requires
+        # the immutable pair, including after a partial/corrupt local recovery.
+        saved_start = root / reopened._research_key(started.domain, started.strategy_profile, started.trial_id, "started")
+        if not saved_start.is_file():
+            raise ValueError("NETTING_STARTED_MISSING")
+        ledger = reopened.load_research_ledger(started.domain, started.strategy_profile, started.trial_id,
+                                               request["run_id"], 1)
+        backtest = reopened.load_backtest_by_run_id(started.domain, started.strategy_profile,
+                                                    request["run_id"], param_version=1)
+        if ledger is None or backtest is None:
+            raise ValueError("NETTING_CANDIDATE_PAIR_MISSING")
+        if (ledger.initial_nav != initial_nav or ledger.initial_cash != initial_nav or ledger.initial_positions
+                or [d.session_date for d in ledger.days] != list(dates[te0:te1])):
+            raise ValueError("NETTING_LEDGER_INITIAL_OR_SESSION_MISMATCH")
+        for i, day in enumerate(ledger.days, start=te0):
+            if any(mark.symbol not in prices or mark.quantity < 0 or mark.valuation < 0
+                   or not math.isclose(mark.quantity * prices[mark.symbol][i], mark.valuation,
+                                       rel_tol=1e-12, abs_tol=1e-9) for mark in day.positions):
+                raise ValueError("NETTING_POSITION_PRICE_MISMATCH")
+        expected = _candidate_public_metrics([d.daily_return for d in ledger.days], periods)
+        if backtest.to_dict() != candidate_result(ledger, expected).to_dict():
+            raise ValueError("NETTING_PUBLIC_METRIC_MISMATCH")
+        return {**response, "status": "SUCCEEDED", "candidate": backtest.to_dict(),
+                "trial": terminal.to_dict(), "research_ledger": ledger.to_dict(),
+                "readback": "REOPENED_EXACT_TRIAL_RUN_INPUT_CONFIG_SOURCE_COST_CALENDAR_PERIODS"}
+
+    try:
+        previous = store.load_research_trial(started.domain, started.strategy_profile, started.trial_id)
+        if previous is not None:
+            if replace(previous, status=ResearchTrialStatus.STARTED, actual_params=None,
+                       run_id=None, param_version=None, reason_code="") != started:
+                raise ValueError("NETTING_CANDIDATE_IDENTITY_MISMATCH")
+            if previous.status is ResearchTrialStatus.SUCCEEDED:
+                return {**read_success(store, previous), "recovered": True}
+            return {**response, "status": ("UNKNOWN" if previous.status is ResearchTrialStatus.STARTED
+                                           else previous.status.value.upper()), "reason_code": "EXISTING_TRIAL_NO_REPLAY"}
+        # Dedicated temp root per candidate. A missing/corrupt record is not a
+        # fresh attempt; never overwrite it or hide it behind a new key.
+        if root.exists() and any(root.rglob("*.json")):
+            raise ValueError("NETTING_STORE_INCOMPLETE_OR_CORRUPT")
+        store.save_research_trial(started)
+        if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != started:
+            return {**response, "status": "UNKNOWN", "reason_code": "STARTED_RECEIPT_UNCERTAIN"}
+    except ValueError as exc:
+        return {**response, "status": "REJECTED", "reason_code": str(exc)}
+    except Exception:
+        return {**response, "status": "UNKNOWN", "reason_code": "STORE_RECEIPT_UNCERTAIN"}
+
+    try:
+        fit = fit_portfolio_kelly(assets, {a: rets[a][tr0:tr1] for a in assets}, cash[tr0:tr1], cs, ms)
+        weights = fit["weights"][format(cs[0], "g")][ms[0]]
+        schedule = [dict(weights) for _ in range(te1 - te0)]
+        if request["end_target"] is not None:
+            schedule[-1] = dict(request["end_target"])
+        sessions = [NettingSession(d, prior, 1., target, {a: rets[a][i] for a in assets}, 0.)
+                    for i, ((d, prior), target) in enumerate(zip(decisions, schedule), start=te0)]
+        net = run_offline_security_netting(
+            sessions, initial_nav=initial_nav, initial_f=1., initial_inner_weights={}, spec=spec,
+            fee_cash_role=request["fee_cash_role"], execution_timing="next_close", report_periods_per_year=periods)
+        # Verify report and ledger identity before mapping public metrics. No
+        # virtual cost_stress and no second fee subtraction on this branch.
+        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+        expected_report = build_unified_net_report(net["net_returns"], gross_returns=net["gross_returns"],
+                                                    periods_per_year=periods).to_dict()
+        if (net["unified_net_report"] != expected_report
+                or net["unified_net_report_basis"]["sessions"] != [d.isoformat() for d, _ in decisions]
+                or [r["net_return"] for r in net["ledger"]] != net["net_returns"]
+                or [r["gross_return"] for r in net["ledger"]] != net["gross_returns"]
+                or len(net["ledger"]) != len(decisions)
+                or [(r["session"], r["decision_session"]) for r in net["ledger"]]
+                != [(d.isoformat(), prior.isoformat()) for d, prior in decisions]
+                or net["initial_nav"] != initial_nav or net["ledger"][0]["nav_start"] != initial_nav
+                or net["final_nav"] != net["ledger"][-1]["nav_end"]):
+            raise ValueError("NETTING_REPORT_LEDGER_MISMATCH")
+        days = []
+        for i, row in enumerate(net["ledger"], start=te0):
+            days.append(ResearchLedgerDay(
+                session_date=dates[i], cash=math.fsum(row["virtual_cash_end"].values()),
+                positions=tuple(ResearchPositionMark(a, value / prices[a][i], value)
+                                for a, value in row["security_end"].items() if value != 0.),
+                trade_net_cashflow=-math.fsum(row["net_trades"].values()), fees=row["fees"],
+                nav=row["nav_end"], daily_return=row["net_return"]))
+        ledger = ResearchDailyLedger(
+            trial_id=started.trial_id, domain=started.domain, strategy_profile=started.strategy_profile,
+            run_id=request["run_id"], param_version=1, input_id=input_sha, calendar_id=started.calendar_id,
+            periods_per_year=periods, cost_source=started.cost_source, cost_inputs=cost_inputs,
+            initial_session_date=dates[te0 - 1], initial_nav=initial_nav, initial_cash=initial_nav,
+            initial_positions=(), days=tuple(days), synthetic=True)
+        public = _candidate_public_metrics(net["net_returns"], periods, report=net["unified_net_report"])
+        backtest = candidate_result(ledger, public)
+        terminal = replace(started, status=ResearchTrialStatus.SUCCEEDED, actual_params=params,
+                           run_id=request["run_id"], param_version=1)
+    except ValueError:
+        try:
+            store.save_research_trial(replace(started, status=ResearchTrialStatus.REJECTED,
+                                              reason_code="netting_input_or_ledger_rejected"))
+        except Exception:
+            return {**response, "status": "UNKNOWN", "reason_code": "REJECTION_RECEIPT_UNCERTAIN"}
+        return {**response, "status": "REJECTED", "reason_code": "NETTING_INPUT_OR_LEDGER_REJECTED"}
+    try:
+        store.save_backtest_result(backtest)
+        store.save_research_ledger(ledger)
+        store.save_research_trial(terminal)
+        reopened = PerformanceStore(local_root=root, cloud_bucket="")
+        observed = reopened.load_research_trial(started.domain, started.strategy_profile, started.trial_id,
+                                                run_id=request["run_id"], param_version=1)
+        output = read_success(reopened, observed)
+    except Exception:
+        return {**response, "status": "UNKNOWN", "reason_code": "STORE_RECEIPT_UNCERTAIN"}
+    return {**output, "netting": net, "folds": [{"train_start": dates[tr0].isoformat(),
+            "train_end": dates[tr1 - 1].isoformat(), "test_start": dates[te0].isoformat(),
+            "test_end": dates[te1 - 1].isoformat(), "portfolio_fit": fit}],
+            "acceptance_binding": {**identity, "report_sha256": _candidate_digest(net["unified_net_report"]),
+                                   "ledger_sha256": _candidate_digest(ledger.to_dict()),
+                                   "result_sha256": _candidate_digest(backtest.to_dict())}}
+
+
+def _candidate_public_metrics(net_returns: Sequence[float], periods: int, *, report: dict | None = None) -> dict:
+    from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+
+    if report is None:
+        report = build_unified_net_report(net_returns, periods_per_year=periods).to_dict()
+    metrics = {m["name"]: m for m in report["metrics"]}
+
+    def value(name: str) -> float | None:
+        metric = metrics[name]
+        return metric["value"] if metric["status"] == STATUS_COMPUTED else None
+
+    sr = value("sharpe_per_period")
+    # Preserve lifecycle's signed negative drawdown and QPK's undefined metrics.
+    # The report Sharpe is per session; BacktestResult Sharpe is annualized.
+    dd = value("max_drawdown")
+    return {"cagr": value("net_cagr"), "calmar_ratio": value("net_calmar_ratio"),
+            "max_drawdown": dd,
+            "sharpe_ratio": None if sr is None else sr * math.sqrt(periods)}
 
 
 def _build_report(stats: Any, result: dict, ctx: Mapping[str, Any], dates: Sequence[date],
