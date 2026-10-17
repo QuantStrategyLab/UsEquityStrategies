@@ -198,6 +198,7 @@ jobs:
             tests/research/test_security_netting_runner.py \
             tests/research/test_security_netting_compounding_report.py \
             tests/research/test_security_netting_rs06_reconciliation.py \
+            tests/research/test_portfolio_netting_candidate_closed_loop.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
@@ -208,6 +209,19 @@ jobs:
           assert len([c for c in cases if c.attrib["classname"].endswith("test_security_netting_compounding_report")]) >= 18
           assert any("rs06_zero_cost_aligned_targets" in c.attrib["name"] for c in cases)
           assert any("rs06_cost_model_difference" in c.attrib["name"] for c in cases)
+          candidate_cases = [c for c in cases if c.attrib["classname"].endswith("test_portfolio_netting_candidate_closed_loop")]
+          assert candidate_cases, "RS06 candidate target was not collected"
+          for required in ("success_actual_fee_cash", "success_conservation_public_metrics",
+                           "unknown_write_success_response_lost", "recovery_missing_or_tampered",
+                           "recovery_identity_mismatch", "reject_fee_cash_insufficient",
+                           "default_off_structure", "zero_drawdown_and_uncomputable",
+                           "r2_fee_cashflow_counterexample", "r2_recovery_returns_entire",
+                           "r2_all_record_and_receipt_content_bound", "r2_receipt_payload_tamper",
+                           "r2_receipt_ack_and_terminal_order", "r2_receipt_exclusive_create",
+                           "r3_all_existing_store_links", "r2_followup_rehashed_receipt",
+                           "r2_followup_normal_recovery", "r2_followup_book_fields"):
+              assert any(required in c.attrib["name"] for c in candidate_cases), required
+          assert not any(list(c.iter(tag)) for c in candidate_cases for tag in ("skipped", "failure", "error"))
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
           print("Synthetic ledger, compounding and RS06 reconciliation executed without skips or failures.")
           PY
