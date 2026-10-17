@@ -601,3 +601,137 @@ def test_r2_receipt_exclusive_create_is_immutable(tmp_path):
     with pytest.raises(ValueError):
         store._create_same(str(path.relative_to(store.local_root)), changed)
     assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize('change', ['report_unknown_state', 'netting_fees', 'safety_envelope'])
+def test_r2_followup_rehashed_receipt_cannot_override_records_or_envelope(tmp_path, monkeypatch, change):
+    import json
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    path = next(root.rglob('receipt.json'))
+    original_records = {str(p):p.read_bytes() for p in root.rglob('*.json') if p != path}
+    receipt = json.loads(path.read_text())
+    payload = receipt['payload']
+    if change == 'report_unknown_state':
+        metric = next(m for m in payload['netting']['unified_net_report']['metrics'] if m['name'] == 'deflated_sharpe_ratio')
+        assert metric['value'] is None and metric['status'] == 'UNCOMPUTABLE'
+        metric.update(value=0., status='COMPUTED', reason_code=None)
+        payload['acceptance_binding']['report_sha256'] = pw._candidate_digest(payload['netting']['unified_net_report'])
+        payload['acceptance_binding']['netting_sha256'] = pw._candidate_digest(payload['netting'])
+    elif change == 'netting_fees':
+        for day in payload['netting']['ledger']:
+            day['fees'] = 0.
+        payload['acceptance_binding']['netting_sha256'] = pw._candidate_digest(payload['netting'])
+    else:
+        payload.update(no_order=False, live_ready=True, promotion_eligible=True, budget_effect='RAISE')
+    receipt['sha256'] = pw._candidate_digest({k:receipt[k] for k in ('payload', 'record_digests')})
+    path.write_text(json.dumps(receipt))
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    assert original_records == {str(p):p.read_bytes() for p in root.rglob('*.json') if p != path}
+
+    def denied(*a, **kw):
+        pytest.fail('unexpected fit, netting or store write during recovery')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', denied)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', denied)
+    for method in ('_create_same', 'save_research_trial', 'save_research_ledger', 'save_backtest_result'):
+        monkeypatch.setattr(PerformanceStore, method, denied)
+    recovered = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    no_success(recovered)
+
+
+@pytest.mark.parametrize('flat', [False, True])
+def test_r2_followup_normal_recovery_revalidates_b3_without_replay(tmp_path, monkeypatch, flat):
+    from quant_platform_kit.research_stats import unified_report
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path, bps=0. if flat else 100., test_sessions=35 if flat else 5)
+    if flat:
+        for symbol, rows in args['asset_returns']:
+            for i in range(121, len(rows)):
+                rows[i] = (rows[i][0], 0.)
+                args['netting_candidate']['close_prices'][symbol][i] = (rows[i][0], args['netting_candidate']['close_prices'][symbol][120][1])
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    actual_builder = unified_report.build_unified_net_report
+    report_inputs = []
+
+    def checked_builder(net_returns, **kwargs):
+        if 'gross_returns' in kwargs:
+            report_inputs.append((list(net_returns), kwargs))
+        return actual_builder(net_returns, **kwargs)
+
+    def denied(*a, **kw):
+        pytest.fail('normal recovery must read existing records without fit, engine or writes')
+
+    monkeypatch.setattr(unified_report, 'build_unified_net_report', checked_builder)
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', denied)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', denied)
+    for method in ('_create_same', 'save_research_trial', 'save_research_ledger', 'save_backtest_result'):
+        monkeypatch.setattr(PerformanceStore, method, denied)
+    recovered = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert recovered == {**first, 'recovered': True}
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    assert len(report_inputs) == 1
+    net_returns, kwargs = report_inputs[0]
+    assert net_returns == [day['daily_return'] for day in recovered['research_ledger']['days']]
+    assert kwargs['gross_returns'] == recovered['netting']['gross_returns']
+    assert kwargs['periods_per_year'] == 252
+    metrics = {m['name']:m for m in recovered['netting']['unified_net_report']['metrics']}
+    assert metrics['deflated_sharpe_ratio']['status'] == 'UNCOMPUTABLE'
+    assert metrics['deflated_sharpe_ratio']['value'] is None
+    assert metrics['deflated_sharpe_ratio']['reason_code'] == 'missing_trial_evidence'
+    if flat:
+        assert metrics['net_calmar_ratio']['reason_code'] == 'zero_drawdown'
+        assert metrics['net_calmar_ratio']['value'] is None
+    assert recovered['no_order'] is True and recovered['live_ready'] is False
+    assert recovered['promotion_eligible'] is False and recovered['budget_effect'] == 'NONE'
+
+
+@pytest.mark.parametrize('change', ['cash', 'security', 'nav', 'net_return', 'gross_return', 'missing_day'])
+def test_r2_followup_book_fields_checked_against_authoritative_ledger(tmp_path, monkeypatch, change):
+    import json
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    path = next(root.rglob('receipt.json'))
+    receipt = json.loads(path.read_text())
+    net = receipt['payload']['netting']
+    if change == 'cash':
+        net['ledger'][0]['virtual_cash_end']['inner_residual_cash'] += 1.
+    elif change == 'security':
+        net['ledger'][0]['security_end']['A'] += 1.
+    elif change == 'nav':
+        net['ledger'][0]['nav_end'] += 1.
+    elif change == 'net_return':
+        net['ledger'][0]['net_return'] += .1
+        net['net_returns'][0] += .1
+    elif change == 'gross_return':
+        net['ledger'][0]['gross_return'] += .1
+        net['gross_returns'][0] += .1
+    else:
+        net['ledger'].pop()
+    receipt['payload']['acceptance_binding']['netting_sha256'] = pw._candidate_digest(net)
+    receipt['sha256'] = pw._candidate_digest({k:receipt[k] for k in ('payload', 'record_digests')})
+    path.write_text(json.dumps(receipt))
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+    def denied(*a, **kw):
+        pytest.fail('conflicting receipt must not be replayed or written')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', denied)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', denied)
+    for method in ('_create_same', 'save_research_trial', 'save_research_ledger', 'save_backtest_result'):
+        monkeypatch.setattr(PerformanceStore, method, denied)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}

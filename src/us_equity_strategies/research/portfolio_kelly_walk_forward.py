@@ -663,6 +663,80 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                 "trial_sha256": _candidate_digest(payload["trial"]),
                 "folds_sha256": _candidate_digest(payload["folds"])}
 
+    def verify_recovered_book(net: dict, ledger: Any) -> None:
+        """Reconcile returned book to stored marks/cash; never refit or replay fills."""
+        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+
+        def close(actual: Any, expected: float) -> None:
+            number = rs04._finite(actual, "NETTING_RECOVERY_BOOK_MISMATCH")
+            if not math.isclose(number, expected, rel_tol=1e-12, abs_tol=1e-9):
+                raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+
+        def securities(actual: Mapping[str, float], expected: Mapping[str, float]) -> None:
+            if not isinstance(actual, Mapping) or not set(actual).issubset(assets):
+                raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+            for symbol in assets:
+                close(actual.get(symbol, 0.), expected.get(symbol, 0.))
+
+        net_returns = [day.daily_return for day in ledger.days]
+        if (len(net["ledger"]) != len(ledger.days) or net["net_returns"] != net_returns
+                or net["initial_nav"] != ledger.initial_nav or net["final_nav"] != ledger.days[-1].nav
+                or net["no_order"] is not True or net["live_ready"] is not False
+                or net["timing"] != {"execution": "next_close"}
+                or net["fee_cash_role"] != spec.inner_residual_role
+                or _candidate_digest(net["spec"]) != _candidate_digest(asdict(spec))):
+            raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+        basis = net["unified_net_report_basis"]
+        if (basis["sessions"] != [day.session_date.isoformat() for day in ledger.days]
+                or basis["periods_per_year"] != periods or basis["initial_nav_is_return_observation"] is not False
+                or basis["costs_deducted_again"] is not False):
+            raise ValueError("NETTING_RECOVERY_REPORT_BASIS_MISMATCH")
+        previous_nav, previous_cash = ledger.initial_nav, ledger.initial_cash
+        previous_values = {mark.symbol: mark.valuation for mark in ledger.initial_positions}
+        gross = []
+        for i, (row, day) in enumerate(zip(net["ledger"], ledger.days, strict=True), start=te0):
+            end_values = {mark.symbol: mark.valuation for mark in day.positions}
+            pnl = {a: value * rets[a][i] for a, value in previous_values.items()}
+            pre_values = {a: value + pnl[a] for a, value in previous_values.items()}
+            trades = {a: end_values.get(a, 0.) - pre_values.get(a, 0.) for a in assets}
+            if (row["session"] != day.session_date.isoformat()
+                    or row["decision_session"] != dates[i - 1].isoformat()
+                    or row["fees"] != day.fees or row["net_return"] != day.daily_return
+                    or row["nav_start"] != previous_nav or row["nav_end"] != day.nav
+                    or row["fee_cash_role"] != spec.inner_residual_role or row["f_target"] != 1.):
+                raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+            for field, values in (("security_start", previous_values), ("security_pnl", pnl),
+                                  ("security_pre", pre_values), ("security_end", end_values), ("net_trades", trades)):
+                securities(row[field], values)
+            cash = row["virtual_cash_end"]
+            if set(cash) != {spec.inner_residual_role, "outer_cash_leg"}:
+                raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+            close(cash[spec.inner_residual_role], day.cash)
+            close(cash["outer_cash_leg"], 0.)
+            close(row["outer_cash_pnl"], 0.)
+            close(row["nav_pre_trade"], day.nav + day.fees)
+            close(row["nav_pre_trade"], previous_cash + math.fsum(pre_values.values()))
+            close(-math.fsum(trades.values()), day.trade_net_cashflow)
+            # Check the recorded fee breakdown against the frozen rates and
+            # independently reconciled security trades, without a cost replay.
+            fees = {a: abs(value) * spec.bps_per_side[a] * spec.multiplier / 10_000 for a, value in trades.items()}
+            securities(row["fee_by_security"], fees)
+            close(math.fsum(fees.values()), day.fees)
+            # Use the verified pre-fee mark to preserve the original floating
+            # point gross return; its cash/fee/NAV identity was checked above.
+            gross.append(row["nav_pre_trade"] / previous_nav - 1.)
+            if row["gross_return"] != gross[-1]:
+                raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+            previous_nav, previous_cash, previous_values = day.nav, day.cash, end_values
+        if net["gross_returns"] != gross:
+            raise ValueError("NETTING_RECOVERY_BOOK_MISMATCH")
+        # Rebuild only B3 statistics from the verified recorded observations.
+        # Default missing trial evidence and all None/UNCOMPUTABLE states stay
+        # authoritative; receipt-local digests cannot attest report semantics.
+        report = build_unified_net_report(net_returns, gross_returns=gross, periods_per_year=periods).to_dict()
+        if _candidate_digest(net["unified_net_report"]) != _candidate_digest(report):
+            raise ValueError("NETTING_RECOVERY_REPORT_MISMATCH")
+
     def read_success(reopened: Any, terminal: Any) -> dict:
         if (terminal is None or terminal.status is not ResearchTrialStatus.SUCCEEDED
                 or terminal.run_id != request["run_id"] or terminal.param_version != 1
@@ -700,14 +774,17 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
             if (set(receipt) != {"payload", "record_digests", "sha256"}
                     or receipt["sha256"] != _candidate_digest(body)
                     or body["record_digests"] != record_digests(terminal)
-                    or payload["binding"] != identity or payload["status"] != "SUCCEEDED"
+                    or _candidate_digest({key: payload[key] for key in response}) != _candidate_digest(response)
+                    or payload["status"] != "SUCCEEDED"
                     or payload["candidate"] != backtest.to_dict() or payload["trial"] != terminal.to_dict()
                     or payload["research_ledger"] != ledger.to_dict()
                     or payload["acceptance_binding"] != acceptance_binding(payload)):
                 raise ValueError("NETTING_RECEIPT_MISMATCH")
+            verify_recovered_book(payload["netting"], ledger)
         except (OSError, KeyError, TypeError) as exc:
             raise ValueError("NETTING_RECEIPT_MISSING_OR_INCOMPLETE") from exc
-        return payload
+        # The current request/envelope owns research boundaries, never the receipt.
+        return {**payload, **json.loads(json.dumps(response, allow_nan=False))}
 
     try:
         previous = store_call(store.load_research_trial,started.domain, started.strategy_profile, started.trial_id)

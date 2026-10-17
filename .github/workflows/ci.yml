@@ -218,7 +218,8 @@ jobs:
                            "r2_fee_cashflow_counterexample", "r2_recovery_returns_entire",
                            "r2_all_record_and_receipt_content_bound", "r2_receipt_payload_tamper",
                            "r2_receipt_ack_and_terminal_order", "r2_receipt_exclusive_create",
-                           "r3_all_existing_store_links"):
+                           "r3_all_existing_store_links", "r2_followup_rehashed_receipt",
+                           "r2_followup_normal_recovery", "r2_followup_book_fields"):
               assert any(required in c.attrib["name"] for c in candidate_cases), required
           assert not any(list(c.iter(tag)) for c in candidate_cases for tag in ("skipped", "failure", "error"))
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
