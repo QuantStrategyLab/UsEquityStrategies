@@ -870,17 +870,42 @@ def test_budget_parked_after_override_never_becomes_successful_liquidation(tmp_p
     assert not list(args['netting_candidate']['local_root'].rglob('backtest*.json'))
 
 
-def test_budget_turnover_needs_actual_per_session_net_book(tmp_path, monkeypatch):
+def test_budget_turnover_uses_same_session_net_book_and_effective_target(tmp_path, monkeypatch):
+    from us_equity_strategies import portfolio_risk_budget as budgets
     args = fixture_args(tmp_path)
-    args['netting_candidate']['risk_budget'] = synthetic_budget(max_one_way_risk_turnover=.1)
+    budget = synthetic_budget(max_one_way_risk_turnover=.1)
+    args['netting_candidate']['risk_budget'] = budget
+    original = budgets.assess_portfolio_risk_budget
+    calls = []
 
-    def forbidden(*args, **kwargs):
-        pytest.fail('unsupported turnover request reached fitting')
+    def assess(**kwargs):
+        result = original(**kwargs)
+        calls.append((kwargs, result))
+        return result
 
-    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
-    with pytest.raises(ValueError, match='NETTING_RISK_BUDGET_CURRENT_NET_BOOK_UNAVAILABLE'):
-        pw.evaluate_portfolio_kelly_walk_forward(**args)
-    assert not args['netting_candidate']['local_root'].exists()
+    monkeypatch.setattr(budgets, 'assess_portfolio_risk_budget', assess)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    rows = result['netting']['ledger']
+    assert len(calls) == len(rows) == 5
+    assert calls[0][0]['current_weights'] == {'SYNTHETIC_CASH': 1.}
+    fit = result['folds'][0]['portfolio_fit']['weights']['0.25']['qp']
+    for i, ((inputs, assessed), row) in enumerate(zip(calls, rows, strict=True)):
+        current = inputs['current_weights']
+        assert current == pytest.approx({**{s:v/row['nav_pre_trade'] for s,v in row['security_pre'].items()},
+                                        'SYNTHETIC_CASH': (row['nav_pre_trade']-sum(row['security_pre'].values()))/row['nav_pre_trade']})
+        expected = {s:w for s,w in assessed['recommended_target_weights'].items() if s != 'SYNTHETIC_CASH'}
+        assert row['inner_target'] == expected
+        assert row['security_end'] == pytest.approx({s:row['nav_pre_trade']*w for s,w in expected.items()})
+        assert sum(max(v, 0.) for v in row['net_trades'].values())/row['nav_pre_trade'] <= .1+1e-12
+        assert row['fees'] == pytest.approx(sum(abs(v) for v in row['net_trades'].values())*.01)
+        assert row['nav_end'] == pytest.approx(sum(row['security_end'].values())+sum(row['virtual_cash_end'].values()))
+        proposal = inputs['target_weights']
+        assert proposal == ({'SYNTHETIC_CASH': 1.} if i == 4 else {**fit, 'SYNTHETIC_CASH': 1.-sum(fit.values())})
+    assert calls[1][0]['current_weights']['A'] != pytest.approx(rows[0]['inner_target']['A'])
+    assert rows[-1]['inner_target'] == {} and not any(rows[-1]['security_end'].values())
+    assert rows[-1]['fees'] > 0.  # Sales still pay original two-sided execution fees.
+    assert result['binding']['risk_budget']['turnover_current_book_basis']
 
 
 @pytest.mark.parametrize('change', ['policy', 'look_through', 'enable', 'disable'])
@@ -973,3 +998,109 @@ def test_budget_invalid_policy_retains_assessor_rejection(tmp_path, monkeypatch)
     result = pw.evaluate_portfolio_kelly_walk_forward(**args)
     no_success(result)
     assert result['reason_code'] == 'NETTING_RISK_BUDGET_PARKED:invalid maximum effective risk exposure'
+
+
+def test_turnover_parked_stops_before_successful_book(tmp_path):
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(
+        max_one_way_risk_turnover=.1, max_symbol_weights={'SYNTHETIC_CASH': .5})
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(result)
+    assert result['status'] == 'REJECTED' and result['reason_code'].startswith('NETTING_RISK_BUDGET_PARKED:')
+    assert not list(args['netting_candidate']['local_root'].rglob('ledger.json'))
+
+
+@pytest.mark.parametrize('change', ['synthetic', 'unit', 'f', 'cash_return', 'cash_role', 'initial_f',
+                                    'cash_target', 'unknown_held', 'missing_policy'])
+def test_turnover_runner_refuses_unsupported_context(tmp_path, change):
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    budget = synthetic_budget(max_one_way_risk_turnover=.1)
+    context = {**budget, 'synthetic': True, 'valuation_basis': runner.RS06_TURNOVER_CURRENT_BOOK_BASIS}
+    day = args['cash_returns'][121][0]
+    row = runner.NettingSession(day, args['cash_returns'][120][0], .5 if change == 'f' else 1.,
+                                {'A': .2, 'SYNTHETIC_CASH': .5} if change == 'cash_target' else {'A': .2},
+                                {'A': 0., 'B': 0., 'UNKNOWN': 0.}, .01 if change == 'cash_return' else 0.)
+    if change == 'synthetic':context['synthetic'] = False
+    if change == 'unit':context['valuation_basis'] = 'USD_LABEL_WITHOUT_SHARED_UNIT_EVIDENCE'
+    if change == 'missing_policy':context['policy'] = None
+    with pytest.raises(ValueError, match='NETTING_RISK_BUDGET'):
+        runner.run_offline_security_netting([row], initial_nav=1000., initial_f=.5 if change == 'initial_f' else 1.,
+            initial_inner_weights={'UNKNOWN': .2} if change == 'unknown_held' else {}, spec=args['netting_candidate']['spec'],
+            fee_cash_role='outer_cash_leg' if change == 'cash_role' else 'inner_residual_cash',
+            execution_timing='next_close', report_periods_per_year=252, rs06_risk_budget=context)
+
+
+def test_turnover_inconsistent_actual_current_book_is_rejected(tmp_path, monkeypatch):
+    from quant_platform_kit.research_stats import security_netting
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_one_way_risk_turnover=.1)
+    original = security_netting.drift_inner_weights
+    count = 0
+
+    def inconsistent(*args, **kwargs):
+        nonlocal count
+        count += 1
+        weights, ret = original(*args, **kwargs)
+        return (weights, ret+.1) if count == 2 else (weights, ret)
+
+    monkeypatch.setattr(security_netting, 'drift_inner_weights', inconsistent)
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    no_success(result)
+    assert result['reason_code'] == 'NETTING_RISK_BUDGET_CURRENT_BOOK_INVALID'
+
+
+@pytest.mark.parametrize('change', ['same', 'policy', 'basis'])
+def test_turnover_recovery_binds_policy_and_book_basis_without_replay(tmp_path, monkeypatch, change):
+    from dataclasses import replace
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_one_way_risk_turnover=.1)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    root = args['netting_candidate']['local_root']
+    before = {str(p):p.read_bytes() for p in root.rglob('*.json')}
+    if change == 'policy':
+        budget = args['netting_candidate']['risk_budget']
+        budget['policy'] = replace(budget['policy'], max_one_way_risk_turnover=.11)
+    elif change == 'basis':
+        monkeypatch.setattr(runner, 'RS06_TURNOVER_CURRENT_BOOK_BASIS', 'changed_test_semantics')
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('turnover recovery replayed fit/netting')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    recovered = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    if change == 'same':assert recovered == {**first, 'recovered': True}
+    else:
+        no_success(recovered)
+        assert recovered['reason_code'] == 'NETTING_CANDIDATE_IDENTITY_MISMATCH'
+    assert before == {str(p):p.read_bytes() for p in root.rglob('*.json')}
+
+
+def test_turnover_future_rows_do_not_change_fixed_prefix(tmp_path):
+    outputs = []
+    for n in (5, 6):
+        args = fixture_args(tmp_path/str(n), test_sessions=n)
+        args['netting_candidate']['end_target'] = None
+        args['netting_candidate']['risk_budget'] = synthetic_budget(max_one_way_risk_turnover=.1)
+        result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+        assert result['status'] == 'SUCCEEDED'
+        outputs.append(result['netting']['ledger'])
+    assert outputs[0] == outputs[1][:5]
+
+
+def test_turnover_recovery_rejects_effective_target_changed_in_receipt(tmp_path, monkeypatch):
+    import json
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['risk_budget'] = synthetic_budget(max_one_way_risk_turnover=.1)
+    assert pw.evaluate_portfolio_kelly_walk_forward(**args)['status'] == 'SUCCEEDED'
+    path = next(args['netting_candidate']['local_root'].rglob('receipt.json'))
+    receipt = json.loads(path.read_text())
+    receipt['payload']['netting']['ledger'][0]['inner_target']['A'] += .1
+    receipt['payload']['acceptance_binding']['netting_sha256'] = pw._candidate_digest(receipt['payload']['netting'])
+    receipt['sha256'] = pw._candidate_digest({k:receipt[k] for k in ('payload', 'record_digests')})
+    path.write_text(json.dumps(receipt))
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', lambda *a, **k:pytest.fail('tampered receipt refit'))
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
