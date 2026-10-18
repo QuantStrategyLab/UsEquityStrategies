@@ -600,6 +600,25 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     periods = request["periods_per_year"]
     if type(periods) is not int or periods <= 0:
         raise ValueError("NETTING_PERIODS_INVALID")
+    # Absence is the original legacy rf=0 assumption, never v2 qualification.
+    # Bind explicit rf/calendar inputs into the existing immutable candidate
+    # identity so recovery cannot reinterpret an old report under new inputs.
+    report_options = {}
+    if request.get("sharpe_basis", "legacy_net_rf0_v1") != "legacy_net_rf0_v1":
+        report_options = {"sharpe_basis": request["sharpe_basis"],
+                          "risk_free_returns": (None if request.get("risk_free_returns") is None
+                                                else list(request["risk_free_returns"])),
+                          "risk_free_source": request.get("risk_free_source"),
+                          "calendar_id": request["calendar_id"]}
+        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+        from inspect import signature
+        if not set(report_options).issubset(signature(build_unified_net_report).parameters):
+            raise ValueError("QPK_EXPLICIT_SHARPE_BASIS_REQUIRED")
+        # Validate basis/length/source before any trial is persisted. These
+        # zeros are validation-only placeholders, never research observations.
+        build_unified_net_report([0.] * (te1 - te0), periods_per_year=periods, **report_options)
+    elif request.get("risk_free_returns") is not None or request.get("risk_free_source") is not None:
+        raise ValueError("RF_INPUTS_REQUIRE_EXPLICIT_BASIS")
     initial_nav = rs04._finite(request["initial_nav"], "INITIAL_NAV_INVALID")
     if initial_nav <= 0:
         raise ValueError("INITIAL_NAV_INVALID")
@@ -639,6 +658,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
               "inner_units": "one_strategy_one_security_fractional_shares", "outer_cash_return": 0.}
     if budget_config is not None:
         config["risk_budget"] = budget_config
+    if report_options:
+        config["report_basis"] = report_options
     input_sha = _candidate_digest({"dates": [d.isoformat() for d in dates], "returns": rets,
                                    "cash": cash, "prices": prices,
                                    "decisions": [[d.isoformat(), p.isoformat()] for d, p in decisions]})
@@ -653,6 +674,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                 "promotion_eligible": False, "budget_effect": "NONE"}
     if budget_config is not None:
         identity["risk_budget"] = budget_config
+    if report_options:
+        identity["report_basis"] = report_options
     identity = json.loads(json.dumps(identity, allow_nan=False))
     cost_inputs = {**{a + "_bps_per_side": float(spec.bps_per_side[a]) for a in assets}, "multiplier": 1.}
     started = ResearchTrialRecord(
@@ -778,7 +801,11 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         # Rebuild only B3 statistics from the verified recorded observations.
         # Default missing trial evidence and all None/UNCOMPUTABLE states stay
         # authoritative; receipt-local digests cannot attest report semantics.
-        report = build_unified_net_report(net_returns, gross_returns=gross, periods_per_year=periods).to_dict()
+        report = build_unified_net_report(net_returns, gross_returns=gross, periods_per_year=periods,
+                                          **report_options).to_dict()
+        if report_options and any(net["unified_net_report_basis"].get(k) != v
+                                  for k, v in report_options.items()):
+            raise ValueError("NETTING_RECOVERY_REPORT_BASIS_MISMATCH")
         if _candidate_digest(net["unified_net_report"]) != _candidate_digest(report):
             raise ValueError("NETTING_RECOVERY_REPORT_MISMATCH")
 
@@ -808,7 +835,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                    or not math.isclose(mark.quantity * prices[mark.symbol][i], mark.valuation,
                                        rel_tol=1e-12, abs_tol=1e-9) for mark in day.positions):
                 raise ValueError("NETTING_POSITION_PRICE_MISMATCH")
-        expected = _candidate_public_metrics([d.daily_return for d in ledger.days], periods)
+        expected = _candidate_public_metrics([d.daily_return for d in ledger.days], periods,
+                                             report_options=report_options)
         if backtest.to_dict() != candidate_result(ledger, expected).to_dict():
             raise ValueError("NETTING_PUBLIC_METRIC_MISMATCH")
         _check_netting_store(root)
@@ -829,7 +857,11 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         except (OSError, KeyError, TypeError) as exc:
             raise ValueError("NETTING_RECEIPT_MISSING_OR_INCOMPLETE") from exc
         # The current request/envelope owns research boundaries, never the receipt.
-        return {**payload, **json.loads(json.dumps(response, allow_nan=False))}
+        # This read-time label is outside the immutable legacy payload/digests.
+        # It discloses the old assumption without rewriting historical evidence.
+        return {**payload, **json.loads(json.dumps(response, allow_nan=False)),
+                "report_basis_interpretation": (report_options["sharpe_basis"] if report_options
+                                                else "legacy_implicit_rf0_assumption_not_v2_evidence")}
 
     try:
         previous = store_call(store.load_research_trial,started.domain, started.strategy_profile, started.trial_id)
@@ -875,12 +907,16 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         net = run_offline_security_netting(
             sessions, initial_nav=initial_nav, initial_f=1., initial_inner_weights={}, spec=spec,
             fee_cash_role=request["fee_cash_role"], execution_timing="next_close", report_periods_per_year=periods,
+            **({"report_sharpe_basis": report_options["sharpe_basis"],
+                "report_risk_free_returns": report_options["risk_free_returns"],
+                "report_risk_free_source": report_options["risk_free_source"],
+                "report_calendar_id": report_options["calendar_id"]} if report_options else {}),
             **({"rs06_risk_budget": turnover_context} if turnover_context is not None else {}))
         # Verify report and ledger identity before mapping public metrics. No
         # virtual cost_stress and no second fee subtraction on this branch.
         from quant_platform_kit.research_stats.unified_report import build_unified_net_report
         expected_report = build_unified_net_report(net["net_returns"], gross_returns=net["gross_returns"],
-                                                    periods_per_year=periods).to_dict()
+                                                    periods_per_year=periods, **report_options).to_dict()
         if (net["unified_net_report"] != expected_report
                 or net["unified_net_report_basis"]["sessions"] != [d.isoformat() for d, _ in decisions]
                 or [r["net_return"] for r in net["ledger"]] != net["net_returns"]
@@ -945,11 +981,12 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         return {**response, "status": "UNKNOWN", "reason_code": "STORE_RECEIPT_UNCERTAIN"}
 
 
-def _candidate_public_metrics(net_returns: Sequence[float], periods: int, *, report: dict | None = None) -> dict:
+def _candidate_public_metrics(net_returns: Sequence[float], periods: int, *, report: dict | None = None,
+                              report_options: Mapping[str, Any] | None = None) -> dict:
     from quant_platform_kit.research_stats.unified_report import build_unified_net_report
 
     if report is None:
-        report = build_unified_net_report(net_returns, periods_per_year=periods).to_dict()
+        report = build_unified_net_report(net_returns, periods_per_year=periods, **(report_options or {})).to_dict()
     metrics = {m["name"]: m for m in report["metrics"]}
 
     def value(name: str) -> float | None:
