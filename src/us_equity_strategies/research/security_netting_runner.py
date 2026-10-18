@@ -15,6 +15,8 @@ the next session drifts the actual post-fee book, including the depleted cash.
 from __future__ import annotations
 
 import inspect
+import hashlib
+import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -62,6 +64,132 @@ def _cash(inner_cash: float, outer: float, spec: Any) -> dict[str, float]:
     return values
 
 
+
+def _research_cost_begin(inputs: Mapping[str, Any], sessions: Sequence[NettingSession],
+                         securities: Mapping[str, float], cash: float) -> dict[str, Any]:
+    """Open attribution alongside the existing book; never construct targets/cash."""
+    from quant_platform_kit.strategy_lifecycle.contracts import RESEARCH_AVERAGE_COST_POLICY
+
+    if not isinstance(inputs, Mapping) or "opening_book" not in inputs:
+        raise ValueError("COST_OPENING_REQUIRED")
+    if set(inputs) != {"policy_id", "synthetic_book_id", "opening_book", "fill_marks"}:
+        raise ValueError("COST_INPUT_KEYS")
+    if inputs["policy_id"] != RESEARCH_AVERAGE_COST_POLICY:
+        raise ValueError("COST_POLICY_REQUIRED")
+    if not isinstance(inputs["synthetic_book_id"], str) or not inputs["synthetic_book_id"]:
+        raise ValueError("COST_BOOK_ID_REQUIRED")
+    # Freeze caller-owned maps. All prices remain per-session explicit inputs.
+    data = json.loads(json.dumps(dict(inputs), allow_nan=False))
+    opening = data["opening_book"]
+    if (not isinstance(opening, dict) or set(opening) != {"session", "currency", "cash", "positions"}
+            or not isinstance(opening["positions"], dict)):
+        raise ValueError("COST_OPENING_REQUIRED")
+    currency = opening["currency"]
+    if not isinstance(currency, str) or len(currency) != 3 or not currency.isascii() or not currency.isupper() or not currency.isalpha():
+        raise ValueError("COST_CURRENCY_REQUIRED")
+    if (not isinstance(data["fill_marks"], dict)
+            or set(data["fill_marks"]) != {row.session.isoformat() for row in sessions}):
+        raise ValueError("COST_MARKS_REQUIRED")
+    if opening["session"] != sessions[0].decision_session.isoformat():
+        raise ValueError("COST_OPENING_REQUIRED")
+    if not math.isclose(_finite(opening["cash"], "COST_OPENING_REQUIRED"), cash, rel_tol=1e-10, abs_tol=1e-9):
+        raise ValueError("COST_OPENING_BOOK_MISMATCH")
+    quantity, basis = {}, {}
+    for symbol, position in opening["positions"].items():
+        if not isinstance(position, dict) or set(position) != {"quantity", "total_basis", "mark"}:
+            raise ValueError("COST_OPENING_REQUIRED")
+        q = _finite(position["quantity"], "COST_OPENING_REQUIRED")
+        b = _finite(position["total_basis"], "COST_OPENING_REQUIRED")
+        mark = _finite(position["mark"], "COST_OPENING_REQUIRED")
+        if q < 0 or b < 0 or mark <= 0 or (q == 0 and b != 0):
+            raise ValueError("COST_OPENING_REQUIRED")
+        quantity[symbol], basis[symbol] = q, b
+    for symbol in set(securities) | set(quantity):
+        value = quantity.get(symbol, 0.) * opening["positions"].get(symbol, {}).get("mark", 0.)
+        if not math.isclose(value, securities.get(symbol, 0.), rel_tol=1e-10, abs_tol=1e-9):
+            raise ValueError("COST_OPENING_BOOK_MISMATCH")
+    return {"inputs": data, "quantity": quantity, "basis": basis, "realized": 0., "days": []}
+
+
+def _research_cost_day(cost: dict[str, Any], row: Mapping[str, Any]) -> None:
+    """Attribute existing net fills using one declared research average policy."""
+    marks = cost["inputs"]["fill_marks"][row["session"]]
+    if not isinstance(marks, dict):
+        raise ValueError("COST_MARKS_REQUIRED")
+    universe = set(cost["quantity"]) | set(row["security_pre"]) | set(row["security_end"]) | set(row["net_trades"])
+    positions, fills = {}, []
+    for symbol in sorted(universe):
+        if symbol not in marks:
+            raise ValueError("COST_MARKS_REQUIRED")
+        price = _finite(marks[symbol], "COST_MARKS_REQUIRED")
+        if price <= 0:
+            raise ValueError("COST_MARKS_REQUIRED")
+        old_q, old_b = cost["quantity"].get(symbol, 0.), cost["basis"].get(symbol, 0.)
+        if not math.isclose(old_q*price, row["security_pre"].get(symbol, 0.), rel_tol=1e-10, abs_tol=1e-9):
+            raise ValueError("COST_MARK_BOOK_MISMATCH")
+        trade = row["net_trades"].get(symbol, 0.)
+        fee = row["fee_by_security"].get(symbol, 0.)
+        added = relieved = realized = 0.
+        q = row["security_end"].get(symbol, 0.) / price
+        if trade > 0:
+            added = trade+fee
+        elif trade < 0:
+            if old_q <= 0 or -trade/price > old_q+1e-9:
+                raise ValueError("COST_LONG_ONLY_FILL")
+            relieved = old_b if q == 0 else old_b*(-trade/price)/old_q
+            realized = -trade-relieved-fee
+        if trade != 0:
+            identity = f'{cost["inputs"]["synthetic_book_id"]}/{row["session"]}/{symbol}'
+            fills.append(dict(execution_id=identity, revision=1, fee_id=identity+"/fee",
+                symbol=symbol, side="BUY" if trade > 0 else "SELL", quantity=abs(trade)/price,
+                price=price, fee=fee, basis_added=added, basis_relieved=relieved,
+                realized_net=realized, event_time=row["session"], known_at=row["session"]))
+        b = old_b+added-relieved
+        cost["quantity"][symbol], cost["basis"][symbol] = q, b
+        cost["realized"] += realized
+        positions[symbol] = dict(quantity=q, total_basis=b, mark=price)
+    cost["days"].append(dict(session=row["session"], fills=fills, positions=positions,
+                             realized_net_cumulative=cost["realized"]))
+
+
+def _research_cost_finish(cost: dict[str, Any], ledger: Sequence[Mapping[str, Any]],
+                          initial_nav: float, fee_multiplier: float) -> dict[str, Any]:
+    from quant_platform_kit.strategy_lifecycle.contracts import (
+        RESEARCH_AVERAGE_COST_POLICY, RESEARCH_NETTER_COST_SOURCE, ResearchCostFacts,
+        ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark, validate_research_cost_facts,
+    )
+
+    inputs = cost["inputs"]; opening = inputs["opening_book"]
+    # Synthetic constructor identity only: no market calendar or annualized report is produced.
+    opening_hash = hashlib.sha256(json.dumps(opening, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    run_id = "cost-"+hashlib.sha256(inputs["synthetic_book_id"].encode()).hexdigest()
+    days = []
+    previous_nav = initial_nav
+    for facts, row in zip(cost["days"], ledger):
+        positions = tuple(ResearchPositionMark(symbol, p["quantity"], p["quantity"]*p["mark"])
+                          for symbol, p in facts["positions"].items() if p["quantity"] != 0)
+        days.append(ResearchLedgerDay(session_date=date.fromisoformat(row["session"]),
+            cash=sum(row["virtual_cash_end"].values()), positions=positions,
+            trade_net_cashflow=-sum(row["net_trades"].values()), fees=row["fees"],
+            nav=row["nav_end"], daily_return=row["nav_end"]/previous_nav-1.))
+        previous_nav = row["nav_end"]
+    book = ResearchDailyLedger(trial_id=run_id, domain="us_equity", strategy_profile="synthetic_netting",
+        run_id=run_id, param_version=1, input_id=opening_hash, calendar_id="SYNTHETIC_COST_INVARIANTS_ONLY",
+        periods_per_year=252., cost_source=RESEARCH_AVERAGE_COST_POLICY,
+        cost_inputs={"native_fee_multiplier": fee_multiplier}, initial_session_date=date.fromisoformat(opening["session"]),
+        initial_nav=initial_nav, initial_cash=opening["cash"],
+        initial_positions=tuple(ResearchPositionMark(symbol, p["quantity"], p["quantity"]*p["mark"])
+                                for symbol, p in opening["positions"].items() if p["quantity"] != 0),
+        days=tuple(days), synthetic=True)
+    facts = ResearchCostFacts.from_dict(dict(policy_id=RESEARCH_AVERAGE_COST_POLICY,
+        source_label=RESEARCH_NETTER_COST_SOURCE, synthetic=True, synthetic_book_id=inputs["synthetic_book_id"],
+        currency=opening["currency"], ledger_identity={key:getattr(book, key) for key in ("trial_id", "run_id", "input_id")},
+        opening_book={key:opening[key] for key in ("session", "cash", "positions")},
+        coverage={"opening":"complete", "fills":"complete", "fees":"complete"}, corrections=[], late_fees=[],
+        cutoff=ledger[-1]["session"], days=cost["days"]))
+    return validate_research_cost_facts(book, facts).to_dict()
+
+
 def run_offline_security_netting(
     sessions: Sequence[NettingSession], *, initial_nav: float, initial_f: float,
     initial_inner_weights: Mapping[str, float], spec: Any, fee_cash_role: str,
@@ -70,6 +198,7 @@ def run_offline_security_netting(
     report_sharpe_basis: str = "legacy_net_rf0_v1",
     report_risk_free_returns: Sequence[float] | None = None,
     report_risk_free_source: str | None = None, report_calendar_id: str | None = None,
+    research_cost_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Replay one composed sleeve with explicit cash funding; no data or order I/O.
 
@@ -93,6 +222,7 @@ def run_offline_security_netting(
     f=1/zero-cash-return context. Its gate uses fill-session marks, not prior
     decision information; it establishes no real currency/FX qualification.
     """
+    # Explicitly opt-in research attribution; legacy requests import no new contract.
     report_builder = None
     report_options = {}
     if report_sharpe_basis != "legacy_net_rf0_v1":
@@ -180,6 +310,11 @@ def run_offline_security_netting(
     inner = {s: nav * initial_f * w for s, w in initial_inner_weights.items()}
     inner_cash = nav * initial_f * max(0., 1 - sum(initial_inner_weights.values()))
     outer = nav * (1 - initial_f)
+    cost = None
+    if research_cost_inputs is not None:
+        if spec.outer_cash_mode != "separate":
+            raise ValueError("COST_EVENT_SCOPE_UNSUPPORTED")
+        cost = _research_cost_begin(research_cost_inputs, sessions, _securities(inner, outer, spec), inner_cash+outer)
     ledger = []
     previous = None
     for row in sessions:
@@ -196,6 +331,8 @@ def run_offline_security_netting(
             raise ValueError("RETURN_INVALID")
         returns = {s: _return(r) for s, r in row.security_returns.items()}
         cash_return = _return(row.outer_cash_return)
+        if cost is not None and cash_return != 0.:
+            raise ValueError("COST_EVENT_SCOPE_UNSUPPORTED")
         if spec.outer_cash_mode == "merge_into_security" and cash_return != 0.:
             raise ValueError("MERGED_OUTER_RETURN_MUST_USE_SECURITY")
         nav_start = nav
@@ -295,6 +432,8 @@ def run_offline_security_netting(
             "turnover_columns_summable": result.turnover_columns_summable,
             "reconciliation_errors": errors,
         })
+        if cost is not None:
+            _research_cost_day(cost, ledger[-1])
     output = {
         "scope": "OFFLINE_RESEARCH_ONLY", "no_order": True, "live_ready": False,
         "input_provenance": "CALLER_SUPPLIED_NOT_VERIFIED", "version": SECURITY_NETTING_VERSION,
@@ -326,4 +465,6 @@ def run_offline_security_netting(
         }
         if report_options:
             output["unified_net_report_basis"].update(report_options)
+    if cost is not None:
+        output["research_cost_receipt"] = _research_cost_finish(cost, ledger, initial_nav, spec.multiplier)
     return output

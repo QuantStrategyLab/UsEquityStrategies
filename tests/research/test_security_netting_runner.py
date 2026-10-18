@@ -274,3 +274,110 @@ def test_mutated_fee_mapping_cannot_credit_cash():
     model.bps_per_side["A"] = -100.
     with pytest.raises(ValueError, match="BPS_INVALID"):
         run([session()], spec=model)
+
+
+COST_POLICY = "RESEARCH_LONG_ONLY_WEIGHTED_AVERAGE_BUY_COST_CAPITALIZED_V1"
+
+
+def cost_inputs(rows):
+    return dict(policy_id=COST_POLICY, synthetic_book_id="synthetic-cost-book",
+        opening_book={"session": "2026-01-01", "currency": "USD", "cash": 800.,
+                      "positions": {"A": {"quantity": 20., "total_basis": 160., "mark": 8.}}},
+        fill_marks={row.session.isoformat(): {"A": p} for row, p in zip(rows, [10., 12., 11., 9., 10.])})
+
+
+def cost_path():
+    # No second engine: explicit economic targets, original netter determines all fills/fees.
+    return [session(1, f=1., weights={"A": .3}, returns={"A": .25}),
+            session(2, f=1., weights={"A": .2}, returns={"A": .2}),
+            session(3, f=1., weights={"A": .1}, returns={"A": 11./12.-1}),
+            session(4, f=1., weights={}, returns={"A": 9./11.-1}),
+            session(5, f=1., weights={"A": .1}, returns={"A": 10./9.-1})]
+
+
+def cost_run(rows, inputs):
+    return run(rows, initial_nav=960., initial_f=1., initial_inner_weights={"A": 1./6.},
+               research_cost_inputs=inputs)
+
+
+def test_cost_facts_native_buy_partial_full_close_reopen_and_default_compatibility(tmp_path):
+    rows = cost_path(); inputs = cost_inputs(rows)
+    result = cost_run(rows, inputs)
+    receipt = result.pop("research_cost_receipt")
+    legacy = run(rows, initial_nav=960., initial_f=1., initial_inner_weights={"A": 1./6.})
+    assert result == legacy
+    assert receipt["status"] == "PASS_SCOPED_SYNTHETIC"
+    assert receipt["source_label"] == "SYNTHETIC_NATIVE_NETTER_V1"
+    assert receipt["policy_id"] == COST_POLICY
+    basis, quantity, realized = 160., 20., 0.
+    for day, native, price in zip(receipt["days"], result["ledger"], [10., 12., 11., 9., 10.]):
+        trade = native["net_trades"].get("A", 0.); fee = native["fee_by_security"].get("A", 0.)
+        if trade > 0:
+            basis += trade + fee
+        elif trade < 0:
+            sold = -trade/price; relief = basis*sold/quantity
+            realized += -trade-relief-fee; basis -= relief
+        quantity = native["security_end"].get("A", 0.)/price
+        assert day["positions"]["A"]["quantity"] == pytest.approx(quantity)
+        assert day["positions"]["A"]["total_basis"] == pytest.approx(basis, abs=1e-9)
+        assert day["realized_net_cumulative"] == pytest.approx(realized)
+        assert realized + day["unrealized"] == pytest.approx(native["nav_end"]-960.)
+    assert receipt["days"][3]["positions"]["A"]["total_basis"] == pytest.approx(0.)
+    assert cost_run(rows, inputs)["research_cost_receipt"] == receipt
+    saved = tmp_path / "research-cost-receipt.json"
+    saved.write_text(json.dumps(receipt, sort_keys=True))
+    assert json.loads(saved.read_text()) == receipt
+    reconcile(result)
+
+
+def test_cost_facts_native_prefix_future_marks_do_not_change_past_receipt():
+    rows = cost_path()
+    full = cost_run(rows, cost_inputs(rows))["research_cost_receipt"]
+    prefix = cost_run(rows[:2], cost_inputs(rows[:2]))["research_cost_receipt"]
+    assert full["days"][:2] == prefix["days"]
+    changed = rows[:2] + [session(3, f=1., weights={}, returns={"A": -.5})]
+    inputs = cost_inputs(changed); inputs["fill_marks"][changed[2].session.isoformat()]["A"] = 6.
+    assert cost_run(changed, inputs)["research_cost_receipt"]["days"][:2] == prefix["days"]
+
+
+@pytest.mark.parametrize("mutation,code", [
+    ("missing_opening", "COST_OPENING_REQUIRED"), ("missing_basis", "COST_OPENING_REQUIRED"),
+    ("missing_marks", "COST_MARKS_REQUIRED"), ("wrong_mark", "COST_MARK_BOOK_MISMATCH"),
+    ("wrong_policy", "COST_POLICY_REQUIRED"), ("corrections", "COST_INPUT_KEYS"),
+    ("late_fees", "COST_INPUT_KEYS"), ("wrong_currency", "COST_CURRENCY_REQUIRED"),
+])
+def test_cost_facts_native_missing_and_unsupported_inputs_fail_closed(mutation, code):
+    rows = cost_path(); inputs = cost_inputs(rows)
+    if mutation == "missing_opening": inputs.pop("opening_book")
+    elif mutation == "missing_basis": inputs["opening_book"]["positions"]["A"].pop("total_basis")
+    elif mutation == "missing_marks": inputs["fill_marks"].pop(rows[0].session.isoformat())
+    elif mutation == "wrong_mark": inputs["fill_marks"][rows[0].session.isoformat()]["A"] = 999.
+    elif mutation == "wrong_policy": inputs["policy_id"] = "BROKER_TAX_COST"
+    elif mutation == "wrong_currency": inputs["opening_book"]["currency"] = ""
+    else: inputs[mutation] = [{"id": "unsupported"}]
+    with pytest.raises(ValueError, match=code): cost_run(rows, inputs)
+
+
+def test_cost_facts_explicit_zero_fees_zero_opening_and_multiple_fill_identities():
+    rows = [session(1, f=1., weights={"A": .2, "BOXX": .2}), session(2, f=1., weights={})]
+    inputs = dict(policy_id=COST_POLICY, synthetic_book_id="zero-book",
+        opening_book={"session":"2026-01-01", "currency":"USD", "cash":100., "positions":{}},
+        fill_marks={row.session.isoformat(): {"A": 10., "BOXX": 20.} for row in rows})
+    from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec
+    result = run(rows, spec=SecurityNettingSpec(bps_per_side={"A":0., "BOXX":0.}),
+                 research_cost_inputs=inputs)
+    receipt = result["research_cost_receipt"]
+    assert receipt["status"] == "PASS_SCOPED_SYNTHETIC"
+    assert len(receipt["days"][0]["accepted_execution_ids"]) == 2
+    assert sum(row["fees"] for row in result["ledger"]) == 0.
+    assert receipt["days"][-1]["realized_net_cumulative"] == pytest.approx(0.)
+
+
+def test_cost_facts_unsupported_cash_income_and_currency_mix_cannot_qualify():
+    rows = cost_path(); inputs = cost_inputs(rows)
+    income = [session(1, f=1., weights={"A": .3}, returns={"A": .25}, cash_return=.01)]
+    with pytest.raises(ValueError, match="COST_EVENT_SCOPE_UNSUPPORTED"):
+        cost_run(income, cost_inputs(income))
+    inputs["opening_book"]["positions"]["A"]["currency"] = "EUR"
+    with pytest.raises(ValueError, match="COST_OPENING_REQUIRED"):
+        cost_run(rows, inputs)
