@@ -2,6 +2,7 @@
 import dataclasses
 import hashlib
 import importlib
+import inspect
 import itertools
 import json
 import math
@@ -24,8 +25,23 @@ from us_equity_strategies.research.fractional_kelly_walk_forward_plan import Wal
 REQUIRE_QPK_STATS = os.environ.get("UES_REQUIRE_QPK_RESEARCH_STATS") == "1"
 
 
+def _netting_report_basis_supported():
+    try:
+        importlib.import_module("quant_platform_kit.research_stats.security_netting")
+        report = importlib.import_module("quant_platform_kit.research_stats.unified_report")
+    except ImportError:
+        if REQUIRE_QPK_STATS:
+            pytest.fail("required research overlay lacks security netting/report capability")
+        pytest.skip("production QPK pin lacks research netting/report; this capability is not covered")
+    supported = "sharpe_basis" in inspect.signature(report.build_unified_net_report).parameters
+    if REQUIRE_QPK_STATS and not supported:
+        pytest.fail("required research overlay lacks explicit Sharpe basis; do not skip v2 acceptance")
+    return supported
+
+
 @pytest.mark.parametrize("rf", [None, .001])
 def test_explicit_report_basis_candidate_generation_and_recovery(tmp_path, monkeypatch, rf):
+    supported = _netting_report_basis_supported()
     from test_portfolio_netting_candidate_closed_loop import fixture_args
     from us_equity_strategies.research import security_netting_runner as netting
     args = fixture_args(tmp_path, test_sessions=35)
@@ -34,6 +50,10 @@ def test_explicit_report_basis_candidate_generation_and_recovery(tmp_path, monke
     if rf is not None:
         request["risk_free_returns"] = [rf] * 35
         request["risk_free_source"] = "synthetic-period-rf"
+    if not supported:
+        with pytest.raises(ValueError, match="QPK_EXPLICIT_SHARPE_BASIS_REQUIRED"):
+            pw.evaluate_portfolio_kelly_walk_forward(**args)
+        return  # legacy-QPK rejection evidence only, never v2 acceptance
     first = pw.evaluate_portfolio_kelly_walk_forward(**args)
     assert first["status"] == "SUCCEEDED"
     report = first["netting"]["unified_net_report"]
@@ -61,6 +81,7 @@ def test_explicit_report_basis_candidate_generation_and_recovery(tmp_path, monke
 
 
 def test_legacy_receipt_stays_legacy_and_cannot_be_upgraded_in_place(tmp_path, monkeypatch):
+    supported = _netting_report_basis_supported()
     from test_portfolio_netting_candidate_closed_loop import fixture_args
     from us_equity_strategies.research import security_netting_runner as netting
     args = fixture_args(tmp_path, test_sessions=35)
@@ -78,7 +99,11 @@ def test_legacy_receipt_stays_legacy_and_cannot_be_upgraded_in_place(tmp_path, m
     assert "report_basis" not in recovered["binding"]  # absent means legacy rf=0 assumption
     assert recovered["report_basis_interpretation"] == "legacy_implicit_rf0_assumption_not_v2_evidence"
     args["netting_candidate"]["sharpe_basis"] = "net_wealth_excess_sharpe_v2"
-    assert pw.evaluate_portfolio_kelly_walk_forward(**args)["status"] == "REJECTED"
+    if supported:
+        assert pw.evaluate_portfolio_kelly_walk_forward(**args)["status"] == "REJECTED"
+    else:
+        with pytest.raises(ValueError, match="QPK_EXPLICIT_SHARPE_BASIS_REQUIRED"):
+            pw.evaluate_portfolio_kelly_walk_forward(**args)
     assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*.json")} == before
 
 

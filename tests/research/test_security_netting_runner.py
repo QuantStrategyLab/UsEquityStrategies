@@ -1,5 +1,6 @@
 """Synthetic acceptance of the opt-in, cash-funded close-fill net ledger."""
 import importlib.util
+import inspect
 import json
 import math
 import os
@@ -67,10 +68,15 @@ def reconcile(result):
 def test_explicit_rf_changes_statistics_never_book_or_fees():
     rows = [session(i) for i in range(1, 36)]
     legacy = run(rows, execution_timing="next_close", report_periods_per_year=252)
-    explicit = run(rows, execution_timing="next_close", report_periods_per_year=252,
+    options = dict(execution_timing="next_close", report_periods_per_year=252,
                    report_sharpe_basis="net_wealth_excess_sharpe_v2",
                    report_risk_free_returns=[.001] * 35,
                    report_risk_free_source="synthetic-period-rf", report_calendar_id="synthetic")
+    if not _explicit_report_basis_supported():
+        with pytest.raises(ValueError, match="QPK_EXPLICIT_SHARPE_BASIS_REQUIRED"):
+            run(rows, **options)
+        return  # only the legacy-QPK rejection path was covered
+    explicit = run(rows, **options)
     reconcile(explicit)
     for name in ("ledger", "net_returns", "gross_returns", "final_nav"):
         assert explicit[name] == legacy[name]
@@ -83,14 +89,27 @@ def test_explicit_rf_changes_statistics_never_book_or_fees():
 
 
 def test_missing_rf_preserves_book_and_marks_inference_uncomputable():
-    result = run([session(i) for i in range(1, 36)], execution_timing="next_close",
-                 report_periods_per_year=252, report_sharpe_basis="net_wealth_excess_sharpe_v2",
-                 report_calendar_id="synthetic")
+    rows = [session(i) for i in range(1, 36)]
+    options = dict(execution_timing="next_close", report_periods_per_year=252,
+                   report_sharpe_basis="net_wealth_excess_sharpe_v2", report_calendar_id="synthetic")
+    if not _explicit_report_basis_supported():
+        with pytest.raises(ValueError, match="QPK_EXPLICIT_SHARPE_BASIS_REQUIRED"):
+            run(rows, **options)
+        return  # not a successful v2 report on an incapable dependency
+    result = run(rows, **options)
     reconcile(result)
     metrics = {m["name"]: m for m in result["unified_net_report"]["metrics"]}
     assert metrics["sharpe_per_period"]["value"] is None
     assert metrics["sharpe_per_period"]["reason_code"] == "missing_risk_free_returns"
     assert metrics["net_cagr"]["status"] == "COMPUTED"
+
+
+def _explicit_report_basis_supported():
+    from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+    supported = "sharpe_basis" in inspect.signature(build_unified_net_report).parameters
+    if os.environ.get("UES_REQUIRE_SECURITY_NETTING") == "1" and not supported:
+        pytest.fail("required netting overlay lacks explicit Sharpe basis; do not skip v2 acceptance")
+    return supported
 
 
 def test_cash_funded_hand_math_and_fee_feedback():
