@@ -18,8 +18,9 @@ import hashlib
 import json
 import os
 import stat
-from collections.abc import Mapping, Sequence
-from datetime import date
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -141,7 +142,7 @@ def generator_disclosure(p: prereg_mod.KellyPreregistration) -> dict[str, Any]:
             "trial_role": p.trial_role, "supersedes": p.supersedes}
 
 
-def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
+def _evaluate_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
                 created_at: str, bootstrap_seed: int = 20261011) -> dict[str, Any]:
     p = prereg_mod.PREREGISTRATIONS.get(preregistration_id)
     if p is None or not p.data_confirmed or prereg_mod.VARIANT_NO_PLUGIN not in p.data_confirmed_variants:
@@ -201,6 +202,124 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
     return result
 
 
+
+def _call_bytes(payload: object) -> bytes:
+    return (json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                       allow_nan=False, default=str) + "\n").encode()
+
+
+def _write_call_receipt(path: Path, payload: dict) -> None:
+    """Create once. A partial write is uncertain evidence, never safe to overwrite."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(_call_bytes(payload))
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _read_call_receipt(path: Path) -> dict | None:
+    if path.is_symlink():
+        raise PrivateRunError("CALL_RECEIPT_INVALID")
+    try:
+        payload = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _run_private_call(out_dir: Path, identity: dict, operation: Callable[[], dict],
+                      output_names: tuple[str, ...], *, attempt_id: str | None) -> dict:
+    """Local single-caller invocation evidence, not a parameter/fold trial journal.
+
+    Existing attempts are never resumed. A new attempt needs a new identity and
+    unused output files. A storage failure may leave STARTED or partial bytes;
+    neither permits a retry under the same identity or an inferred terminal.
+    """
+    if attempt_id is not None and (type(attempt_id) is not str or not attempt_id
+            or len(attempt_id) > 300 or any(c.isspace() or ord(c) < 32 for c in attempt_id)):
+        raise PrivateRunError("CALL_ATTEMPT_ID_INVALID")
+    identity = json.loads(_call_bytes({**identity, "attempt_id": attempt_id}))
+    # Default invocation identity stays stable when code/config changes: those
+    # changes must conflict with the old attempt rather than silently retry it.
+    attempt = {k: identity[k] for k in ("caller", "preregistration_id", "created_at_declared",
+                                      "input_location_sha256")} if attempt_id is None else attempt_id
+    key = hashlib.sha256(_call_bytes(attempt)).hexdigest()
+    if out_dir.is_symlink() or (out_dir.exists() and not out_dir.is_dir()):
+        raise PrivateRunError("CALL_OUTPUT_ROOT_INVALID")
+    out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    out_dir.chmod(0o700)
+    start_path = out_dir / f".call-{key}.started.json"
+    terminal_path = out_dir / f".call-{key}.terminal.json"
+    if start_path.exists() or start_path.is_symlink() or terminal_path.exists() or terminal_path.is_symlink():
+        previous = _read_call_receipt(start_path)
+        if previous is None:
+            raise PrivateRunError("CALL_RECEIPT_UNVERIFIED")
+        if previous.get("identity") != identity:
+            raise PrivateRunError("CALL_ATTEMPT_CONFLICT")
+        raise PrivateRunError("CALL_ATTEMPT_ALREADY_RECORDED")
+    started = {"schema": "qsl.research.private_call.v1", "scope": "private_research_invocation_only",
+               "parameter_fold_trial_count": None, "data_qualification": "not_established_by_receipt",
+               "identity": identity, "status": "started",
+               "started_at": datetime.now(timezone.utc).isoformat()}
+    # A write that raises might have committed; no compensating terminal is safe.
+    _write_call_receipt(start_path, started)
+    if _read_call_receipt(start_path) != started:
+        raise PrivateRunError("CALL_START_READBACK_UNVERIFIED")
+
+    def finish(status: str, reason: str, outputs: dict, domain_status: str | None = None) -> None:
+        terminal = {**started, "status": status, "reason_code": reason,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "output_sha256": outputs, "domain_result_status": domain_status}
+        _write_call_receipt(terminal_path, terminal)
+        if _read_call_receipt(terminal_path) != terminal:
+            raise PrivateRunError("CALL_TERMINAL_READBACK_UNVERIFIED")
+
+    try:
+        if any((out_dir / name).exists() or (out_dir / name).is_symlink() for name in output_names):
+            raise PrivateRunError("CALL_OUTPUT_ALREADY_EXISTS")
+        result = operation()
+        outputs = {}
+        for name in output_names:
+            path = out_dir / name
+            if path.is_symlink() or not path.is_file():
+                raise OSError("CALL_OUTPUT_UNVERIFIED")
+            outputs[name] = _sha(path)
+        domain_status = result.get("status")
+        if domain_status not in {"COMPUTED", "UNCOMPUTABLE"}:
+            raise RuntimeError("CALL_RESULT_STATUS_UNRECOGNIZED")
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
+        status = ("aborted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else
+                  "rejected" if isinstance(exc, ValueError) else "failed")
+        try:
+            finish(status, "call_" + status, {})
+        except BaseException:
+            try:
+                exc.add_note("call_terminal_write_unverified")
+            except BaseException:
+                pass
+        raise
+    # Do not turn an uncertain successful-terminal write into a failure terminal.
+    finish("succeeded" if domain_status == "COMPUTED" else "rejected",
+           "" if domain_status == "COMPUTED" else "domain_result_uncomputable", outputs, domain_status)
+    return result
+
+
+def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
+                created_at: str, bootstrap_seed: int = 20261011,
+                attempt_id: str | None = None) -> dict[str, Any]:
+    """Record only this future invocation; economic outputs retain their legacy shape."""
+    p = prereg_mod.PREREGISTRATIONS.get(preregistration_id)
+    identity = {"caller": "kelly_private_runner", "preregistration_id": preregistration_id,
+                "source_revision_declared": source_revision, "created_at_declared": created_at,
+                "bootstrap_seed": bootstrap_seed, "preregistration_declared": asdict(p) if p else None,
+                "input_location_sha256": hashlib.sha256(str(raw_root.absolute()).encode()).hexdigest(),
+                "caller_file_sha256": _sha(Path(__file__))}
+    names = (f"{preregistration_id}.result.json", f"{preregistration_id}.core_path.json") if p else ()
+    return _run_private_call(out_dir, identity, lambda: _evaluate_private(
+        raw_root, out_dir, preregistration_id, source_revision=source_revision,
+        created_at=created_at, bootstrap_seed=bootstrap_seed), names, attempt_id=attempt_id)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--raw-root", required=True, type=Path)
@@ -208,11 +327,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--preregistration-id", required=True, choices=sorted(prereg_mod.PREREGISTRATIONS))
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--created-at", required=True)
+    parser.add_argument("--attempt-id")
     args = parser.parse_args(argv)
     if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
         raise SystemExit("PRIVATE_RUN_FORBIDDEN_IN_CI")
     result = run_private(args.raw_root, args.out_dir, args.preregistration_id,
-                         source_revision=args.source_revision, created_at=args.created_at)
+                         source_revision=args.source_revision, created_at=args.created_at, attempt_id=args.attempt_id)
     print(json.dumps({"status": result["status"], "reason_code": result.get("reason_code"),
                       "test_window": result.get("test_window"), "out_dir": str(args.out_dir)}))
     return 0
