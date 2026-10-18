@@ -54,6 +54,17 @@ def record_strategy_decision(
         logger.warning("PerformanceMonitor.record failed: %s", exc)
 
 
+def _observe(observer, key, value):
+    if observer is not None:
+        try:
+            observer.emit(key, value)
+        except BaseException:
+            try:
+                object.__setattr__(observer, "_faulted", True)
+            except BaseException:
+                pass
+
+
 def apply_risk_gate(
     decision: StrategyDecision,
     *,
@@ -67,6 +78,7 @@ def apply_risk_gate(
     portfolio_snapshot: Any | None = None,
     market_data: Mapping[str, Any] | None = None,
     enforce_value_target_exposure: bool = False,
+    observer=None,
 ) -> StrategyDecision:
     """Apply the shared risk gate without manufacturing capital evidence.
 
@@ -113,6 +125,8 @@ def apply_risk_gate(
         qpk_kwargs["current_portfolio_weights"] = capabilities["current_portfolio_weights"]
     if "cash_only_execution" in capabilities:
         qpk_kwargs["cash_only_execution"] = capabilities["cash_only_execution"]
+    if observer is not None:
+        qpk_kwargs["observer"] = observer
     return _qpk_apply_risk_gate(
         decision,
         **qpk_kwargs,
