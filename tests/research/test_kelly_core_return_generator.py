@@ -302,6 +302,14 @@ def test_private_runner_end_to_end_on_synthetic_archive(archive, tmp_path):
     assert "dsr_net1x_excess_vs_sizing_trials" in result["comparators"]["kelly_c0.5"]
     assert "cvar_95_daily" in result["comparators"]["full_exposure"]["tiers"]["1"]
     assert stat.S_IMODE(out.stat().st_mode) == 0o700
+    from test_kelly_core_return_generator import _call_receipts
+    receipts = _call_receipts(out)
+    assert len(receipts["started"]) == len(receipts["terminal"]) == 1
+    terminal = receipts["terminal"][0]
+    assert terminal["status"] == "succeeded" and terminal["domain_result_status"] == "COMPUTED"
+    assert terminal["parameter_fold_trial_count"] is None
+    assert terminal["output_sha256"] == {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                         for p in out.glob("*.json") if not p.name.startswith(".call-")}
     core_wire = json.loads((out / "rs04-kelly-soxl-v1.core_path.json").read_text())
     assert set(core_wire) == {"sessions", "gross_returns", "turnover", "first_signal"}
     assert "close_fill_turnover" not in json.dumps(result)
@@ -333,3 +341,248 @@ def test_private_runner_refuses_ci(monkeypatch):
     with pytest.raises(SystemExit, match="PRIVATE_RUN_FORBIDDEN_IN_CI"):
         runner.main(["--raw-root", "/nonexistent", "--out-dir", "/tmp/x", "--preregistration-id",
                      "rs04-kelly-soxl-v1", "--source-revision", "0" * 40, "--created-at", "x"])
+
+
+# Future invocation evidence only; never a sizing/fold trial census.
+def _call_receipts(out):
+    return {kind: [json.loads(p.read_text()) for p in out.glob(f".call-*.{kind}.json")]
+            for kind in ("started", "terminal")}
+
+
+def _assert_call_archive_failure(module, single_module, out, monkeypatch, failure):
+    error = {"rejected": single_module.PrivateRunError("synthetic rejection detail"),
+             "failed": RuntimeError("synthetic failure detail"),
+             "keyboard": KeyboardInterrupt("synthetic cancel detail"),
+             "exit": SystemExit(7)}[failure]
+    ident = "rs04-kelly-soxl-v1" if module is single_module else "rs06-kelly-portfolio-v1"
+    def fail(*_a, **_k):
+        records = _call_receipts(out)
+        assert len(records["started"]) == 1
+        started = records["started"][0]
+        assert started["status"] == "started"
+        assert started["scope"] == "private_research_invocation_only"
+        assert started["identity"]["preregistration_id"] == ident
+        assert started["identity"]["bootstrap_seed"] == 20261011
+        assert started["parameter_fold_trial_count"] is None
+        assert records["terminal"] == []
+        raise error
+    monkeypatch.setattr(single_module, "load_archive", fail)
+    with pytest.raises(type(error)) as raised:
+        module.run_private(out.parent / "unread-artificial-input", out, ident,
+                           source_revision="0" * 40, created_at="synthetic-invocation")
+    assert raised.value is error
+    records = _call_receipts(out)
+    terminal = records["terminal"][0]
+    assert terminal["status"] == {"rejected": "rejected", "failed": "failed",
+                                  "keyboard": "aborted", "exit": "aborted"}[failure]
+    assert terminal["identity"] == records["started"][0]["identity"]
+    assert terminal["output_sha256"] == {}
+    assert "synthetic rejection detail" not in json.dumps(records)
+    assert "synthetic failure detail" not in json.dumps(records)
+    assert "synthetic cancel detail" not in json.dumps(records)
+
+
+@pytest.mark.parametrize("failure", ["rejected", "failed", "keyboard", "exit"])
+def test_call_receipt_precedes_archive_failure(tmp_path, monkeypatch, failure):
+    _assert_call_archive_failure(runner, runner, tmp_path / "out", monkeypatch, failure)
+
+
+CALL_EDGE_CASES = ["replay", "conflict", "default_conflict", "start_before", "start_after", "start_readback", "start_omitted", "terminal_omitted",
+                   "terminal_before", "terminal_after", "terminal_keyboard", "terminal_exit",
+                   "terminal_readback", "secondary", "corrupt_start", "existing_output",
+                   "uncomputable", "missing_output", "new_identity"]
+
+
+def _assert_call_edge(module, single_module, out, monkeypatch, case):
+    ident = "rs04-kelly-soxl-v1" if module is single_module else "rs06-kelly-portfolio-v1"
+    names = [f"{ident}.result.json"] + ([f"{ident}.core_path.json"] if module is single_module else [])
+    kwargs = dict(source_revision="0" * 40, created_at="synthetic-call", attempt_id="future-call")
+    if case == "default_conflict":
+        kwargs["attempt_id"] = None
+    result = {"status": "UNCOMPUTABLE" if case == "uncomputable" else "COMPUTED", "value": None}
+    calls = []
+    error = RuntimeError("private-operation-detail")
+    storage_error = (KeyboardInterrupt("private-terminal-detail") if case == "terminal_keyboard" else
+                     SystemExit(9) if case == "terminal_exit" else OSError("private-store-detail"))
+    def operation(*_a, **_k):
+        calls.append(1)
+        if case in {"replay", "conflict", "default_conflict", "secondary", "corrupt_start"}:
+            raise error
+        if case != "missing_output":
+            for name in names:
+                single_module._write_private(out / name, result)
+        return result
+    monkeypatch.setattr(module, "_evaluate_private", operation)
+    original_write = single_module._write_call_receipt
+    writes = []
+    def write(path, payload):
+        writes.append(payload["status"])
+        if case == "start_omitted" and payload["status"] == "started":
+            return
+        if case == "terminal_omitted" and payload["status"] != "started":
+            return
+        if case == "start_before" and payload["status"] == "started":
+            raise storage_error
+        if case in {"terminal_before", "terminal_omitted", "secondary"} and payload["status"] != "started":
+            raise storage_error
+        original_write(path, payload)
+        if case == "start_after" and payload["status"] == "started":
+            raise storage_error
+        if case in {"terminal_after", "terminal_keyboard", "terminal_exit"} and payload["status"] != "started":
+            raise storage_error
+    monkeypatch.setattr(single_module, "_write_call_receipt", write)
+    original_read = single_module._read_call_receipt
+    def read(path):
+        if (case == "start_readback" and path.name.endswith(".started.json")
+                or case == "terminal_readback" and path.name.endswith(".terminal.json")):
+            return None
+        return original_read(path)
+    monkeypatch.setattr(single_module, "_read_call_receipt", read)
+    def run(**changes):
+        return module.run_private(out.parent / "unread-input", out, ident, **{**kwargs, **changes})
+    if case == "existing_output":
+        out.mkdir()
+        (out / names[0]).write_bytes(b"original-legacy-bytes")
+    failing = {"replay", "conflict", "default_conflict", "secondary", "corrupt_start"}
+    storage = {"start_before", "start_after", "terminal_before", "terminal_after", "terminal_keyboard", "terminal_exit"}
+    if case in failing | storage:
+        expected = error if case in failing else storage_error
+        with pytest.raises(type(expected)) as raised:
+            run()
+        assert raised.value is expected
+    elif case in {"start_readback", "start_omitted", "terminal_readback", "terminal_omitted", "existing_output"}:
+        with pytest.raises(single_module.PrivateRunError):
+            run()
+    elif case == "missing_output":
+        with pytest.raises(OSError):
+            run()
+    else:
+        assert run() is result  # first successful call keeps the legacy return object
+    records = _call_receipts(out)
+    if case.startswith("start_"):
+        assert calls == [] and records["terminal"] == []
+        assert len(records["started"]) == (0 if case in {"start_before", "start_omitted"} else 1)
+    if case in {"terminal_after", "terminal_keyboard", "terminal_exit", "terminal_readback"}:
+        assert writes == ["started", "succeeded"]
+        assert records["terminal"][0]["status"] == "succeeded"
+    if case in {"terminal_before", "terminal_omitted", "secondary"}:
+        assert records["started"][0]["status"] == "started" and records["terminal"] == []
+    if case == "secondary":
+        assert "call_terminal_write_unverified" in error.__notes__
+    if case == "existing_output":
+        assert calls == [] and (out / names[0]).read_bytes() == b"original-legacy-bytes"
+        assert records["terminal"][0]["status"] == "rejected"
+    if case == "missing_output":
+        assert records["terminal"][0]["status"] == "failed"
+    if case == "uncomputable":
+        terminal = records["terminal"][0]
+        assert terminal["status"] == "rejected" and terminal["domain_result_status"] == "UNCOMPUTABLE"
+        assert terminal["output_sha256"] == {n: hashlib.sha256((out / n).read_bytes()).hexdigest() for n in names}
+    if case == "corrupt_start":
+        next(out.glob(".call-*.started.json")).write_bytes(b"{")
+    if case not in {"new_identity", "uncomputable", "existing_output"}:
+        before = {p.name: p.read_bytes() for p in out.iterdir()}
+        previous_calls = list(calls)
+        if case in {"start_before", "start_omitted"}:
+            # A failed creation with no file is not proof an attempt started;
+            # no replay claim is made while the backend itself remains unavailable.
+            assert before == {}
+        else:
+            match = "CALL_ATTEMPT_CONFLICT" if case in {"conflict", "default_conflict"} else "CALL_"
+            with pytest.raises(single_module.PrivateRunError, match=match):
+                run(bootstrap_seed=7) if case in {"conflict", "default_conflict"} else run()
+            assert calls == previous_calls
+            assert before == {p.name: p.read_bytes() for p in out.iterdir()}
+    if case == "new_identity":
+        first = {p.name: p.read_bytes() for p in out.iterdir()}
+        # A new ID cannot overwrite this output directory's old economic files.
+        with pytest.raises(single_module.PrivateRunError, match="CALL_OUTPUT_ALREADY_EXISTS"):
+            run(attempt_id="future-call-two")
+        assert calls == [1]
+        for name, raw in first.items():
+            assert (out / name).read_bytes() == raw
+    assert "private-operation-detail" not in json.dumps(records)
+    assert "private-store-detail" not in json.dumps(records)
+
+
+@pytest.mark.parametrize("case", CALL_EDGE_CASES)
+def test_call_receipt_replay_and_uncertainty(tmp_path, monkeypatch, case):
+    _assert_call_edge(runner, runner, tmp_path / "out", monkeypatch, case)
+
+
+def test_call_receipt_cli_forwards_attempt_id(tmp_path, monkeypatch, capsys):
+    seen = {}
+    def invoke(*args, **kwargs):
+        seen.update(kwargs)
+        return {"status": "COMPUTED"}
+    monkeypatch.setattr(runner, "run_private", invoke)
+    assert runner.main(["--raw-root", str(tmp_path / "raw"), "--out-dir", str(tmp_path / "out"),
+                        "--preregistration-id", "rs04-kelly-soxl-v1", "--source-revision", "0" * 40,
+                        "--created-at", "synthetic", "--attempt-id", "explicit-future-call"]) == 0
+    assert seen["attempt_id"] == "explicit-future-call"
+    assert json.loads(capsys.readouterr().out)["status"] == "COMPUTED"
+
+
+def _assert_call_invalid_registration(module, single_module, out, monkeypatch):
+    monkeypatch.setattr(single_module, "load_archive", lambda *_a, **_k: pytest.fail("archive read"))
+    with pytest.raises(single_module.PrivateRunError, match="PREREGISTRATION"):
+        module.run_private(out.parent / "unread-input", out, "unknown-registration",
+                           source_revision="0" * 40, created_at="synthetic-invalid-registration")
+    records = _call_receipts(out)
+    assert records["started"][0]["status"] == "started"
+    assert records["terminal"][0]["status"] == "rejected"
+    assert records["terminal"][0]["output_sha256"] == {}
+
+
+def test_call_receipt_records_invalid_registration(tmp_path, monkeypatch):
+    _assert_call_invalid_registration(runner, runner, tmp_path / "out", monkeypatch)
+
+
+# H-KELLY-RECEIPT-01: annotation failure must never replace the primary object.
+def _assert_primary_survives_unusable_notes(module, single_module, out, monkeypatch, kind):
+    class NoteRejectingError(RuntimeError):
+        def add_note(self, note):
+            raise RuntimeError("synthetic note writer failed")
+    primary = NoteRejectingError("synthetic primary") if kind == "overridden_add_note" else RuntimeError("synthetic primary")
+    if kind == "non_list_existing_notes":
+        primary.__notes__ = ("upstream note",)
+    ident = "rs04-kelly-soxl-v1" if module is single_module else "rs06-kelly-portfolio-v1"
+    original_write = single_module._write_call_receipt
+    writes = []
+    start_bytes = []
+    out.mkdir()
+    protected = out / "protected-prior-output.bin"
+    protected.write_bytes(b"existing output must survive")
+    def write(path, payload):
+        writes.append(payload["status"])
+        if payload["status"] != "started":
+            raise OSError("synthetic secondary storage failure")
+        original_write(path, payload)
+    def archive(*_args):
+        starts = list(out.glob(".call-*.started.json"))
+        assert len(starts) == 1
+        start_bytes.append(starts[0].read_bytes())
+        assert json.loads(start_bytes[0])["status"] == "started"
+        raise primary
+    monkeypatch.setattr(single_module, "_write_call_receipt", write)
+    monkeypatch.setattr(single_module, "load_archive", archive)
+    with pytest.raises(BaseException) as raised:
+        module.run_private(out.parent / "unread-artificial-archive", out, ident,
+                           source_revision="0" * 40, created_at="synthetic-note-failure",
+                           attempt_id="future-H01-regression")
+    assert raised.value is primary
+    assert type(raised.value) is type(primary)
+    assert writes == ["started", "failed"]
+    starts = list(out.glob(".call-*.started.json"))
+    assert len(start_bytes) == len(starts) == 1 and starts[0].read_bytes() == start_bytes[0]
+    assert not list(out.glob(".call-*.terminal.json"))
+    assert not (out / f"{ident}.result.json").exists()
+    assert not (out / f"{ident}.core_path.json").exists()
+    assert protected.read_bytes() == b"existing output must survive"
+    if kind == "non_list_existing_notes":
+        assert primary.__notes__ == ("upstream note",)
+
+
+@pytest.mark.parametrize("kind", ["overridden_add_note", "non_list_existing_notes"])
+def test_call_primary_object_survives_unusable_notes(tmp_path, monkeypatch, kind):
+    _assert_primary_survives_unusable_notes(runner, runner, tmp_path / "out", monkeypatch, kind)

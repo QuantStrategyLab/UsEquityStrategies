@@ -396,6 +396,14 @@ def test_private_runner_end_to_end_on_synthetic_archive(archive, tmp_path):
     assert "benchmark.SOXX_QQQ_50_50" in r["comparators"]
     assert set(pk.PREREGISTRATIONS["rs06-kelly-portfolio-v1"].comparators) <= set(r["comparators"])
     assert stat.S_IMODE(out.stat().st_mode) == 0o700
+    from test_kelly_core_return_generator import _call_receipts
+    receipts = _call_receipts(out)
+    assert len(receipts["started"]) == len(receipts["terminal"]) == 1
+    terminal = receipts["terminal"][0]
+    assert terminal["status"] == "succeeded" and terminal["domain_result_status"] == "COMPUTED"
+    assert terminal["parameter_fold_trial_count"] is None
+    assert terminal["output_sha256"] == {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                         for p in out.glob("*.json") if not p.name.startswith(".call-")}
     assert all(stat.S_IMODE(f.stat().st_mode) == 0o600 for f in out.iterdir())
 
 
@@ -408,3 +416,46 @@ def test_private_runner_rejects_wrong_archive_and_ci(archive, tmp_path, monkeypa
     with pytest.raises(SystemExit, match="PRIVATE_RUN_FORBIDDEN_IN_CI"):
         runner.main(["--raw-root", "/nonexistent", "--out-dir", "/tmp/x", "--preregistration-id",
                      "rs06-kelly-portfolio-v1", "--source-revision", "0" * 40, "--created-at", "x"])
+
+
+@pytest.mark.parametrize("failure", ["rejected", "failed", "keyboard", "exit"])
+def test_call_receipt_precedes_archive_failure(tmp_path, monkeypatch, failure):
+    from test_kelly_core_return_generator import _assert_call_archive_failure
+    from us_equity_strategies.research import kelly_private_runner as single_runner
+    _assert_call_archive_failure(runner, single_runner, tmp_path / "out", monkeypatch, failure)
+
+
+from test_kelly_core_return_generator import CALL_EDGE_CASES
+
+
+@pytest.mark.parametrize("case", CALL_EDGE_CASES)
+def test_call_receipt_replay_and_uncertainty(tmp_path, monkeypatch, case):
+    from test_kelly_core_return_generator import _assert_call_edge
+    from us_equity_strategies.research import kelly_private_runner as single_runner
+    _assert_call_edge(runner, single_runner, tmp_path / "out", monkeypatch, case)
+
+
+def test_call_receipt_cli_forwards_attempt_id(tmp_path, monkeypatch, capsys):
+    seen = {}
+    def invoke(*args, **kwargs):
+        seen.update(kwargs)
+        return {"status": "COMPUTED"}
+    monkeypatch.setattr(runner, "run_private", invoke)
+    assert runner.main(["--raw-root", str(tmp_path / "raw"), "--out-dir", str(tmp_path / "out"),
+                        "--preregistration-id", "rs06-kelly-portfolio-v1", "--source-revision", "0" * 40,
+                        "--created-at", "synthetic", "--attempt-id", "explicit-future-call"]) == 0
+    assert seen["attempt_id"] == "explicit-future-call"
+    assert json.loads(capsys.readouterr().out)["status"] == "COMPUTED"
+
+
+def test_call_receipt_records_invalid_registration(tmp_path, monkeypatch):
+    from test_kelly_core_return_generator import _assert_call_invalid_registration
+    from us_equity_strategies.research import kelly_private_runner as single_runner
+    _assert_call_invalid_registration(runner, single_runner, tmp_path / "out", monkeypatch)
+
+
+@pytest.mark.parametrize("kind", ["overridden_add_note", "non_list_existing_notes"])
+def test_call_primary_object_survives_unusable_notes(tmp_path, monkeypatch, kind):
+    from test_kelly_core_return_generator import _assert_primary_survives_unusable_notes
+    from us_equity_strategies.research import kelly_private_runner as single_runner
+    _assert_primary_survives_unusable_notes(runner, single_runner, tmp_path / "out", monkeypatch, kind)
