@@ -156,7 +156,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      QPK_SECURITY_NETTING_SHA: dd17abbddac9aa5983c19905e415bcb7d71f7962
+      QPK_SECURITY_NETTING_SHA: 9ae3cf6a17d913bc7011287ae0d6404bff13e02c
       UES_REQUIRE_SECURITY_NETTING: "1"
     steps:
       - name: Checkout
