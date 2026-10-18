@@ -35,7 +35,8 @@ from us_equity_strategies.strategies.tqqq_dual_drive_core import (
 
 _CANDIDATE = "tqqq_qqq_guard_cash_release_intent_research_v1"
 _REVISION = "416356b4816390a674e8af7a4aba2e9f17d2d474"
-_PREDICATE_SHA256 = "d57745b0de59291a08293f9f07ba60152d5362b1f323d4b7cc088973930e110c"
+# Rebind the full source after the allocation-only zero-weight correction.
+_PREDICATE_SHA256 = "1868f4298c1228b458b9b4b6904ff6bf3cf1dcacd46fcf4e469a6f968ee6f211"
 _SCHEMA = "tqqq_plugin_release_state.spec.v1"
 
 
@@ -659,6 +660,14 @@ def _run_toy_cycle(store, observation, *, initialize=False, settled="0", nav="10
 
 class TqqqProspectiveSyntheticSpecificationTests(unittest.TestCase):
     """Toy indicator observations only: these tests do not implement R1."""
+
+    def test_changed_source_is_rejected_before_append(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = StrategyRiskStateStore(local_dir=root)
+            with patch.object(Path, "read_bytes", return_value=b"changed core source"):
+                with self.assertRaisesRegex(ValueError, "FROZEN_PREDICATE_SOURCE_CHANGED"):
+                    self._cycle(store, 0, initialize=True)
+            self.assertEqual(store.load_chain(_identity()), ())
 
     def _cycle(self, store, day, *, price=99, ma20=100, slope=0, **changes):
         observation = _toy_observation(day, price=price, ma20=ma20, slope=slope)

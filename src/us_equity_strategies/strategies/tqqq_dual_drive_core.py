@@ -154,8 +154,28 @@ def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecisio
             value.strategy_equity * max(0.0, min(1.0, dual_drive_reserve_ratio)),
             value.cash_reserve_floor,
         )
-        target_tqqq_ratio = max(0.0, min(1.0, float(value.tqqq_weight or 0.45)))
-        target_unlevered_ratio = max(0.0, min(1.0, float(value.unlevered_weight or 0.45)))
+        target_tqqq_ratio = max(
+            0.0,
+            min(
+                1.0,
+                float(
+                    0.45
+                    if value.tqqq_weight is None or value.tqqq_weight is False
+                    else value.tqqq_weight
+                ),
+            ),
+        )
+        target_unlevered_ratio = max(
+            0.0,
+            min(
+                1.0,
+                float(
+                    0.45
+                    if value.unlevered_weight is None or value.unlevered_weight is False
+                    else value.unlevered_weight
+                ),
+            ),
+        )
         total_risk_ratio = target_tqqq_ratio + target_unlevered_ratio
         max_risk_ratio = (
             max(0.0, 1.0 - reserved / value.strategy_equity) if value.strategy_equity > 0.0 else 0.0
