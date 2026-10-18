@@ -530,6 +530,17 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     turnover gate uses the runner's fill-session pre-trade/pre-fee net book.
     Its current marks are not information available at the prior decision.
     """
+    # Capture options before imports, store callbacks or fitting can observe
+    # caller-owned mutable maps. Absence leaves legacy identities/bytes intact.
+    request = dict(request)
+    cost_options = None
+    if "research_cost_inputs" in request:
+        if not isinstance(request["research_cost_inputs"], Mapping):
+            raise ValueError("COST_OPENING_REQUIRED")
+        try:
+            cost_options = json.loads(json.dumps(dict(request["research_cost_inputs"]), allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("COST_FACT_INVALID") from exc
     from dataclasses import asdict, replace
     from pathlib import Path
     from tempfile import gettempdir
@@ -643,6 +654,19 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     expected_decisions = tuple(zip(dates[te0:te1], dates[te0 - 1:te1 - 1]))
     if decisions != expected_decisions or dates[tr1 - 1] > decisions[0][1]:
         raise ValueError("NETTING_DECISION_NOT_PRIOR_SUPPLIED_SESSION")
+    if cost_options is not None:
+        from us_equity_strategies.research.security_netting_runner import _research_cost_begin
+
+        _research_cost_begin(cost_options, [NettingSession(d, prior, 1., {}, {}, 0.) for d, prior in decisions],
+                             {}, initial_nav)
+        # Cost quantities and candidate fractional shares use the same explicit
+        # prices. These supplied close marks establish no real source or PIT.
+        for i, (day, _) in enumerate(decisions, start=te0):
+            marks = cost_options["fill_marks"][day.isoformat()]
+            if not isinstance(marks, dict) or set(marks) != set(assets):
+                raise ValueError("COST_MARKS_REQUIRED")
+            if any(rs04._finite(marks[a], "COST_MARKS_REQUIRED") != prices[a][i] for a in assets):
+                raise ValueError("COST_MARK_BOOK_MISMATCH")
     raw_root = Path(request["local_root"]).absolute()
     if any(p.is_symlink() for p in (raw_root, *raw_root.parents)):
         raise ValueError("NETTING_STORE_SYMLINK")
@@ -660,6 +684,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         config["risk_budget"] = budget_config
     if report_options:
         config["report_basis"] = report_options
+    if cost_options is not None:
+        config["research_cost_inputs"] = cost_options
     input_sha = _candidate_digest({"dates": [d.isoformat() for d in dates], "returns": rets,
                                    "cash": cash, "prices": prices,
                                    "decisions": [[d.isoformat(), p.isoformat()] for d, p in decisions]})
@@ -676,6 +702,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         identity["risk_budget"] = budget_config
     if report_options:
         identity["report_basis"] = report_options
+    if cost_options is not None:
+        identity["research_cost_inputs"] = cost_options
     identity = json.loads(json.dumps(identity, allow_nan=False))
     cost_inputs = {**{a + "_bps_per_side": float(spec.bps_per_side[a]) for a in assets}, "multiplier": 1.}
     started = ResearchTrialRecord(
@@ -728,6 +756,26 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                 "result_sha256": _candidate_digest(payload["candidate"]),
                 "trial_sha256": _candidate_digest(payload["trial"]),
                 "folds_sha256": _candidate_digest(payload["folds"])}
+
+    def cost_binding(net: dict) -> dict:
+        companion = net.get("research_cost_receipt")
+        if not isinstance(companion, dict):
+            raise ValueError("COST_COMPANION_INCOMPLETE")
+        return {"candidate_identity": identity, "options_sha256": _candidate_digest(cost_options),
+                **{key: companion.get(key) for key in ("receipt_id", "source_hash", "ledger_hash")}}
+
+    def verify_cost_companion(net: dict) -> None:
+        if cost_options is None:
+            if "research_cost_receipt" in net or "research_cost_binding" in net:
+                raise ValueError("COST_COMPANION_UNEXPECTED")
+            return
+        if cost_options is not None:
+            from us_equity_strategies.research.security_netting_runner import _verify_research_cost_receipt
+
+            _verify_research_cost_receipt(cost_options, net["ledger"], initial_nav, spec.multiplier,
+                                         net.get("research_cost_receipt"))
+            if _candidate_digest(net.get("research_cost_binding")) != _candidate_digest(cost_binding(net)):
+                raise ValueError("COST_CANDIDATE_BINDING")
 
     def verify_recovered_book(net: dict, ledger: Any) -> None:
         """Reconcile returned book to stored marks/cash; never refit or replay fills."""
@@ -808,6 +856,7 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
             raise ValueError("NETTING_RECOVERY_REPORT_BASIS_MISMATCH")
         if _candidate_digest(net["unified_net_report"]) != _candidate_digest(report):
             raise ValueError("NETTING_RECOVERY_REPORT_MISMATCH")
+        verify_cost_companion(net)
 
     def read_success(reopened: Any, terminal: Any) -> dict:
         if (terminal is None or terminal.status is not ResearchTrialStatus.SUCCEEDED
@@ -911,7 +960,12 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                 "report_risk_free_returns": report_options["risk_free_returns"],
                 "report_risk_free_source": report_options["risk_free_source"],
                 "report_calendar_id": report_options["calendar_id"]} if report_options else {}),
-            **({"rs06_risk_budget": turnover_context} if turnover_context is not None else {}))
+            **({"rs06_risk_budget": turnover_context} if turnover_context is not None else {}),
+            **({"research_cost_inputs": json.loads(json.dumps(cost_options, allow_nan=False))}
+               if cost_options is not None else {}))
+        if cost_options is not None:
+            net["research_cost_binding"] = cost_binding(net)
+            verify_cost_companion(net)
         # Verify report and ledger identity before mapping public metrics. No
         # virtual cost_stress and no second fee subtraction on this branch.
         from quant_platform_kit.research_stats.unified_report import build_unified_net_report
