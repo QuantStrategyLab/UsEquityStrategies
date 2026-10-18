@@ -45,6 +45,80 @@ def _input(**overrides):
 
 
 class TqqqDualDriveCoreTests(unittest.TestCase):
+    def test_decide_preserves_each_explicit_zero_weight(self):
+        from us_equity_strategies.strategies.tqqq_dual_drive_core import decide_tqqq_dual_drive
+
+        for tqqq_weight, unlevered_weight, tqqq_value, unlevered_value in (
+            (0.0, 0, 0.0, 0.0),
+            (0, 0.45, 0.0, 45_000.0),
+            (0.45, 0.0, 45_000.0, 0.0),
+        ):
+            with self.subTest(tqqq_weight=tqqq_weight, unlevered_weight=unlevered_weight):
+                decision = decide_tqqq_dual_drive(
+                    _input(tqqq_weight=tqqq_weight, unlevered_weight=unlevered_weight)
+                )
+
+                self.assertEqual(decision.target_tqqq_value, tqqq_value)
+                self.assertEqual(decision.target_unlevered_value, unlevered_value)
+                self.assertEqual(decision.target_boxx_value, 98_000.0 - tqqq_value - unlevered_value)
+                self.assertEqual(decision.reserved, 2_000.0)
+
+    def test_decide_none_weights_keep_original_defaults(self):
+        from us_equity_strategies.strategies.tqqq_dual_drive_core import decide_tqqq_dual_drive
+
+        for tqqq_weight, unlevered_weight, tqqq_value, unlevered_value in (
+            (None, None, 45_000.0, 45_000.0),
+            (None, 0.0, 45_000.0, 0.0),
+            (0.0, None, 0.0, 45_000.0),
+        ):
+            with self.subTest(tqqq_weight=tqqq_weight, unlevered_weight=unlevered_weight):
+                decision = decide_tqqq_dual_drive(
+                    _input(tqqq_weight=tqqq_weight, unlevered_weight=unlevered_weight)
+                )
+
+                self.assertEqual(decision.target_tqqq_value, tqqq_value)
+                self.assertEqual(decision.target_unlevered_value, unlevered_value)
+
+    def test_planner_preserves_zero_weights_and_missing_defaults(self):
+        from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan
+
+        history = [
+            {"close": 100.0 + index * 0.5, "high": 101.0 + index * 0.5, "low": 99.0 + index * 0.5}
+            for index in range(260)
+        ]
+        snapshot = SimpleNamespace(
+            positions=[SimpleNamespace(symbol="BOXX", market_value=100_000.0, quantity=1_000)],
+            total_equity=100_000.0,
+            buying_power=2_000.0,
+            metadata={"account_hash": "test"},
+        )
+        for weights, tqqq_value, unlevered_value in (
+            ({"dual_drive_tqqq_weight": 0.0, "dual_drive_qqq_weight": 0}, 0.0, 0.0),
+            ({"dual_drive_tqqq_weight": 0}, 0.0, 45_000.0),
+            ({"dual_drive_qqq_weight": 0.0}, 45_000.0, 0.0),
+            ({"dual_drive_tqqq_weight": None, "dual_drive_qqq_weight": None}, 45_000.0, 45_000.0),
+            ({}, 45_000.0, 45_000.0),
+        ):
+            with self.subTest(weights=weights):
+                plan = build_rebalance_plan(
+                    history,
+                    snapshot,
+                    signal_text_fn=lambda icon: icon,
+                    translator=lambda key, **kwargs: key,
+                    income_threshold_usd=1_000_000_000.0,
+                    qqqi_income_ratio=0.5,
+                    cash_reserve_ratio=0.02,
+                    rebalance_threshold_ratio=0.01,
+                    **weights,
+                )
+
+                self.assertEqual(plan["target_values"]["TQQQ"], tqqq_value)
+                self.assertEqual(plan["target_values"]["QQQM"], unlevered_value)
+                self.assertEqual(
+                    plan["target_values"]["BOXX"], 98_000.0 - tqqq_value - unlevered_value
+                )
+                self.assertEqual(plan["reserved"], 2_000.0)
+
     def test_decide_applies_macro_then_crisis_then_volatility_retention(self):
         from us_equity_strategies.strategies.tqqq_dual_drive_core import decide_tqqq_dual_drive
 
