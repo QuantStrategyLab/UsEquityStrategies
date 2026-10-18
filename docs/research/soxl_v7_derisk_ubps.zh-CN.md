@@ -2,7 +2,7 @@
 
 候选 `soxl_v7_strict_derisk_only_v1`。只属于 research，不注册 runtime profile、插件或执行器。它是新的研究身份，不替换旧 V7，也不重置旧 V7 的 252 个 XNYS session 观察窗口。约 20 日只用于通过研究验收后另行草拟的执行一致性 shadow；本次未通过金融验收，因此没有生成或应用 shadow 配置。
 
-研究采用 owner 指定的 UBPS v0.2（2026-10-15），原文 SHA256 `2bf66aa8f0f7c4c9a63824f2428cd10c16a6d436f32b2da035e1c0fe7a8d16ba`。UBPS 对合成历史、插件覆盖、费用、伪留出和证据资格的要求适用于本研究；B1/B2 合同、原 V7 窗口及人工复核保持原样。规范性原文位于 `~/codex-jobs/ubps_v2/UBPS.md`；本文件不将旧审计的“仅文档”范围当作本次 owner 研究授权的限制。
+研究采用 owner 指定的 UBPS v0.2（2026-10-15），原文 SHA256 `2bf66aa8f0f7c4c9a63824f2428cd10c16a6d436f32b2da035e1c0fe7a8d16ba`。UBPS 对合成历史、插件覆盖、费用、伪留出和证据资格的要求适用于本研究；B1/B2 合同、原 V7 窗口及人工复核保持原样。本文件不将旧审计的“仅文档”范围当作本次 owner 研究授权的限制。
 
 ## 变体与不变量
 
@@ -40,6 +40,6 @@ BOXX/SGOV 在此不是半导体或股票风险敞口，分别记为现金替代�
 
 ## 协作与验证
 
-本任务只新增 `soxl_v7_derisk*` research 模块、测试、文档、CLI 和独立工作流。rs04_p3 的 adapter、RS-04 文件、既有 CI、生产依赖 pin、live/shadow 配置和 B1/B2 合同均不在写集；PR #603 留有分工说明，待其合并后从 main 接续，不 force-push。PR 必须所有检查成功，再 squash 并绑定 head SHA，不使用 admin。
+本任务只新增 `soxl_v7_derisk*` research 模块、测试、文档、CLI 和独立工作流。rs04_p3 的 adapter、RS-04 文件、既有 CI、生产依赖 pin、live/shadow 配置和 B1/B2 合同均不在写集；不 force-push。PR 必须所有检查成功，再 squash 并绑定 head SHA，不使用 admin。
 
 合成测试复现旧 V7：同一有效 risk-off 输入下基线 SOXL/SOXX 为零，旧 V7 穿透敞口 1.261；新候选为零。另覆盖 RSI/Bollinger/叠加/波动退出、收入层阈值、随机目标、不同财富路径、1x/2x 费用、整股、逐 bar 实持约束、未来扰动因果性、错误成交、独立校准与失败门。它们只证明工程性质，不是真实收益或金融验收。
