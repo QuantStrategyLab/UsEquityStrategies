@@ -64,6 +64,35 @@ def reconcile(result):
     json.dumps(result, allow_nan=False)
 
 
+def test_explicit_rf_changes_statistics_never_book_or_fees():
+    rows = [session(i) for i in range(1, 36)]
+    legacy = run(rows, execution_timing="next_close", report_periods_per_year=252)
+    explicit = run(rows, execution_timing="next_close", report_periods_per_year=252,
+                   report_sharpe_basis="net_wealth_excess_sharpe_v2",
+                   report_risk_free_returns=[.001] * 35,
+                   report_risk_free_source="synthetic-period-rf", report_calendar_id="synthetic")
+    reconcile(explicit)
+    for name in ("ledger", "net_returns", "gross_returns", "final_nav"):
+        assert explicit[name] == legacy[name]
+    lm = {m["name"]: m for m in legacy["unified_net_report"]["metrics"]}
+    em = {m["name"]: m for m in explicit["unified_net_report"]["metrics"]}
+    assert em["sharpe_per_period"]["value"] != lm["sharpe_per_period"]["value"]
+    for name in ("net_cagr", "max_drawdown", "cost_log_drag_per_period"):
+        assert em[name]["value"] == lm[name]["value"]
+    assert explicit["unified_net_report_basis"]["costs_deducted_again"] is False
+
+
+def test_missing_rf_preserves_book_and_marks_inference_uncomputable():
+    result = run([session(i) for i in range(1, 36)], execution_timing="next_close",
+                 report_periods_per_year=252, report_sharpe_basis="net_wealth_excess_sharpe_v2",
+                 report_calendar_id="synthetic")
+    reconcile(result)
+    metrics = {m["name"]: m for m in result["unified_net_report"]["metrics"]}
+    assert metrics["sharpe_per_period"]["value"] is None
+    assert metrics["sharpe_per_period"]["reason_code"] == "missing_risk_free_returns"
+    assert metrics["net_cagr"]["status"] == "COMPUTED"
+
+
 def test_cash_funded_hand_math_and_fee_feedback():
     result = run([session(), session(2, returns={"A": .1, "BOXX": 0.})])
     first, second = result["ledger"]

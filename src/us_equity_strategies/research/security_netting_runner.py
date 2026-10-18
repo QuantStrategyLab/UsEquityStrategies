@@ -67,6 +67,9 @@ def run_offline_security_netting(
     initial_inner_weights: Mapping[str, float], spec: Any, fee_cash_role: str,
     execution_timing: str | None = None, report_periods_per_year: int | None = None,
     rs06_risk_budget: Mapping[str, Any] | None = None,
+    report_sharpe_basis: str = "legacy_net_rf0_v1",
+    report_risk_free_returns: Sequence[float] | None = None,
+    report_risk_free_source: str | None = None, report_calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Replay one composed sleeve with explicit cash funding; no data or order I/O.
 
@@ -82,11 +85,25 @@ def run_offline_security_netting(
     real signal availability remain unverified. Omitting both keeps the original
     result and dependency requirements; no annualization policy is inferred.
 
+    Legacy reports retain their original implicit rf=0 interpretation and bytes.
+    Explicit v2 reports take caller-supplied same-session rf and its source;
+    missing rf makes Sharpe inference unavailable, not net wealth unavailable.
+
     ``rs06_risk_budget`` is only the explicit synthetic single-unit RS06
     f=1/zero-cash-return context. Its gate uses fill-session marks, not prior
     decision information; it establishes no real currency/FX qualification.
     """
     report_builder = None
+    report_options = {}
+    if report_sharpe_basis != "legacy_net_rf0_v1":
+        if execution_timing is None or report_periods_per_year is None:
+            raise ValueError("EXPLICIT_NEXT_CLOSE_REPORT_REQUIRED")
+        report_options = {"sharpe_basis": report_sharpe_basis,
+                          "risk_free_returns": (None if report_risk_free_returns is None
+                                                else list(report_risk_free_returns)),
+                          "risk_free_source": report_risk_free_source, "calendar_id": report_calendar_id}
+    elif any(v is not None for v in (report_risk_free_returns, report_risk_free_source, report_calendar_id)):
+        raise ValueError("RF_INPUTS_REQUIRE_EXPLICIT_BASIS")
     if execution_timing is not None or report_periods_per_year is not None:
         if execution_timing != "next_close" or report_periods_per_year is None:
             raise ValueError("EXPLICIT_NEXT_CLOSE_REPORT_REQUIRED")
@@ -98,6 +115,8 @@ def run_offline_security_netting(
             raise ValueError("QPK_NET_COMPOUNDING_REQUIRED") from exc
         if "periods_per_year" not in inspect.signature(build_unified_net_report).parameters:
             raise ValueError("QPK_NET_COMPOUNDING_REQUIRED")
+        if report_options and not set(report_options).issubset(inspect.signature(build_unified_net_report).parameters):
+            raise ValueError("QPK_EXPLICIT_SHARPE_BASIS_REQUIRED")
         report_builder = build_unified_net_report
     try:
         from quant_platform_kit.research_stats.security_netting import (
@@ -294,6 +313,7 @@ def run_offline_security_netting(
         output["unified_net_report"] = report_builder(
             output["net_returns"], gross_returns=output["gross_returns"],
             periods_per_year=report_periods_per_year,
+            **report_options,
         ).to_dict()
         output["unified_net_report_basis"] = {
             "sessions": [r["session"] for r in ledger],
@@ -304,4 +324,6 @@ def run_offline_security_netting(
             "gross_counterfactual": "NOT_SUPPLIED", "asset_benchmark": None,
             "benchmark_alignment_count": None, "benchmark_dropped_count": None,
         }
+        if report_options:
+            output["unified_net_report_basis"].update(report_options)
     return output
