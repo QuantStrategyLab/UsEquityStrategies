@@ -1104,3 +1104,263 @@ def test_turnover_recovery_rejects_effective_target_changed_in_receipt(tmp_path,
     path.write_text(json.dumps(receipt))
     monkeypatch.setattr(pw, 'fit_portfolio_kelly', lambda *a, **k:pytest.fail('tampered receipt refit'))
     no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+
+
+def cost_companion_options(args):
+    request = args['netting_candidate']
+    return dict(policy_id='RESEARCH_LONG_ONLY_WEIGHTED_AVERAGE_BUY_COST_CAPITALIZED_V1',
+                synthetic_book_id='rs06-declared-cost-book',
+                opening_book=dict(session=request['decision_sessions'][0][1].isoformat(),
+                                  currency='USD', cash=request['initial_nav'], positions={}),
+                fill_marks={day.isoformat(): {symbol: dict(rows)[day]
+                                             for symbol, rows in request['close_prices'].items()}
+                            for day, _ in request['decision_sessions']})
+
+
+def cost_companion_args(tmp_path):
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['research_cost_inputs'] = cost_companion_options(args)
+    return args
+
+
+def cost_companion_files(args):
+    root = args['netting_candidate']['local_root']
+    return {str(p.relative_to(root)): p.read_bytes().hex() for p in root.rglob('*.json')}
+
+
+def test_cost_companion_absent_option_baseline_bytes(tmp_path):
+    import json
+    args = fixture_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    assert not any('research_cost' in key for key in first['netting'])
+    assert not any('research_cost' in key for key in first['binding'])
+    before = cost_companion_files(args)
+    assert len(before) == 5
+    recovered = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert recovered == {**first, 'recovered': True}
+    assert before == cost_companion_files(args)
+    # The author harness preserves this exact baseline artifact before source
+    # edits and compares it after implementation; normal CI needs no gold file.
+    (tmp_path/'absent-option-evidence.json').write_text(json.dumps(
+        dict(result=first, files=before), sort_keys=True, allow_nan=False))
+
+
+def test_cost_companion_nonzero_save_reopen_and_economics(tmp_path, monkeypatch):
+    from us_equity_strategies.research import security_netting_runner as runner
+    legacy = pw.evaluate_portfolio_kelly_walk_forward(**fixture_args(tmp_path/'legacy'))
+    args = cost_companion_args(tmp_path/'cost')
+    result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert result['status'] == 'SUCCEEDED'
+    net = result['netting']
+    assert 'research_cost_receipt' in net
+    cost = net['research_cost_receipt']
+    binding = net['research_cost_binding']
+    assert cost['status'] == 'PASS_SCOPED_SYNTHETIC'
+    assert cost['source_origin_verified'] is cost['broker_tax_qualified'] is False
+    assert binding['candidate_identity'] == result['binding']
+    assert binding['options_sha256'] == pw._candidate_digest(args['netting_candidate']['research_cost_inputs'])
+    for key in ('receipt_id', 'source_hash', 'ledger_hash'):
+        assert binding[key] == cost[key]
+    assert cost['ledger_identity']['run_id'] != result['research_ledger']['run_id']
+    assert cost['ledger_hash'] != pw._candidate_digest(result['research_ledger'])
+    assert cost['days'][-1]['realized_net_cumulative'] == pytest.approx(net['final_nav']-1000.)
+    assert cost['days'][-1]['unrealized'] == pytest.approx(0.)
+    assert sum(row['fees'] for row in net['ledger']) > 0
+    assert {k:v for k,v in net.items() if not k.startswith('research_cost_')} == legacy['netting']
+    for key in ('total_return', 'cagr', 'calmar_ratio', 'max_drawdown', 'sharpe_ratio'):
+        assert result['candidate'][key] == legacy['candidate'][key]
+    metrics = {m['name']:m for m in net['unified_net_report']['metrics']}
+    assert metrics['deflated_sharpe_ratio']['value'] is None
+    assert result['candidate']['sharpe_ratio'] is None
+    before = cost_companion_files(args)
+    assert len(before) == 5
+    def forbidden(*a, **k):
+        pytest.fail('cost recovery replayed fit/netter')
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    monkeypatch.setattr(runner, '_research_cost_day', forbidden)
+    recovered = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert recovered == {**result, 'recovered': True}
+    assert before == cost_companion_files(args)
+
+
+@pytest.mark.parametrize('change', ['policy', 'book', 'opening', 'marks', 'cutoff', 'run', 'trial', 'calendar', 'remove'])
+def test_cost_companion_changed_request_never_recovers_stale(tmp_path, monkeypatch, change):
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = cost_companion_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert 'research_cost_receipt' in first['netting']
+    before = cost_companion_files(args)
+    request = args['netting_candidate']; options = request['research_cost_inputs']
+    if change == 'policy': options['policy_id'] = 'OTHER'
+    elif change == 'book': options['synthetic_book_id'] += '-changed'
+    elif change == 'opening': options['opening_book']['cash'] += 1.
+    elif change == 'marks': next(iter(options['fill_marks'].values()))['A'] *= 2
+    elif change == 'cutoff': options['fill_marks'].pop(next(reversed(options['fill_marks'])))
+    elif change in ('run', 'trial'): request[change+'_id'] += '-changed'
+    elif change == 'calendar': request['calendar_id'] += '-changed'
+    else: del request['research_cost_inputs']
+    def forbidden(*a, **k):
+        pytest.fail('changed cost identity replayed')
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    try:
+        no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+    except ValueError:
+        pass  # Invalid explicit inputs may refuse before any store access.
+    assert before == cost_companion_files(args)
+
+
+@pytest.mark.parametrize('change', ['missing', 'basis', 'quantity', 'mark', 'fee', 'realized', 'cash',
+                                  'identity', 'source', 'cutoff', 'revision', 'late', 'missing_fact',
+                                  'bridge', 'options_digest', 'boolean_shape', 'bridge_shape'])
+def test_cost_companion_rehashed_tampering_refuses_without_replay(tmp_path, monkeypatch, change):
+    import json
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = cost_companion_args(tmp_path)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert 'research_cost_receipt' in first['netting']
+    path = next(args['netting_candidate']['local_root'].rglob('receipt.json'))
+    envelope = json.loads(path.read_text()); net = envelope['payload']['netting']
+    cost = net['research_cost_receipt']
+    first_day = cost['days'][0]
+    if change == 'missing': del net['research_cost_receipt']
+    elif change in ('basis', 'quantity', 'mark'):
+        position = next(iter(first_day['positions'].values()))
+        position['total_basis' if change == 'basis' else change] += 1.
+    elif change == 'fee': first_day['fills'][0]['fee'] += 1.
+    elif change == 'realized': first_day['realized_net_cumulative'] += 1.
+    elif change == 'cash': first_day['cash'] += 1.
+    elif change == 'identity': cost['ledger_identity']['run_id'] += '-foreign'
+    elif change == 'source': cost['source_label'] = 'BROKER'
+    elif change == 'cutoff': cost['cutoff'] = '2099-01-01'
+    elif change == 'revision': first_day['fills'][0]['revision'] = 2
+    elif change == 'late': first_day['fills'][0]['known_at'] = '2099-01-01'
+    elif change == 'missing_fact': del first_day['realized_net_cumulative']
+    elif change == 'bridge': net['research_cost_binding']['candidate_identity']['calendar_id'] = 'foreign'
+    elif change == 'bridge_shape': net['research_cost_binding']['candidate_identity']['periods_per_year'] = 252.
+    elif change == 'boolean_shape': cost['source_origin_verified'] = 0
+    else: net['research_cost_binding']['options_sha256'] = '0'*64
+    # Attacker updates every enclosing/self digest, including the companion
+    # link. Semantic and current-request cross checks must still reject it.
+    if change != 'missing':
+        # 0 == False in Python, but is a different immutable JSON receipt.
+        if change != 'boolean_shape':
+            cost['receipt_id'] = pw._candidate_digest({k:v for k,v in cost.items() if k != 'receipt_id'})
+        for key in ('receipt_id', 'source_hash', 'ledger_hash'):
+            net['research_cost_binding'][key] = cost[key]
+    envelope['payload']['acceptance_binding']['netting_sha256'] = pw._candidate_digest(net)
+    envelope['sha256'] = pw._candidate_digest({k:envelope[k] for k in ('payload', 'record_digests')})
+    path.write_text(json.dumps(envelope))
+    before = cost_companion_files(args)
+    def forbidden(*a, **k):
+        pytest.fail('tampered cost recovery replayed')
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    monkeypatch.setattr(runner, '_research_cost_day', forbidden)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+    assert before == cost_companion_files(args)
+
+
+@pytest.mark.parametrize('change', ['none', 'opening', 'cash_none', 'marks', 'corrections', 'late_fees'])
+def test_cost_companion_missing_or_unsupported_input_refused(tmp_path, change):
+    args = cost_companion_args(tmp_path)
+    options = args['netting_candidate']['research_cost_inputs']
+    if change == 'none': args['netting_candidate']['research_cost_inputs'] = None
+    elif change == 'cash_none': options['opening_book']['cash'] = None
+    elif change in ('opening', 'marks'): del options['opening_book' if change == 'opening' else 'fill_marks']
+    else: options[change] = [{'id':'unsupported'}]
+    try:
+        result = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    except ValueError:
+        return
+    no_success(result)
+
+
+@pytest.mark.parametrize('boundary', ['fit', 'native'])
+def test_cost_companion_freezes_caller_before_callbacks_and_after_return(tmp_path, monkeypatch, boundary):
+    import copy
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = cost_companion_args(tmp_path)
+    original = args['netting_candidate']['research_cost_inputs']
+    frozen = copy.deepcopy(original)
+    target, name = (pw, 'fit_portfolio_kelly') if boundary == 'fit' else (runner, 'run_offline_security_netting')
+    actual = getattr(target, name)
+    def mutating(*a, **kw):
+        original['synthetic_book_id'] = 'caller-changed'
+        original['opening_book']['cash'] = None
+        next(iter(original['fill_marks'].values()))['A'] *= 2
+        if boundary == 'native':
+            assert kw['research_cost_inputs'] == frozen
+        return actual(*a, **kw)
+    monkeypatch.setattr(target, name, mutating)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    assert 'research_cost_receipt' in first['netting']
+    assert first['binding']['research_cost_inputs'] == frozen
+    before = cost_companion_files(args)
+    original.clear()
+    assert before == cost_companion_files(args)
+    args['netting_candidate']['research_cost_inputs'] = frozen
+    def forbidden(*a, **kw):
+        pytest.fail('frozen request recovery replayed')
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    assert pw.evaluate_portfolio_kelly_walk_forward(**args) == {**first, 'recovered': True}
+    assert before == cost_companion_files(args)
+
+
+@pytest.mark.parametrize('boundary', ['started', 'backtest', 'ledger', 'terminal'])
+def test_cost_companion_existing_uncertain_write_contract(tmp_path, monkeypatch, boundary):
+    import sys
+    original = fixture_args
+    def with_cost(*a, **kw):
+        args = original(*a, **kw)
+        args['netting_candidate']['research_cost_inputs'] = cost_companion_options(args)
+        return args
+    monkeypatch.setattr(sys.modules[__name__], 'fixture_args', with_cost)
+    test_unknown_write_success_response_lost_never_replays(tmp_path, monkeypatch, boundary)
+
+
+@pytest.mark.parametrize('boundary', ['receipt_ack', 'partial_receipt', 'terminal_before_write'])
+def test_cost_companion_existing_partial_receipt_contract(tmp_path, monkeypatch, boundary):
+    import sys
+    original = fixture_args
+    def with_cost(*a, **kw):
+        args = original(*a, **kw)
+        args['netting_candidate']['research_cost_inputs'] = cost_companion_options(args)
+        return args
+    monkeypatch.setattr(sys.modules[__name__], 'fixture_args', with_cost)
+    test_r2_receipt_ack_and_terminal_order_remain_unknown(tmp_path, monkeypatch, boundary)
+
+
+@pytest.mark.parametrize('fields', ['receipt', 'binding', 'both'])
+def test_cost_companion_absent_opt_in_refuses_injected_reserved_fields(tmp_path, monkeypatch, fields):
+    import copy
+    import json
+    from us_equity_strategies.research import security_netting_runner as runner
+
+    supplied = pw.evaluate_portfolio_kelly_walk_forward(**cost_companion_args(tmp_path/'supplied'))
+    assert supplied['status'] == 'SUCCEEDED'
+    args = fixture_args(tmp_path/'legacy')
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert 'research_cost_inputs' not in first['binding']
+    path = next(args['netting_candidate']['local_root'].rglob('receipt.json'))
+    envelope = json.loads(path.read_text())
+    net = envelope['payload']['netting']
+    for key in ('research_cost_receipt', 'research_cost_binding'):
+        if fields == 'both' or key == 'research_cost_' + fields:
+            net[key] = copy.deepcopy(supplied['netting'][key])
+    envelope['payload']['acceptance_binding']['netting_sha256'] = pw._candidate_digest(net)
+    envelope['sha256'] = pw._candidate_digest({k:envelope[k] for k in ('payload', 'record_digests')})
+    path.write_text(json.dumps(envelope))
+    before = cost_companion_files(args)
+
+    def forbidden(*a, **k):
+        pytest.fail('unrequested cost receipt replayed')
+
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+    assert before == cost_companion_files(args)

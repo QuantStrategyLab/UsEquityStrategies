@@ -152,11 +152,12 @@ def _research_cost_day(cost: dict[str, Any], row: Mapping[str, Any]) -> None:
                              realized_net_cumulative=cost["realized"]))
 
 
-def _research_cost_finish(cost: dict[str, Any], ledger: Sequence[Mapping[str, Any]],
-                          initial_nav: float, fee_multiplier: float) -> dict[str, Any]:
+def _research_cost_packet(cost: dict[str, Any], ledger: Sequence[Mapping[str, Any]],
+                          initial_nav: float, fee_multiplier: float) -> tuple[Any, Any]:
+    """Original independent cost book/facts constructor, also used at recovery."""
     from quant_platform_kit.strategy_lifecycle.contracts import (
         RESEARCH_AVERAGE_COST_POLICY, RESEARCH_NETTER_COST_SOURCE, ResearchCostFacts,
-        ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark, validate_research_cost_facts,
+        ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark,
     )
 
     inputs = cost["inputs"]; opening = inputs["opening_book"]
@@ -187,7 +188,75 @@ def _research_cost_finish(cost: dict[str, Any], ledger: Sequence[Mapping[str, An
         opening_book={key:opening[key] for key in ("session", "cash", "positions")},
         coverage={"opening":"complete", "fills":"complete", "fees":"complete"}, corrections=[], late_fees=[],
         cutoff=ledger[-1]["session"], days=cost["days"]))
+    return book, facts
+
+
+def _research_cost_finish(cost: dict[str, Any], ledger: Sequence[Mapping[str, Any]],
+                          initial_nav: float, fee_multiplier: float) -> dict[str, Any]:
+    from quant_platform_kit.strategy_lifecycle.contracts import validate_research_cost_facts
+
+    book, facts = _research_cost_packet(cost, ledger, initial_nav, fee_multiplier)
     return validate_research_cost_facts(book, facts).to_dict()
+
+
+def _verify_research_cost_receipt(inputs: Mapping[str, Any], ledger: Sequence[Mapping[str, Any]],
+                                 initial_nav: float, fee_multiplier: float,
+                                 receipt: Mapping[str, Any]) -> None:
+    """Validate recorded facts against native fills; no target, fit or fill replay.
+
+    The original cost book keeps its own synthetic identity and calendar. The
+    caller separately binds that companion to its candidate ledger/context.
+    """
+    from quant_platform_kit.strategy_lifecycle.contracts import validate_research_cost_facts
+
+    if not isinstance(receipt, Mapping) or receipt.get("status") != "PASS_SCOPED_SYNTHETIC":
+        raise ValueError("COST_COMPANION_UNAVAILABLE")
+    try:
+        recorded = receipt["days"]
+        if not isinstance(recorded, list) or len(recorded) != len(ledger):
+            raise ValueError("COST_LEDGER_BINDING")
+        days = []
+        universe = set(inputs["opening_book"]["positions"])
+        for declared, row in zip(recorded, ledger, strict=True):
+            universe |= set(row["security_pre"]) | set(row["security_end"]) | set(row["net_trades"])
+            if set(declared["positions"]) != universe or declared["session"] != row["session"]:
+                raise ValueError("COST_LEDGER_BINDING")
+            marks = inputs["fill_marks"][row["session"]]
+            for symbol, position in declared["positions"].items():
+                price = _finite(position["mark"], "COST_MARKS_REQUIRED")
+                quantity = _finite(position["quantity"], "COST_FACT_INVALID")
+                if (price != marks[symbol] or not math.isclose(quantity * price,
+                        row["security_end"].get(symbol, 0.), rel_tol=1e-10, abs_tol=1e-9)):
+                    raise ValueError("COST_MARK_BOOK_MISMATCH")
+            fills = declared["fills"]
+            trades = {s: v for s, v in row["net_trades"].items() if v != 0.}
+            if (not isinstance(fills, list) or len(fills) != len(trades)
+                    or {f["symbol"] for f in fills} != set(trades)):
+                raise ValueError("COST_LEDGER_BINDING")
+            for fill in fills:
+                symbol = fill["symbol"]; trade = trades[symbol]
+                identity = f'{inputs["synthetic_book_id"]}/{row["session"]}/{symbol}'
+                if (fill["execution_id"] != identity or fill["fee_id"] != identity + "/fee"
+                        or fill["side"] != ("BUY" if trade > 0 else "SELL")
+                        or fill["price"] != marks[symbol]
+                        or not math.isclose(_finite(fill["quantity"], "COST_FACT_INVALID") * marks[symbol],
+                                            abs(trade), rel_tol=1e-10, abs_tol=1e-9)
+                        or fill["fee"] != row["fee_by_security"][symbol]):
+                    raise ValueError("COST_LEDGER_BINDING")
+            # Preserve declared basis/realized facts for the existing validator;
+            # do not derive them again from a second attribution implementation.
+            days.append({key: declared[key] for key in (
+                "session", "fills", "positions", "realized_net_cumulative")})
+        book, facts = _research_cost_packet({"inputs": inputs, "days": days}, ledger, initial_nav, fee_multiplier)
+        expected = validate_research_cost_facts(book, facts).to_dict()
+        # Canonical JSON equality also preserves numeric/boolean shape; raw
+        # dict equality would silently equate False with a forged integer 0.
+        if (expected["status"] != "PASS_SCOPED_SYNTHETIC"
+                or json.dumps(expected, sort_keys=True, allow_nan=False)
+                != json.dumps(dict(receipt), sort_keys=True, allow_nan=False)):
+            raise ValueError("COST_COMPANION_MISMATCH")
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("COST_COMPANION_INCOMPLETE") from exc
 
 
 def run_offline_security_netting(
