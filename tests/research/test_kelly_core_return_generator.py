@@ -511,6 +511,9 @@ def test_call_receipt_replay_and_uncertainty(tmp_path, monkeypatch, case):
 
 
 def test_call_receipt_cli_forwards_attempt_id(tmp_path, monkeypatch, capsys):
+    # This unit test forwards arguments to a stub, never a private research run.
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     seen = {}
     def invoke(*args, **kwargs):
         seen.update(kwargs)
@@ -586,3 +589,25 @@ def _assert_primary_survives_unusable_notes(module, single_module, out, monkeypa
 @pytest.mark.parametrize("kind", ["overridden_add_note", "non_list_existing_notes"])
 def test_call_primary_object_survives_unusable_notes(tmp_path, monkeypatch, kind):
     _assert_primary_survives_unusable_notes(runner, runner, tmp_path / "out", monkeypatch, kind)
+
+
+def _assert_cli_ci_guard_never_calls_runner(module, ident, tmp_path, monkeypatch, ci_flag):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setenv(ci_flag, "1")
+    calls = []
+    def forbidden(*args, **kwargs):
+        calls.append(1)
+        pytest.fail("private runner must not be called in CI")
+    monkeypatch.setattr(module, "run_private", forbidden)
+    with pytest.raises(SystemExit, match="PRIVATE_RUN_FORBIDDEN_IN_CI"):
+        module.main(["--raw-root", str(tmp_path / "unread-input"), "--out-dir", str(tmp_path / "out"),
+                     "--preregistration-id", ident, "--source-revision", "0" * 40,
+                     "--created-at", "synthetic-ci-guard", "--attempt-id", "not-executed"])
+    assert calls == []
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("ci_flag", ["CI", "GITHUB_ACTIONS"])
+def test_call_receipt_cli_ci_guard_never_calls_runner(tmp_path, monkeypatch, ci_flag):
+    _assert_cli_ci_guard_never_calls_runner(runner, "rs04-kelly-soxl-v1", tmp_path, monkeypatch, ci_flag)

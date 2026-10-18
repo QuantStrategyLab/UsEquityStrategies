@@ -79,7 +79,8 @@ def test_proposal_marks_gaps_and_refuses_a_research_freeze():
 
 
 def test_private_runner_still_omits_close_fill_measurement():
-    source = inspect.getsource(runner.run_private)
+    source = inspect.getsource(runner._evaluate_private)
+    assert "_evaluate_private(" in inspect.getsource(runner.run_private)
     assert '"turnover": path.turnover' in source
     assert "strategy_turnover=list(path.turnover)" in source
     assert "close_fill_turnover" not in source
