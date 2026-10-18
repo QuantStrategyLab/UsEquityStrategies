@@ -12,6 +12,8 @@ import argparse
 import json
 import os
 from collections.abc import Sequence
+from dataclasses import asdict
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +32,7 @@ PrivateRunError = rs04_runner.PrivateRunError
 GENERATORS = {"SOXL": generate_soxl_core_path, "TQQQ": generate_tqqq_core_path}
 
 
-def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
+def _evaluate_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
                 created_at: str, bootstrap_seed: int = 20261011) -> dict[str, Any]:
     p = prereg_mod.PREREGISTRATIONS.get(preregistration_id)
     if p is None:
@@ -97,6 +99,26 @@ def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, sourc
     return result
 
 
+
+def run_private(raw_root: Path, out_dir: Path, preregistration_id: str, *, source_revision: str,
+                created_at: str, bootstrap_seed: int = 20261011,
+                attempt_id: str | None = None) -> dict[str, Any]:
+    """Use the shared invocation receipt; never backfill parameter/fold trials."""
+    p = prereg_mod.PREREGISTRATIONS.get(preregistration_id)
+    components = {key: asdict(single.PREREGISTRATIONS[cid]) for key, cid in p.components} if p else {}
+    identity = {"caller": "portfolio_kelly_private_runner", "preregistration_id": preregistration_id,
+                "source_revision_declared": source_revision, "created_at_declared": created_at,
+                "bootstrap_seed": bootstrap_seed, "preregistration_declared": asdict(p) if p else None,
+                "components_declared": components,
+                "input_location_sha256": hashlib.sha256(str(raw_root.absolute()).encode()).hexdigest(),
+                "caller_file_sha256": rs04_runner._sha(Path(__file__)),
+                "shared_runner_file_sha256": rs04_runner._sha(Path(rs04_runner.__file__))}
+    names = (f"{preregistration_id}.result.json",) if p else ()
+    return rs04_runner._run_private_call(out_dir, identity, lambda: _evaluate_private(
+        raw_root, out_dir, preregistration_id, source_revision=source_revision,
+        created_at=created_at, bootstrap_seed=bootstrap_seed), names, attempt_id=attempt_id)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--raw-root", required=True, type=Path)
@@ -104,11 +126,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--preregistration-id", required=True, choices=sorted(prereg_mod.PREREGISTRATIONS))
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--created-at", required=True)
+    parser.add_argument("--attempt-id")
     args = parser.parse_args(argv)
     if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
         raise SystemExit("PRIVATE_RUN_FORBIDDEN_IN_CI")
     result = run_private(args.raw_root, args.out_dir, args.preregistration_id,
-                         source_revision=args.source_revision, created_at=args.created_at)
+                         source_revision=args.source_revision, created_at=args.created_at, attempt_id=args.attempt_id)
     print(json.dumps({"status": result["status"], "reason_code": result.get("reason_code"),
                       "test_window": result.get("test_window"), "out_dir": str(args.out_dir)}))
     return 0
