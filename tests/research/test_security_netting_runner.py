@@ -65,6 +65,50 @@ def reconcile(result):
     json.dumps(result, allow_nan=False)
 
 
+@pytest.mark.parametrize('returns,durations,reason', [
+    ((-.5, 0., 1.), (3, 2), None),
+    ((-.5,), (None, None), 'right_censored'),
+    ((0., .5), (None, None), 'no_drawdown'),
+])
+def test_max_drawdown_recovery_native_report(returns, durations, reason):
+    rows = [session(i, f=1., weights={'A': 1.}, returns={'A': r, 'BOXX': 0.})
+            for i, r in enumerate(returns, 1)]
+    from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec
+    options = dict(initial_f=1., initial_inner_weights={'A': 1.},
+                   spec=SecurityNettingSpec(bps_per_side={'A': 0., 'BOXX': 0.}),
+                   execution_timing='next_close', report_periods_per_year=252)
+    baseline = run(rows, **options)
+    explicit_false = run(rows, include_max_drawdown_recovery=False, **options)
+    assert json.dumps(baseline, sort_keys=True) == json.dumps(explicit_false, sort_keys=True)
+    result = run(rows, include_max_drawdown_recovery=True, **options)
+    metrics = {m['name']: m for m in result['unified_net_report']['metrics']}
+    for suffix, duration in zip(('peak', 'trough'), durations, strict=True):
+        m = metrics[f'max_drawdown_{suffix}_to_recovery_observations']
+        assert m['value'] == duration
+        assert m['reason_code'] == reason
+        assert m['details']['unit'] == 'return_observations'
+        assert m['details']['right_censored'] is (reason == 'right_censored')
+        if reason == 'right_censored':
+            assert m['details']['recovery_index'] is None
+            assert m['details']['observed_trough_to_end_lower_bound'] == 0
+    assert result['unified_net_report_basis']['include_max_drawdown_recovery'] is True
+    assert {k: v for k, v in result.items() if not k.startswith('unified_net_report')} == {
+        k: v for k, v in baseline.items() if not k.startswith('unified_net_report')}
+    assert result['unified_net_report']['metrics'][:-2] == baseline['unified_net_report']['metrics']
+    restored = json.loads(json.dumps(result))
+    assert json.dumps(restored, sort_keys=True) == json.dumps(result, sort_keys=True)
+    restored_metrics = {m['name']: m for m in restored['unified_net_report']['metrics']}
+    for suffix in ('peak', 'trough'):
+        name = f'max_drawdown_{suffix}_to_recovery_observations'
+        assert restored_metrics[name] == metrics[name]
+
+
+@pytest.mark.parametrize('flag', [None, 0, 1, 'yes'])
+def test_max_drawdown_recovery_flag_is_exact_bool(flag):
+    with pytest.raises(ValueError, match='RECOVERY_OPT_IN_INVALID'):
+        run([session()], include_max_drawdown_recovery=flag)
+
+
 def test_explicit_rf_changes_statistics_never_book_or_fees():
     rows = [session(i) for i in range(1, 36)]
     legacy = run(rows, execution_timing="next_close", report_periods_per_year=252)

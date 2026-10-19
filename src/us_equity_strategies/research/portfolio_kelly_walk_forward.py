@@ -614,6 +614,9 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
     # Absence is the original legacy rf=0 assumption, never v2 qualification.
     # Bind explicit rf/calendar inputs into the existing immutable candidate
     # identity so recovery cannot reinterpret an old report under new inputs.
+    include_recovery = request.get("include_max_drawdown_recovery", False)
+    if type(include_recovery) is not bool:
+        raise ValueError("RECOVERY_OPT_IN_INVALID")
     report_options = {}
     if request.get("sharpe_basis", "legacy_net_rf0_v1") != "legacy_net_rf0_v1":
         report_options = {"sharpe_basis": request["sharpe_basis"],
@@ -621,15 +624,20 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
                                                 else list(request["risk_free_returns"])),
                           "risk_free_source": request.get("risk_free_source"),
                           "calendar_id": request["calendar_id"]}
-        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
-        from inspect import signature
-        if not set(report_options).issubset(signature(build_unified_net_report).parameters):
-            raise ValueError("QPK_EXPLICIT_SHARPE_BASIS_REQUIRED")
-        # Validate basis/length/source before any trial is persisted. These
-        # zeros are validation-only placeholders, never research observations.
-        build_unified_net_report([0.] * (te1 - te0), periods_per_year=periods, **report_options)
     elif request.get("risk_free_returns") is not None or request.get("risk_free_source") is not None:
         raise ValueError("RF_INPUTS_REQUIRE_EXPLICIT_BASIS")
+    if include_recovery:
+        report_options["include_max_drawdown_recovery"] = True
+    if report_options:
+        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+        from inspect import signature
+        parameters = signature(build_unified_net_report).parameters
+        if include_recovery and "include_max_drawdown_recovery" not in parameters:
+            raise ValueError("QPK_MAX_DRAWDOWN_RECOVERY_REQUIRED")
+        if not set(report_options).issubset(parameters):
+            raise ValueError("QPK_EXPLICIT_SHARPE_BASIS_REQUIRED")
+        # Validate options before persistence; these zeros are not observations.
+        build_unified_net_report([0.] * (te1 - te0), periods_per_year=periods, **report_options)
     initial_nav = rs04._finite(request["initial_nav"], "INITIAL_NAV_INVALID")
     if initial_nav <= 0:
         raise ValueError("INITIAL_NAV_INVALID")
@@ -909,8 +917,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
         # This read-time label is outside the immutable legacy payload/digests.
         # It discloses the old assumption without rewriting historical evidence.
         return {**payload, **json.loads(json.dumps(response, allow_nan=False)),
-                "report_basis_interpretation": (report_options["sharpe_basis"] if report_options
-                                                else "legacy_implicit_rf0_assumption_not_v2_evidence")}
+                "report_basis_interpretation": report_options.get(
+                    "sharpe_basis", "legacy_implicit_rf0_assumption_not_v2_evidence")}
 
     try:
         previous = store_call(store.load_research_trial,started.domain, started.strategy_profile, started.trial_id)
@@ -959,7 +967,8 @@ def _net_candidate(*, request: Mapping[str, Any], assets: Sequence[str], dates: 
             **({"report_sharpe_basis": report_options["sharpe_basis"],
                 "report_risk_free_returns": report_options["risk_free_returns"],
                 "report_risk_free_source": report_options["risk_free_source"],
-                "report_calendar_id": report_options["calendar_id"]} if report_options else {}),
+                "report_calendar_id": report_options["calendar_id"]} if "sharpe_basis" in report_options else {}),
+            **({"include_max_drawdown_recovery": True} if include_recovery else {}),
             **({"rs06_risk_budget": turnover_context} if turnover_context is not None else {}),
             **({"research_cost_inputs": json.loads(json.dumps(cost_options, allow_nan=False))}
                if cost_options is not None else {}))
