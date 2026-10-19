@@ -268,6 +268,7 @@ def run_offline_security_netting(
     report_risk_free_returns: Sequence[float] | None = None,
     report_risk_free_source: str | None = None, report_calendar_id: str | None = None,
     research_cost_inputs: Mapping[str, Any] | None = None,
+    include_max_drawdown_recovery: bool = False,
 ) -> dict[str, Any]:
     """Replay one composed sleeve with explicit cash funding; no data or order I/O.
 
@@ -286,12 +287,18 @@ def run_offline_security_netting(
     Legacy reports retain their original implicit rf=0 interpretation and bytes.
     Explicit v2 reports take caller-supplied same-session rf and its source;
     missing rf makes Sharpe inference unavailable, not net wealth unavailable.
+    ``include_max_drawdown_recovery=True`` adds window-only observation
+    intervals and censor details to that same report; defaults stay unchanged.
 
     ``rs06_risk_budget`` is only the explicit synthetic single-unit RS06
     f=1/zero-cash-return context. Its gate uses fill-session marks, not prior
     decision information; it establishes no real currency/FX qualification.
     """
     # Explicitly opt-in research attribution; legacy requests import no new contract.
+    if type(include_max_drawdown_recovery) is not bool:
+        raise ValueError("RECOVERY_OPT_IN_INVALID")
+    if include_max_drawdown_recovery and (execution_timing != "next_close" or report_periods_per_year is None):
+        raise ValueError("EXPLICIT_NEXT_CLOSE_REPORT_REQUIRED")
     report_builder = None
     report_options = {}
     if report_sharpe_basis != "legacy_net_rf0_v1":
@@ -303,6 +310,8 @@ def run_offline_security_netting(
                           "risk_free_source": report_risk_free_source, "calendar_id": report_calendar_id}
     elif any(v is not None for v in (report_risk_free_returns, report_risk_free_source, report_calendar_id)):
         raise ValueError("RF_INPUTS_REQUIRE_EXPLICIT_BASIS")
+    if include_max_drawdown_recovery:
+        report_options["include_max_drawdown_recovery"] = True
     if execution_timing is not None or report_periods_per_year is not None:
         if execution_timing != "next_close" or report_periods_per_year is None:
             raise ValueError("EXPLICIT_NEXT_CLOSE_REPORT_REQUIRED")
@@ -314,6 +323,9 @@ def run_offline_security_netting(
             raise ValueError("QPK_NET_COMPOUNDING_REQUIRED") from exc
         if "periods_per_year" not in inspect.signature(build_unified_net_report).parameters:
             raise ValueError("QPK_NET_COMPOUNDING_REQUIRED")
+        if include_max_drawdown_recovery and "include_max_drawdown_recovery" not in inspect.signature(
+                build_unified_net_report).parameters:
+            raise ValueError("QPK_MAX_DRAWDOWN_RECOVERY_REQUIRED")
         if report_options and not set(report_options).issubset(inspect.signature(build_unified_net_report).parameters):
             raise ValueError("QPK_EXPLICIT_SHARPE_BASIS_REQUIRED")
         report_builder = build_unified_net_report

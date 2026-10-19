@@ -1128,6 +1128,85 @@ def cost_companion_files(args):
     return {str(p.relative_to(root)): p.read_bytes().hex() for p in root.rglob('*.json')}
 
 
+@pytest.mark.parametrize('cost', [False, True])
+@pytest.mark.parametrize('explicit_basis', [False, True])
+def test_recovery_duration_native_receipt_without_replay(tmp_path, monkeypatch, cost, explicit_basis):
+    import json
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = cost_companion_args(tmp_path) if cost else fixture_args(tmp_path)
+    request = args['netting_candidate']
+    request['include_max_drawdown_recovery'] = True
+    if explicit_basis:
+        request.update(sharpe_basis='net_wealth_excess_sharpe_v2', risk_free_returns=None)
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    assert first['binding']['report_basis']['include_max_drawdown_recovery'] is True
+    baseline_args = cost_companion_args(tmp_path/'baseline') if cost else fixture_args(tmp_path/'baseline')
+    if explicit_basis:
+        baseline_args['netting_candidate'].update(sharpe_basis='net_wealth_excess_sharpe_v2',
+                                                  risk_free_returns=None)
+    baseline = pw.evaluate_portfolio_kelly_walk_forward(**baseline_args)
+    assert baseline['status'] == 'SUCCEEDED'
+    for key in ('ledger', 'gross_returns', 'net_returns', 'final_nav'):
+        assert first['netting'][key] == baseline['netting'][key]
+    for key in ('total_return', 'cagr', 'calmar_ratio', 'max_drawdown', 'sharpe_ratio'):
+        assert first['candidate'][key] == baseline['candidate'][key]
+    metrics = {m['name']: m for m in first['netting']['unified_net_report']['metrics']}
+    for suffix in ('peak', 'trough'):
+        m = metrics[f'max_drawdown_{suffix}_to_recovery_observations']
+        assert m['details']['unit'] == 'return_observations'
+        if m['details']['right_censored']:
+            assert m['value'] is None and m['reason_code'] == 'right_censored'
+    if cost:
+        binding = first['netting']['research_cost_binding']
+        assert binding['candidate_identity'] == first['binding']
+    root = request['local_root']
+    saved = json.loads(next(root.rglob('*receipt*.json')).read_text())
+    assert saved['payload']['netting'] == first['netting']
+    before = cost_companion_files(args)
+    def forbidden(*a, **kw):
+        pytest.fail('recovery duration readback replayed fit/netter/cost attribution')
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    monkeypatch.setattr(runner, '_research_cost_day', forbidden)
+    recovered = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert recovered == {**first, 'recovered': True}
+    assert before == cost_companion_files(args)
+
+
+@pytest.mark.parametrize('flag', [None, 0, 1, 'yes'])
+def test_recovery_duration_candidate_requires_exact_bool(tmp_path, flag):
+    args = fixture_args(tmp_path)
+    args['netting_candidate']['include_max_drawdown_recovery'] = flag
+    with pytest.raises(ValueError, match='RECOVERY_OPT_IN_INVALID'):
+        pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert not cost_companion_files(args)
+
+
+@pytest.mark.parametrize('initial', [False, True])
+def test_recovery_duration_option_drift_cannot_upgrade_receipt(tmp_path, monkeypatch, initial):
+    from us_equity_strategies.research import security_netting_runner as runner
+    args = fixture_args(tmp_path)
+    request = args['netting_candidate']
+    if initial:
+        request['include_max_drawdown_recovery'] = True
+    first = pw.evaluate_portfolio_kelly_walk_forward(**args)
+    assert first['status'] == 'SUCCEEDED'
+    before = cost_companion_files(args)
+    if not initial:
+        # Missing and explicit False share the old immutable identity/receipt.
+        request['include_max_drawdown_recovery'] = False
+        assert pw.evaluate_portfolio_kelly_walk_forward(**args) == {**first, 'recovered': True}
+        assert before == cost_companion_files(args)
+    request['include_max_drawdown_recovery'] = not initial
+    def forbidden(*a, **kw):
+        pytest.fail('changed report option replayed fit/netter')
+    monkeypatch.setattr(pw, 'fit_portfolio_kelly', forbidden)
+    monkeypatch.setattr(runner, 'run_offline_security_netting', forbidden)
+    no_success(pw.evaluate_portfolio_kelly_walk_forward(**args))
+    assert before == cost_companion_files(args)
+
+
 def test_cost_companion_absent_option_baseline_bytes(tmp_path):
     import json
     args = fixture_args(tmp_path)
