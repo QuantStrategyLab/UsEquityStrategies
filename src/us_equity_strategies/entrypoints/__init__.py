@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from ._common import _observe
 from dataclasses import replace
 from datetime import date
 
@@ -923,7 +924,7 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
 
 
 def _build_soxl_soxx_trend_income_decision(
-    ctx: StrategyContext, *, research_session_successor: date | None = None,
+    ctx: StrategyContext, *, research_session_successor: date | None = None, observer=None,
 ) -> StrategyDecision:
     config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
@@ -933,16 +934,34 @@ def _build_soxl_soxx_trend_income_decision(
     reserved_cash_policy = pop_reserved_cash_policy_config(config)
     pop_execution_only_config(config)
     apply_reserved_cash_policy_to_ratio_config(config, reserved_cash_policy)
-    portfolio = require_portfolio(ctx)
+    try:
+        portfolio = require_portfolio(ctx)
+    except BaseException:
+        for stage in ("primary", "legacy", "overlay"):
+            _observe(observer, stage, "NOT_REACHED")
+        raise
     translator = config.pop("translator", default_translator)
-    plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
-        require_market_data(ctx, "derived_indicators"),
-        _build_tiered_blend_account_state_from_portfolio(
+    try:
+        indicators = require_market_data(ctx, "derived_indicators")
+        account_state = _build_tiered_blend_account_state_from_portfolio(
             portfolio,
             strategy_symbols=strategy_symbols,
-        ),
+        )
+    except BaseException:
+        for stage in ("primary", "legacy", "overlay"):
+            _observe(observer, stage, "NOT_REACHED")
+        raise
+    if "observer" in config:
+        # Preserve the former unexpected-keyword rejection; configuration is
+        # never authority to install a private in-process observer.
+        raise TypeError("build_rebalance_plan() got an unexpected keyword argument 'observer'")
+    observation_kwargs = {"observer": observer} if observer is not None else {}
+    plan = soxl_soxx_trend_income_strategy.build_rebalance_plan(
+        indicators,
+        account_state,
         translator=translator,
         **config,
+        **observation_kwargs,
     )
     account_size_diagnostics = _account_size_diagnostics(soxl_soxx_trend_income_manifest.profile, ctx)
     notification_context = dict(plan.get("notification_context") or {})
@@ -1380,20 +1399,32 @@ def build_soxl_soxx_core_only_p2_v7_execution_decision(
 
 
 def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
-    decision = _build_soxl_soxx_trend_income_decision(ctx)
-    decision = apply_risk_gate(
-        decision,
-        ctx=ctx,
-        max_single_weight=0.20,
-        enforce_value_target_exposure=True,
-    )
-    record_strategy_decision(
-        ctx,
-        decision,
-        profile_id=soxl_soxx_trend_income_manifest.profile,
-        domain=soxl_soxx_trend_income_manifest.domain,
-    )
-    return decision
+    observer = None
+    try:
+        observer = ctx.state.get("_qsl_dp01_observation")
+    except BaseException:
+        pass
+    _observe(observer, "entrypoint", "ENTERED")
+    try:
+        decision = _build_soxl_soxx_trend_income_decision(ctx, **({"observer": observer} if observer is not None else {}))
+        decision = apply_risk_gate(
+            decision,
+            ctx=ctx,
+            max_single_weight=0.20,
+            enforce_value_target_exposure=True,
+            **({"observer": observer} if observer is not None else {}),
+        )
+        record_strategy_decision(
+            ctx,
+            decision,
+            profile_id=soxl_soxx_trend_income_manifest.profile,
+            domain=soxl_soxx_trend_income_manifest.domain,
+        )
+        _observe(observer, "entrypoint", "RETURNED")
+        return decision
+    except BaseException:
+        _observe(observer, "entrypoint", "RAISED")
+        raise
 
 
 def evaluate_soxl_soxx_trend_income_promotion_research(

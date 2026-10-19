@@ -1139,3 +1139,158 @@ class StrategyEntrypointTests(unittest.TestCase):
             frozenset({"derived_indicators", "portfolio_snapshot"}),
         )
         self.assertEqual(semiconductor_ibkr_adapter.portfolio_input_name, "portfolio_snapshot")
+
+
+class _DP01Observer:
+    def __init__(self, failure=None):
+        self.events = []
+        self.failure = failure
+        self._faulted = False
+
+    def emit(self, key, value):
+        # The producer boundary may never send a business object.
+        assert type(value) in (str, bool, type(None))
+        if self.failure is not None:
+            raise self.failure
+        self.events.append((key, value))
+        return {"enable_trading": True}  # ignored; never a business input
+
+
+def _dp01_soxl_inputs():
+    manifest = get_strategy_entrypoint("soxl_soxx_trend_income").manifest
+    config = {k: v for k, v in manifest.default_config.items()
+              if k != "managed_symbols" and k not in OPTION_OVERLAY_CONFIG_KEYS}
+    indicators = {"soxl": {"price": 80.0, "ma_trend": 75.0},
+                  "soxx": {"price": 80.0, "ma_trend": 75.0,
+                           "realized_volatility_10": .2,
+                           "realized_volatility_10_dynamic_threshold": .5,
+                           "realized_volatility_10_dynamic_sample_count": 252.0}}
+    state = {"available_cash": 50000., "total_strategy_equity": 50000.,
+             "market_values": {}, "quantities": {}, "sellable_quantities": {},
+             "metadata": {}}
+    return indicators, state, config
+
+
+def test_dp01_mrc_actual_branches_and_authorization_does_not_imply_applied():
+    import json
+    from copy import deepcopy
+    cases = [
+        (False, {}, "NOT_REACHED", "NOT_REACHED", False, False),
+        (True, {}, "RETURNED", "RETURNED", False, False),
+        (True, {"plugin": "market_regime_control", "canonical_route": "risk_off"}, "RETURNED", "NOT_REACHED", False, False),
+        (True, {"plugin": "market_regime_control", "canonical_route": "no_action",
+                "execution_controls": {"position_control_allowed": True, "consumption_evidence_status": "automation_approved"}}, "RETURNED", "NOT_REACHED", True, False),
+        (True, {"plugin": "market_regime_control", "canonical_route": "risk_off",
+                "position_control": {"leverage_scalar": 0., "risk_asset_scalar": 0.},
+                "execution_controls": {"position_control_allowed": True, "consumption_evidence_status": "automation_approved"}}, "RETURNED", "NOT_REACHED", True, True),
+        (True, {"plugin": "crisis_response_shadow", "canonical_route": "true_crisis"}, "RETURNED", "RETURNED", False, True),
+    ]
+    for enabled, payload, primary, legacy, authorized, applied in cases:
+        indicators, state, config = _dp01_soxl_inputs()
+        state["metadata"] = {"plugin_payload": payload, "secret": "ASSET_SENTINEL/gs://account"}
+        config["market_regime_control_enabled"] = enabled
+        before = deepcopy((indicators, state, config))
+        baseline = soxl_soxx_trend_build_rebalance_plan(indicators, state, translator=lambda k, **_: k, **config)
+        observer = _DP01Observer()
+        observed = soxl_soxx_trend_build_rebalance_plan(indicators, state, translator=lambda k, **_: k, observer=observer, **config)
+        assert observed == baseline
+        assert (indicators, state, config) == before
+        facts = dict(observer.events)
+        assert facts["primary"] == primary
+        assert facts["legacy"] == legacy
+        assert facts["position_control_authorized"] is authorized
+        assert facts["applied"] is applied
+        assert "ASSET_SENTINEL" not in json.dumps(observer.events)
+        for failure in (RuntimeError("secret"), KeyboardInterrupt("secret"), SystemExit("secret")):
+            broken = _DP01Observer(failure)
+            assert soxl_soxx_trend_build_rebalance_plan(indicators, state, translator=lambda k, **_: k, observer=broken, **config) == baseline
+            assert broken._faulted
+
+
+def test_dp01_consumer_body_before_mrc_and_business_exception_identity():
+    import pytest
+    from dataclasses import replace
+    from us_equity_strategies.strategies import soxl_soxx_trend_income as strategy
+    observer = _DP01Observer()
+    ctx = StrategyContext(as_of="2026-04-06", state={"_qsl_dp01_observation": observer})
+    with pytest.raises(ValueError):
+        entrypoints.evaluate_soxl_soxx_trend_income(ctx)
+    assert dict(observer.events) == {"entrypoint": "RAISED", "primary": "NOT_REACHED", "legacy": "NOT_REACHED", "overlay": "NOT_REACHED"}
+    observer = _DP01Observer()
+    ctx_missing_data = replace(ctx, portfolio=PortfolioSnapshot(as_of=pd.Timestamp("2026-04-06").to_pydatetime(), total_equity=1000., buying_power=1000.), state={"_qsl_dp01_observation": observer})
+    with pytest.raises(ValueError):
+        entrypoints.evaluate_soxl_soxx_trend_income(ctx_missing_data)
+    assert dict(observer.events)["primary"] == "NOT_REACHED"
+    injected = _DP01Observer()
+    indicators, _, _ = _dp01_soxl_inputs()
+    ctx_injected = replace(ctx_missing_data, market_data={"derived_indicators": indicators},
+                           runtime_config={"observer": injected}, state={})
+    with pytest.raises(TypeError, match="observer"):
+        entrypoints.evaluate_soxl_soxx_trend_income(ctx_injected)
+    assert injected.events == []
+    for error in (RuntimeError("business"), KeyboardInterrupt("business"), SystemExit("business")):
+        broken = _DP01Observer(KeyboardInterrupt("observer"))
+        ctx = replace(ctx, state={"_qsl_dp01_observation": broken})
+        with patch.object(entrypoints, "_build_soxl_soxx_trend_income_decision", side_effect=error) as build:
+            with pytest.raises(type(error)) as caught:
+                entrypoints.evaluate_soxl_soxx_trend_income(ctx)
+        assert caught.value is error
+        assert build.call_count == 1
+        assert not hasattr(error, "__notes__")
+    # A failure after real MRC resolution keeps that evidence and the exception.
+    indicators, state, config = _dp01_soxl_inputs()
+    config["attack_allocation_mode"] = "unsupported"
+    observer = _DP01Observer()
+    with pytest.raises(ValueError):
+        strategy.build_rebalance_plan(indicators, state, translator=lambda k, **_: k, observer=observer, **config)
+    assert dict(observer.events)["primary"] == "RETURNED"
+    assert "overlay" not in dict(observer.events)
+
+
+def test_dp01_consumer_gates_records_once_in_order_and_keeps_none_contract():
+    from dataclasses import replace
+    raw = StrategyDecision(diagnostics={"source": "synthetic"})
+    for failure in (None, RuntimeError("observer"), KeyboardInterrupt(), SystemExit()):
+        observer = _DP01Observer(failure)
+        ctx = StrategyContext(as_of="2026-04-06", state={"_qsl_dp01_observation": observer})
+        order = []
+        with (patch.object(entrypoints, "_build_soxl_soxx_trend_income_decision", side_effect=lambda *a, **k: (order.append("builder"), raw)[1]) as builder,
+              patch.object(entrypoints, "apply_risk_gate", side_effect=lambda d, **k: (order.append("gate"), d)[1]) as gate,
+              patch.object(entrypoints, "record_strategy_decision", side_effect=lambda *a, **k: order.append("record")) as record):
+            assert entrypoints.evaluate_soxl_soxx_trend_income(ctx) is raw
+        assert order == ["builder", "gate", "record"]
+        assert builder.call_count == gate.call_count == record.call_count == 1
+        assert builder.call_args.kwargs == {"observer": observer}
+        assert gate.call_args.kwargs["observer"] is observer
+        assert "observer" not in record.call_args.kwargs
+
+
+def test_dp01_common_forwards_original_limits_identity_without_none_keyword():
+    from us_equity_strategies.entrypoints import _common
+    decision = StrategyDecision()
+    limits = object()
+    ctx = StrategyContext(as_of="2026-04-06", capabilities={"runtime_risk_limits": limits})
+    with patch.object(_common, "_qpk_apply_risk_gate", return_value=decision) as gate:
+        assert _common.apply_risk_gate(decision, ctx=ctx) is decision
+    assert gate.call_args.kwargs["runtime_risk_limits"] is limits
+    assert "observer" not in gate.call_args.kwargs
+    observer = _DP01Observer()
+    with patch.object(_common, "_qpk_apply_risk_gate", return_value=decision) as gate:
+        assert _common.apply_risk_gate(decision, ctx=ctx, observer=observer) is decision
+    assert gate.call_args.kwargs["runtime_risk_limits"] is limits
+    assert gate.call_args.kwargs["observer"] is observer
+    assert observer.events == []  # forwarding is not actual gate/limits entry
+
+
+def test_dp01_primary_producer_exception_keeps_actual_entry_and_original_object():
+    import pytest
+    from us_equity_strategies.strategies import soxl_soxx_trend_income as strategy
+    for error in (RuntimeError("producer"), KeyboardInterrupt("producer"), SystemExit("producer")):
+        for observer_failure in (None, RuntimeError("observer")):
+            observer = _DP01Observer(observer_failure)
+            with patch.object(strategy, "_iter_mapping_payloads", side_effect=error):
+                with pytest.raises(type(error)) as caught:
+                    strategy._resolve_market_regime_control_context({}, observer=observer)
+            assert caught.value is error
+            if observer_failure is None:
+                assert observer.events == [("primary", "ENTERED"), ("primary", "RAISED")]

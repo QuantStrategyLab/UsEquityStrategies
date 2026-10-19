@@ -242,101 +242,129 @@ def _market_regime_context_not_found() -> dict[str, object]:
     }
 
 
-def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, object]:
-    for payload in _iter_mapping_payloads(metadata):
-        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
-        if plugin != MARKET_REGIME_CONTROL_PROFILE:
-            continue
-        authorization = resolve_market_regime_position_control_authorization(payload)
-        position_control_allowed = bool(authorization["position_control_allowed"])
-        position_control_authorized = bool(authorization["position_control_authorized"])
-        evidence_status = str(authorization["consumption_evidence_status"])
-        position_control = payload.get("position_control")
-        if not isinstance(position_control, Mapping):
-            position_control = {}
-        arbiter = payload.get("arbiter")
-        if not isinstance(arbiter, Mapping):
-            arbiter = {}
-        route = str(
-            position_control.get("final_route")
-            or arbiter.get("final_route")
-            or payload.get("canonical_route")
-            or ""
-        ).strip().lower()
-        suggested_action = str(
-            position_control.get("suggested_action")
-            or arbiter.get("suggested_action")
-            or payload.get("suggested_action")
-            or ""
-        ).strip().lower()
-        blocked = suggested_action == "blocked"
-        volatility_delever_context = position_control.get("volatility_delever_context")
-        if not isinstance(volatility_delever_context, Mapping):
-            volatility_delever_context = payload.get("volatility_delever_context")
-        if not isinstance(volatility_delever_context, Mapping):
-            volatility_delever_context = {}
-        return {
-            "found": True,
-            "source": MARKET_REGIME_CONTROL_PROFILE,
-            "schema_version": str(payload.get("schema_version") or "").strip(),
-            "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked and position_control_authorized,
-            "route": route,
-            "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
-            "suggested_action": suggested_action,
-            "position_control_allowed": position_control_allowed,
-            "position_control_authorized": position_control_authorized,
-            "consumption_evidence_status": evidence_status,
-            "risk_budget_scalar": _as_clamped_ratio(position_control.get("risk_budget_scalar"), default=1.0),
-            "leverage_scalar": _as_clamped_ratio(position_control.get("leverage_scalar"), default=1.0),
-            "risk_asset_scalar": _as_clamped_ratio(position_control.get("risk_asset_scalar"), default=1.0),
-            "taco_allowed": position_control_authorized
-            and _as_bool(position_control.get("taco_allowed"), default=False),
-            "local_delever_veto_allowed": position_control_authorized
-            and _as_bool(position_control.get("local_delever_veto_allowed"), default=False),
-            "crisis_defense_required": position_control_authorized
-            and _as_bool(position_control.get("crisis_defense_required"), default=False),
-            "blocked_actions": _normalized_text_tuple(position_control.get("blocked_actions")),
-            "vetoes": _normalized_text_tuple(position_control.get("vetoes")) or _normalized_text_tuple(arbiter.get("vetoes")),
-            "reason_codes": (
-                _normalized_text_tuple(position_control.get("reason_codes"))
-                or _normalized_text_tuple(arbiter.get("reason_codes"))
-                or _normalized_text_tuple(payload.get("reason_codes"))
-            ),
-            "localized_messages": payload.get("localized_messages")
-            if isinstance(payload.get("localized_messages"), Mapping)
-            else {},
-            "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
-            "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
-            "blocked": blocked,
-            "volatility_delever_context": volatility_delever_context if position_control_authorized else {},
-        }
-    return _market_regime_context_not_found()
+
+def _observe(observer, key, value):
+    if observer is not None:
+        try:
+            observer.emit(key, value)
+        except BaseException:
+            try:
+                object.__setattr__(observer, "_faulted", True)
+            except BaseException:
+                pass
 
 
-def _resolve_legacy_crisis_response_context(metadata: Mapping) -> dict[str, object]:
-    for payload in _iter_mapping_payloads(metadata):
-        plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
-        if plugin != LEGACY_CRISIS_RESPONSE_PROFILE:
-            continue
-        route = _route_from_payload(payload)
-        true_crisis = route == LEGACY_TRUE_CRISIS_ROUTE or _as_bool(payload.get("true_crisis_active"), default=False)
-        return {
-            **_market_regime_context_not_found(),
-            "found": True,
-            "source": LEGACY_CRISIS_RESPONSE_PROFILE,
-            "schema_version": str(payload.get("schema_version") or "").strip(),
-            "active": true_crisis,
-            "route": "risk_off" if true_crisis else "no_action",
-            "route_source": LEGACY_CRISIS_RESPONSE_PROFILE,
-            "suggested_action": "defend" if true_crisis else "watch_only",
-            "risk_budget_scalar": 0.0 if true_crisis else 1.0,
-            "leverage_scalar": 0.0 if true_crisis else 1.0,
-            "risk_asset_scalar": 0.0 if true_crisis else 1.0,
-            "crisis_defense_required": true_crisis,
-            "reason_codes": _normalized_text_tuple(payload.get("reason_codes")) or ((f"{LEGACY_CRISIS_RESPONSE_PROFILE}:true_crisis",) if true_crisis else ()),
-        }
-    return _market_regime_context_not_found()
+def _resolve_market_regime_control_context(metadata: Mapping, *, observer=None) -> dict[str, object]:
+    _observe(observer, "primary", "ENTERED")
+    try:
+        for payload in _iter_mapping_payloads(metadata):
+            plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+            if plugin != MARKET_REGIME_CONTROL_PROFILE:
+                continue
+            authorization = resolve_market_regime_position_control_authorization(payload)
+            position_control_allowed = bool(authorization["position_control_allowed"])
+            position_control_authorized = bool(authorization["position_control_authorized"])
+            evidence_status = str(authorization["consumption_evidence_status"])
+            position_control = payload.get("position_control")
+            if not isinstance(position_control, Mapping):
+                position_control = {}
+            arbiter = payload.get("arbiter")
+            if not isinstance(arbiter, Mapping):
+                arbiter = {}
+            route = str(
+                position_control.get("final_route")
+                or arbiter.get("final_route")
+                or payload.get("canonical_route")
+                or ""
+            ).strip().lower()
+            suggested_action = str(
+                position_control.get("suggested_action")
+                or arbiter.get("suggested_action")
+                or payload.get("suggested_action")
+                or ""
+            ).strip().lower()
+            blocked = suggested_action == "blocked"
+            volatility_delever_context = position_control.get("volatility_delever_context")
+            if not isinstance(volatility_delever_context, Mapping):
+                volatility_delever_context = payload.get("volatility_delever_context")
+            if not isinstance(volatility_delever_context, Mapping):
+                volatility_delever_context = {}
+            result = {
+                "found": True,
+                "source": MARKET_REGIME_CONTROL_PROFILE,
+                "schema_version": str(payload.get("schema_version") or "").strip(),
+                "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked and position_control_authorized,
+                "route": route,
+                "route_source": str(position_control.get("route_source") or arbiter.get("route_source") or "").strip(),
+                "suggested_action": suggested_action,
+                "position_control_allowed": position_control_allowed,
+                "position_control_authorized": position_control_authorized,
+                "consumption_evidence_status": evidence_status,
+                "risk_budget_scalar": _as_clamped_ratio(position_control.get("risk_budget_scalar"), default=1.0),
+                "leverage_scalar": _as_clamped_ratio(position_control.get("leverage_scalar"), default=1.0),
+                "risk_asset_scalar": _as_clamped_ratio(position_control.get("risk_asset_scalar"), default=1.0),
+                "taco_allowed": position_control_authorized
+                and _as_bool(position_control.get("taco_allowed"), default=False),
+                "local_delever_veto_allowed": position_control_authorized
+                and _as_bool(position_control.get("local_delever_veto_allowed"), default=False),
+                "crisis_defense_required": position_control_authorized
+                and _as_bool(position_control.get("crisis_defense_required"), default=False),
+                "blocked_actions": _normalized_text_tuple(position_control.get("blocked_actions")),
+                "vetoes": _normalized_text_tuple(position_control.get("vetoes")) or _normalized_text_tuple(arbiter.get("vetoes")),
+                "reason_codes": (
+                    _normalized_text_tuple(position_control.get("reason_codes"))
+                    or _normalized_text_tuple(arbiter.get("reason_codes"))
+                    or _normalized_text_tuple(payload.get("reason_codes"))
+                ),
+                "localized_messages": payload.get("localized_messages")
+                if isinstance(payload.get("localized_messages"), Mapping)
+                else {},
+                "log_record": payload.get("log_record") if isinstance(payload.get("log_record"), Mapping) else {},
+                "notification": payload.get("notification") if isinstance(payload.get("notification"), Mapping) else {},
+                "blocked": blocked,
+                "volatility_delever_context": volatility_delever_context if position_control_authorized else {},
+            }
+            _observe(observer, "primary", "RETURNED")
+            return result
+        result = _market_regime_context_not_found()
+        _observe(observer, "primary", "RETURNED")
+        return result
+    except BaseException:
+        _observe(observer, "primary", "RAISED")
+        raise
 
+def _resolve_legacy_crisis_response_context(metadata: Mapping, *, observer=None) -> dict[str, object]:
+    _observe(observer, "legacy", "ENTERED")
+    try:
+        for payload in _iter_mapping_payloads(metadata):
+            plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
+            if plugin != LEGACY_CRISIS_RESPONSE_PROFILE:
+                continue
+            route = _route_from_payload(payload)
+            true_crisis = route == LEGACY_TRUE_CRISIS_ROUTE or _as_bool(payload.get("true_crisis_active"), default=False)
+            result = {
+                **_market_regime_context_not_found(),
+                "found": True,
+                "source": LEGACY_CRISIS_RESPONSE_PROFILE,
+                "schema_version": str(payload.get("schema_version") or "").strip(),
+                "active": true_crisis,
+                "route": "risk_off" if true_crisis else "no_action",
+                "route_source": LEGACY_CRISIS_RESPONSE_PROFILE,
+                "suggested_action": "defend" if true_crisis else "watch_only",
+                "risk_budget_scalar": 0.0 if true_crisis else 1.0,
+                "leverage_scalar": 0.0 if true_crisis else 1.0,
+                "risk_asset_scalar": 0.0 if true_crisis else 1.0,
+                "crisis_defense_required": true_crisis,
+                "reason_codes": _normalized_text_tuple(payload.get("reason_codes")) or ((f"{LEGACY_CRISIS_RESPONSE_PROFILE}:true_crisis",) if true_crisis else ()),
+            }
+            _observe(observer, "legacy", "RETURNED")
+            return result
+        result = _market_regime_context_not_found()
+        _observe(observer, "legacy", "RETURNED")
+        return result
+    except BaseException:
+        _observe(observer, "legacy", "RAISED")
+        raise
 
 def _active_risk_asset_from_ratios(soxl_ratio: float, soxx_ratio: float) -> str:
     if soxl_ratio > 0.0 and soxx_ratio > 0.0:
@@ -443,6 +471,7 @@ def build_rebalance_plan(
     market_regime_control_enabled=False,
     market_regime_control_apply_risk_reduced=False,
     market_regime_control_apply_risk_off=True,
+    observer=None,
 ):
     income_allocations = normalize_income_layer_allocations(
         income_layer_allocations,
@@ -467,12 +496,22 @@ def build_rebalance_plan(
         account_metadata = {}
     market_regime_control_enabled = _as_bool(market_regime_control_enabled, default=False)
     market_regime_control_context = (
-        _resolve_market_regime_control_context(account_metadata)
+        _resolve_market_regime_control_context(account_metadata, **({"observer": observer} if observer is not None else {}))
         if market_regime_control_enabled
         else _market_regime_context_not_found()
     )
     if market_regime_control_enabled and not market_regime_control_context["found"]:
-        market_regime_control_context = _resolve_legacy_crisis_response_context(account_metadata)
+        market_regime_control_context = _resolve_legacy_crisis_response_context(account_metadata, **({"observer": observer} if observer is not None else {}))
+    if not market_regime_control_enabled:
+        _observe(observer, "primary", "NOT_REACHED")
+        _observe(observer, "legacy", "NOT_REACHED")
+    elif market_regime_control_context["source"] != LEGACY_CRISIS_RESPONSE_PROFILE:
+        # If primary was found, legacy was deliberately skipped. If primary
+        # found nothing, legacy has already recorded its own RETURNED event.
+        if market_regime_control_context["found"]:
+            _observe(observer, "legacy", "NOT_REACHED")
+    for fact in ("found", "active", "position_control_allowed", "position_control_authorized"):
+        _observe(observer, fact, bool(market_regime_control_context[fact]))
     market_regime_control_apply_risk_reduced = _as_bool(
         market_regime_control_apply_risk_reduced,
         default=False,
@@ -748,6 +787,7 @@ def build_rebalance_plan(
                 redirect_symbol=volatility_delever_redirect_symbol,
             )
         )
+    _observe(observer, "overlay", "ENTERED")
     market_regime_control_applied = False
     market_regime_control_removed_ratio = 0.0
     market_regime_control_redirected_to_unlevered_ratio = 0.0
@@ -963,6 +1003,10 @@ def build_rebalance_plan(
         "portfolio": portfolio_context,
         "risk_controls": risk_control_context,
     }
+
+    _observe(observer, "overlay", "RETURNED")
+    _observe(observer, "route_allowed", bool(market_regime_control_route_allowed))
+    _observe(observer, "applied", bool(market_regime_control_applied))
 
     return {
         "strategy_assets": strategy_assets,
