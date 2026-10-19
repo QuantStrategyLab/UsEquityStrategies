@@ -269,6 +269,7 @@ def run_offline_security_netting(
     report_risk_free_source: str | None = None, report_calendar_id: str | None = None,
     research_cost_inputs: Mapping[str, Any] | None = None,
     include_max_drawdown_recovery: bool = False,
+    rs04_research_policy: Any | None = None,
 ) -> dict[str, Any]:
     """Replay one composed sleeve with explicit cash funding; no data or order I/O.
 
@@ -359,6 +360,14 @@ def run_offline_security_netting(
     if not sessions:
         raise ValueError("SESSIONS_REQUIRED")
     budget_policy = None
+    # B5_BEGIN
+    research = None
+    if rs04_research_policy is not None:
+        if rs06_risk_budget is not None:
+            raise ValueError("RS04_RS06_POLICY_CONFLICT")
+        research = _rs04_prepare(rs04_research_policy, sessions, spec,
+                                 initial_f, fee_cash_role, execution_timing)
+    # B5_END
     if rs06_risk_budget is not None:
         from us_equity_strategies.portfolio_risk_budget import (
             PortfolioAssetRiskSpec, PortfolioRiskBudgetPolicy, assess_portfolio_risk_budget,
@@ -391,6 +400,15 @@ def run_offline_security_netting(
     inner = {s: nav * initial_f * w for s, w in initial_inner_weights.items()}
     inner_cash = nav * initial_f * max(0., 1 - sum(initial_inner_weights.values()))
     outer = nav * (1 - initial_f)
+    # B5_BEGIN
+    if research is not None:
+        opening = research.opening
+        _rs04_reconcile(opening, inner, inner_cash, nav)
+        # The explicitly completed actual book is authoritative after reconciliation.
+        inner, inner_cash, nav = dict(opening.security_values), opening.cash, opening.nav
+        completed = opening
+        research_decisions = []
+    # B5_END
     cost = None
     if research_cost_inputs is not None:
         if spec.outer_cash_mode != "separate":
@@ -407,10 +425,30 @@ def run_offline_security_netting(
             raise ValueError("DECISION_NOT_PRIOR")
         if report_builder is not None and previous is not None and row.decision_session != previous:
             raise ValueError("NEXT_CLOSE_DECISION_SESSION_MISMATCH")
+        # B5_BEGIN
+        decision = None
+        if research is not None:
+            information = research.decisions[len(ledger)]
+            _rs04_reconcile(completed, inner, inner_cash, nav)
+            if completed.completed_session != row.decision_session:
+                raise ValueError("RS04_COMPLETED_ANCHOR_MISMATCH")
+            decision = _rs04_select(research, information, completed)
+            receipt = _rs04_receipt(decision, information, completed)
+            tail_mandatory = False
+            if information.cvar_request is not None:
+                decision, tail = _rs04_constrain_tail(research, information, completed, decision, spec)
+                receipt["cvar"] = tail
+                tail_mandatory = tail["constraint"]["status"] == "MANDATORY_TAIL_REDUCTION"
+            research_decisions.append(receipt)
+        # B5_END
         previous = row.session
         if not isinstance(row.security_returns, Mapping):
             raise ValueError("RETURN_INVALID")
         returns = {s: _return(r) for s, r in row.security_returns.items()}
+        # B5_BEGIN
+        if research is not None and set(returns) != set(research.security_universe):
+            raise ValueError("RS04_COMPLETE_SECURITY_RETURN_UNIVERSE_REQUIRED")
+        # B5_END
         cash_return = _return(row.outer_cash_return)
         if cost is not None and cash_return != 0.:
             raise ValueError("COST_EVENT_SCOPE_UNSUPPORTED")
@@ -435,9 +473,28 @@ def run_offline_security_netting(
         outer_pre = (outer * (1 + returns[spec.outer_cash_symbol])
                      if spec.outer_cash_mode == "merge_into_security" else outer + outer_pnl)
         pre_nav = inner_total + outer_pre
+        # B5_BEGIN
+        if research is not None:
+            if cash_return != 0. or outer_pre != 0.:
+                raise ValueError("RS04_ZERO_RETURN_RESIDUAL_REQUIRED")
+            # Actual values, rather than a second weight-based drift, define this book.
+            pre_nav = sum(security_pre.values()) + inner_cash
+            inner_total = pre_nav
+            inner_pre = {s: security_pre[s] / pre_nav for s in research.security_universe}
+        # B5_END
         if not math.isfinite(pre_nav) or pre_nav <= 0:
             raise ValueError("NAV_INVALID")
         effective_target = row.inner_target
+        # B5_BEGIN
+        if research is not None:
+            effective_target = (inner_pre if decision.kind == "HOLD_POSITIONS"
+                                else dict(decision.target_weights))
+            from fractions import Fraction
+            actual_pre = {s: Fraction(v) / Fraction(pre_nav) for s, v in security_pre.items()}
+            _rs04_actual_check(information, actual_pre,
+                actual_pre if decision.kind == "HOLD_POSITIONS" else effective_target,
+                stage='EXECUTION', mandatory=information.mandatory_reduce or tail_mandatory)
+        # B5_END
         if budget_policy is not None:
             if row.f_target != 1. or cash_return != 0. or outer_pre != 0.:
                 raise ValueError("NETTING_RISK_BUDGET_SYNTHETIC_SCOPE_REQUIRED")
@@ -470,6 +527,16 @@ def run_offline_security_netting(
         inner = {s: pre_nav * row.f_target * w for s, w in effective_target.items()}
         inner_cash = pre_nav * result.role_weights[spec.inner_residual_role]
         outer = pre_nav * (1 - row.f_target)
+        # B5_BEGIN
+        if research is not None and decision.kind == "HOLD_POSITIONS":
+            # Both netter inputs are the very same drifted mapping, f=1 exactly.
+            # Keep actual values/cash, avoiding division/multiplication round trips.
+            if (any(v != 0. for v in result.net_trades.values()) or fees != 0.
+                    or result.net_security_turnover != 0.):
+                raise ValueError("RS04_HOLD_PHANTOM_TRADE")
+            inner = dict(security_pre)
+            inner_cash = completed.cash
+        # B5_END
         cash_before_fee = _cash(inner_cash, outer, spec)
         if fees > cash_before_fee[fee_cash_role]:
             raise ValueError("FEE_CASH_INSUFFICIENT")
@@ -515,6 +582,18 @@ def run_offline_security_netting(
         })
         if cost is not None:
             _research_cost_day(cost, ledger[-1])
+        # B5_BEGIN
+        if research is not None:
+            completed = DecisionSnapshot(row.session, information.fill_completed_at, nav,
+                tuple(inner.items()), inner_cash, True)
+            _rs04_reconcile(completed, inner, inner_cash, nav)
+            research_decisions[-1]["execution"] = {
+                "actual_fees": fees, "cash_end": inner_cash, "nav_end": nav,
+                "post_fee_weights": {s: v / nav for s, v in security_end.items()},
+                "cap_basis": information.hard_policy_context.cap_basis,
+                "post_fee_cap_certified": False,
+                "hold_no_trade_exact": decision.kind == "HOLD_POSITIONS"}
+        # B5_END
     output = {
         "scope": "OFFLINE_RESEARCH_ONLY", "no_order": True, "live_ready": False,
         "input_provenance": "CALLER_SUPPLIED_NOT_VERIFIED", "version": SECURITY_NETTING_VERSION,
@@ -548,4 +627,447 @@ def run_offline_security_netting(
             output["unified_net_report_basis"].update(report_options)
     if cost is not None:
         output["research_cost_receipt"] = _research_cost_finish(cost, ledger, initial_nav, spec.multiplier)
+    # B5_BEGIN
+    if research is not None:
+        output["rs04_research"] = {"mode": research.mode, "decisions": research_decisions,
+            "scope": "SYNTHETIC_ONLY", "financial": "NOT_READY", "adoption": "UNKNOWN",
+            "fullchain": "NOT_CLOSED", "residual_cash_return": 0.,
+            "supported_cap_basis": "DECISION_TIME_TARGET",
+            "execution_check": "FILL_PRE_FEE_TARGET_AND_RISK_BUYS_ACTUAL_NET_FEES_CASH",
+            "post_fee_cap_certified": False}
+    # B5_END
     return output
+
+
+@dataclass(frozen=True)
+class DecisionSnapshot:
+    """Completed actual book only. Contains no returns or future fill objects."""
+
+    completed_session: date
+    completed_at: str
+    nav: float
+    security_values: tuple[tuple[str, float], ...]
+    cash: float
+    current_known: bool
+
+
+@dataclass(frozen=True)
+class RS04DecisionInput:
+    decision_session: date
+    fill_session: date
+    cutoff: str
+    fill_completed_at: str
+    full_target_available_at: str
+    full_target_source: str
+    full_target: tuple[tuple[str, float], ...]
+    hard_policy_context: Any
+    mandatory_reduce: bool
+    forced_target: tuple[tuple[str, float], ...] | None = None
+    forced_source: str | None = None
+    forced_reason: str | None = None
+    cvar_request: RS04CVaRRequest | None = None
+
+
+@dataclass(frozen=True)
+class RS04CVaRRequest:
+    """Fixed joint scenarios and authority, never a callback or live data source.
+
+    known_inputs contains (component, source, as_of, available_at) for scenarios,
+    tail_policy, cost, original_policy and, when supplied, anchor. All UTC times
+    must precede this decision cutoff. Sources/approvals are synthetic assertions.
+    The entire original policy is bound by value; the adapter derives its caps.
+    """
+
+    scenarios: Any
+    tail_policy: Any
+    cost_spec: Any
+    original_policy: Any
+    anchor: Any
+    known_inputs: tuple[tuple[str, str, str, str], ...]
+
+
+@dataclass(frozen=True)
+class RS04ResearchPolicy:
+    """Fixed synthetic B5 inputs; no callback or access to the runner's returns.
+
+    Only DECISION_TIME_TARGET/RISK_BUY_WEIGHT is supported by the accepted
+    kernel. A post-fee/fill cap basis is rejected before any execution, never
+    relabeled. Fill drift, original target/veto/risk-buy limits, actual net fees
+    and cash are checked separately. This is not post-fee cap certification.
+    """
+
+    mode: str
+    security_universe: tuple[str, ...]
+    opening: DecisionSnapshot
+    decisions: tuple[RS04DecisionInput, ...]
+    lambda_value: float = .5
+    band: float = .01
+    cvar_descriptor: Any | None = None
+
+
+def _rs04_time(value: Any):
+    from datetime import datetime, timedelta
+
+    try:
+        parsed = datetime.fromisoformat(value)
+        if not isinstance(value, str) or 'T' not in value or parsed.utcoffset() != timedelta(0):
+            raise ValueError
+        return parsed
+    except (TypeError, ValueError):
+        raise ValueError("RS04_EXPLICIT_UTC_TIME_REQUIRED") from None
+
+
+def _rs04_pairs(value: Any, universe: tuple[str, ...]) -> dict[str, float]:
+    if (not isinstance(value, tuple) or any(not isinstance(p, tuple) or len(p) != 2 for p in value)
+            or len(value) != len(universe) or {p[0] for p in value} != set(universe)):
+        raise ValueError("RS04_COMPLETE_SECURITY_VALUES_REQUIRED")
+    result = {s: _finite(v, "RS04_VALUES_INVALID") for s, v in value}
+    if any(v < 0. for v in result.values()):
+        raise ValueError("RS04_VALUES_INVALID")
+    return result
+
+
+def _rs04_reconcile(snapshot: DecisionSnapshot, values: Mapping[str, float], cash: float, nav: float) -> None:
+    if (type(snapshot) is not DecisionSnapshot or snapshot.current_known is not True
+            or type(snapshot.completed_session) is not date):
+        raise ValueError("RS04_KNOWN_COMPLETED_BOOK_REQUIRED")
+    if _rs04_time(snapshot.completed_at).date() != snapshot.completed_session:
+        raise ValueError("RS04_COMPLETED_TIME_MISMATCH")
+    actual = _rs04_pairs(snapshot.security_values, tuple(values))
+    n = _finite(snapshot.nav, "RS04_BOOK_INVALID")
+    c = _finite(snapshot.cash, "RS04_BOOK_INVALID")
+    if (n <= 0. or c < 0. or not math.isclose(sum(actual.values()) + c, n, rel_tol=1e-10, abs_tol=1e-10)
+            or not math.isclose(n, nav, rel_tol=1e-10, abs_tol=1e-10)
+            or not math.isclose(c, cash, rel_tol=1e-10, abs_tol=1e-10)
+            or any(not math.isclose(actual[s], values[s], rel_tol=1e-10, abs_tol=1e-10) for s in actual)):
+        raise ValueError("RS04_ACTUAL_BOOK_RECONCILIATION")
+
+
+def _rs04_prepare(policy: Any, rows: Sequence[NettingSession], spec: Any,
+                  initial_f: float, fee_cash_role: str, timing: str | None) -> RS04ResearchPolicy:
+    from .partial_rebalance import HardPolicyContext
+
+    if type(policy) is not RS04ResearchPolicy:
+        raise ValueError("RS04_FIXED_RESEARCH_POLICY_REQUIRED")
+    universe = policy.security_universe
+    if (not isinstance(universe, tuple) or not universe or 'BOXX' not in universe
+            or any(not isinstance(s, str) or not s or s != s.upper() for s in universe)
+            or len(set(universe)) != len(universe) or set(universe) != set(spec.bps_per_side)):
+        raise ValueError("RS04_COMPLETE_SECURITY_UNIVERSE_REQUIRED")
+    if (initial_f != 1. or spec.outer_cash_mode != 'separate'
+            or spec.cash_like_symbols != ('BOXX',) or timing != 'next_close'
+            or fee_cash_role != spec.inner_residual_role):
+        raise ValueError("RS04_FLAT_F1_SEPARATE_NEXT_CLOSE_REQUIRED")
+    if (type(policy.opening) is not DecisionSnapshot or policy.opening.current_known is not True):
+        raise ValueError("RS04_KNOWN_COMPLETED_BOOK_REQUIRED")
+    _rs04_pairs(policy.opening.security_values, universe)
+    completed_at = _rs04_time(policy.opening.completed_at)
+    completed_session = policy.opening.completed_session
+    if not isinstance(policy.decisions, tuple) or len(policy.decisions) != len(rows):
+        raise ValueError("RS04_DECISION_COVERAGE_REQUIRED")
+    for row, info in zip(rows, policy.decisions, strict=True):
+        if (type(info) is not RS04DecisionInput or type(row) is not NettingSession
+                or row.f_target != 1. or row.decision_session != completed_session
+                or info.decision_session != row.decision_session or info.fill_session != row.session):
+            raise ValueError("RS04_COMPLETED_ANCHOR_MISMATCH")
+        cutoff, fill, available = map(_rs04_time, (info.cutoff, info.fill_completed_at,
+                                                  info.full_target_available_at))
+        if (cutoff.date() < row.decision_session or fill.date() != row.session
+                or not completed_at <= cutoff < fill or not available <= cutoff):
+            raise ValueError("RS04_DECISION_TIME_MISMATCH")
+        if not isinstance(info.full_target_source, str) or not info.full_target_source.strip():
+            raise ValueError("RS04_FULL_TARGET_SOURCE_REQUIRED")
+        target = _rs04_pairs(info.full_target, universe)
+        if not isinstance(row.inner_target, Mapping) or set(row.inner_target) != set(universe):
+            raise ValueError("RS04_FULL_TARGET_INCOMPLETE")
+        if any(_finite(row.inner_target[s], "RS04_TARGET_INVALID") != target[s] for s in universe):
+            raise ValueError("RS04_FROZEN_TARGET_MISMATCH")
+        context = info.hard_policy_context
+        if type(context) is not HardPolicyContext:
+            raise ValueError("RS04_ORIGINAL_POLICY_REQUIRED")
+        if context.cap_basis != 'DECISION_TIME_TARGET':
+            raise ValueError("RS04_UNSUPPORTED_ORIGINAL_CAP_BASIS")
+        if type(info.mandatory_reduce) is not bool:
+            raise ValueError("RS04_MANDATORY_FLAG_REQUIRED")
+        if info.forced_target is not None:
+            _rs04_pairs(info.forced_target, universe)
+        completed_at, completed_session = fill, row.session
+    return policy
+
+
+def _rs04_current_weights(snapshot: DecisionSnapshot) -> dict[str, float]:
+    """Encode a reconciled book, never cash available for execution.
+
+    Keep ordinary funded division unchanged. If it cannot express the book's
+    cash status, apportion 2**53 binary units across securities AND actual cash
+    by largest remainder (stable symbol order). Each component differs from
+    its exact share of total book value by <2**-53; the exact float sum is one,
+    including cash. Zero cash receives zero units, never phantom funding.
+    Relative to v/NAV the additional bound is |v/total - v/NAV|. Reconciliation
+    remains unchanged; all hard checks use v/NAV itself, not this encoding.
+    """
+    from fractions import Fraction
+
+    values = dict(snapshot.security_values)
+    weights = {s: v / snapshot.nav for s, v in values.items()}
+    residual = 1 - sum(map(Fraction, weights.values()), Fraction())
+    if residual >= 0 and (snapshot.cash > 0 or residual == 0):
+        return weights
+    amounts = [Fraction(values[s]) for s in sorted(values)] + [Fraction(snapshot.cash)]
+    total = sum(amounts, Fraction())
+    scaled = [v * 2**53 / total for v in amounts]
+    units = [v.numerator // v.denominator for v in scaled]
+    remainder_order = sorted(range(len(units)), key=lambda i: scaled[i] - units[i], reverse=True)
+    for i in remainder_order[:2**53 - sum(units)]:
+        units[i] += 1
+    return {s: units[i] / 2**53 for i, s in enumerate(sorted(values))}
+
+
+def _rs04_select(policy: RS04ResearchPolicy, info: RS04DecisionInput,
+                 snapshot: DecisionSnapshot):
+    from fractions import Fraction
+    from .partial_rebalance import _Refusal, _inside_band, _number, decide_partial_rebalance
+
+    current = {s: Fraction(v) / Fraction(snapshot.nav) for s, v in snapshot.security_values}
+    encoded = _rs04_current_weights(snapshot)
+    mode, lam = policy.mode, policy.lambda_value
+    # Apportionment must not change the band action. Reuse the kernel's band
+    # rule on actual ratios, then ask the real kernel to validate that action
+    # if its float encoding falls on the other side. No rejected call is retried.
+    try:
+        _number(lam, 'INVALID_LAMBDA', 1)
+        band = _number(policy.band, 'INVALID_BAND', 1)
+    except _Refusal as exc:
+        raise ValueError('RS04_DECISION_' + exc.status + ':' + exc.reason) from None
+    band_hold = None
+    if mode == 'BAND_HOLD' and not info.mandatory_reduce:
+        desired = dict(info.full_target)
+        band_hold = _inside_band(current, {s: Fraction(v) for s, v in desired.items()}, band)
+        if band_hold != _inside_band(encoded, desired, band):
+            mode, lam = ('PROPORTIONAL', 0.) if band_hold else ('FULL', lam)
+
+    decision = decide_partial_rebalance(
+        security_universe=policy.security_universe,
+        current_weights=encoded,
+        full_target=dict(info.full_target), mode=mode,
+        lambda_value=lam, band=policy.band,
+        decision_session=info.decision_session.isoformat(), cutoff=info.cutoff,
+        hard_policy_context=info.hard_policy_context, mandatory_reduce=info.mandatory_reduce,
+        forced_target=None if info.forced_target is None else dict(info.forced_target),
+        forced_source=info.forced_source, forced_reason=info.forced_reason)
+    if decision.status != 'ACCEPTED':
+        raise ValueError('RS04_DECISION_' + decision.status + ':' + decision.reason)
+    _rs04_actual_check(info, current,
+        current if decision.kind == 'HOLD_POSITIONS' else dict(decision.target_weights),
+        stage='DECISION', mandatory=info.mandatory_reduce)
+    if mode != policy.mode:
+        # input_summary hashes the effective, reproducible kernel call above;
+        # public mode/reason describe the requested band action on the real book.
+        decision = replace(decision, mode=policy.mode, lambda_value=policy.lambda_value,
+                           reason='WITHIN_BAND_HOLD' if band_hold else 'FULL_TARGET')
+    return decision
+
+
+def _rs04_actual_check(info: RS04DecisionInput, current: Mapping[str, Any],
+                      target: Mapping[str, Any], *, stage: str, mandatory: bool) -> None:
+    from .partial_rebalance import _Refusal, _context, _hard_check
+
+    # Validate the frozen action; never call the decision selector a second time.
+    try:
+        context = _context(info.hard_policy_context, tuple(current))
+        if mandatory and any(target[s.symbol] > current[s.symbol]
+                             for s in context.securities if s.is_risk):
+            raise _Refusal('FORCED_RISK_INCREASE')
+        _hard_check(target, current, context)
+    except _Refusal as exc:
+        raise ValueError('RS04_' + stage + '_' + exc.status + ':' + exc.reason) from None
+
+
+def _rs04_receipt(decision: Any, info: RS04DecisionInput, snapshot: DecisionSnapshot) -> dict[str, Any]:
+    from dataclasses import asdict
+
+    return {'decision': asdict(decision), 'snapshot': {
+        'completed_session': snapshot.completed_session.isoformat(),
+        'completed_at': snapshot.completed_at, 'nav': snapshot.nav,
+        'security_values': dict(snapshot.security_values), 'cash': snapshot.cash,
+        'current_known': snapshot.current_known},
+        'full_target_source': info.full_target_source,
+        'full_target_available_at': info.full_target_available_at,
+        'full_target': dict(info.full_target), 'mandatory_reduce': info.mandatory_reduce,
+        'original_policy': asdict(info.hard_policy_context)}
+
+
+def _rs04_constrain_tail(policy: RS04ResearchPolicy, info: RS04DecisionInput,
+                         snapshot: DecisionSnapshot, proposal: Any, spec: Any):
+    """Consume the accepted pure kernel after B5, before any actual return read.
+
+    Only the complete original target-cap policy is representable here. A bounded
+    turnover permission is deliberately unsupported: omitting it would certify a
+    different feasible set. Original exact-rational checks remain authoritative.
+    """
+    from dataclasses import asdict
+    from fractions import Fraction
+    from .partial_rebalance import _context, _Refusal, _weights
+    from .cvar_exposure_constraint import (
+        Action, ApprovedAnchor, CostSpec, DecisionBook, ExposureCap, HardPolicy,
+        ScenarioSet, TailDescriptor, TailPolicy, constrain_tail_target,
+    )
+
+    def refuse(status: str, reason: str):
+        raise ValueError('RS04_CVAR_' + status + ':' + reason)
+
+    request = info.cvar_request
+    if type(request) is not RS04CVaRRequest:
+        refuse('REJECTED_INPUT', 'fixed request required')
+    descriptor = policy.cvar_descriptor
+    if (type(descriptor) is not TailDescriptor or not isinstance(descriptor.scope, str)
+            or not descriptor.scope.strip()
+            or descriptor.benchmark != 'ZERO_RETURN_RESIDUAL_CASH'):
+        refuse('UNAVAILABLE', 'explicit scope/currency/zero-cash descriptor required')
+    scenarios, tail_policy, costs = request.scenarios, request.tail_policy, request.cost_spec
+    if type(scenarios) is not ScenarioSet or type(tail_policy) is not TailPolicy:
+        refuse('UNAVAILABLE', 'missing scenarios or tail policy')
+    if scenarios.descriptor != descriptor or tail_policy.descriptor != descriptor:
+        refuse('UNAVAILABLE', 'scope/currency/horizon/descriptor mismatch')
+    if scenarios.symbols != policy.security_universe:
+        refuse('UNAVAILABLE', 'complete ordered security universe required')
+    if scenarios.synthetic is not True or tail_policy.synthetic_policy is not True:
+        refuse('UNAVAILABLE', 'consumer is synthetic only')
+    if scenarios.quality_attested is not True:
+        refuse('UNAVAILABLE', 'scenario quality declaration required')
+    # Labels alone never bind a policy: compare its complete canonical content,
+    # including classification, units, caps, vetoes, turnover and cap basis.
+    try:
+        context = _context(info.hard_policy_context, policy.security_universe)
+        bound = _context(request.original_policy, policy.security_universe)
+    except _Refusal as exc:
+        refuse('UNAVAILABLE', exc.reason)
+    if asdict(bound) != asdict(context):
+        refuse('UNAVAILABLE', 'original policy content drift')
+    if context.cap_basis != 'DECISION_TIME_TARGET':
+        refuse('UNSUPPORTED_HARD_POLICY', 'original fill/post-fee basis unsupported')
+    if context.turnover_basis != 'RISK_BUY_WEIGHT' or context.weight_unit != 'NAV_FRACTION':
+        refuse('UNSUPPORTED_HARD_POLICY', 'original policy units or basis unsupported')
+    if context.max_one_way_risk_turnover is not None:
+        refuse('UNSUPPORTED_HARD_POLICY', 'bounded original turnover is not represented by kernel')
+    if (type(costs) is not CostSpec or costs.model != 'FIXED_NONNEGATIVE_BPS'
+            or costs.unit != 'BPS_PER_SIDE' or costs.multiplier_unit != 'DIMENSIONLESS'):
+        refuse('UNSUPPORTED_COST_MODEL', 'fixed ledger per-side bps required')
+    if (not isinstance(costs.bps_by_symbol, Mapping)
+            or set(costs.bps_by_symbol) != set(spec.bps_per_side)
+            or any(_finite(costs.bps_by_symbol[s], 'RS04_CVAR_REJECTED_COST') != spec.bps_per_side[s]
+                   for s in spec.bps_per_side)
+            or _finite(costs.frozen_multiplier, 'RS04_CVAR_REJECTED_COST') != spec.multiplier):
+        refuse('UNAVAILABLE', 'forecast cost differs from actual ledger cost')
+    sources = {'scenarios': scenarios.source, 'tail_policy': tail_policy.source,
+               'cost': None, 'original_policy': context.source}
+    if request.anchor is not None:
+        if type(request.anchor) is not ApprovedAnchor:
+            refuse('REJECTED_INPUT', 'invalid approved anchor')
+        sources['anchor'] = request.anchor.source
+    known = request.known_inputs
+    if (not isinstance(known, tuple) or len(known) != len(sources)
+            or any(not isinstance(row, tuple) or len(row) != 4 for row in known)
+            or {row[0] for row in known} != set(sources)):
+        refuse('UNAVAILABLE', 'complete source/as_of/available_at required')
+    for component, source, as_of, available_at in known:
+        if (not isinstance(source, str) or not source.strip()
+                or (sources[component] is not None and source != sources[component])):
+            refuse('UNAVAILABLE', 'source binding mismatch')
+        if not _rs04_time(as_of) <= _rs04_time(available_at) <= _rs04_time(info.cutoff):
+            refuse('UNAVAILABLE', 'input unavailable at decision cutoff')
+    # Caps are generated from the original gate, never a caller-supplied wider
+    # HardPolicy. All coefficients are nonnegative linear target exposures.
+    universe = policy.security_universe
+    def cap(coefficients, limit):
+        return ExposureCap({s: coefficients.get(s, 0.) for s in universe}, limit, 'TARGET_ONLY')
+    caps = [cap({item.symbol: 1.}, item.max_weight) for item in context.securities]
+    risks = tuple(item for item in context.securities if item.is_risk)
+    caps.append(cap({item.symbol: item.effective_exposure_factor for item in risks},
+                    context.max_effective_risk_exposure))
+    caps.extend(cap({item.symbol: item.effective_exposure_factor for item in risks
+                     if item.underlying == underlying}, limit)
+                for underlying, limit in context.max_underlying_exposure)
+    caps.extend(cap({symbol: 1.}, 0.) for symbol in context.vetoed_symbols)
+    hard = HardPolicy(tuple(caps), tuple(item.symbol for item in risks), context.source,
+                      True, True, True)
+    # B5's funded weight encoding is a kernel preview, not the actual capital.
+    # Its normalized residual cannot certify the native money/NAV tail budget.
+    book = DecisionBook(_rs04_current_weights(snapshot), snapshot.nav, descriptor.currency, 0.)
+    action = Action(proposal.kind, None if proposal.target_weights is None else dict(proposal.target_weights))
+    forced = None if info.forced_target is None else dict(info.forced_target)
+    current = {s: Fraction(v) / Fraction(snapshot.nav) for s, v in snapshot.security_values}
+    # The float scenario kernel cannot certify a one-ulp original-gate breach.
+    # Invalid anchors remain unusable even when their float preview looks safe.
+    anchor = request.anchor
+    anchor_refusal = None
+    if anchor is not None and isinstance(anchor.action, Action) and anchor.action.kind == 'TARGET_WEIGHTS':
+        try:
+            anchor_weights = _weights(anchor.action.target_weights, universe)
+            _rs04_actual_check(info, current, anchor_weights, stage='CVAR_ANCHOR',
+                mandatory=info.mandatory_reduce or action.kind == 'HOLD_POSITIONS')
+        except (_Refusal, ValueError) as exc:
+            anchor_refusal = str(exc)
+            anchor = replace(anchor, approved=False)
+    constrained = constrain_tail_target(action, anchor, tail_policy, scenarios,
+        decision_book=book, bps_spec=costs, hard_policy=hard, forced_target=forced)
+    if constrained.action is None or constrained.evaluation is None or not constrained.evaluation.feasible:
+        refuse(constrained.status, constrained.reason)
+    selected = constrained.action
+    try:
+        target = current if selected.kind == 'HOLD_POSITIONS' else _weights(selected.target_weights, universe)
+    except _Refusal as exc:
+        refuse('REJECTED_INPUT', 'final funding: ' + exc.reason)
+    _rs04_actual_check(info, current, target, stage='CVAR_FINAL',
+        mandatory=info.mandatory_reduce or constrained.status == 'MANDATORY_TAIL_REDUCTION')
+    # Certify only this selected action, using the same known joint forecasts.
+    # Exact arithmetic preserves actual cash and any reconciled total/NAV gap;
+    # neither a synthetic residual nor a budget tolerance is risk permission.
+    # This is a local certificate, not another selector or an execution ledger.
+    values = {s: Fraction(v) for s, v in snapshot.security_values}
+    cash, nav = Fraction(snapshot.cash), Fraction(snapshot.nav)
+    rates = {s: Fraction(costs.bps_by_symbol[s]) / 10000 * Fraction(costs.frozen_multiplier)
+             for s in universe}
+    native_losses = []
+    for scenario in scenarios.scenarios:
+        pre = {s: values[s] * (1 + Fraction(scenario.fill_returns[s])) for s in universe}
+        pre_nav = sum(pre.values(), cash)
+        if pre_nav <= 0:
+            refuse('UNCOMPUTABLE', 'native book nonpositive forecast fill NAV')
+        if selected.kind == 'HOLD_POSITIONS':
+            end, remaining, fee = pre, cash, Fraction()
+        else:
+            end = {s: pre_nav * Fraction(target[s]) for s in universe}
+            fee = sum((abs(end[s] - pre[s]) * rates[s] for s in universe), Fraction())
+            remaining = pre_nav - sum(end.values(), Fraction()) - fee
+        endpoint = sum((end[s] * (1 + Fraction(scenario.earn_returns[s]))
+                        for s in universe), remaining)
+        if remaining < 0 or endpoint <= 0 or fee >= pre_nav:
+            refuse('UNCOMPUTABLE', 'native book selected action fails forecast funding/positive NAV')
+        native_losses.append((1 - endpoint / nav, Fraction(scenario.probability)))
+    mass = 1 - Fraction(descriptor.alpha_confidence)
+    remaining_mass, tail_loss = mass, Fraction()
+    for loss, probability in sorted(native_losses, key=lambda pair: pair[0], reverse=True):
+        take = min(remaining_mass, probability)
+        tail_loss += take * loss
+        remaining_mass -= take
+        if not remaining_mass:
+            break
+    if remaining_mass or tail_loss / mass > Fraction(tail_policy.budget):
+        refuse('UNCOMPUTABLE', 'native book selected action fails exact tail budget certificate')
+    native_certificate = {'basis': 'ACTUAL_VALUES_CASH_UNCHANGED_DECISION_NAV',
+        'security_values': dict(snapshot.security_values), 'cash': snapshot.cash, 'nav': snapshot.nav,
+        'es_fraction': str(tail_loss / mass), 'budget_fraction': str(Fraction(tail_policy.budget))}
+    if constrained.status != 'PROPOSAL_FEASIBLE':
+        proposal = replace(proposal, kind=selected.kind,
+            target_weights=tuple(selected.target_weights.items()),
+            residual_cash=float(1 - sum(map(Fraction, target.values()), Fraction())),
+            reason=constrained.status)
+    return proposal, {'constraint': asdict(constrained), 'decision_book': asdict(book),
+        'native_book_certificate': native_certificate,
+        'descriptor': asdict(descriptor), 'cost': asdict(costs), 'hard_policy': asdict(hard),
+        'known_inputs': known, 'policy_source': tail_policy.source, 'budget': tail_policy.budget,
+        'anchor': None if request.anchor is None else asdict(request.anchor),
+        'anchor_original_gate_refusal': anchor_refusal,
+        'execution_action': asdict(selected), 'policy_authenticated': False,
+        'pit_authenticated': False, 'endpoint_is_before_next_fill': True}
