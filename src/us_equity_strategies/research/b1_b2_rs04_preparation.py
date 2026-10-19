@@ -8,7 +8,7 @@ fee schedule or risk cap, open a holdout, or write a journal.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from statistics import stdev
@@ -116,6 +116,88 @@ QPK_INTERFACE_GAPS = (
 
 class PreparationStop(ValueError):
     """Fail-closed preparation error. Carries a reason code, never market data."""
+
+
+# OWNER_APPROVED 2026-10-14: the immutable contract's D03/D04/D06/D07
+# (lines 35-39, 135-140). This is separate from RECOMMENDED_PROPOSAL.
+# A matching reference identifies the document; it does not authenticate a caller
+# or attest the scope, input source, actual initializer, runner or research gates.
+_APPROVED_SUBSET_SOURCE = (
+    ("repository", "QuantStrategyLab/UsEquityStrategies"),
+    ("contract_path", "docs/research/b1_b2_freeze_decision_contract.zh-CN.md"),
+    ("contract_blob", "3cd71037ea463e4921324d5996995fcc73eb2e8e"),
+    ("approval_date", "2026-10-14"),
+    ("decisions", ("D03", "D04", "D06", "D07")),
+    ("scope", "RS-04 SOXL/TQQQ research core"),
+)
+_APPROVED_SUBSET_PARAMETERS = (
+    ("b1_rows", ("fixed_50_subject_to_original_cap", "kelly_c_0.25_once",
+                 "kelly_c_0.5_once", "ewma_vol_target_and_kelly_cap")),
+    ("kelly_primary_c", 0.25), ("kelly_comparison_c", 0.5), ("ewma_kelly_c", 0.25),
+    ("fractional_application_count", 1), ("cap_priority", "ORIGINAL_CAP_AFTER_FRACTIONAL"),
+    ("b2_rows", ("original_ladder", "continuous_drawdown")),
+    ("b2_base_row", "kelly_c_0.25_once"), ("cartesian_product", False),
+    ("ewma_form", "v_next=lambda*v_current+(1-lambda)*r_t^2"),
+    ("return_unit", "daily_simple_return"),
+    ("variance_unit", "simple_return_squared_per_observation"),
+    ("target_vol_annualized", 0.20), ("annualization_sessions", 252), ("ewma_lambda", 0.94),
+    ("initial_variance_rule", "sample_variance_first_63_training_sessions"),
+    ("warmup_sessions", 63), ("warmup_status", "PARKED"), ("warmup_exposure", 0.0),
+    ("latest_observation", "t-1"), ("invalid_observation_rule", "PARKED_ZERO_NO_PREDICTOR_SWITCH"),
+    ("sensitivity_target_vol_annualized", 0.30), ("sensitivity_ewma_lambda", 0.97),
+    ("sensitivity_role", "REPORT_ONLY"),
+    ("har_rv", "PARKED"), ("har_registered", False), ("har_run", False),
+)
+_UNVERIFIED_RESEARCH_PREREQUISITES = (
+    "D01_SCOPE", "D02_RUNNER", "D05_RETURN_CASH_BASIS", "D08_CAPS_AND_RECOVERY",
+    "D09_EXECUTION_TIMING", "D10_FEES", "D11_SOURCE_LICENSE_PIT", "D12_HOLDOUT_FOLDS",
+    "D13_STATISTICAL_ROLES", "D14_TAIL_BUDGET", "D15_JOURNAL", "D16_REVIEW_AND_RUN_APPROVAL",
+)
+
+
+def _approved_subset_value(value: object, expected: object) -> bool:
+    if isinstance(expected, tuple):
+        # Listing order is not a new candidate; missing/duplicate/extra rows are.
+        return (type(value) in (list, tuple) and len(value) == len(expected)
+                and all(type(item) is str for item in value) and set(value) == set(expected))
+    if type(expected) is float:
+        return type(value) in (int, float) and value == expected and math.isfinite(value)
+    return type(value) is type(expected) and value == expected
+
+
+def validate_approved_parameter_subset(parameters: Mapping[str, object], *,
+                                       source_binding: Mapping[str, object] | None) -> dict[str, object]:
+    """Check only the documented D03/D04/D06/D07 parameter record, without I/O.
+
+    This does not calculate EWMA, sizing or Bayes, inspect observations, prove
+    actual runner adoption, or accept prerequisite attestations. In particular,
+    missing scope/PIT/holdout/journal evidence cannot be supplied as extra fields
+    or promoted by a successful parameter comparison. The other decisions remain
+    unverified by this function even if some of their values were approved.
+    Returned mappings are fresh and their sequence values are immutable.
+    """
+    if not isinstance(source_binding, Mapping):
+        raise PreparationStop("APPROVED_SUBSET_SOURCE_REQUIRED")
+    if set(source_binding) != {key for key, _ in _APPROVED_SUBSET_SOURCE}:
+        raise PreparationStop("APPROVED_SUBSET_SOURCE_MISMATCH")
+    for key, expected in _APPROVED_SUBSET_SOURCE:
+        if not _approved_subset_value(source_binding[key], expected):
+            raise PreparationStop("APPROVED_SUBSET_SOURCE_MISMATCH:" + key)
+    if not isinstance(parameters, Mapping) or set(parameters) != {key for key, _ in _APPROVED_SUBSET_PARAMETERS}:
+        raise PreparationStop("APPROVED_SUBSET_FIELDS_INVALID")
+    for key, expected in _APPROVED_SUBSET_PARAMETERS:
+        if not _approved_subset_value(parameters[key], expected):
+            raise PreparationStop("APPROVED_SUBSET_PARAMETER_MISMATCH:" + key)
+    return {
+        "status": "OWNER_APPROVED_SUBSET_ONLY",
+        "validated_decisions": ("D03", "D04", "D06", "D07"),
+        "parameters": dict(_APPROVED_SUBSET_PARAMETERS),
+        "source_binding": dict(_APPROVED_SUBSET_SOURCE),
+        "source_binding_role": "DOCUMENT_REFERENCE_NOT_EXTERNAL_ATTESTATION",
+        "unverified_prerequisites": _UNVERIFIED_RESEARCH_PREREQUISITES,
+        "research_frozen": False, "research_allowed": False,
+        "live_ready": False, "no_order": True, "budget_effect": BUDGET_EFFECT_NONE,
+    }
 
 
 def _finite(value: object, code: str) -> float:
