@@ -3,6 +3,7 @@
 Fixture seed and absolute tolerance are engineering bindings only.
 They do not freeze research parameters, fees, caps, PIT, holdout, or a journal.
 """
+import copy
 import importlib
 import inspect
 import math
@@ -51,6 +52,161 @@ def _days(n, start=date(2026, 1, 5)):
             out.append(day)
         day += timedelta(days=1)
     return out
+
+
+def _approved_subset_fixture():
+    # Owner decisions D03/D04/D06/D07, contract lines 35-39 and 135-140.
+    # These are parameter records, not observations, scope caps or data approval.
+    parameters = {
+        "b1_rows": ("fixed_50_subject_to_original_cap", "kelly_c_0.25_once",
+                    "kelly_c_0.5_once", "ewma_vol_target_and_kelly_cap"),
+        "kelly_primary_c": 0.25, "kelly_comparison_c": 0.5, "ewma_kelly_c": 0.25,
+        "fractional_application_count": 1, "cap_priority": "ORIGINAL_CAP_AFTER_FRACTIONAL",
+        "b2_rows": ("original_ladder", "continuous_drawdown"),
+        "b2_base_row": "kelly_c_0.25_once", "cartesian_product": False,
+        "ewma_form": "v_next=lambda*v_current+(1-lambda)*r_t^2",
+        "return_unit": "daily_simple_return",
+        "variance_unit": "simple_return_squared_per_observation",
+        "target_vol_annualized": 0.20, "annualization_sessions": 252, "ewma_lambda": 0.94,
+        "initial_variance_rule": "sample_variance_first_63_training_sessions",
+        "warmup_sessions": 63, "warmup_status": "PARKED", "warmup_exposure": 0.0,
+        "latest_observation": "t-1", "invalid_observation_rule": "PARKED_ZERO_NO_PREDICTOR_SWITCH",
+        "sensitivity_target_vol_annualized": 0.30, "sensitivity_ewma_lambda": 0.97,
+        "sensitivity_role": "REPORT_ONLY",
+        "har_rv": "PARKED", "har_registered": False, "har_run": False,
+    }
+    source = {
+        "repository": "QuantStrategyLab/UsEquityStrategies",
+        "contract_path": "docs/research/b1_b2_freeze_decision_contract.zh-CN.md",
+        "contract_blob": "3cd71037ea463e4921324d5996995fcc73eb2e8e",
+        "approval_date": "2026-10-14", "decisions": ("D03", "D04", "D06", "D07"),
+        "scope": "RS-04 SOXL/TQQQ research core",
+    }
+    return parameters, source
+
+
+def test_approved_subset_checks_documented_values_without_research_or_legacy_changes(monkeypatch):
+    parameters, source = _approved_subset_fixture()
+    before = copy.deepcopy((parameters, source, prep.RECOMMENDED_PROPOSAL))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("parameter validation must not calculate or start a trial")
+
+    for name in ("compose_exposure", "advance_vol_forecast", "AttemptLedger"):
+        monkeypatch.setattr(prep, name, forbidden)
+    result = prep.validate_approved_parameter_subset(parameters, source_binding=source)
+    assert result["status"] == "OWNER_APPROVED_SUBSET_ONLY"
+    assert result["validated_decisions"] == ("D03", "D04", "D06", "D07")
+    assert result["parameters"] == parameters
+    assert result["source_binding"] == source
+    assert result["source_binding_role"] == "DOCUMENT_REFERENCE_NOT_EXTERNAL_ATTESTATION"
+    assert result["research_frozen"] is result["research_allowed"] is result["live_ready"] is False
+    assert result["no_order"] is True and result["budget_effect"] == "NONE"
+    assert not {"exposure", "nav", "posterior", "trial_id"} & result.keys()
+    assert (parameters, source, prep.RECOMMENDED_PROPOSAL) == before
+
+
+@pytest.mark.parametrize("field,value", [
+    ("kelly_primary_c", 0.5), ("kelly_comparison_c", 0.6), ("ewma_kelly_c", 0.5),
+    ("fractional_application_count", 2), ("cartesian_product", True),
+    ("b2_base_row", "kelly_c_0.5_once"), ("cap_priority", "BASELINE_EXEMPT"),
+    ("target_vol_annualized", 0.30), ("ewma_lambda", 0.97),
+    ("initial_variance_rule", "legacy_default"), ("warmup_sessions", 30),
+    ("latest_observation", "t"), ("return_unit", "annualized_return"),
+    ("variance_unit", "standard_deviation"), ("sensitivity_role", "SELECTION_TRIAL"),
+    ("har_rv", "EWMA_FALLBACK"), ("har_registered", True), ("har_run", True),
+    ("warmup_exposure", True), ("fractional_application_count", True),
+    ("ewma_lambda", float("nan")), ("target_vol_annualized", float("inf")),
+    ("warmup_sessions", None),
+])
+def test_approved_subset_rejects_unapproved_parameters(field, value):
+    parameters, source = _approved_subset_fixture()
+    parameters[field] = value
+    with pytest.raises(prep.PreparationStop, match="APPROVED_SUBSET_PARAMETER_MISMATCH"):
+        prep.validate_approved_parameter_subset(parameters, source_binding=source)
+
+
+@pytest.mark.parametrize("field,rows", [
+    ("b1_rows", ("fixed_50_subject_to_original_cap", "kelly_c_0.25_once",
+                 "kelly_c_0.5_once", "ewma_vol_target_and_kelly_cap", "pure_vol_target")),
+    ("b1_rows", ("kelly_c_0.25_once",)),
+    ("b1_rows", ("fixed_50_subject_to_original_cap", "kelly_c_0.25_once",
+                 "kelly_c_0.5_once", "ewma_vol_target_and_kelly_cap", "kelly_c_0.25_once")),
+    ("b2_rows", ("original_ladder", "continuous_drawdown", "normalized_cushion")),
+])
+def test_approved_subset_rejects_added_missing_or_duplicate_candidates(field, rows):
+    parameters, source = _approved_subset_fixture()
+    parameters[field] = rows
+    with pytest.raises(prep.PreparationStop, match="APPROVED_SUBSET_PARAMETER_MISMATCH"):
+        prep.validate_approved_parameter_subset(parameters, source_binding=source)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("repository", "other/UsEquityStrategies"), ("contract_path", "recommendation.md"),
+    ("contract_blob", "0" * 40), ("approval_date", "2026-10-11"),
+    ("decisions", ("D03", "D04", "D06", "D08")), ("scope", "live_plugins_as_live"),
+])
+def test_approved_subset_rejects_source_or_scope_drift(field, value):
+    parameters, source = _approved_subset_fixture()
+    source[field] = value
+    with pytest.raises(prep.PreparationStop, match="APPROVED_SUBSET_SOURCE_MISMATCH"):
+        prep.validate_approved_parameter_subset(parameters, source_binding=source)
+
+
+@pytest.mark.parametrize("kind", ["absent", "incomplete", "extra_approval_claim"])
+def test_approved_subset_requires_exact_source_evidence(kind):
+    parameters, source = _approved_subset_fixture()
+    if kind == "absent":
+        source = None
+    elif kind == "incomplete":
+        del source["contract_blob"]
+    else:
+        source["owner_approved"] = True
+    with pytest.raises(prep.PreparationStop, match="APPROVED_SUBSET_SOURCE"):
+        prep.validate_approved_parameter_subset(parameters, source_binding=source)
+
+
+@pytest.mark.parametrize("claims", [
+    {}, {"scope": "FROZEN"}, {"scope": "FROZEN", "pit": "ATTESTED"},
+    {"scope": "FROZEN", "pit": "ATTESTED", "holdout": "UNTOUCHED", "journal": "COMPLETE"},
+    {"research_frozen": True}, {"research_allowed": True},
+])
+def test_approved_subset_missing_or_claimed_prerequisites_cannot_enable_research(claims):
+    parameters, source = _approved_subset_fixture()
+    if claims:
+        parameters.update(claims)
+        with pytest.raises(prep.PreparationStop, match="APPROVED_SUBSET_FIELDS_INVALID"):
+            prep.validate_approved_parameter_subset(parameters, source_binding=source)
+    else:
+        result = prep.validate_approved_parameter_subset(parameters, source_binding=source)
+        assert set(result["unverified_prerequisites"]) == {
+            "D01_SCOPE", "D02_RUNNER", "D05_RETURN_CASH_BASIS", "D08_CAPS_AND_RECOVERY",
+            "D09_EXECUTION_TIMING", "D10_FEES", "D11_SOURCE_LICENSE_PIT", "D12_HOLDOUT_FOLDS",
+            "D13_STATISTICAL_ROLES", "D14_TAIL_BUDGET", "D15_JOURNAL", "D16_REVIEW_AND_RUN_APPROVAL",
+        }
+        assert result["research_allowed"] is result["research_frozen"] is False
+
+
+def test_approved_subset_is_not_the_recommended_bundle_and_rejects_missing_fields():
+    parameters, source = _approved_subset_fixture()
+    for bundle in (prep.RECOMMENDED_PROPOSAL, {k: v for k, v in parameters.items() if k != "ewma_lambda"}, None):
+        with pytest.raises(prep.PreparationStop, match="APPROVED_SUBSET_FIELDS_INVALID"):
+            prep.validate_approved_parameter_subset(bundle, source_binding=source)
+
+
+def test_approved_subset_copies_sequences_and_accepts_candidate_listing_order():
+    parameters, source = _approved_subset_fixture()
+    parameters["b1_rows"] = list(reversed(parameters["b1_rows"]))
+    source["decisions"] = list(reversed(source["decisions"]))
+    result = prep.validate_approved_parameter_subset(parameters, source_binding=source)
+    parameters["b1_rows"].append("HAR")
+    source["decisions"].append("D08")
+    assert result["parameters"]["b1_rows"] == _approved_subset_fixture()[0]["b1_rows"]
+    assert result["validated_decisions"] == ("D03", "D04", "D06", "D07")
+    result["source_binding"]["scope"] = "changed_return_value"
+    assert prep.validate_approved_parameter_subset(*_approved_subset_fixture()[:1],
+                                                source_binding=_approved_subset_fixture()[1])["source_binding"]["scope"] == (
+        "RS-04 SOXL/TQQQ research core")
 
 
 def test_proposal_marks_gaps_and_refuses_a_research_freeze():
