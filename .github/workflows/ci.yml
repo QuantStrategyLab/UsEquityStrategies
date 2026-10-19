@@ -199,11 +199,14 @@ jobs:
             tests/research/test_security_netting_compounding_report.py \
             tests/research/test_security_netting_rs06_reconciliation.py \
             tests/research/test_portfolio_netting_candidate_closed_loop.py \
+            tests/research/test_rs04_netting_candidate.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
           root = ET.parse("security-netting-tests.xml").getroot()
           cases = list(root.iter("testcase"))
+          rs04_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_netting_candidate.RS04NettingCandidateTests")]
+          assert len(rs04_cases) >= 13, "RS04 CorePath netting candidate tests were not fully collected"
           assert any("cash_funded_hand_math_and_fee_feedback" in c.attrib["name"] for c in cases)
           assert any("seeded_sessions_reconcile_with_fee_feedback" in c.attrib["name"] for c in cases)
           assert len([c for c in cases if c.attrib["classname"].endswith("test_security_netting_compounding_report")]) >= 18
