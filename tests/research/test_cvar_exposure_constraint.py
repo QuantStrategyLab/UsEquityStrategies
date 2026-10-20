@@ -533,5 +533,60 @@ class ConstraintTests(KernelFixture):
         self.assertEqual(first.budget_effect, "NONE")
 
 
+class RiskCertificateGrowthBoundaryTests(KernelFixture):
+    """Feasibility is not expected-log optimality, even on the certified line."""
+
+    def test_feasible_certificates_do_not_order_expected_log_growth(self):
+        # Eight unique fixed inputs across this batch: five Gaussian cases
+        # and these three cases. The same symmetric Gaussian is reused.
+        cases = ((Fraction(1, 2), .2, .1, "PROPOSAL_FEASIBLE"),
+                 (Fraction(1, 4), .2, .24, "PROPOSAL_FEASIBLE"),
+                 (Fraction(1, 2), .8, .1, "TAIL_TARGET_TIGHTENED"))
+        for p_bad, proposed, comparison, status in cases:
+            with self.subTest(p_bad=p_bad, proposed=proposed, comparison=comparison):
+                a = self.args()
+                a["proposal"] = Action("TARGET_WEIGHTS", {"RISK": proposed})
+                a["scenario_set"] = replace(a["scenario_set"], scenarios=(
+                    JointScenario("math-bad", float(p_bad), {"RISK": 0.}, {"RISK": -.2}),
+                    JointScenario("math-good", float(1 - p_bad), {"RISK": 0.}, {"RISK": .2})))
+                chosen = constrain_tail_target(**a)
+                other = constrain_tail_target(**{
+                    **a, "proposal": Action("TARGET_WEIGHTS", {"RISK": comparison})})
+                self.assertEqual(chosen.status, status)
+                self.assertEqual(other.status, "PROPOSAL_FEASIBLE")
+                self.assertTrue(chosen.evaluation.feasible)
+                self.assertTrue(other.evaluation.feasible)
+                # Independent quantity/cash ledger, same fixed two-session
+                # horizon and one 10bps forecast fee, no second trade.
+                scores, utilities = [], []
+                for result in (chosen, other):
+                    terminals = []
+                    for earn in (-.2, .2):
+                        terminal, cash, _ = ledger_oracle(
+                            {"RISK": .4}, result.target_weights, {"RISK": 0.},
+                            {"RISK": earn}, {"RISK": 10.})
+                        self.assertGreater(terminal, 0)
+                        self.assertGreaterEqual(cash, 0)
+                        terminals.append(terminal)
+                    # If p=a/d, log ordering equals ordering this exact
+                    # rational product, without an integration/solver API.
+                    numerator, denominator = p_bad.numerator, p_bad.denominator
+                    scores.append(terminals[0] ** numerator
+                                  * terminals[1] ** (denominator - numerator))
+                    with localcontext() as ctx:
+                        ctx.prec = 60
+                        utilities.append(sum(
+                            (Decimal(prob.numerator) / prob.denominator)
+                            * (Decimal(g.numerator) / g.denominator).ln()
+                            for prob, g in zip((p_bad, 1 - p_bad), terminals)))
+                self.assertGreater(scores[1], scores[0])  # exact ordering
+                self.assertGreater(utilities[1] - utilities[0], Decimal('.00001'))
+                self.assertTrue(chosen.no_order)
+                self.assertFalse(chosen.live_ready)
+                print("MATH_GROWTH_BOUNDARY", p_bad, proposed, comparison,
+                      "selected", chosen.target_weights["RISK"],
+                      "expected_log_gap", utilities[1] - utilities[0])
+
+
 if __name__ == "__main__":
     unittest.main()
