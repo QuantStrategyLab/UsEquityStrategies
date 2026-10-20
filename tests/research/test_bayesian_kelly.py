@@ -323,5 +323,64 @@ class BayesianKellyTests(unittest.TestCase):
         self.assertEqual(out.targets, (0.,))
 
 
+class ExpectedLogProxyBoundaryTests(unittest.TestCase):
+    """Conditional one-core log utility; mathematical caps give no authority."""
+
+    def moments_at(self, mu):
+        # Sigma=1/32, n=1 gives v=3/64 exactly; no covariance fitting.
+        state = initialise_b4(SPEC, ((1 / 32,),), TRAINING)
+        return b4_predictive_moments(admit(
+            state, observation(1, (2 * mu + 1 / 32,))).state)
+
+    def test_expected_log_endpoint_conditions_bound_proxy_scope(self):
+        # U(0)=0, U(1)=mu; strict concavity and the endpoint derivatives
+        # determine the full optimum's location, without integration.
+        cases = ((-3 / 64, "ZERO"), (-3 / 128, "ZERO"),
+                 (0., "INTERIOR"), (3 / 128, "ONE"), (3 / 64, "ONE"))
+        for mu, expected in cases:
+            with self.subTest(mu=mu, optimum=expected), localcontext() as ctx:
+                ctx.prec = 70
+                m = self.moments_at(mu)
+                self.assertEqual(m.mean_log, (mu,))
+                self.assertEqual(m.predictive_cov_log, ((3 / 64,),))
+                md, v = Decimal(mu), Decimal(3) / 64
+                d0 = (md + v / 2).exp() - 1
+                d1 = 1 - (-md + v / 2).exp()
+                location = "ZERO" if d0 <= 0 else "ONE" if d1 >= 0 else "INTERIOR"
+                self.assertEqual(location, expected)
+                out = b4_fractional_target(m, c=.5, scope_cap={"TQQQ": 1.},
+                                           cap_source="synthetic-math-domain-only")
+                self.assertEqual(out.approximation, "SECOND_ORDER_FRICTIONLESS_PROXY")
+                if expected == "ZERO":
+                    self.assertEqual(out.targets, (0.,))
+                else:
+                    self.assertGreater(out.targets[0], 0.)
+                    self.assertLess(out.targets[0], 1.)
+                if mu == 3 / 128:
+                    # The full log optimum is 1, yet even the unfractional
+                    # raw proxy is below 1. This is approximation, not a bug.
+                    self.assertLess(out.raw_second_order[0], .95)
+
+    def test_symmetric_log_oracle_reverses_quadratic_proxy_preference(self):
+        # With mu=0, U'(.5)=2 E[tanh(Y/2)]=0 by symmetry. Strict
+        # concavity gives the unique full log optimum .5. No general
+        # closed form or numerical utility gap is asserted.
+        m = self.moments_at(0.)
+        self.assertEqual(m.mean_log, (0.,))
+        out = b4_fractional_target(m, c=.5, scope_cap={"TQQQ": 1.},
+                                   cap_source="synthetic-math-domain-only")
+        raw = out.raw_second_order[0]
+        mean, second = m.mean_simple[0], m.second_raw_moment_simple[0]
+        quadratic_raw = mean * raw - second * raw * raw / 2
+        quadratic_log_optimum = mean / 2 - second / 8
+        self.assertGreater(quadratic_raw, quadratic_log_optimum)
+        self.assertGreater(.5 - raw, .03)
+        self.assertLess(.5 - raw, .04)
+        # Compare to c times the exact full optimum, preserving the
+        # intentional fractional rule instead of calling it a sizing bug.
+        self.assertGreater(.25 - out.targets[0], .015)
+        self.assertLess(.25 - out.targets[0], .02)
+
+
 if __name__ == "__main__":
     unittest.main()
