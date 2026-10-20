@@ -27,6 +27,12 @@ TARGETS = ({"SOXL": .6, "BOXX": .2}, {"SOXL": .2, "BOXX": .5},
            {"SOXL": .4, "BOXX": .3})
 
 
+requires_security_netting = pytest.mark.skipif(
+    SecurityNettingSpec is None and os.environ.get("UES_REQUIRE_SECURITY_NETTING") != "1",
+    reason="production QPK pin lacks research-only security netting",
+)
+
+
 def _synthetic_forward_state():
     from us_equity_strategies.research.rs04_netting_candidate import new_synthetic_r0_r3_state
     return new_synthetic_r0_r3_state(
@@ -60,6 +66,7 @@ def _synthetic_step(state, payload):
                                source_contract_sha256="b"*64)
 
 
+@requires_security_netting
 def test_synthetic_forward_pending_own_band_hand_math_and_endpoint(monkeypatch):
     import us_equity_strategies.research.rs04_netting_candidate as module
     monkeypatch.setattr(module, "run_registered_r0_r3_batch", lambda **kw: pytest.fail("historical batch called"))
@@ -93,6 +100,7 @@ def test_synthetic_forward_pending_own_band_hand_math_and_endpoint(monkeypatch):
     assert state == _synthetic_forward_state()  # all transitions are non-mutating and paired atomically.
 
 
+@requires_security_netting
 def test_synthetic_forward_duplicate_is_exactly_once_even_after_later_inputs():
     state = _synthetic_forward_state(); p1 = _synthetic_forward_input(state, 1)
     first, r1 = _synthetic_step(state, p1)
@@ -107,6 +115,7 @@ def test_synthetic_forward_duplicate_is_exactly_once_even_after_later_inputs():
     assert _synthetic_bytes(second) == before
 
 
+@requires_security_netting
 def test_synthetic_forward_receipt_mutation_cannot_change_committed_pending():
     state = _synthetic_forward_state()
     first, receipt = _synthetic_step(state, _synthetic_forward_input(state, 1))
@@ -115,6 +124,7 @@ def test_synthetic_forward_receipt_mutation_cannot_change_committed_pending():
     assert _synthetic_bytes(first) == before
 
 
+@requires_security_netting
 def test_synthetic_forward_future_fill_snapshot_never_changes_prior_pending():
     state = _synthetic_forward_state()
     first, _ = _synthetic_step(state, _synthetic_forward_input(state, 1))
@@ -127,6 +137,7 @@ def test_synthetic_forward_future_fill_snapshot_never_changes_prior_pending():
     assert _synthetic_bytes(first) == before
 
 
+@requires_security_netting
 def test_synthetic_forward_checkpoint_carrier_real_encoded_sizes(record_property):
     from quant_platform_kit.common.strategy_risk_state import (
         StrategyRiskStateIdentity, build_strategy_risk_state_transition)
@@ -168,6 +179,7 @@ def test_synthetic_forward_invalid_input_leaves_all_four_books_unchanged(mutatio
     assert _synthetic_bytes(state) == before
 
 
+@requires_security_netting
 def test_synthetic_forward_fee_cash_failure_does_not_partially_commit_other_books():
     state = _synthetic_forward_state(); p = _synthetic_forward_input(state, 1)
     p["profiles"]["SOXL"]["full_target"] = {"SOXL": 1., "SOXX": 0., "BOXX": 0.}
@@ -177,6 +189,7 @@ def test_synthetic_forward_fee_cash_failure_does_not_partially_commit_other_book
     assert _synthetic_bytes(first) == before
 
 
+@requires_security_netting
 def test_synthetic_forward_strict_codec_restore_continues_identically():
     from us_equity_strategies.research.rs04_netting_candidate import (
         encode_synthetic_r0_r3_state, decode_synthetic_r0_r3_state)
@@ -193,6 +206,7 @@ def test_synthetic_forward_strict_codec_restore_continues_identically():
     with pytest.raises(ValueError): decode_synthetic_r0_r3_state(b'{"body":{},"body":{},"sha256":"x"}', code_sha256="a"*64, source_contract_sha256="b"*64)
 
 
+@requires_security_netting
 def test_synthetic_forward_memory_commit_unknown_and_serialized_boundary_recovery():
     from us_equity_strategies.research.rs04_netting_candidate import (
         SyntheticR0R3MemorySession, encode_synthetic_r0_r3_state)
@@ -219,6 +233,7 @@ def test_synthetic_forward_memory_commit_unknown_and_serialized_boundary_recover
     assert duplicate == prepared and duplicate_receipt == receipt and restored.status == "READY"
 
 
+@requires_security_netting
 def test_synthetic_forward_existing_local_carrier_pair_atomicity_capacity_and_restore(tmp_path, record_property):
     import us_equity_strategies.research.rs04_netting_candidate as module
     from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateStore, StrategyRiskStateIdentity
@@ -254,6 +269,7 @@ def test_synthetic_forward_existing_local_carrier_pair_atomicity_capacity_and_re
         code_sha256="a"*64, source_contract_sha256="b"*64) == memory.state_bytes
 
 
+@requires_security_netting
 def test_synthetic_forward_existing_carrier_partial_profile_unknown_stops_new_id(tmp_path, monkeypatch):
     import us_equity_strategies.research.rs04_netting_candidate as module
     from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateStore
@@ -278,6 +294,7 @@ def test_synthetic_forward_existing_carrier_partial_profile_unknown_stops_new_id
     with pytest.raises(ValueError): module.save_synthetic_r0_r3_checkpoint(state, fixture_root=root)
 
 
+@requires_security_netting
 def test_synthetic_forward_existing_carrier_after_write_unknown_readback_and_corruption(tmp_path, monkeypatch):
     import us_equity_strategies.research.rs04_netting_candidate as module
     state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
@@ -304,6 +321,7 @@ def test_synthetic_forward_existing_carrier_after_write_unknown_readback_and_cor
         load(fixture_root=root, config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
 
 
+@requires_security_netting
 def test_synthetic_bundle_file_checkpoint_keeps_complete_four_book_state_above_8k(tmp_path, record_property):
     import us_equity_strategies.research.rs04_netting_candidate as module
     state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
@@ -326,6 +344,7 @@ def test_synthetic_bundle_file_checkpoint_keeps_complete_four_book_state_above_8
     with pytest.raises(ValueError): module.save_synthetic_r0_r3_file_checkpoint(_synthetic_forward_state(), fixture_root=root)
 
 
+@requires_security_netting
 @pytest.mark.parametrize("failure", ["before_link", "after_link", "readback"])
 def test_synthetic_bundle_file_checkpoint_unknown_same_id_restart_single_fee(tmp_path, monkeypatch, failure, record_property):
     import os
@@ -378,6 +397,7 @@ def test_synthetic_bundle_file_checkpoint_unknown_same_id_restart_single_fee(tmp
     assert decoded["version"] == 2 and len(list(root.glob("checkpoint.v*.json"))) == 3
 
 
+@requires_security_netting
 @pytest.mark.parametrize("corruption", ["bytes", "missing_parent", "conflicting_version"])
 def test_synthetic_bundle_file_checkpoint_corrupt_or_conflicting_chain_parks(tmp_path, corruption):
     import us_equity_strategies.research.rs04_netting_candidate as module
@@ -2114,6 +2134,7 @@ class QQQPairSensitivityTests(unittest.TestCase):
         self.assertNotEqual(options['input_source_registration'], registered)
 
 
+@requires_security_netting
 @pytest.mark.parametrize("mutation", ["candidate_pending_swap", "malformed_cached_pending"])
 def test_syn001_reviewer_pending_counterexamples(tmp_path, mutation):
     # Original reviewer body; this execution is AUTHOR reproduction, not prior independent PASS.
@@ -2162,6 +2183,7 @@ def test_syn001_reviewer_pending_counterexamples(tmp_path, mutation):
     pytest.fail('SYN-001: codec accepts internally inconsistent candidate pending / cached receipt')
 
 
+@requires_security_netting
 @pytest.mark.parametrize("mutation", [
     "current_target", "current_owner", "latest_string", "latest_target", "extra_pending_key",
     "historical_next_string", "historical_next_target", "historical_previous_string",
@@ -2207,6 +2229,7 @@ def test_syn001_pending_chain_rejected_at_encoder_decoder_and_cached_replay(muta
     assert _synthetic_bytes(state) == valid_before
 
 
+@requires_security_netting
 def test_syn001_normal_owned_pending_and_cached_receipt_remain_independent(record_property):
     state = _synthetic_forward_state()
     first, first_receipt = _synthetic_step(state, _synthetic_forward_input(state, 1))
