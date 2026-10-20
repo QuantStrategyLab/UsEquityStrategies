@@ -26,6 +26,61 @@ def spec(**kwargs):
     return SecurityNettingSpec(bps_per_side={"A": 100., "BOXX": 20.}, **kwargs)
 
 
+def test_synthetic_forward_book_holds_exact_units_and_does_not_earn_pending_return():
+    from us_equity_strategies.research.security_netting_runner import (
+        new_synthetic_virtual_book, step_synthetic_virtual_book)
+    from us_equity_strategies.research.partial_rebalance import (
+        NoPluginCorePolicyContext, CORE_ONLY_MAPPING_SHA256, CORE_ONLY_CONFIG_SHA256,
+        CORE_ONLY_SOURCE_SHA256)
+    context = NoPluginCorePolicyContext("TQQQ", "SYNTHETIC_ONLY", "ARTIFICIAL_FIXTURE", "a"*64,
+        CORE_ONLY_MAPPING_SHA256, CORE_ONLY_CONFIG_SHA256, tuple(sorted(CORE_ONLY_SOURCE_SHA256.items())))
+    book = new_synthetic_virtual_book("TQQQ", "R3", "2026-01-15")
+    target = {"TQQQ": .5, "QQQM": .2, "BOXX": .1}
+    def step(book, day, following, returns):
+        return step_synthetic_virtual_book(book, session=day, next_session=following,
+            security_returns=returns, full_target=target, cutoff=day+"T21:03:00+00:00", policy_context=context)
+    one, _ = step(book, "2026-01-16", "2026-01-20", {"TQQQ": .8, "QQQM": -.2, "BOXX": .5})
+    assert one["nav"] == one["cash"] == 1  # No old position: artificial market gain is not a cash flow.
+    two, _ = step(one, "2026-01-20", "2026-01-21", {"TQQQ": .3, "QQQM": .1, "BOXX": .2})
+    assert two["security_values"] == pytest.approx(target)  # old pending fills only after old cash earned zero.
+    assert two["pending"]["kind"] == "HOLD_POSITIONS"
+    three, receipt = step(two, "2026-01-21", "2026-01-22", {"TQQQ": .1, "QQQM": -.1, "BOXX": .02})
+    assert three["units"] == two["units"]
+    assert three["security_values"] == pytest.approx({"TQQQ": .55, "QQQM": .18, "BOXX": .102})
+    assert three["cash"] == two["cash"] and receipt["executed_fees"] == receipt["turnover"] == 0
+    assert three["nav"] == pytest.approx(two["nav"] + .05-.02+.002)
+
+
+def test_synthetic_forward_book_rejects_real_context_and_corrupt_cash():
+    from us_equity_strategies.research.security_netting_runner import (
+        new_synthetic_virtual_book, step_synthetic_virtual_book, validate_synthetic_virtual_book)
+    book = new_synthetic_virtual_book("TQQQ", "R3", "2026-01-15")
+    with pytest.raises(ValueError, match="SYNTHETIC_ONLY_POLICY_REQUIRED"):
+        step_synthetic_virtual_book(book, session="2026-01-16", next_session="2026-01-20",
+            security_returns={"TQQQ": 0., "QQQM": 0., "BOXX": 0.},
+            full_target={"TQQQ": .5, "QQQM": .2, "BOXX": .1},
+            cutoff="2026-01-16T21:03:00+00:00", policy_context=object())
+    book["cash"] = .9
+    with pytest.raises(ValueError, match="SYNTHETIC_BOOK_CONSERVATION"):
+        validate_synthetic_virtual_book(book)
+
+
+def test_syn001_book_pending_owner_and_full_candidate_semantics():
+    from us_equity_strategies.research.security_netting_runner import (
+        new_synthetic_virtual_book, validate_synthetic_virtual_book)
+    book = new_synthetic_virtual_book("TQQQ", "R0", "2026-01-15")
+    hold = dict(profile="TQQQ", candidate="R0", decision_session="2026-01-15",
+                fill_session="2026-01-16", kind="HOLD_POSITIONS", weights=None)
+    book["pending"] = hold
+    with pytest.raises(ValueError, match="R0_FULL_PENDING_REQUIRED"):
+        validate_synthetic_virtual_book(book)
+    book["candidate"] = "R3"; hold["candidate"] = "R3"
+    validate_synthetic_virtual_book(book)  # Legitimate R3 HOLD remains legal.
+    hold["profile"] = "SOXL"
+    with pytest.raises(ValueError, match="PENDING_OWNER"):
+        validate_synthetic_virtual_book(book)
+
+
 def session(i=1, *, f=.5, weights=None, returns=None, cash_return=0.):
     day = date(2026, 1, 1) + timedelta(days=i)
     return NettingSession(day, day - timedelta(days=1), f,

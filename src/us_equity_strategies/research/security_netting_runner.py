@@ -25,6 +25,171 @@ from typing import Any
 
 RS06_TURNOVER_CURRENT_BOOK_BASIS = "RS06_SYNTHETIC_FILL_SESSION_PRE_TRADE_PRE_FEE_NET_NAV_V1"
 
+# Opt-in artificial snapshots only. These are total-return index units, never
+# broker shares, account holdings, or an admission of prospective market data.
+SYNTHETIC_R0_R3_UNIVERSES = {"TQQQ": ("BOXX", "QQQM", "TQQQ"),
+                            "SOXL": ("BOXX", "SOXL", "SOXX")}
+
+
+def new_synthetic_virtual_book(profile: str, candidate: str, anchor_session: str) -> dict[str, Any]:
+    if type(profile) is not str or profile not in SYNTHETIC_R0_R3_UNIVERSES or candidate not in ("R0", "R3"):
+        raise ValueError("SYNTHETIC_BOOK_IDENTITY")
+    date.fromisoformat(anchor_session)
+    symbols = SYNTHETIC_R0_R3_UNIVERSES[profile]
+    return dict(profile=profile, candidate=candidate, completed_session=anchor_session,
+                nav=1., cash=1., security_values={s: 0. for s in symbols},
+                units={s: 0. for s in symbols}, marks={s: 1. for s in symbols},
+                fees=0., trade_events=0, pending=None)
+
+
+def _validate_synthetic_pending(pending: Any, *, profile: str, candidate: str,
+                                decision_session: str, fill_session: str | None = None) -> None:
+    """A pending belongs to one cell and one adjacent decision/fill interval."""
+    if type(pending) is not dict or set(pending) != {
+            "profile", "candidate", "decision_session", "fill_session", "kind", "weights"}:
+        raise ValueError("SYNTHETIC_PENDING_FIELDS")
+    if pending["profile"] != profile or pending["candidate"] != candidate:
+        raise ValueError("SYNTHETIC_PENDING_OWNER")
+    fill = pending["fill_session"]
+    if (pending["decision_session"] != decision_session or type(fill) is not str
+            or date.fromisoformat(fill).isoformat() != fill
+            or date.fromisoformat(fill) <= date.fromisoformat(decision_session)
+            or (fill_session is not None and fill != fill_session)):
+        raise ValueError("SYNTHETIC_PENDING_CLOCK")
+    if pending["kind"] == "HOLD_POSITIONS":
+        if candidate != "R3":
+            raise ValueError("SYNTHETIC_R0_FULL_PENDING_REQUIRED")
+        if pending["weights"] is not None:
+            raise ValueError("SYNTHETIC_HOLD_TARGET")
+    elif pending["kind"] == "TARGET_WEIGHTS":
+        weights = pending["weights"]
+        if (type(weights) is not dict or set(weights) != set(SYNTHETIC_R0_R3_UNIVERSES[profile])
+                or any(_finite(w, "SYNTHETIC_PENDING_WEIGHT") < 0 for w in weights.values())
+                or math.fsum(weights.values()) > 1.):
+            raise ValueError("SYNTHETIC_PENDING_WEIGHT")
+    else:
+        raise ValueError("SYNTHETIC_PENDING_KIND")
+
+
+def validate_synthetic_virtual_book(book: Any) -> None:
+    """Strict in-memory wire boundary; does not read any external state."""
+    keys = {"profile", "candidate", "completed_session", "nav", "cash", "security_values",
+            "units", "marks", "fees", "trade_events", "pending"}
+    if type(book) is not dict or set(book) != keys:
+        raise ValueError("SYNTHETIC_BOOK_FIELDS")
+    profile = book["profile"]
+    if type(profile) is not str or profile not in SYNTHETIC_R0_R3_UNIVERSES or book["candidate"] not in ("R0", "R3"):
+        raise ValueError("SYNTHETIC_BOOK_IDENTITY")
+    if date.fromisoformat(book["completed_session"]).isoformat() != book["completed_session"]:
+        raise ValueError("SYNTHETIC_BOOK_SESSION")
+    symbols = set(SYNTHETIC_R0_R3_UNIVERSES[profile])
+    for name in ("security_values", "units", "marks"):
+        if type(book[name]) is not dict or set(book[name]) != symbols:
+            raise ValueError("SYNTHETIC_BOOK_UNIVERSE")
+        for value in book[name].values():
+            if _finite(value, "SYNTHETIC_BOOK_NUMBER") < 0 or (name == "marks" and value == 0):
+                raise ValueError("SYNTHETIC_BOOK_NUMBER")
+    for name in ("nav", "cash", "fees"):
+        if _finite(book[name], "SYNTHETIC_BOOK_NUMBER") < 0 or (name == "nav" and book[name] == 0):
+            raise ValueError("SYNTHETIC_BOOK_NUMBER")
+    if type(book["trade_events"]) is not int or book["trade_events"] < 0:
+        raise ValueError("SYNTHETIC_TRADE_COUNT")
+    tolerance = 1e-11 * max(1., book["nav"])
+    if abs(book["cash"] + math.fsum(book["security_values"].values()) - book["nav"]) > tolerance:
+        raise ValueError("SYNTHETIC_BOOK_CONSERVATION")
+    if any(abs(book["units"][s]*book["marks"][s] - book["security_values"][s]) > tolerance for s in symbols):
+        raise ValueError("SYNTHETIC_UNIT_CONSERVATION")
+    pending = book["pending"]
+    if pending is not None:
+        _validate_synthetic_pending(pending, profile=profile, candidate=book["candidate"],
+                                    decision_session=book["completed_session"])
+
+
+def step_synthetic_virtual_book(book: Mapping[str, Any], *, session: str, next_session: str,
+                                security_returns: Mapping[str, float], full_target: Mapping[str, float],
+                                cutoff: str, policy_context: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Consume OLD pending, mark/fill/fee, then choose NEXT pending on own book.
+
+    Explicit artificial timestamps are caller-validated labels, not real PIT.
+    No file, provider, generator, trial, order, or persistence API is called.
+    """
+    from fractions import Fraction
+    from .partial_rebalance import NoPluginCorePolicyContext, _inside_band, decide_partial_rebalance
+    from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec, net_security_session
+
+    validate_synthetic_virtual_book(book)
+    profile, candidate = book["profile"], book["candidate"]
+    symbols = SYNTHETIC_R0_R3_UNIVERSES[profile]
+    if (type(policy_context) is not NoPluginCorePolicyContext or policy_context.dataset_class != "ARTIFICIAL_FIXTURE"
+            or policy_context.profile != profile):
+        raise ValueError("SYNTHETIC_ONLY_POLICY_REQUIRED")
+    if not date.fromisoformat(book["completed_session"]) < date.fromisoformat(session) < date.fromisoformat(next_session):
+        raise ValueError("SYNTHETIC_SESSION_ORDER")
+    if (type(security_returns) is not dict or type(full_target) is not dict
+            or set(security_returns) != set(symbols) or set(full_target) != set(symbols)):
+        raise ValueError("SYNTHETIC_COMPLETE_INPUT_REQUIRED")
+    returns = {s: _return(security_returns[s]) for s in symbols}
+    target = {s: _finite(full_target[s], "SYNTHETIC_TARGET") for s in symbols}
+    if min(target.values()) < 0 or math.fsum(target.values()) > 1.:
+        raise ValueError("SYNTHETIC_TARGET")
+    pending = book["pending"]
+    if pending is not None and pending["fill_session"] != session:
+        raise ValueError("SYNTHETIC_PENDING_FILL_SESSION")
+    marks = {s: book["marks"][s]*(1+returns[s]) for s in symbols}
+    pre = {s: book["security_values"][s]*(1+returns[s]) for s in symbols}
+    pre_nav = book["cash"] + math.fsum(pre.values())
+    if not math.isfinite(pre_nav) or pre_nav <= 0:
+        raise ValueError("SYNTHETIC_NAV")
+    current = {s: pre[s]/pre_nav for s in symbols}
+    hold = pending is None or pending["kind"] == "HOLD_POSITIONS"
+    effective = current if hold else pending["weights"]
+    spec = SecurityNettingSpec(bps_per_side={s: 5. for s in symbols}, cash_like_symbols=("BOXX",))
+    net = net_security_session(f_pre=1., inner_pre=current, f_target=1., inner_target=effective, spec=spec)
+    fees = net.cost_fraction*pre_nav
+    trades = {s: net.net_trades[s]*pre_nav for s in symbols}
+    if hold:
+        if fees != 0 or any(trades.values()):
+            raise ValueError("SYNTHETIC_HOLD_PHANTOM_TRADE")
+        values, cash, units = pre, book["cash"], dict(book["units"])
+    else:
+        values = {s: pre_nav*effective[s] for s in symbols}
+        cash_before_fee = pre_nav*net.role_weights[spec.inner_residual_role]
+        if fees > cash_before_fee:
+            raise ValueError("FEE_CASH_INSUFFICIENT")
+        cash = cash_before_fee-fees
+        units = {s: values[s]/marks[s] for s in symbols}
+    nav = pre_nav-fees
+    if abs(book["cash"]-math.fsum(trades.values())-fees-cash) > 1e-11*max(1., pre_nav):
+        raise ValueError("SYNTHETIC_CASH_CONSERVATION")
+    completed = DecisionSnapshot(date.fromisoformat(session), cutoff, nav,
+                                 tuple(values.items()), cash, True)
+    encoded = _rs04_current_weights(completed)
+    mode, lam = ("FULL", .5) if candidate == "R0" else ("BAND_HOLD", .5)
+    inside = _inside_band({s: Fraction(values[s])/Fraction(nav) for s in symbols},
+                          {s: Fraction(target[s]) for s in symbols}, .01)
+    # Preserve the existing actual-money band boundary rule without allowing
+    # the conservative funded float encoding to change a HOLD decision.
+    selected_mode = mode
+    if mode == "BAND_HOLD" and inside != _inside_band(encoded, target, .01):
+        selected_mode, lam = ("PROPORTIONAL", 0.) if inside else ("FULL", .5)
+    decision = decide_partial_rebalance(security_universe=symbols, current_weights=encoded,
+        full_target=target, mode=selected_mode, decision_session=session, cutoff=cutoff,
+        hard_policy_context=policy_context, lambda_value=lam, band=.01)
+    if decision.status != "ACCEPTED":
+        raise ValueError("SYNTHETIC_DECISION:"+decision.reason)
+    following = dict(profile=profile, candidate=candidate, decision_session=session,
+                     fill_session=next_session, kind=decision.kind,
+                     weights=None if decision.target_weights is None else dict(decision.target_weights))
+    count = sum(v != 0 for v in trades.values())
+    result = dict(profile=profile, candidate=candidate, completed_session=session, nav=nav, cash=cash,
+                  security_values=values, units=units, marks=marks, fees=book["fees"]+fees,
+                  trade_events=book["trade_events"]+count, pending=following)
+    validate_synthetic_virtual_book(result)
+    return result, dict(executed_fees=fees, net_trades=trades, turnover=net.net_security_turnover,
+                        previous_pending=pending, next_pending=following, decision_mode=mode,
+                        band=.01, decision_weights={s: values[s]/nav for s in symbols},
+                        nav=nav, cash=cash, scope="SYNTHETIC_ONLY", no_order=True)
+
 
 @dataclass(frozen=True)
 class NettingSession:
