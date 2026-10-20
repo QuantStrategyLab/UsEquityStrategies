@@ -435,3 +435,78 @@ class PartialRebalanceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RetrospectivePolicyAdmissionTests(unittest.TestCase):
+    def context(self, **changes):
+        from us_equity_strategies.research.partial_rebalance import RetrospectivePolicyContext
+        values = dataclasses.asdict(policy())
+        values['securities'] = policy().securities
+        values.update(scope='RS04:TQQQ', exact_source=values['source'],
+            code_sha256='a'*64, config_sha256='b'*64, source_identity='fixture-identity',
+            dataset_class='REAL_ARCHIVED_RAW_ACTIONS', synthetic_only=False)
+        values.update(changes)
+        return RetrospectivePolicyContext(**values)
+
+    def test_explicit_context_preserves_real_scope_and_all_original_limits(self):
+        context = self.context()
+        result = decide(hard_policy_context=context)
+        self.assertEqual(result.status, 'ACCEPTED')
+        self.assertEqual(result.scope, 'RETROSPECTIVE_RESEARCH_ONLY')
+        self.assertFalse(context.synthetic_only)
+        self.assertFalse(result.pit_authenticated)
+        self.assertEqual(dict(result.target_weights), {'RISK': .5, 'BOXX': .48})
+        veto = decide(hard_policy_context=dataclasses.replace(context, vetoed_symbols=('RISK',)))
+        self.assertEqual(veto.reason, 'HARD_VETO')
+        forced = decide(hard_policy_context=context, mandatory_reduce=True,
+                        forced_target={'RISK': .1, 'BOXX': .5},
+                        forced_source=context.source, forced_reason='fixture-original-reduction')
+        self.assertEqual(forced.reason, 'MANDATORY_REDUCTION')
+        cap = decide(hard_policy_context=dataclasses.replace(context, max_effective_risk_exposure=.2))
+        self.assertEqual(cap.reason, 'HARD_CAP_EFFECTIVE_EXPOSURE')
+
+    def test_no_implicit_real_relabel_or_postfee_permission(self):
+        for changes in ({'synthetic_only': True}, {'scope':'RS04:R4'}, {'config_sha256':''},
+                        {'exact_source':'different'}, {'clock':'PIT_AVAILABLE_AT'}):
+            with self.subTest(changes=changes):
+                self.assertEqual(decide(hard_policy_context=self.context(**changes)).status, 'REJECTED')
+        result = decide(hard_policy_context=self.context(cap_basis='ACTUAL_POST_FEE'))
+        self.assertEqual(result.status, 'UNSUPPORTED')
+        self.assertIsNone(result.target_weights)
+        # An old unadmitted context cannot turn real merely by flipping its flag.
+        result = decide(hard_policy_context=policy(synthetic_only=False))
+        self.assertEqual(result.reason, 'INVALID_POLICY_SOURCE_SCOPE_OR_UNITS')
+
+
+class NoPluginCoreSourcePolicyTests(unittest.TestCase):
+    def context(self):
+        from us_equity_strategies.research.partial_rebalance import (
+            NoPluginCorePolicyContext, CORE_ONLY_MAPPING_SHA256, CORE_ONLY_CONFIG_SHA256, CORE_ONLY_SOURCE_SHA256)
+        return NoPluginCorePolicyContext('TQQQ','artificial-source','REAL_ARCHIVED_RAW_ACTIONS','a'*64,
+            CORE_ONLY_MAPPING_SHA256, CORE_ONLY_CONFIG_SHA256,tuple(sorted(CORE_ONLY_SOURCE_SHA256.items())))
+
+    def test_source_only_has_no_fabricated_caps_or_classification(self):
+        context = self.context()
+        result = decide_partial_rebalance(security_universe=('TQQQ','QQQM','BOXX'),
+            current_weights={'TQQQ':0.,'QQQM':0.,'BOXX':0.},
+            full_target={'TQQQ':.6,'QQQM':.1,'BOXX':.27},mode='FULL',
+            decision_session='2030-01-02',cutoff='2030-01-02T23:00:00+00:00',hard_policy_context=context)
+        self.assertEqual(result.status,'ACCEPTED')
+        self.assertEqual(result.scope,'RETROSPECTIVE_CORE_ONLY_SOURCE_RULES')
+        self.assertFalse(context.synthetic_only)
+        self.assertFalse(hasattr(context,'securities'))
+        self.assertFalse(hasattr(context,'max_effective_risk_exposure'))
+
+    def test_domain_and_enabled_external_rule_still_refuse(self):
+        import dataclasses
+        args = dict(security_universe=('TQQQ','QQQM','BOXX'),current_weights={'TQQQ':0.,'QQQM':0.,'BOXX':0.},
+            full_target={'TQQQ':.6,'QQQM':.1,'BOXX':.27},mode='FULL',decision_session='2030-01-02',
+            cutoff='2030-01-02T23:00:00+00:00',hard_policy_context=self.context())
+        for changes in ({'full_target':{'TQQQ':1.,'QQQM':0.,'BOXX':.1}},
+                {'full_target':{'TQQQ':float('nan'),'QQQM':0.,'BOXX':0.}},
+                {'mandatory_reduce':True,'forced_target':{'TQQQ':0.,'QQQM':0.,'BOXX':0.},
+                 'forced_source':self.context().source,'forced_reason':'not-in-source'},
+                {'hard_policy_context':dataclasses.replace(self.context(),config_sha256='0'*64)},
+                {'security_universe':('OTHER','QQQM','BOXX')}):
+            with self.subTest(changes=changes):
+                self.assertNotEqual(decide_partial_rebalance(**(args | changes)).status,'ACCEPTED')
