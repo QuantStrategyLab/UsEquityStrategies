@@ -1743,3 +1743,67 @@ class QQQPairSensitivityTests(unittest.TestCase):
         for row in result['trials'].values():
             self.assertEqual(row['actual_params']['input_source_registration'], registered)
         self.assertNotEqual(options['input_source_registration'], registered)
+
+
+def test_TV1_late_declared_first_seen_real_admission_gap(tmp_path):
+    from us_equity_strategies.research.rs04_netting_candidate import admit_r0_r3_source_metadata
+    args, body, days = r0_r3_fixture(tmp_path)
+    # Declared synthetic example only: no authenticated producer/arrival claim.
+    declared = {'observed_at': '2030-01-02T21:00:00+00:00',
+        'declared_available_at': '2030-01-02T21:01:00+00:00',
+        'first_seen': '2030-01-02T21:07:00+00:00', 'revision': 'r1'}
+    admitted = admit_r0_r3_source_metadata(args['projection'] | declared,
+        identity_packet_sha256=args['identity_packet_sha256'], dataset_class='ARTIFICIAL_FIXTURE')
+    assert declared['declared_available_at'] < '2030-01-02T21:05:00+00:00' < declared['first_seen']
+    assert admitted['PIT'] == 'NOT_ATTESTED'
+    # Honest RED: the public metadata projection drops this timing linkage.
+    # This missing future contract is not evidence of a retrospective PIT bug.
+    assert admitted.get('first_seen') == declared['first_seen'], (
+        'FIRST_SEEN_CONTRACT_UNCOVERED: public admission has no canonical first_seen '
+        'or authenticated producer linkage; early availability cannot be certified')
+
+
+def test_TV2_registered_version_hash_immutability(tmp_path):
+    import copy
+    from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch, _r0_r3_sha
+    args, body, days = RootACoreOnlyBatchTests().fixture()
+    args['source_revision'] = 'r1'
+    args['projection'] = args['projection'] | {'first_seen': '2030-01-02T21:02:00+00:00'}
+    first = run_registered_r0_r3_batch(**args)
+    assert first['trial']['source_revision'] == 'r1'
+    before = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id']).to_dict()
+    revised_body = copy.deepcopy(body)
+    revised_body['bars']['TQQQ'][0][2] += .01
+    revised_hash = _r0_r3_sha(revised_body)
+    assert revised_hash != args['input_body_sha256']
+    def forbidden_second_parse():
+        raise AssertionError('conflicting revision must be refused before parsing/computation')
+    revised = args | {'source_revision': 'r2', 'input_body_sha256': revised_hash,
+        'projection': args['projection'] | {'first_seen': '2030-01-02T21:06:00+00:00'},
+        'load_input_body': forbidden_second_parse}
+    with unittest.TestCase().assertRaisesRegex(ValueError, '^research_trial_conflict$'):
+        run_registered_r0_r3_batch(**revised)
+    assert args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id']).to_dict() == before
+    assert first['PIT'] == 'NOT_ATTESTED'
+    # Journal immutability passes; declared arrival times are not authenticated.
+
+
+def test_TV3_duplicate_journal_resume_unknown_first_seen(tmp_path):
+    from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
+    args, body, days = RootACoreOnlyBatchTests().fixture()
+    args['source_revision'] = 'r1'
+    args['projection'] = args['projection'] | {'observed_at': '2020-01-02T21:00:00+00:00',
+        'declared_available_at': '2020-01-02T21:01:00+00:00', 'first_seen': None}
+    first = run_registered_r0_r3_batch(**args)
+    def forbidden_duplicate_parse():
+        raise AssertionError('duplicate journal resume must not parse or compute again')
+    second = run_registered_r0_r3_batch(**(args | {'load_input_body': forbidden_duplicate_parse}))
+    assert not first['resumed_without_compute']
+    assert second['resumed_without_compute']
+    assert second['trial'] == first['trial']
+    assert second['subresults'] == first['subresults']
+    assert second['PIT'] == 'NOT_ATTESTED'
+    assert second['trial']['run_id'] == first['trial']['run_id']
+    assert second['trial']['param_version'] == first['trial']['param_version']
+    assert 'first_seen' not in second['trial']['actual_params']['source']
+    # Absence stays UNKNOWN; neither old observed time nor current clock is proof.

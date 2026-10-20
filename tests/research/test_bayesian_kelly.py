@@ -384,3 +384,72 @@ class ExpectedLogProxyBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JointMomentFundingContractTests(unittest.TestCase):
+    """Fixed hypothetical joint-account arithmetic, never pooled strategy books."""
+
+    def joint_moments(self, sign):
+        spec = B4Spec(("TQQQ", "SOXL"), ANCHOR)
+        sigma = ((1/32, sign/64), (sign/64, 1/32))
+        state = admit(initialise_b4(spec, sigma, TRAINING),
+                      observation(1, (1/32, 1/32), spec=spec)).state
+        m = b4_predictive_moments(state)
+        self.assertEqual(m.mean_log, (0., 0.))
+        self.assertEqual(m.predictive_cov_log, ((3/64, sign*3/128), (sign*3/128, 3/64)))
+        with localcontext() as ctx:
+            ctx.prec = 70
+            v, cross = Decimal(3)/64, Decimal(sign)*3/128
+            mean = (v/2).exp()-1
+            qdiag = (2*v).exp()-2*(v/2).exp()+1
+            qcross = (v+cross).exp()-2*(v/2).exp()+1
+            for i in range(2):
+                self.assertAlmostEqual(m.mean_simple[i], float(mean), delta=1e-14)
+                self.assertAlmostEqual(m.second_raw_moment_simple[i], float(qdiag), delta=1e-14)
+            actual_cross = m.predictive_cov_simple[0][1]+m.mean_simple[0]*m.mean_simple[1]
+            self.assertAlmostEqual(actual_cross, float(qcross), delta=1e-14)
+            self.assertAlmostEqual(actual_cross-m.predictive_cov_simple[0][1], float(mean*mean), delta=1e-14)
+            self.assertGreater(qdiag*qdiag-qcross*qcross, 0)
+        return m, float(qdiag), actual_cross
+
+    def test_JM1_positive_cross_raw_moment(self):
+        m, diagonal, cross = self.joint_moments(1)
+        weight, cash = .25, .5
+        full = 2*weight*weight*(diagonal+cross)
+        diagonal_only = 2*weight*weight*diagonal
+        self.assertEqual(2*weight+cash, 1.)
+        self.assertGreater(cross, 0.)
+        self.assertAlmostEqual(full, .009533908291658953, delta=1e-14)
+        self.assertAlmostEqual(full-diagonal_only, .0031768449037702013, delta=1e-14)
+        self.assertGreater(full, diagonal_only)
+
+    def test_JM2_negative_cross_raw_moment(self):
+        m, diagonal, cross = self.joint_moments(-1)
+        weight, cash = .5, 0.
+        full = 2*weight*weight*(diagonal+cross)
+        diagonal_only = 2*weight*weight*diagonal
+        self.assertEqual(2*weight+cash, 1.)
+        self.assertLess(cross, 0.)  # Signed cross moments must not be clipped.
+        self.assertAlmostEqual(full, .013571095250376049, delta=1e-14)
+        self.assertAlmostEqual(full-diagonal_only, -.011857158301178958, delta=1e-14)
+        self.assertLess(full, diagonal_only)
+
+    def test_JM3_funding_wealth_positive_domain(self):
+        m, diagonal, cross = self.joint_moments(1)
+        self.assertTrue(all(math.isfinite(x) for x in (diagonal, cross, *m.mean_simple)))
+        # Positive definite log covariance gives positive density near this
+        # positive-gross witness, so finite moments cannot define real log wealth.
+        v, c = m.predictive_cov_log[0]
+        self.assertGreater(v*v-c*c, 0.)
+        wealth = -.5+.75*.25+.75*.25
+        self.assertEqual(wealth, -.125)
+        with self.assertRaises(ValueError):
+            math.log(wealth)
+        # Even the upper edge of the open gross box (0.2, 0.3)^2 is negative.
+        self.assertLess(-.5+.75*.3+.75*.3, 0.)
+        # Funded nonnegative weights and residual zero-return cash imply a
+        # strictly positive combination for every positive lognormal gross.
+        weights, cash = (.25, .25), .5
+        self.assertTrue(all(w >= 0 for w in weights))
+        self.assertEqual(sum(weights)+cash, 1.)
+        self.assertGreater(cash+sum(w*.25 for w in weights), 0.)

@@ -1541,3 +1541,77 @@ def test_r0_r3_explicit_admission_native_cash_fees_and_next_book():
     bad = replace(policy, decisions=tuple(replace(d, hard_policy_context=replace(context, cap_basis='ACTUAL_POST_FEE')) for d in policy.decisions))
     with pytest.raises(ValueError, match='CAP_BASIS'):
         run_offline_security_netting(rows, **(options | {'rs04_research_policy':bad}))
+
+
+def _sa_fixed_snapshot_case(available_at):
+    """The fixed RISK example uses existing synthetic symbol A, with no live source."""
+    from dataclasses import replace
+    rows, options = b5_case(targets=[{'A': .5, 'BOXX': .5}],
+                            weights={'A': .25, 'BOXX': .75}, mode='FULL', fees=0.)
+    policy = options['rs04_research_policy']
+    opening = replace(policy.opening, completed_session=date(2030, 1, 2),
+                      completed_at='2030-01-02T21:00:00+00:00', cash=0.)
+    info = replace(policy.decisions[0], decision_session=date(2030, 1, 2),
+        fill_session=date(2030, 1, 3), cutoff='2030-01-02T21:05:00+00:00',
+        fill_completed_at='2030-01-03T21:00:00+00:00', full_target_available_at=available_at,
+        full_target_source='SYNTHETIC_CASE_SA1')
+    options['rs04_research_policy'] = replace(policy, opening=opening, decisions=(info,))
+    rows = [replace(rows[0], session=info.fill_session, decision_session=info.decision_session)]
+    return rows, options
+
+
+def test_SA1_real_snapshot_receipt_ledger_alignment():
+    import hashlib
+    import json
+    from dataclasses import asdict
+    rows, options = _sa_fixed_snapshot_case('2030-01-02T21:04:59+00:00')
+    result = run_offline_security_netting(rows, **options)
+    serialized = json.dumps(result, sort_keys=True, default=str)
+    before = hashlib.sha256(serialized.encode()).hexdigest()
+    # Test-only off/on call to the existing pure extractor on a real decision.
+    from us_equity_strategies.research.security_netting_runner import _rs04_select, _rs04_receipt
+    policy = options['rs04_research_policy']
+    input_before = asdict(policy)
+    decision = _rs04_select(policy, policy.decisions[0], policy.opening)
+    receipt = _rs04_receipt(decision, policy.decisions[0], policy.opening)
+    assert asdict(policy) == input_before
+    assert receipt == {k: v for k, v in result['rs04_research']['decisions'][0].items() if k != 'execution'}
+    assert result['rs04_research']['decisions'][0]['execution']['actual_fees'] == 0.
+    extracted = json.loads(json.dumps([receipt], default=str))
+    assert hashlib.sha256(json.dumps(result, sort_keys=True, default=str).encode()).hexdigest() == before
+    assert len(extracted) == len(result['ledger']) == 1
+    snapshot = extracted[0]['snapshot']
+    assert snapshot == {'completed_session': '2030-01-02',
+        'completed_at': '2030-01-02T21:00:00+00:00', 'nav': 100.,
+        'security_values': {'A': 25., 'BOXX': 75.}, 'cash': 0., 'current_known': True}
+    assert extracted[0]['full_target'] == {'A': .5, 'BOXX': .5}
+    assert result['ledger'][0]['inner_target'] == {'A': .5, 'BOXX': .5}
+    # Characterize the actual gap; this is not platform adoption/producer proof.
+    assert not {'run_id', 'param_version', 'cost_source'}.intersection(snapshot)
+    assert not {'run_id', 'param_version', 'cost_source'}.intersection(asdict(options['rs04_research_policy'].opening))
+
+
+def test_SA2_actual_time_refusal_provenance():
+    from dataclasses import asdict
+    rows, options = _sa_fixed_snapshot_case('2030-01-02T21:05:01+00:00')
+    policy = options['rs04_research_policy']
+    before = asdict(policy.opening)
+    with pytest.raises(ValueError, match='^RS04_DECISION_TIME_MISMATCH$'):
+        run_offline_security_netting(rows, **options)
+    assert asdict(policy.opening) == before
+    assert policy.decisions[0].full_target_available_at > policy.decisions[0].cutoff
+    # Exception means no accepted runner result/receipt was returned.
+
+
+def test_SA3_actual_cost_refusal_provenance():
+    from dataclasses import replace
+    rows, options = cvar_case()
+    policy = options['rs04_research_policy']
+    request = policy.decisions[0].cvar_request
+    assert request.cost_spec.unit == 'BPS_PER_SIDE'
+    assert request.cost_spec.frozen_multiplier == 1.
+    assert request.cost_spec.bps_by_symbol['TQQQ'] == 10.
+    options['spec'] = replace(options['spec'], bps_per_side={'TQQQ': 11., 'QQQM': 11., 'BOXX': 2.})
+    with pytest.raises(ValueError, match='^RS04_CVAR_UNAVAILABLE:forecast cost differs from actual ledger cost$'):
+        run_offline_security_netting(rows, **options)
+    assert options['rs04_research_policy'] == policy
