@@ -25,7 +25,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 
@@ -59,6 +59,104 @@ class HardPolicyContext:
     max_one_way_risk_turnover: float | None
     turnover_basis: str
     weight_unit: str
+
+
+@dataclass(frozen=True)
+class RetrospectivePolicyContext(HardPolicyContext):
+    """Explicit source-bound research policy, never historical PIT evidence.
+
+    No numerical permission is supplied by this admission. Every inherited cap,
+    classification, veto and mandatory target still comes from the exact source.
+    Artificial fixtures use their own source identities and remain synthetic.
+    """
+
+    scope: str
+    exact_source: str
+    code_sha256: str
+    config_sha256: str
+    source_identity: str
+    dataset_class: str
+    purpose: str = 'RETROSPECTIVE_DESCRIPTIVE_DEVELOPMENT_ABLATION'
+    clock: str = 'ASSUMED_COMPLETED_CLOSE_NOT_HISTORICAL_AVAILABLE_AT'
+
+
+def _retrospective_scope(value: object) -> str:
+    if type(value) is not RetrospectivePolicyContext:
+        raise _Refusal('INVALID_RETROSPECTIVE_POLICY')
+    if (value.scope not in ('RS04:TQQQ', 'RS04:SOXL')
+            or value.exact_source != value.source
+            or not _label(value.source_identity)
+            or value.dataset_class not in ('ARTIFICIAL_FIXTURE', 'REAL_ARCHIVED_RAW_ACTIONS')
+            or value.synthetic_only is not (value.dataset_class == 'ARTIFICIAL_FIXTURE')
+            or value.purpose != 'RETROSPECTIVE_DESCRIPTIVE_DEVELOPMENT_ABLATION'
+            or value.clock != 'ASSUMED_COMPLETED_CLOSE_NOT_HISTORICAL_AVAILABLE_AT'
+            or any(not isinstance(x, str) or len(x) != 64
+                   or any(c not in '0123456789abcdef' for c in x)
+                   for x in (value.code_sha256, value.config_sha256))):
+        raise _Refusal('INVALID_RETROSPECTIVE_POLICY_BINDING')
+    return 'RETROSPECTIVE_RESEARCH_ONLY'
+
+
+CORE_ONLY_MAPPING_SHA256 = '8bb756d55f24166f0e7ddd583eb389049f79a03176fa0eb8e82944570a59c9d5'
+CORE_ONLY_CONFIG_SHA256 = '651f8f342e42a5c94f0dcebb2a4381ced9fb127acf86c1be7dbabb8ea72bc8b1'
+CORE_ONLY_SOURCE_SHA256 = {'manifests/__init__.py': '8c22b5c7b2d1df95cdad7f3d90573523462fc8d38f69b8ddb8f9f49969f7db30', 'research/kelly_core_return_generator.py': '37ad7ebe19d4ad9d6ff8c77294a084e7cd703a34105fa8ce011f0bddf9b35671', 'strategies/tqqq_growth_income.py': '90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42', 'strategies/tqqq_dual_drive_core.py': '1868f4298c1228b458b9b4b6904ff6bf3cf1dcacd46fcf4e469a6f968ee6f211', 'strategies/soxl_soxx_trend_income.py': '9675f56e9ea0d4be36751b52ec22951ddc29e2546e305a1e5b1aab5c6d60baf4', 'income_layer.py': '33fb7b447fcf31b97fce49e498ee57459632c474033267f04fe8e24cb18208b4', 'volatility_delever_retention.py': '148743f0bea5285ec98aca19072c528cb4435c5b52cbc5271b4347ce4fa30aef', 'research/fractional_kelly_walk_forward.py': '7e5892d59fd9c1243a5433b4c87b616d0805ed14130d24d65850bbfc8734ec74'}
+
+
+@dataclass(frozen=True)
+class NoPluginCorePolicyContext:
+    """Source-proven absence of external modules, not invented risk limits.
+
+    Finite long-only/unlevered weights and actual fee funding remain required.
+    The source-bound core itself still computes all trend/volatility targets.
+    """
+
+    profile: str
+    source_identity: str
+    dataset_class: str
+    code_sha256: str
+    source_mapping_sha256: str
+    config_sha256: str
+    source_sha256: tuple[tuple[str, str], ...]
+    source: str = 'ROOT_A_FROZEN_NO_PLUGIN_CORE_ONLY'
+
+    @property
+    def scope(self):
+        return 'RS04:' + self.profile
+
+    @property
+    def exact_source(self):
+        return self.source
+
+    @property
+    def synthetic_only(self):
+        return self.dataset_class == 'ARTIFICIAL_FIXTURE'
+
+    @property
+    def cap_basis(self):
+        return 'DECISION_TIME_TARGET'
+
+    @property
+    def turnover_basis(self):
+        return 'RISK_BUY_WEIGHT'
+
+    @property
+    def max_one_way_risk_turnover(self):
+        return None
+
+
+def _core_only_context(value, universe):
+    expected = {'TQQQ': {'TQQQ', 'QQQM', 'BOXX'}, 'SOXL': {'SOXL', 'SOXX', 'BOXX'}}
+    if (value.profile not in expected or set(universe) != expected[value.profile]
+            or value.source != 'ROOT_A_FROZEN_NO_PLUGIN_CORE_ONLY'
+            or value.dataset_class not in ('ARTIFICIAL_FIXTURE', 'REAL_ARCHIVED_RAW_ACTIONS')
+            or not _label(value.source_identity)
+            or value.source_mapping_sha256 != CORE_ONLY_MAPPING_SHA256
+            or value.config_sha256 != CORE_ONLY_CONFIG_SHA256
+            or value.source_sha256 != tuple(sorted(CORE_ONLY_SOURCE_SHA256.items()))
+            or not isinstance(value.code_sha256, str) or len(value.code_sha256) != 64
+            or any(c not in '0123456789abcdef' for c in value.code_sha256)):
+        raise _Refusal('INVALID_CORE_ONLY_SOURCE_BINDING')
+    return value
 
 
 @dataclass(frozen=True)
@@ -141,10 +239,16 @@ def _weights(value: object, universe: tuple[str, ...]) -> dict[str, float]:
     return result
 
 
-def _context(value: object, universe: tuple[str, ...]) -> HardPolicyContext:
+def _context(value: object, universe: tuple[str, ...]) -> HardPolicyContext | NoPluginCorePolicyContext:
+    if type(value) is NoPluginCorePolicyContext:
+        return _core_only_context(value, universe)
     if not isinstance(value, HardPolicyContext):
         raise _Refusal('MISSING_OR_INVALID_POLICY')
-    if (value.synthetic_only is not True or not _label(value.source)
+    if type(value) is RetrospectivePolicyContext:
+        _retrospective_scope(value)
+    elif value.synthetic_only is not True:
+        raise _Refusal('INVALID_POLICY_SOURCE_SCOPE_OR_UNITS')
+    if (not _label(value.source)
             or not _label(value.classification_source) or value.weight_unit != 'NAV_FRACTION'):
         raise _Refusal('INVALID_POLICY_SOURCE_SCOPE_OR_UNITS')
     if not isinstance(value.securities, tuple):
@@ -182,15 +286,22 @@ def _context(value: object, universe: tuple[str, ...]) -> HardPolicyContext:
     if turnover is not None:
         turnover = _number(turnover, 'INVALID_TURNOVER_LIMIT', 1)
     # Return a canonical immutable snapshot, retaining even unsupported bases.
-    return HardPolicyContext(tuple(securities[s] for s in universe), effective,
-                             tuple(sorted(limits.items())), tuple(sorted(vetoes)),
-                             value.source, value.classification_source, True,
-                             value.cap_basis, turnover, value.turnover_basis, value.weight_unit)
+    return replace(value, securities=tuple(securities[s] for s in universe),
+                   max_effective_risk_exposure=effective,
+                   max_underlying_exposure=tuple(sorted(limits.items())),
+                   vetoed_symbols=tuple(sorted(vetoes)), max_one_way_risk_turnover=turnover)
 
 
 def _hard_check(target: Mapping[str, float], current: Mapping[str, float],
-                context: HardPolicyContext, *, turnover: bool = True) -> None:
+                context: HardPolicyContext | NoPluginCorePolicyContext, *, turnover: bool = True) -> None:
     """Check, never rescale; no epsilon can grant extra hard-risk permission."""
+    if type(context) is NoPluginCorePolicyContext:
+        universe = {'TQQQ': {'TQQQ', 'QQQM', 'BOXX'}, 'SOXL': {'SOXL', 'SOXX', 'BOXX'}}[context.profile]
+        if (set(target) != universe or any(isinstance(v, bool) or not math.isfinite(v)
+                or v < 0 for v in target.values())
+                or sum((Fraction(v) for v in target.values()), Fraction()) > 1):
+            raise _Refusal('CORE_ONLY_UNFUNDED_OR_INVALID_TARGET')
+        return  # Mathematical support only; no external risk cap/classification.
     if any(target[s] > 0 for s in context.vetoed_symbols):
         raise _Refusal('HARD_VETO')
     if any(target[s.symbol] > s.max_weight for s in context.securities):
@@ -231,7 +342,7 @@ def decide_partial_rebalance(
     mode: str,
     decision_session: str,
     cutoff: str,
-    hard_policy_context: HardPolicyContext,
+    hard_policy_context: HardPolicyContext | NoPluginCorePolicyContext,
     lambda_value: float = 0.5,
     band: float = 0.01,
     mandatory_reduce: bool = False,
@@ -283,6 +394,9 @@ def decide_partial_rebalance(
         desired = _weights(full_target, universe)
         forced = None if forced_target is None else _weights(forced_target, universe)
         context = _context(hard_policy_context, universe)
+        if type(context) is NoPluginCorePolicyContext and (
+                mandatory_reduce or any(v is not None for v in (forced_target, forced_source, forced_reason))):
+            raise _Refusal('CORE_ONLY_EXTERNAL_POLICY_NOT_ADMITTED')
         if any(v is not None and not _label(v) for v in (forced_source, forced_reason)):
             raise _Refusal('INVALID_FORCED_SOURCE_OR_REASON')
         payload = dict(current=current, full_target=desired, forced_target=forced,
@@ -337,6 +451,10 @@ def decide_partial_rebalance(
             lambda_value=lam, band=delta, input_summary=summary,
             forced_source=forced_source if mandatory_reduce else None,
             forced_reason=forced_reason if mandatory_reduce else None,
+            **({'scope': _retrospective_scope(context)}
+               if type(context) is RetrospectivePolicyContext else
+               {'scope': 'RETROSPECTIVE_CORE_ONLY_SOURCE_RULES'}
+               if type(context) is NoPluginCorePolicyContext else {}),
         )
     except _Refusal as exc:
         return RebalanceDecision(status=exc.status, reason=exc.reason, kind=None,

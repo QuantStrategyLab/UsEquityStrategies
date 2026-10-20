@@ -1502,3 +1502,42 @@ def test_cvar_a1_normalized_mandatory_anchor_is_not_native_certification():
         run_offline_security_netting([replace(rows[0], security_returns=guard), rows[1]],
             **(options | {'rs04_research_policy': policy}))
     assert guard.reads == 0
+
+
+def test_r0_r3_explicit_admission_native_cash_fees_and_next_book():
+    from dataclasses import asdict, replace
+    from us_equity_strategies.research.partial_rebalance import RetrospectivePolicyContext
+    from us_equity_strategies.research.security_netting_runner import RS04RetrospectiveResearchPolicy
+    rows, options = b5_case(targets=[{'A': .6, 'BOXX': .38}]*2,
+                           returns=[{'A': .1, 'BOXX': .02}, {'A': -.2, 'BOXX': .03}], fees=5.)
+    old = options['rs04_research_policy']
+    ctx = old.decisions[0].hard_policy_context
+    fields = asdict(ctx); fields['securities'] = ctx.securities
+    context = RetrospectivePolicyContext(**fields, scope='RS04:TQQQ', exact_source=ctx.source,
+        code_sha256='a'*64, config_sha256='b'*64, source_identity='fixture-policy-identity',
+        dataset_class='ARTIFICIAL_FIXTURE')
+    policy = RS04RetrospectiveResearchPolicy(old.mode, old.security_universe, old.opening,
+        tuple(replace(d, hard_policy_context=context, full_target_source=context.source) for d in old.decisions),
+        profile='TQQQ', source_identity=context.source_identity)
+    result = run_offline_security_netting(rows, **(options | {'rs04_research_policy':policy}))
+    first, second = result['ledger']
+    for row in result['ledger']:
+        assert row['fees'] == pytest.approx(sum(abs(v)*.0005 for v in row['net_trades'].values()), abs=1e-14)
+        assert row['nav_end'] == pytest.approx(row['nav_pre_trade']-row['fees'], abs=1e-12)
+    decision = result['rs04_research']['decisions'][1]
+    assert decision['snapshot']['nav'] == first['nav_end']
+    assert dict(decision['snapshot']['security_values']) == first['security_end']
+    assert second['security_start'] == first['security_end']
+    assert result['rs04_research']['scope'] == 'RETROSPECTIVE_RESEARCH_ONLY'
+    assert result['rs04_research']['historical_available_at'] is None
+    assert all(d['original_policy']['synthetic_only'] for d in result['rs04_research']['decisions'])
+    # Changing the later fill does not change the previous completed-book decision.
+    changed = [rows[0], replace(rows[1], security_returns={'A': .9, 'BOXX': -.5})]
+    other = run_offline_security_netting(changed, **(options | {'rs04_research_policy':policy}))
+    assert result['rs04_research']['decisions'][1]['decision'] == other['rs04_research']['decisions'][1]['decision']
+    assert result['ledger'][0] == other['ledger'][0]
+    with pytest.raises(ValueError, match='R0_R3_ONLY'):
+        run_offline_security_netting(rows, **(options | {'rs04_research_policy':replace(policy, cvar_descriptor=object())}))
+    bad = replace(policy, decisions=tuple(replace(d, hard_policy_context=replace(context, cap_basis='ACTUAL_POST_FEE')) for d in policy.decisions))
+    with pytest.raises(ValueError, match='CAP_BASIS'):
+        run_offline_security_netting(rows, **(options | {'rs04_research_policy':bad}))

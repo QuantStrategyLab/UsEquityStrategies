@@ -630,11 +630,22 @@ def run_offline_security_netting(
     # B5_BEGIN
     if research is not None:
         output["rs04_research"] = {"mode": research.mode, "decisions": research_decisions,
-            "scope": "SYNTHETIC_ONLY", "financial": "NOT_READY", "adoption": "UNKNOWN",
+            "scope": ("RETROSPECTIVE_RESEARCH_ONLY" if type(research) in (RS04RetrospectiveResearchPolicy, RS04NoPluginCoreResearchPolicy)
+                      else "SYNTHETIC_ONLY"), "financial": "NOT_READY", "adoption": "UNKNOWN",
             "fullchain": "NOT_CLOSED", "residual_cash_return": 0.,
             "supported_cap_basis": "DECISION_TIME_TARGET",
             "execution_check": "FILL_PRE_FEE_TARGET_AND_RISK_BUYS_ACTUAL_NET_FEES_CASH",
             "post_fee_cap_certified": False}
+    if type(research) in (RS04RetrospectiveResearchPolicy, RS04NoPluginCoreResearchPolicy):
+        output["rs04_research"].update(
+            clock="ASSUMED_COMPLETED_CLOSE_NOT_HISTORICAL_AVAILABLE_AT",
+            historical_available_at=None, PIT="NOT_ATTESTED",
+            OOS="SEEN_DEVELOPMENT_NOT_INDEPENDENT", promotion="NONE")
+    if type(research) is RS04NoPluginCoreResearchPolicy:
+        output['rs04_research'].update(
+            scope='RETROSPECTIVE_CORE_ONLY_SOURCE_RULES',
+            independent_external_policy='NOT_CALLED_IN_FROZEN_SOURCE_PATH',
+            numeric_external_risk_caps_applied=False)
     # B5_END
     return output
 
@@ -705,6 +716,19 @@ class RS04ResearchPolicy:
     cvar_descriptor: Any | None = None
 
 
+@dataclass(frozen=True)
+class RS04RetrospectiveResearchPolicy(RS04ResearchPolicy):
+    """Explicit R0-R3 research admission. R4/tail requests are prohibited."""
+
+    profile: str = ''
+    source_identity: str = ''
+
+
+@dataclass(frozen=True)
+class RS04NoPluginCoreResearchPolicy(RS04RetrospectiveResearchPolicy):
+    """Exact rootA core route; no independent external hard modules."""
+
+
 def _rs04_time(value: Any):
     from datetime import datetime, timedelta
 
@@ -745,10 +769,15 @@ def _rs04_reconcile(snapshot: DecisionSnapshot, values: Mapping[str, float], cas
 
 def _rs04_prepare(policy: Any, rows: Sequence[NettingSession], spec: Any,
                   initial_f: float, fee_cash_role: str, timing: str | None) -> RS04ResearchPolicy:
-    from .partial_rebalance import HardPolicyContext
+    from .partial_rebalance import HardPolicyContext, RetrospectivePolicyContext, NoPluginCorePolicyContext, _context
 
-    if type(policy) is not RS04ResearchPolicy:
+    if type(policy) not in (RS04ResearchPolicy, RS04RetrospectiveResearchPolicy, RS04NoPluginCoreResearchPolicy):
         raise ValueError("RS04_FIXED_RESEARCH_POLICY_REQUIRED")
+    admitted = type(policy) in (RS04RetrospectiveResearchPolicy, RS04NoPluginCoreResearchPolicy)
+    core_only = type(policy) is RS04NoPluginCoreResearchPolicy
+    if admitted and (policy.profile not in ('TQQQ', 'SOXL') or not policy.source_identity
+                     or policy.cvar_descriptor is not None):
+        raise ValueError('RS04_RETROSPECTIVE_R0_R3_ONLY')
     universe = policy.security_universe
     if (not isinstance(universe, tuple) or not universe or 'BOXX' not in universe
             or any(not isinstance(s, str) or not s or s != s.upper() for s in universe)
@@ -783,8 +812,21 @@ def _rs04_prepare(policy: Any, rows: Sequence[NettingSession], spec: Any,
         if any(_finite(row.inner_target[s], "RS04_TARGET_INVALID") != target[s] for s in universe):
             raise ValueError("RS04_FROZEN_TARGET_MISMATCH")
         context = info.hard_policy_context
-        if type(context) is not HardPolicyContext:
-            raise ValueError("RS04_ORIGINAL_POLICY_REQUIRED")
+        expected_type = (NoPluginCorePolicyContext if core_only else
+                         RetrospectivePolicyContext if admitted else HardPolicyContext)
+        if type(context) is not expected_type:
+            raise ValueError('RS04_ORIGINAL_POLICY_REQUIRED')
+        if core_only and (info.mandatory_reduce or info.forced_target is not None
+                          or info.forced_source is not None or info.forced_reason is not None):
+            raise ValueError('RS04_CORE_ONLY_EXTERNAL_MODULE_NOT_ADMITTED')
+        if admitted:
+            _context(context, universe)
+            if (context.scope != 'RS04:' + policy.profile
+                    or context.source_identity != policy.source_identity
+                    or info.full_target_source != context.exact_source
+                    or info.cvar_request is not None
+                    or context.max_one_way_risk_turnover is not None):
+                raise ValueError('RS04_RETROSPECTIVE_POLICY_BINDING_UNAVAILABLE')
         if context.cap_basis != 'DECISION_TIME_TARGET':
             raise ValueError("RS04_UNSUPPORTED_ORIGINAL_CAP_BASIS")
         if type(info.mandatory_reduce) is not bool:
