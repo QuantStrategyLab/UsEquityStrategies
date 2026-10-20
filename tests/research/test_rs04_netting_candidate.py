@@ -729,3 +729,1017 @@ class CVaRGeneratedConsumerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'RS04_CVAR_UNAVAILABLE:missing matching tail budget'):
             run_rs04_cvar_candidate(**args, research_policy=replace(policy,
                 decisions=(replace(first, cvar_request=bad), *policy.decisions[1:])), report_periods_per_year=252)
+
+
+# R0-R3 engineering fixtures: artificial bars, original strategy generators,
+# actual native netter/fees, one preregistered batch, no real market-page reads.
+def r0_r3_real_metadata_fixture():
+    """Frozen public metadata shape only; no raw market observations."""
+    metadata = {'schema_version': 'qsl.research.raw_sip_input.v1',
+        'source': 'alpaca.stocks.bars.v2_and_corporate_actions.v1', 'feed': 'sip',
+        'price_adjustment': 'raw', 'calendar': 'XNYS', 'timezone': 'America/New_York',
+        'currency': 'USD', 'license': 'user_attested_non_commercial_private_research',
+        'window_start': '2021-12-01', 'window_end': '2026-08-25',
+        'historical_pit_attested': False, 'historical_context': 'NOT_BOUND',
+        'live_config_snapshot': 'LIVE_CONFIG_URI_UNAVAILABLE', 'research_only': True, 'no_order': True}
+    action_counts = {'SOXL': 16, 'SOXX': 21, 'BOXX': 1, 'QQQ': 21, 'TQQQ': 18, 'QQQM': 19}
+    return {'source_packet_sha256': '150f6d6b5318f7dbbcf171b9c76fde567a349ee1eed6b49c184d1f33c9e35124',
+        'source_verified_objects': 13, 'source_verified_bytes': 780174,
+        'manifest_metadata': metadata, 'actual_raw_bodies_not_included': True,
+        'groups': [{'symbol': s, 'kind': kind,
+            'count': (917 if s == 'BOXX' else 1187) if kind == 'bars' else action_counts[s],
+            'complete_pagination': True, 'pages': 1}
+            for s in action_counts for kind in ('bars', 'actions')]}
+
+
+def r0_r3_fixture(tmp_path):
+    import hashlib
+    import json
+    from pathlib import Path
+    from datetime import timedelta
+    from dataclasses import asdict
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research.partial_rebalance import SecurityPolicy, RetrospectivePolicyContext
+    from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_sha
+
+    days = []
+    d = date(2023, 1, 2)
+    while len(days) < 600:
+        if d.weekday() < 5:
+            days.append(d)
+        d += timedelta(days=1)
+    symbols = ('TQQQ', 'QQQ', 'QQQM', 'SOXL', 'SOXX', 'BOXX')
+    bars = {}
+    for j, symbol in enumerate(symbols):
+        price, raw = 100., []
+        for i, day in enumerate(days):
+            # Independent oscillations avoid a singular two-core training Sigma.
+            r = (.0001 if symbol == 'BOXX' else .0003 + .008 * math.sin(i * (.37 + j*.071)))
+            price *= 1 + r
+            if i == 50:
+                price /= 2
+            raw.append([day.isoformat(), price * .9999, price])
+        bars[symbol] = raw
+    body = {'sessions': [d.isoformat() for d in days], 'bars': bars,
+        'actions': {s: {'splits': [[days[50].isoformat(), 2.]],
+                        'dividends': [[days[70].isoformat(), .01]]} for s in symbols}}
+    identity = hashlib.sha256(b'artificial-R0-R3-identity-packet-v1').hexdigest()
+    metadata = {'schema_version': 'qsl.research.raw_sip_input.v1',
+        'source': 'alpaca.stocks.bars.v2_and_corporate_actions.v1', 'feed': 'sip',
+        'price_adjustment': 'raw', 'calendar': 'XNYS', 'timezone': 'America/New_York',
+        'currency': 'USD', 'license': 'user_attested_non_commercial_private_research',
+        'window_start': days[0].isoformat(), 'window_end': days[-1].isoformat(),
+        'historical_pit_attested': False, 'historical_context': 'NOT_BOUND',
+        'live_config_snapshot': 'LIVE_CONFIG_URI_UNAVAILABLE', 'research_only': True, 'no_order': True}
+    projection = {'source_packet_sha256': identity, 'source_verified_objects': 13,
+        'source_verified_bytes': len(json.dumps(body).encode()), 'manifest_metadata': metadata,
+        'actual_raw_bodies_not_included': True, 'groups': [
+            {'symbol': s, 'kind': kind, 'count': 600 if kind == 'bars' else 2,
+             'complete_pagination': True, 'pages': 1} for s in symbols for kind in ('bars', 'actions')]}
+    root = Path(__file__).resolve().parents[2]
+    import quant_platform_kit
+    implementation = {'qpk_package_source': hashlib.sha256(
+        Path(quant_platform_kit.__file__).read_bytes()).hexdigest()}
+    for rel in ('research/rs04_netting_candidate.py', 'research/security_netting_runner.py',
+                'research/partial_rebalance.py', 'research/kelly_core_return_generator.py',
+                'research/portfolio_kelly_walk_forward.py', 'research/bayesian_kelly.py',
+                'research/tqqq_trial_journal.py', 'manifests/__init__.py',
+                'strategies/tqqq_growth_income.py', 'strategies/soxl_soxx_trend_income.py'):
+        implementation[rel] = hashlib.sha256((root/'src/us_equity_strategies'/rel).read_bytes()).hexdigest()
+    policies, configs, last = {}, {}, {}
+    for key, sleeve in (('TQQQ', 'QQQM'), ('SOXL', 'SOXX')):
+        context = RetrospectivePolicyContext(
+            (SecurityPolicy(key, True, 3., key, .99), SecurityPolicy(sleeve, True, 1., key, .99),
+             SecurityPolicy('BOXX', False, 1., 'BILL', .99)), 3., ((key, 3.),), (),
+            'fixture-original-no-plugin-policy', 'fixture-classification', True,
+            'DECISION_TIME_TARGET', None, 'RISK_BUY_WEIGHT', 'NAV_FRACTION',
+            'RS04:' + key, 'fixture-original-no-plugin-policy', _r0_r3_sha(implementation), '0'*64,
+            identity, 'ARTIFICIAL_FIXTURE')
+        rules = {d.isoformat(): {'mandatory_reduce': False, 'forced_target': None,
+            'forced_source': None, 'forced_reason': None, 'vetoed_symbols': []} for d in days[500:-1]}
+        rules[days[-2].isoformat()] = {'mandatory_reduce': True,
+            'forced_target': {key:0.,sleeve:0.,'BOXX':0.},
+            'forced_source': context.source, 'forced_reason':'fixture-original-terminal-risk-reduction',
+            'vetoed_symbols': []}
+        config = {'scope': context.scope, 'exact_source': context.exact_source, 'outer_f': .8,
+            'scope_cap': .8, 'scope_cap_source': context.source,
+            'hard_policy': {k: v for k, v in asdict(context).items()
+                            if k not in RetrospectivePolicyContext.__annotations__}, 'decision_rules': rules}
+        configs[key] = json.loads(json.dumps(config))
+        policies[key] = replace(context, config_sha256=_r0_r3_sha(configs[key]))
+        last[key] = CloseTarget(days[-2], days[-1], {key: 0., sleeve: 0., 'BOXX': 0.})
+    args = dict(projection=projection, identity_packet_sha256=identity, dataset_class='ARTIFICIAL_FIXTURE',
+        input_body_sha256=_r0_r3_sha(body), implementation_sha256=implementation, policies=policies,
+        original_scope_caps={'TQQQ': .8, 'SOXL': .8},
+        original_scope_cap_source='fixture-original-no-plugin-policy',
+        original_outer_f={'TQQQ': .8, 'SOXL': .8}, original_policy_configs=configs,
+        last_close_targets=last, requested_start=days[500], requested_end=days[-1],
+        source_revision='fixture-source-revision', trial_id='fixture-batch',
+        store=PerformanceStore(local_root=tmp_path/'journal'), load_input_body=lambda: body)
+    return args, body, days
+
+
+def r0_r3_positive_risk_prices(body):
+    """Separate artificial positive-return case; BOXX/actions/cash/caps unchanged.
+
+    The original oscillating case stays in the zero-f refusal regressions. This
+    manufactured risk-price path is engineering input, never historical policy
+    or evidence of model performance.
+    """
+    import copy
+    result = copy.deepcopy(body)
+    for j, symbol in enumerate(('TQQQ', 'QQQ', 'QQQM', 'SOXL', 'SOXX')):
+        splits = dict(result['actions'][symbol]['splits'])
+        price = 100.
+        for i, row in enumerate(result['bars'][symbol]):
+            price *= 1 + .002 + .0003*math.sin(i*(.37+j*.071))
+            price /= splits.get(row[0], 1.)
+            row[1], row[2] = price*.9999, price
+    return result
+
+
+def r0_r3_positive_fixture(tmp_path):
+    """Explicit alternate artificial body, with original .99 caps and5bps."""
+    import hashlib
+    import json
+    from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_sha
+    args, original, days = r0_r3_fixture(tmp_path)
+    body = r0_r3_positive_risk_prices(original)
+    identity = hashlib.sha256(b'artificial-positive-risk-path-engineering-v1').hexdigest()
+    projection = args['projection'] | {'source_packet_sha256': identity,
+        'source_verified_bytes': len(json.dumps(body).encode())}
+    policies = {k: replace(v, source_identity=identity) for k,v in args['policies'].items()}
+    return args | {'projection': projection, 'identity_packet_sha256': identity,
+        'policies': policies, 'input_body_sha256': _r0_r3_sha(body),
+        'source_revision': 'ARTIFICIAL_POSITIVE_RISK_PATH_ENGINEERING_ONLY',
+        'load_input_body': lambda: body}, body, days
+
+
+@unittest.skipIf(SecurityNettingSpec is None, 'requires the explicit QPK research overlay')
+class R0R3CallerEngineeringTests(unittest.TestCase):
+    # unittest supplies no tmp_path; each test's root lives only in harness OUT.
+    def fixture(self):
+        import tempfile
+        from pathlib import Path
+        return r0_r3_positive_fixture(Path(tempfile.mkdtemp(prefix='r0-r3-positive-')))
+
+    def test_complete_batch_native_fees_training_registration_and_resume(self):
+        from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch, R0_R3_ROWS
+        from quant_platform_kit.strategy_lifecycle.contracts import ResearchTrialStatus
+        args, body, days = self.fixture()
+        original_args, original_body, _ = r0_r3_fixture(args['store'].local_root.parent/'comparison')
+        self.assertEqual(body['bars']['BOXX'], original_body['bars']['BOXX'])
+        self.assertEqual(body['actions'], original_body['actions'])
+        self.assertEqual(args['original_scope_caps'], original_args['original_scope_caps'])
+        self.assertEqual(args['original_outer_f'], original_args['original_outer_f'])
+        self.assertEqual(args['original_policy_configs'], original_args['original_policy_configs'])
+        loaded = []
+        def load():
+            record = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+            self.assertIs(record.status, ResearchTrialStatus.STARTED)
+            loaded.append(True)
+            return body
+        args['load_input_body'] = load
+        result = run_registered_r0_r3_batch(**args)
+        self.assertEqual(result['status'], 'succeeded')
+        self.assertEqual(loaded, [True])
+        self.assertEqual(len(result['subresults']), 8)
+        engineering = result['engineering']
+        train = engineering['training']
+        self.assertEqual(train['sessions'], [d.isoformat() for d in days[500:563]])
+        self.assertEqual(train['count'], 63)
+        self.assertEqual(train['covariance_fits'], 1)
+        self.assertEqual(train['posterior_training_observations'], 0)
+        self.assertEqual(engineering['evaluation_sessions'], [d.isoformat() for d in days[563:]])
+        self.assertEqual([d['n'] for d in engineering['model_decisions']], list(range(37)))
+        self.assertEqual(engineering['model_decisions'][0]['status'], 'PRIOR_ONLY')
+        self.assertEqual(engineering['checkpoint']['sigma'], train['sigma'])
+        total_fees = 0.
+        for cell, packet in engineering['cells'].items():
+            profile = cell.split(':')[1]
+            self.assertEqual(engineering['opening_books'][profile]['f'], 0.)
+            self.assertEqual(packet['initial_nav'], 1.)
+            self.assertEqual(packet['ledger'][0]['security_start'], dict.fromkeys(packet['spec']['bps_per_side'], 0.))
+            for row, decision in zip(packet['ledger'], packet['rs04_research']['decisions'], strict=True):
+                fees = sum(abs(v)*.0005 for v in row['net_trades'].values())
+                self.assertAlmostEqual(row['fees'], fees, places=13)
+                self.assertAlmostEqual(row['nav_end'], row['nav_pre_trade']-fees, places=12)
+                self.assertGreaterEqual(min(row['virtual_cash_end'].values()), 0.)
+                self.assertEqual(decision['decision']['scope'], 'RETROSPECTIVE_RESEARCH_ONLY')
+                self.assertTrue(decision['original_policy']['synthetic_only'])
+                total_fees += fees
+            for previous, decision in zip(packet['ledger'], packet['rs04_research']['decisions'][1:]):
+                self.assertEqual(decision['snapshot']['nav'], previous['nav_end'])
+                self.assertEqual(dict(decision['snapshot']['security_values']), previous['security_end'])
+            self.assertEqual(packet['rs04_research']['decisions'][-1]['decision']['reason'], 'MANDATORY_REDUCTION')
+            self.assertEqual(packet['ledger'][-1]['security_end'], dict.fromkeys(packet['spec']['bps_per_side'], 0.))
+            mode = packet['rs04_research']['mode']
+            self.assertEqual(mode, 'PROPORTIONAL' if cell.startswith(R0_R3_ROWS[2]) else
+                             'BAND_HOLD' if cell.startswith(R0_R3_ROWS[3]) else 'FULL')
+            self.assertIsNone(packet['rs04_research']['historical_available_at'])
+            ledger = result['subresults'][cell]
+            self.assertEqual(ledger['initial_nav'], 1.)
+            self.assertEqual(ledger['initial_cash'], 1.)
+        self.assertGreater(total_fees, 0.)
+        self.assertEqual(len(engineering['cells']), 8)  # R1 has no duplicated control
+        resumed = run_registered_r0_r3_batch(**(args | {'load_input_body': lambda: self.fail('recomputed terminal')}))
+        self.assertTrue(resumed['resumed_without_compute'])
+        self.assertEqual(result['subresults'], resumed['subresults'])
+        self.assertEqual(loaded, [True])
+        # A changed frozen parameter cannot reuse this immutable identity.
+        with self.assertRaises(ValueError):
+            run_registered_r0_r3_batch(**(args | {'original_outer_f': {'TQQQ': .7, 'SOXL': .8}}))
+
+    def test_metadata_source_raw_actions_pagination_and_exact_real_identity(self):
+        import copy
+        import json
+        from us_equity_strategies.research.rs04_netting_candidate import admit_r0_r3_source_metadata
+        args, _, _ = self.fixture()
+        projection = args['projection']
+        admitted = admit_r0_r3_source_metadata(projection, identity_packet_sha256=args['identity_packet_sha256'],
+                                                dataset_class='ARTIFICIAL_FIXTURE')
+        self.assertEqual(admitted['manifest_metadata']['price_adjustment'], 'raw')
+        for key, bad in [('schema_version', 'v2'), ('price_adjustment', 'all'),
+                         ('historical_pit_attested', True), ('calendar', 'UNKNOWN')]:
+            with self.subTest(key=key):
+                p = copy.deepcopy(projection); p['manifest_metadata'][key] = bad
+                with self.assertRaises(ValueError):
+                    admit_r0_r3_source_metadata(p, identity_packet_sha256=args['identity_packet_sha256'], dataset_class='ARTIFICIAL_FIXTURE')
+        for field, value in [('complete_pagination', False), ('count', -1), ('pages', 0)]:
+            p = copy.deepcopy(projection); p['groups'][0][field] = value
+            with self.assertRaises(ValueError):
+                admit_r0_r3_source_metadata(p, identity_packet_sha256=args['identity_packet_sha256'], dataset_class='ARTIFICIAL_FIXTURE')
+        real = r0_r3_real_metadata_fixture()
+        safe = admit_r0_r3_source_metadata(real, identity_packet_sha256=real['source_packet_sha256'], dataset_class='REAL_ARCHIVED_RAW_ACTIONS')
+        self.assertNotIn('source_packet', safe)
+        self.assertEqual(safe['dataset_class'], 'REAL_ARCHIVED_RAW_ACTIONS')
+        self.assertEqual(sum(g['count'] for g in safe['groups'] if g['kind']=='bars'), 6852)
+
+    def test_missing_policy_and_real_source_binding_are_registered_before_body(self):
+        from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
+        args, _, _ = self.fixture()
+        for label, changes, reason in [
+            ('policy', {'policies': None}, 'UNAVAILABLE_ORIGINAL_POLICY'),
+            ('postfee', {'policies': {k: replace(v, cap_basis='ACTUAL_POST_FEE') for k,v in args['policies'].items()}}, 'UNAVAILABLE_ORIGINAL_POLICY'),
+            ('configdigest', {'policies': {k: replace(v, config_sha256='a'*64) for k,v in args['policies'].items()}}, 'UNAVAILABLE_EXACT_ORIGINAL_POLICY'),
+            ('boundedturnover', {'policies': {k: replace(v, max_one_way_risk_turnover=.5) for k,v in args['policies'].items()}}, 'UNAVAILABLE_ORIGINAL_POLICY'),
+        ]:
+            with self.subTest(label=label):
+                opts = args | changes | {'trial_id': label, 'load_input_body': lambda: self.fail('body before refusal')}
+                with self.assertRaisesRegex(ValueError, reason):
+                    run_registered_r0_r3_batch(**opts)
+                record = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', label)
+                self.assertEqual(record.status.value, 'rejected')
+                again = run_registered_r0_r3_batch(**opts)
+                self.assertTrue(again['resumed_without_compute'])
+                self.assertEqual(again['status'], 'rejected')
+        real = r0_r3_real_metadata_fixture()
+        with self.assertRaisesRegex(ValueError, 'UNAVAILABLE_ORIGINAL_POLICY_BINDING_OR_BASIS'):
+            run_registered_r0_r3_batch(**(args | {'trial_id':'real-refused','projection':real,
+                'identity_packet_sha256':real['source_packet_sha256'], 'dataset_class':'REAL_ARCHIVED_RAW_ACTIONS',
+                'load_input_body':lambda:self.fail('real body opened')}))
+        record = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', 'real-refused')
+        self.assertFalse(record.synthetic)
+        self.assertEqual(record.status.value, 'rejected')
+
+    def test_real_admission_computes_using_artificial_body_only_and_keeps_real_labels(self):
+        """Exercise the real-contract branch with manufactured prices/actions.
+
+        No archived body is opened. Packet identity metadata only is reproduced;
+        the generated input and source_revision explicitly identify this as a test.
+        """
+        import json
+        from dataclasses import asdict
+        from datetime import timedelta
+        from us_equity_strategies.research.rs04_netting_candidate import (
+            _r0_r3_sha, run_registered_r0_r3_batch)
+        args, _, _ = self.fixture()
+        real = r0_r3_real_metadata_fixture()
+        first, inception, end = date(2021, 12, 1), date(2022, 12, 28), date(2026, 8, 25)
+        candidates, d = [], first
+        while d <= end:
+            if d.weekday() < 5:
+                candidates.append(d)
+            d += timedelta(days=1)
+        # Artificial declared calendar; this is not a reconstruction of XNYS.
+        before = [d for d in candidates if d < inception]
+        after = [d for d in candidates if d >= inception]
+        # Explicit deterministic removal avoids using any market calendar/data.
+        def fixed_dates(seq, count, keep):
+            discard = set(d for d in seq if d not in keep)
+            discard = set(sorted(discard)[:len(seq)-count])
+            return [d for d in seq if d not in discard]
+        days = fixed_dates(before, 270, {first}) + fixed_dates(after, 917, {inception, date(2023, 3, 28), end})
+        symbols = ('TQQQ', 'QQQ', 'QQQM', 'SOXL', 'SOXX', 'BOXX')
+        bars, actions = {}, {}
+        counts = {g['symbol']: g['count'] for g in real['groups'] if g['kind'] == 'actions'}
+        for j, symbol in enumerate(symbols):
+            dates = days[270:] if symbol == 'BOXX' else days
+            price, raw = 100., []
+            for i, day in enumerate(dates):
+                price *= 1 + (.0001 if symbol == 'BOXX' else .0003 + .008*math.sin(i*(.37+j*.071)))
+                raw.append([day.isoformat(), price*.9999, price])
+            bars[symbol] = raw
+            actions[symbol] = {'splits': [], 'dividends': [[day.isoformat(), .01] for day in dates[20:20+counts[symbol]]]}
+        body = {'sessions': [d.isoformat() for d in days], 'bars': bars, 'actions': actions}
+        policies, configs, terminal = {}, {}, {}
+        for key, old in args['policies'].items():
+            context = replace(old, synthetic_only=False, dataset_class='REAL_ARCHIVED_RAW_ACTIONS',
+                              source_identity=real['source_packet_sha256'])
+            config = dict(args['original_policy_configs'][key])
+            config['hard_policy'] = {k: v for k, v in asdict(context).items()
+                                    if k not in type(context).__annotations__}
+            config['decision_rules'] = {d.isoformat(): {'mandatory_reduce': False,
+                'forced_target': None, 'forced_source': None, 'forced_reason': None,
+                'vetoed_symbols': []} for d in days[:-1] if d >= date(2023, 3, 28)}
+            config['decision_rules'][days[-2].isoformat()] = {'mandatory_reduce': True,
+                'forced_target': {spec.symbol: 0. for spec in context.securities},
+                'forced_source': context.source, 'forced_reason': 'artificial-test-terminal-reduction',
+                'vetoed_symbols': []}
+            configs[key] = json.loads(json.dumps(config))
+            policies[key] = replace(context, config_sha256=_r0_r3_sha(configs[key]))
+            terminal[key] = CloseTarget(days[-2], days[-1], {spec.symbol: 0. for spec in context.securities})
+        loaded = []
+        def artificial_input():
+            record = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1',
+                                                       'artificial-body-real-contract')
+            self.assertEqual(record.status.value, 'started')
+            self.assertFalse(record.synthetic)
+            loaded.append(True)
+            return body
+        request = args | {'projection': real,
+            'identity_packet_sha256': real['source_packet_sha256'], 'dataset_class': 'REAL_ARCHIVED_RAW_ACTIONS',
+            'policies': policies, 'original_policy_configs': configs, 'last_close_targets': terminal,
+            'requested_start': date(2023, 3, 28), 'requested_end': end,
+            'input_body_sha256': _r0_r3_sha(body), 'load_input_body': artificial_input,
+            'source_revision': 'ARTIFICIAL_BODY_TEST_ONLY_NO_REAL_SOURCE_READ',
+            'trial_id': 'artificial-body-real-contract'}
+        with self.assertRaisesRegex(ValueError, 'HARD_CAP_SYMBOL'):
+            run_registered_r0_r3_batch(**(request | {
+                'trial_id': 'original-oscillating-real-shape-policy-refused',
+                'load_input_body': lambda: body}))
+        refused = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1',
+            'original-oscillating-real-shape-policy-refused')
+        self.assertEqual(refused.status.value, 'rejected')
+        self.assertFalse(refused.synthetic)
+        original_boxx = [list(row) for row in body['bars']['BOXX']]
+        body = r0_r3_positive_risk_prices(body)
+        self.assertEqual(body['bars']['BOXX'], original_boxx)
+        result = run_registered_r0_r3_batch(**(request | {
+            'input_body_sha256': _r0_r3_sha(body),
+            'source_revision': 'ARTIFICIAL_POSITIVE_RISK_PATH_REAL_CONTRACT_TEST_ONLY'}))
+        self.assertEqual(loaded, [True])
+        self.assertEqual(result['status'], 'succeeded')
+        self.assertFalse(result['trial']['synthetic'])
+        self.assertEqual(len(result['subresults']), 8)
+        self.assertTrue(all(not cell['synthetic'] for cell in result['subresults'].values()))
+        for packet in result['engineering']['cells'].values():
+            self.assertEqual(packet['rs04_research']['historical_available_at'], None)
+            self.assertEqual(packet['rs04_research']['PIT'], 'NOT_ATTESTED')
+            for decision in packet['rs04_research']['decisions']:
+                self.assertFalse(decision['original_policy']['synthetic_only'])
+        stored = args['store'].load_research_ledger('us_equity', 'r0_r3_batch_additive_audit_v1',
+            'artificial-body-real-contract', 'artificial-body-real-contract', 1)
+        self.assertFalse(stored.synthetic)
+
+    def test_failed_rejected_aborted_and_unknown_started_never_recompute(self):
+        from unittest.mock import patch
+        from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+        from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
+        args, _, _ = self.fixture()
+        for error, status in [(RuntimeError('fixture_failure'), 'failed'),
+                              (ValueError('fixture_refusal'), 'rejected'), (KeyboardInterrupt(), 'aborted')]:
+            opts = args | {'trial_id': status}
+            def load():
+                raise error
+            with self.assertRaises(type(error)):
+                run_registered_r0_r3_batch(**(opts | {'load_input_body':load}))
+            record = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', status)
+            self.assertEqual(record.status.value, status)
+            result = run_registered_r0_r3_batch(**(opts | {'load_input_body':lambda:self.fail('replay failure')}))
+            self.assertEqual(result['status'], status)
+        original = PerformanceStore.save_research_trial
+        def ambiguous(store, record):
+            original(store, record)
+            raise OSError('fixture-write-response-unknown')
+        opts = args | {'trial_id':'ambiguous-start','load_input_body':lambda:self.fail('unknown start computed')}
+        with patch.object(PerformanceStore, 'save_research_trial', ambiguous):
+            with self.assertRaisesRegex(OSError, 'unknown'):
+                run_registered_r0_r3_batch(**opts)
+        result = run_registered_r0_r3_batch(**opts)
+        self.assertEqual(result['status'], 'started')
+        self.assertTrue(result['resumed_without_compute'])
+
+    def test_input_schema_action_counts_and_digest_not_silently_repaired(self):
+        import copy
+        from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch, _r0_r3_sha
+        args, body, days = self.fixture()
+        with self.assertRaisesRegex(ValueError, 'UNAVAILABLE_TRAINING_PREFIX_OR_EVALUATION'):
+            run_registered_r0_r3_batch(**(args | {'trial_id':'insufficient-prefix','requested_start':days[-20]}))
+        for kind in ('digest', 'actions', 'bars'):
+            broken = copy.deepcopy(body)
+            if kind == 'actions': broken['actions']['QQQ']['splits'] = []
+            elif kind == 'bars': broken['bars']['SOXL'].pop()
+            else: broken['bars']['QQQ'][0][2] *= 1.1
+            options = args | {'trial_id':kind,'load_input_body':lambda:broken}
+            if kind != 'digest': options['input_body_sha256'] = _r0_r3_sha(broken)
+            with self.assertRaisesRegex(ValueError, 'UNAVAILABLE_'):
+                run_registered_r0_r3_batch(**options)
+
+    def test_original_generators_future_tail_and_training_sigma_are_causal(self):
+        import copy
+        from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch, _r0_r3_sha
+        from us_equity_strategies.research.portfolio_kelly_walk_forward import ledoit_wolf
+        from us_equity_strategies.research.kelly_core_return_generator import generate_soxl_core_path, generate_tqqq_core_path
+        from unittest.mock import patch
+        args, body, _ = self.fixture()
+        # Wrap original numerical implementations; native running/fees are never mocked.
+        with patch('us_equity_strategies.research.portfolio_kelly_walk_forward.ledoit_wolf', wraps=ledoit_wolf) as fit, \
+             patch('us_equity_strategies.research.kelly_core_return_generator.generate_soxl_core_path', wraps=generate_soxl_core_path) as soxl, \
+             patch('us_equity_strategies.research.kelly_core_return_generator.generate_tqqq_core_path', wraps=generate_tqqq_core_path) as tqqq:
+            a = run_registered_r0_r3_batch(**args)['engineering']
+            self.assertEqual(fit.call_count, 1)
+            self.assertEqual([len(c) for c in fit.call_args.args[0]], [63,63])
+            self.assertEqual((soxl.call_count, tqqq.call_count), (1,1))
+            self.assertEqual(soxl.call_args.kwargs['trade_start'], args['requested_start'])
+            self.assertEqual(tqqq.call_args.kwargs['trade_start'], args['requested_start'])
+        changed = copy.deepcopy(body)
+        for rows in changed['bars'].values():
+            for row in rows[-2:]: row[1] *= 1.03; row[2] *= 1.03
+        b = run_registered_r0_r3_batch(**(args | {'trial_id':'tail-change',
+            'input_body_sha256':_r0_r3_sha(changed),'load_input_body':lambda:changed}))['engineering']
+        self.assertEqual(a['training'], b['training'])
+        self.assertEqual(a['model_decisions'][:-1], b['model_decisions'][:-1])
+        for key in a['cells']:
+            self.assertEqual(a['cells'][key]['ledger'][:-2], b['cells'][key]['ledger'][:-2])
+
+
+@unittest.skipIf(SecurityNettingSpec is None, 'requires the explicit QPK research overlay')
+class R0R3ZeroFractionRegressionTests(unittest.TestCase):
+    def original_fixture(self):
+        import tempfile
+        from pathlib import Path
+        return r0_r3_fixture(Path(tempfile.mkdtemp(prefix='zero-f-original-')))
+
+    def run_captured(self, args, label):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        from us_equity_strategies.research import bayesian_kelly as b4
+        captured = {'models': [], 'policies': []}
+        native, size = caller.run_offline_security_netting, b4.b4_fractional_target
+        def record_size(moments, **kwargs):
+            result = size(moments, **kwargs)
+            captured['models'].append({'n': moments.n, 'status': result.status, 'targets': result.targets})
+            return result
+        def record_native(rows, **kwargs):
+            policy = kwargs['rs04_research_policy']
+            captured['policies'].append({'profile': policy.profile, 'mode': policy.mode,
+                'full_targets': [dict(d.full_target) for d in policy.decisions],
+                'mandatory': [d.mandatory_reduce for d in policy.decisions],
+                'symbol_caps': {s.symbol: s.max_weight for s in policy.decisions[0].hard_policy_context.securities}})
+            return native(rows, **kwargs)
+        try:
+            with patch.object(caller, 'run_offline_security_netting', record_native), \
+                 patch.object(b4, 'b4_fractional_target', record_size):
+                with self.assertRaisesRegex(ValueError, 'HARD_CAP_SYMBOL'):
+                    caller.run_registered_r0_r3_batch(**args)
+        finally:
+            (Path(tempfile.gettempdir())/(label+'.json')).write_text(json.dumps(captured, indent=2)+'\n')
+        terminal = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+        self.assertEqual(terminal.status.value, 'rejected')
+        return captured
+
+    def test_explicit_original_zero_f_retains_native_boxx_and_cap_refusal(self):
+        import copy
+        from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_sha
+        from quant_platform_kit.research_stats.security_netting import compose_security_targets
+        args, _, _ = self.original_fixture()
+        configs = copy.deepcopy(args['original_policy_configs'])
+        configs['TQQQ']['outer_f'] = 0.
+        args = args | {'original_outer_f': {'TQQQ': 0., 'SOXL': .8}, 'original_policy_configs': configs,
+            'policies': {k: replace(v, config_sha256=_r0_r3_sha(configs[k])) for k, v in args['policies'].items()},
+            'trial_id': 'original-zero-f-must-refuse-cap'}
+        capture = self.run_captured(args, 'EXPLICIT_ZERO_F')
+        first = capture['policies'][0]
+        spec = SecurityNettingSpec(bps_per_side={s: 5. for s in ('TQQQ','QQQM','BOXX')},
+            outer_cash_mode='merge_into_security', outer_cash_symbol='BOXX', cash_like_symbols=('BOXX',))
+        expected, _ = compose_security_targets(f=0., inner_weights={'TQQQ': .8, 'QQQM': 0., 'BOXX': .1}, spec=spec)
+        self.assertEqual(first['full_targets'][0], expected)
+        self.assertEqual(first['symbol_caps']['BOXX'], .99)
+        self.assertEqual(expected['BOXX'], 1.)
+        self.assertFalse(first['mandatory'][0])
+
+    def test_available_b4_zero_is_not_prior_only_and_retains_native_boxx(self):
+        args, _, _ = self.original_fixture()
+        capture = self.run_captured(args, 'B4_AVAILABLE_ZERO')
+        policy = capture['policies'][1]
+        self.assertEqual(policy['profile'], 'TQQQ')
+        self.assertEqual(capture['models'][0]['status'], 'PRIOR_ONLY')
+        self.assertIsNone(capture['models'][0]['targets'])
+        self.assertEqual(policy['full_targets'][0], {'BOXX': 0., 'TQQQ': 0., 'QQQM': 0.})
+        zeros = [(i, m) for i, m in enumerate(capture['models']) if m['status'] == 'AVAILABLE' and m['targets'][0] == 0.]
+        self.assertTrue(zeros)
+        for i, model in zeros:
+            self.assertGreater(model['n'], 0)
+            self.assertEqual(policy['full_targets'][i], {'BOXX': 1., 'TQQQ': 0., 'QQQM': 0.})
+            self.assertFalse(policy['mandatory'][i])
+        self.assertEqual(policy['symbol_caps']['BOXX'], .99)
+
+
+@unittest.skipIf(SecurityNettingSpec is None, 'requires the explicit QPK research overlay')
+class RootACoreOnlyBatchTests(unittest.TestCase):
+    def fixture(self):
+        import tempfile
+        from pathlib import Path
+        args, body, days = r0_r3_fixture(Path(tempfile.mkdtemp(prefix='root-a-core-')))
+        return args | {'policies': None, 'original_scope_caps': None,
+            'original_scope_cap_source': None, 'original_policy_configs': None,
+            'original_outer_f': {'TQQQ': 1., 'SOXL': 1.},
+            'core_only_source_binding': ROOT_A_CORE_ONLY_BINDING,
+            'trial_id': 'root-a-fixed-partial-batch'}, body, days
+
+    def test_no_b4_cap_runs_six_cells_and_preregisters_two_unavailable(self):
+        from unittest.mock import patch
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        args, body, days = self.fixture()
+        loaded = []
+        def load():
+            row = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+            self.assertEqual(row.status.value, 'started')
+            self.assertEqual(row.actual_params['active_rows'], ['R0_ORIGINAL_FULL','R2_B5_HALF_ONLY','R3_B5_BAND_ONLY'])
+            self.assertIsNone(row.actual_params['original_scope_caps'])
+            self.assertEqual(len(row.actual_params['unavailable_cells']), 2)
+            loaded.append(True)
+            return body
+        with patch('us_equity_strategies.research.portfolio_kelly_walk_forward.ledoit_wolf', side_effect=AssertionError('R1 must not fit')), \
+             patch('us_equity_strategies.research.bayesian_kelly.initialise_b4', side_effect=AssertionError('R1 must not initialise')), \
+             patch('us_equity_strategies.research.bayesian_kelly.b4_fractional_target', side_effect=AssertionError('R1 must not emit')):
+            result = caller.run_registered_r0_r3_batch(**(args | {'load_input_body':load}))
+        self.assertEqual(result['status'], 'PARTIAL_COMPLETED_R1_UNAVAILABLE')
+        self.assertFalse(result['whole_comparison_complete'])
+        self.assertEqual(result['terminal_target_role'],
+            'EXPLICIT_ZERO_MODEL_BOUNDARY_NOT_ACTUAL_STRATEGY_TERMINAL')
+        self.assertEqual(len(result['subresults']), 6)
+        self.assertEqual(set(result['unavailable_cells']), {'R1_B4_ONLY:TQQQ','R1_B4_ONLY:SOXL'})
+        self.assertEqual(loaded, [True])
+        self.assertEqual(result['engineering']['evaluation_sessions'], [d.isoformat() for d in days[563:]])
+        self.assertEqual(result['engineering']['training']['count'], 63)
+        self.assertEqual(result['engineering']['training']['covariance_fits'], 0)
+        self.assertIsNone(result['engineering']['training']['sigma'])
+        self.assertEqual(result['engineering']['model_decisions'], [])
+        self.assertIsNone(result['engineering']['checkpoint'])
+        resumed = caller.run_registered_r0_r3_batch(**(args | {'load_input_body':lambda:self.fail('partial batch recomputed')}))
+        self.assertTrue(resumed['resumed_without_compute'])
+        self.assertEqual(resumed['subresults'], result['subresults'])
+        self.assertEqual(resumed['unavailable_cells'], result['unavailable_cells'])
+        with self.assertRaises(ValueError):
+            caller.run_registered_r0_r3_batch(**(args | {'original_scope_caps':{'TQQQ':.97,'SOXL':1.},
+                'load_input_body':lambda:self.fail('later cap silently reran batch')}))
+
+
+    def test_core_targets_native_fees_and_partial_book_semantics(self):
+        from unittest.mock import patch
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        from us_equity_strategies.research import kelly_core_return_generator as gen
+        args, _, days = self.fixture()
+        paths = {}
+        def wrap(key, fn):
+            def invoke(*a, **kw):
+                paths[key] = fn(*a, **kw)
+                return paths[key]
+            return invoke
+        with patch.object(gen, 'generate_tqqq_core_path', wrap('TQQQ', gen.generate_tqqq_core_path)), \
+             patch.object(gen, 'generate_soxl_core_path', wrap('SOXL', gen.generate_soxl_core_path)):
+            result = caller.run_registered_r0_r3_batch(**args)
+        for cell, packet in result['engineering']['cells'].items():
+            row_id, profile = cell.split(':')
+            previous = None
+            for j, (row, receipt) in enumerate(zip(packet['ledger'], packet['rs04_research']['decisions'], strict=True)):
+                expected = dict(paths[profile].weights[564+j]) if j < 36 else args['last_close_targets'][profile].weights
+                expected = {k: expected.get(k, 0.) for k in row['security_start']}
+                self.assertEqual(receipt['full_target'], expected)
+                self.assertFalse(receipt['mandatory_reduce'])
+                self.assertNotIn('securities', receipt['original_policy'])
+                self.assertNotIn('max_effective_risk_exposure', receipt['original_policy'])
+                self.assertEqual(receipt['original_policy']['source_mapping_sha256'], ROOT_A_CORE_ONLY_BINDING['mapping_sha256'])
+                self.assertAlmostEqual(row['fees'], sum(abs(v)*.0005 for v in row['net_trades'].values()), places=13)
+                self.assertAlmostEqual(row['nav_end'], row['nav_pre_trade']-row['fees'], places=12)
+                self.assertGreaterEqual(min(row['virtual_cash_end'].values()), 0.)
+                if previous is not None:
+                    self.assertEqual(receipt['snapshot']['nav'], previous['nav_end'])
+                    self.assertEqual(receipt['snapshot']['security_values'], previous['security_end'])
+                if row_id == 'R2_B5_HALF_ONLY':
+                    current = {k: v/receipt['snapshot']['nav'] for k,v in receipt['snapshot']['security_values'].items()}
+                    for k,v in receipt['decision']['target_weights']:
+                        self.assertAlmostEqual(v, (current[k]+expected[k])*.5, places=13)
+                if row_id == 'R3_B5_BAND_ONLY':
+                    current = {k:v/receipt['snapshot']['nav'] for k,v in receipt['snapshot']['security_values'].items()}
+                    within = all(abs(current[k]-expected[k]) <= .01 for k in current)
+                    self.assertEqual(receipt['decision']['kind'] == 'HOLD_POSITIONS', within)
+                    if within:
+                        self.assertEqual(row['fees'], 0.)
+                        self.assertTrue(all(v == 0. for v in row['net_trades'].values()))
+                previous = row
+        ledger = args['store'].load_research_ledger('us_equity', 'r0_r3_batch_additive_audit_v1',
+            args['trial_id'], args['trial_id'], 1)
+        self.assertEqual(ledger.initial_nav, 6.)
+        self.assertEqual(ledger.initial_cash, 6.)
+        self.assertEqual(len(result['subresults']), 6)
+        self.assertEqual(result['engineering']['evaluation_sessions'][0], days[563].isoformat())
+
+    def test_enabled_unknown_or_wrong_source_config_refuses_before_body(self):
+        import copy
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        args, _, _ = self.fixture()
+        wrong = copy.deepcopy(ROOT_A_CORE_ONLY_BINDING)
+        wrong['config_sha256'] = '0'*64
+        enabled = ROOT_A_CORE_ONLY_BINDING | {'market_regime_control_enabled': True}
+        source = copy.deepcopy(ROOT_A_CORE_ONLY_BINDING)
+        source['source_sha256']['manifests/__init__.py'] = '0'*64
+        for label, binding in [('config', wrong), ('enabled', enabled), ('source', source)]:
+            with self.subTest(label=label):
+                options = args | {'core_only_source_binding': binding, 'trial_id':label,
+                    'load_input_body':lambda:self.fail('unadmitted source read body')}
+                with self.assertRaisesRegex(ValueError, 'SOURCE_CONFIG_BINDING'):
+                    caller.run_registered_r0_r3_batch(**options)
+                terminal = args['store'].load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',label)
+                self.assertEqual(terminal.status.value, 'rejected')
+                self.assertEqual(caller.run_registered_r0_r3_batch(**options)['status'], 'rejected')
+        changed = dict(args['implementation_sha256']); changed['research/rs04_netting_candidate.py'] = '0'*64
+        with self.assertRaisesRegex(ValueError, 'ADAPTER_IDENTITY'):
+            caller.run_registered_r0_r3_batch(**(args | {'implementation_sha256':changed,
+                'trial_id':'wrong-adapter','load_input_body':lambda:self.fail('bad adapter read body')}))
+
+    def archive_registration(self, args, body):
+        import json
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from us_equity_strategies.research.rs04_netting_candidate import r0_r3_parser_identity
+        root = Path(tempfile.mkdtemp(prefix='artificial-source13-'))
+        inputs, hashes = [], {}
+        for symbol in ('TQQQ','QQQ','QQQM','SOXL','SOXX','BOXX'):
+            for kind in ('bars','actions'):
+                path = root/kind/symbol/'page-001.json';path.parent.mkdir(parents=True)
+                if kind == 'bars':
+                    payload = {'symbol':symbol,'bars':[{'t':d+'T00:00:00Z','o':o,'c':c} for d,o,c in body['bars'][symbol]],'next_page_token':None}
+                else:
+                    ca = body['actions'][symbol]
+                    payload = {'symbol':symbol,'corporate_actions':{
+                        'forward_splits':[{'ex_date':d,'old_rate':1.,'new_rate':v} for d,v in ca['splits']],
+                        'cash_dividends':[{'symbol':symbol,'ex_date':d,'rate':v} for d,v in ca['dividends']]},'next_page_token':None}
+                raw = json.dumps(payload).encode();path.write_bytes(raw);digest=hashlib.sha256(raw).hexdigest()
+                hashes[f'{kind}/{symbol}/page-001.json'] = digest
+                inputs.append({'symbol':symbol,'kind':kind,'complete_pagination':True,'pages':[{'bytes':len(raw),'sha256':digest}]})
+        raw = json.dumps({'inputs':inputs}).encode();(root/'manifest.json').write_bytes(raw)
+        hashes['manifest.json'] = hashlib.sha256(raw).hexdigest()
+        return root, {'source_packet_sha256':args['identity_packet_sha256'],
+            'manifest_sha256':hashes['manifest.json'],'object_sha256':hashes,'parser_sha256':r0_r3_parser_identity()}
+
+    def test_source_objects_register_before_parser_without_preknown_body_hash(self):
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        args, body, _ = self.fixture()
+        raw_root, registration = self.archive_registration(args, body)
+        called = []
+        def parse():
+            started = args['store'].load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+            self.assertEqual(started.status.value, 'started')
+            self.assertIsNone(started.actual_params['input_body_sha256'])
+            self.assertIsNone(started.actual_params['last_close_targets'])
+            self.assertEqual(started.actual_params['last_close_target_rule'],
+                'SOURCE_LAST_TWO_EVALUATION_SESSIONS_ZERO_SECURITY_TARGET')
+            self.assertEqual(started.actual_params['input_source_registration'], registration)
+            self.assertEqual(started.input_id, 'sha256:'+caller._r0_r3_sha(registration))
+            called.append(True)
+            return raw_root
+        options = args | {'input_body_sha256':None,'input_source_registration':registration,
+            'last_close_targets':None,'load_input_body':None,'load_source_root':parse}
+        result = caller.run_registered_r0_r3_batch(**options)
+        self.assertEqual(called, [True])
+        self.assertEqual(result['derived_input_body_sha256'], caller._r0_r3_sha(body))
+        for opening in result['engineering']['opening_books'].values():
+            self.assertEqual(opening['last_close_target']['fill_session'], body['sessions'][-1])
+            self.assertEqual(opening['last_close_target']['decision_session'], body['sessions'][-2])
+            self.assertTrue(all(v == 0. for v in opening['last_close_target']['weights'].values()))
+        self.assertIn(caller._r0_r3_sha(body), result['trial']['run_id'])
+        self.assertIsNone(result['trial']['actual_params']['input_body_sha256'])
+        resumed = caller.run_registered_r0_r3_batch(**(options | {'load_source_root':lambda:self.fail('parsed twice')}))
+        self.assertEqual(resumed['derived_input_body_sha256'], result['derived_input_body_sha256'])
+        self.assertEqual(resumed['subresults'], result['subresults'])
+        self.assertEqual(len(result['subresults']), 6)
+        self.assertFalse(result['whole_comparison_complete'])
+
+    def test_wrong_source_or_parser_version_and_receipt_fail_closed(self):
+        import copy
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        args, body, _ = self.fixture()
+        _, registration = self.archive_registration(args, body)
+        for field in ('parser_sha256','source_packet_sha256','manifest_sha256'):
+            with self.subTest(field=field):
+                wrong = registration | {field:'0'*64}
+                with self.assertRaisesRegex(ValueError, 'SOURCE_OR_PARSER_REGISTRATION'):
+                    caller.run_registered_r0_r3_batch(**(args | {'input_body_sha256':None,
+                        'input_source_registration':wrong,'trial_id':field,
+                        'load_input_body':lambda:self.fail('wrong source/parser callback')}))
+        wrong = copy.deepcopy(registration);wrong['object_sha256']['bars/TQQQ/page-001.json']='0'*64
+        with self.assertRaisesRegex(ValueError, 'REGISTERED_ARCHIVE_ROOT_CALLBACK_REQUIRED'):
+            caller.run_registered_r0_r3_batch(**(args | {'input_body_sha256':None,
+                'input_source_registration':registration,'trial_id':'wrong-receipt',
+                'load_input_body':lambda:{'body':body,'source_registration':wrong}}))
+
+
+    def test_actual_object_hash_failure_is_rejected_and_never_reparsed(self):
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        args, body, _ = self.fixture()
+        raw_root, registration = self.archive_registration(args, body)
+        page = raw_root/'bars/TQQQ/page-001.json'
+        page.write_bytes(page.read_bytes()+b' ')
+        parsed = []
+        def parse():
+            parsed.append(True)
+            row = args['store'].load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+            self.assertEqual(row.status.value, 'started')
+            return raw_root
+        options = args | {'input_body_sha256':None,'input_source_registration':registration,
+            'load_input_body':None,'load_source_root':parse}
+        with self.assertRaisesRegex(ValueError, 'ARCHIVE_PAGE_MISMATCH'):
+            caller.run_registered_r0_r3_batch(**options)
+        self.assertEqual(parsed, [True])
+        again = caller.run_registered_r0_r3_batch(**(options | {'load_source_root':lambda:self.fail('bad source reparsed')}))
+        self.assertEqual(again['status'],'rejected')
+        self.assertTrue(again['resumed_without_compute'])
+        self.assertEqual(parsed, [True])
+
+
+ROOT_A_CORE_ONLY_BINDING = {'mapping_sha256': '8bb756d55f24166f0e7ddd583eb389049f79a03176fa0eb8e82944570a59c9d5', 'source_sha256': {'manifests/__init__.py': '8c22b5c7b2d1df95cdad7f3d90573523462fc8d38f69b8ddb8f9f49969f7db30', 'research/kelly_core_return_generator.py': '37ad7ebe19d4ad9d6ff8c77294a084e7cd703a34105fa8ce011f0bddf9b35671', 'strategies/tqqq_growth_income.py': '90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42', 'strategies/tqqq_dual_drive_core.py': '1868f4298c1228b458b9b4b6904ff6bf3cf1dcacd46fcf4e469a6f968ee6f211', 'strategies/soxl_soxx_trend_income.py': '9675f56e9ea0d4be36751b52ec22951ddc29e2546e305a1e5b1aab5c6d60baf4', 'income_layer.py': '33fb7b447fcf31b97fce49e498ee57459632c474033267f04fe8e24cb18208b4', 'volatility_delever_retention.py': '148743f0bea5285ec98aca19072c528cb4435c5b52cbc5271b4347ce4fa30aef', 'research/fractional_kelly_walk_forward.py': '7e5892d59fd9c1243a5433b4c87b616d0805ed14130d24d65850bbfc8734ec74'}, 'config_sha256': '651f8f342e42a5c94f0dcebb2a4381ced9fb127acf86c1be7dbabb8ea72bc8b1'}
+
+
+class R0R3SameDayDividendAdmissionTests(unittest.TestCase):
+    """Artificial action-only admission; intercept both strategy generators."""
+
+    def fixture(self, *, splits=(), dividends=()):
+        days = ('2020-01-02', '2020-01-03', '2020-01-06')
+        symbols = ('BOXX', 'QQQ', 'QQQM', 'SOXL', 'SOXX', 'TQQQ')
+        body = {'sessions': list(days),
+            'bars': {s: [[d, 100., 100.] for d in days] for s in symbols},
+            'actions': {s: {'splits': [], 'dividends': []} for s in symbols}}
+        body['actions']['QQQ'] = {'splits': [list(x) for x in splits],
+                                  'dividends': [list(x) for x in dividends]}
+        source = {'manifest_metadata': {'window_start': days[0], 'window_end': days[-1]},
+            'groups': [{'symbol': s, 'kind': kind,
+                        'count': len(body['bars'][s]) if kind == 'bars' else
+                        sum(len(v) for v in body['actions'][s].values())}
+                       for s in symbols for kind in ('bars', 'actions')]}
+        return body, source
+
+    def generate(self, body, source):
+        from unittest.mock import patch
+        from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_generate
+        module = 'us_equity_strategies.research.kelly_core_return_generator.'
+        with patch(module + 'generate_tqqq_core_path', return_value='artificial-tqqq') as tqqq, \
+                patch(module + 'generate_soxl_core_path', return_value='artificial-soxl') as soxl:
+            result = _r0_r3_generate(body, source, trade_start=date(2020, 1, 2))
+        return result, tqqq, soxl
+
+    def test_same_day_dividends_reach_original_sum_without_normalizing(self):
+        from us_equity_strategies.research.kelly_core_return_generator import RawBar, total_return_series
+        body, source = self.fixture(dividends=(('2020-01-03', 1.), ('2020-01-03', 2.)))
+        result, tqqq, soxl = self.generate(body, source)
+        self.assertEqual(result[0], {'TQQQ': 'artificial-tqqq', 'SOXL': 'artificial-soxl'})
+        self.assertEqual(tqqq.call_count, 1)
+        self.assertEqual(soxl.call_count, 1)
+        actions = tqqq.call_args.args[1]['QQQ']
+        self.assertEqual(actions.dividends, ((date(2020, 1, 3), 1.), (date(2020, 1, 3), 2.)))
+        self.assertEqual(soxl.call_args.args[1]['QQQ'], actions)
+        self.assertEqual(len(body['actions']['QQQ']['dividends']), 2)
+        bars = tuple(RawBar(d, 100., 100.) for d in result[1])
+        returns = total_return_series(bars, actions, result[1])
+        self.assertAlmostEqual(returns[1], .03)
+        self.assertEqual(returns[2], 0.)
+
+    def test_unique_and_same_day_zero_dividends_are_valid(self):
+        for dividends in ((('2020-01-03', 1.), ('2020-01-06', 2.)),
+                          (('2020-01-03', 0.), ('2020-01-03', 2.))):
+            with self.subTest(dividends=dividends):
+                body, source = self.fixture(dividends=dividends)
+                _, tqqq, soxl = self.generate(body, source)
+                self.assertEqual(tqqq.call_count, 1)
+                self.assertEqual(soxl.call_count, 1)
+                self.assertEqual(len(tqqq.call_args.args[1]['QQQ'].dividends), 2)
+
+    def test_existing_negative_cases_still_reject_before_generators(self):
+        from unittest.mock import patch
+        from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_generate
+        cases = (
+            ('duplicate_split', {'splits': (('2020-01-03', 2.), ('2020-01-03', 3.))}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+            ('descending_dividend', {'dividends': (('2020-01-06', 1.), ('2020-01-03', 2.))}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+            ('descending_split', {'splits': (('2020-01-06', 2.), ('2020-01-03', 3.))}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+            ('negative_dividend', {'dividends': (('2020-01-03', -1.),)}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+            ('zero_split', {'splits': (('2020-01-03', 0.),)}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+            ('negative_split', {'splits': (('2020-01-03', -1.),)}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+            ('nonfinite_dividend', {'dividends': (('2020-01-03', float('inf')),)}, 'INVALID_RAW_ACTION'),
+            ('nonfinite_split', {'splits': (('2020-01-03', float('nan')),)}, 'INVALID_RAW_ACTION'),
+            ('boolean_dividend', {'dividends': (('2020-01-03', True),)}, 'INVALID_RAW_ACTION'),
+            ('outside_calendar', {'dividends': (('2020-01-04', 1.),)}, 'UNAVAILABLE_RAW_ACTION_ORDER_OR_VALUE'),
+        )
+        module = 'us_equity_strategies.research.kelly_core_return_generator.'
+        for label, actions, code in cases:
+            with self.subTest(case=label), patch(module + 'generate_tqqq_core_path') as tqqq, \
+                    patch(module + 'generate_soxl_core_path') as soxl:
+                body, source = self.fixture(**actions)
+                with self.assertRaisesRegex(ValueError, code):
+                    _r0_r3_generate(body, source, trade_start=date(2020, 1, 2))
+                tqqq.assert_not_called()
+                soxl.assert_not_called()
+
+    def test_same_day_records_still_bound_by_registered_count(self):
+        body, source = self.fixture(dividends=(('2020-01-03', 1.), ('2020-01-03', 2.)))
+        next(g for g in source['groups'] if g['symbol'] == 'QQQ' and g['kind'] == 'actions')['count'] = 1
+        with self.assertRaisesRegex(ValueError, 'UNAVAILABLE_INPUT_COUNTS_OR_ACTION_SCHEMA'):
+            self.generate(body, source)
+
+
+@unittest.skipIf(SecurityNettingSpec is None, 'requires the explicit QPK research overlay')
+class QQQPairSensitivityTests(unittest.TestCase):
+    def fixture(self, *, effect=False):
+        base = RootACoreOnlyBatchTests()
+        args, body, days = base.fixture()
+        j = 300 if effect else 100
+        body['actions']['QQQ'] = {'splits': [], 'dividends': [
+            [days[i].isoformat(), 1. if effect and i == j else 0.]
+            for i in (10, 20, 30, j, j, j + 50)]}
+        if effect:
+            args['requested_start'] = days[430]
+            for i, row in enumerate(body['bars']['QQQ']):
+                price = 100. if i < j else 99.
+                if i == 428:
+                    price = 99.001
+                row[1:] = [price, price]
+        for group in args['projection']['groups']:
+            if group['symbol'] == 'QQQ' and group['kind'] == 'actions':
+                group['count'] = 6
+        raw_root, registration = base.archive_registration(args, body)
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options = {key: args[key] for key in ('projection', 'identity_packet_sha256',
+            'dataset_class', 'implementation_sha256', 'core_only_source_binding',
+            'requested_start', 'requested_end', 'source_revision', 'store')}
+        options.update(input_source_registration=registration, batch_id='artificial-pair-ab',
+            load_source_root=lambda: raw_root,
+            transform_sha256=caller.qqq_pair_transform_identity())
+        return options, body
+
+    def test_projection_has_independent_identity_and_honest_source_counts(self):
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options, body = self.fixture()
+        original = caller._r0_r3_sha(body)
+        a, pa = caller._qqq_pair_projection(body, 'A_TWO_RECORDS')
+        b, pb = caller._qqq_pair_projection(body, 'B_ONE_EVENT_ASSUMPTION')
+        self.assertEqual(caller._r0_r3_sha(body), original)
+        self.assertEqual(a, body)
+        self.assertEqual(pa['raw_counts']['QQQ:actions'], pb['raw_counts']['QQQ:actions'])
+        self.assertEqual(pa['derived_counts']['QQQ:actions'], 6)
+        self.assertEqual(pb['derived_counts']['QQQ:actions'], 5)
+        self.assertNotEqual(pa['derived_body_sha256'], pb['derived_body_sha256'])
+        self.assertEqual(a['bars'], b['bars'])
+        self.assertEqual(a['sessions'], b['sessions'])
+        self.assertEqual(next(g for g in options['projection']['groups'] if g['symbol'] == 'QQQ' and g['kind'] == 'actions')['count'], 6)
+
+    def test_two_started_before_single_parse_no_difference_skips_ledgers(self):
+        from unittest.mock import patch
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options, _ = self.fixture()
+        root_callback = options['load_source_root']
+        gates = []
+        def source_root():
+            for suffix in ('-A-double', '-B-single'):
+                trial = options['store'].load_research_trial('us_equity',
+                    'r0_r3_qqq_pair_sensitivity_v1', options['batch_id'] + suffix)
+                self.assertEqual(trial.status.value, 'started')
+                self.assertEqual(trial.actual_params['input_semantics'], 'HYPOTHETICAL_QQQ_PAIR_SENSITIVITY')
+                self.assertEqual(next(g for g in trial.actual_params['source']['groups']
+                    if g['symbol'] == 'QQQ' and g['kind'] == 'actions')['count'], 6)
+            gates.append(True)
+            return root_callback()
+        with patch.object(caller, 'parse_registered_r0_r3_archive', wraps=caller.parse_registered_r0_r3_archive) as parser, \
+                patch.object(caller, 'run_offline_security_netting', side_effect=AssertionError('no ledger needed')):
+            result = caller.run_registered_qqq_pair_sensitivity(**(options | {'load_source_root': source_root}))
+        self.assertEqual(gates, [True])
+        self.assertEqual(parser.call_count, 1)
+        self.assertEqual(result['status'], 'COMPLETED_NO_RELEVANT_DIFFERENCE_NO_LEDGER')
+        self.assertEqual(result['ledger_cells_executed'], 0)
+        self.assertTrue(result['comparison']['calendar_equal'])
+        self.assertEqual({v['status'] for v in result['trials'].values()}, {'aborted'})
+        with self.assertRaisesRegex(ValueError, 'SENSITIVITY_TRIAL_ALREADY_EXISTS'):
+            caller.run_registered_qqq_pair_sensitivity(**(options | {'load_source_root': lambda: self.fail('duplicate raw read')}))
+
+    def test_evaluation_difference_runs_only_affected_profile_original_ledgers(self):
+        from unittest.mock import patch
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options, _ = self.fixture(effect=True)
+        with patch('us_equity_strategies.research.bayesian_kelly.initialise_b4', side_effect=AssertionError('no B4')), \
+                patch.object(caller, 'parse_registered_r0_r3_archive', wraps=caller.parse_registered_r0_r3_archive) as parser:
+            result = caller.run_registered_qqq_pair_sensitivity(**options)
+        self.assertEqual(parser.call_count, 1)
+        self.assertEqual(result['status'], 'COMPLETED_HYPOTHETICAL_SENSITIVITY_LEDGERS')
+        self.assertEqual(result['comparison']['changed_profiles'], ['TQQQ'])
+        self.assertEqual(result['ledger_cells_executed'], 6)
+        self.assertEqual({v['status'] for v in result['trials'].values()}, {'succeeded'})
+        self.assertNotEqual(result['trials']['A_TWO_RECORDS']['run_id'], result['trials']['B_ONE_EVENT_ASSUMPTION']['run_id'])
+        for value in result['engineering'].values():
+            self.assertEqual(len(value['cells']), 3)
+            self.assertEqual(value['training']['covariance_fits'], 0)
+            self.assertEqual(value['opening_books']['TQQQ']['nav'], 1.)
+            self.assertEqual(value['opening_books']['TQQQ']['cash'], 1.)
+            for packet in value['cells'].values():
+                self.assertTrue(all(v == 5. for v in packet['spec']['bps_per_side'].values()))
+
+    def test_unknown_transform_refuses_before_registration_and_source_read(self):
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options, _ = self.fixture()
+        with self.assertRaisesRegex(ValueError, 'SENSITIVITY_TRANSFORM_IDENTITY'):
+            caller.run_registered_qqq_pair_sensitivity(**(options | {'transform_sha256': '0' * 64,
+                'load_source_root': lambda: self.fail('wrong transform read source')}))
+        for suffix in ('-A-double', '-B-single'):
+            self.assertIsNone(options['store'].load_research_trial('us_equity',
+                'r0_r3_qqq_pair_sensitivity_v1', options['batch_id'] + suffix))
+
+    def test_exact_evaluation_gate_uses_reversal_not_unused_history_or_visibility(self):
+        from copy import deepcopy
+        from types import SimpleNamespace
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        days = tuple(date(2001, 1, i) for i in range(1, 10))
+        path = SimpleNamespace(weights=tuple({'X': .5} for _ in days),
+            asset_returns={'X': tuple(0. for _ in days)}, first_signal=days[1])
+        a = {'paths': {'TQQQ': path, 'SOXL': deepcopy(path)}, 'sessions': days,
+             'eligible': list(range(2, 8)), 'train': [2, 3], 'evaluate': [4, 5, 6, 7]}
+        b = deepcopy(a)
+        b['paths']['TQQQ'].weights[2]['X'] = .6
+        self.assertEqual(caller._qqq_pair_compare_signal_inputs(a, b)['changed_profiles'], [])
+        b['paths']['TQQQ'].weights[4]['X'] += 1e-14
+        comparison = caller._qqq_pair_compare_signal_inputs(a, b)
+        self.assertEqual(comparison['changed_profiles'], ['TQQQ'])
+        self.assertFalse(comparison['profiles']['TQQQ']['opening_identity_equal'])
+        self.assertEqual(comparison['profiles']['TQQQ']['evaluation_target_dates_above_visibility_tolerance'], 0)
+        b['evaluate'] = [5, 6, 7]
+        self.assertFalse(caller._qqq_pair_compare_signal_inputs(a, b)['calendar_equal'])
+
+    def test_registration_swap_after_started_rejects_before_generation_or_ledger(self):
+        from copy import deepcopy
+        from unittest.mock import patch
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options, body = self.fixture()
+        registered = deepcopy(options['input_source_registration'])
+        changed = deepcopy(body)
+        changed['bars']['QQQ'][0][1] *= 1.01
+        for i in (3, 4):
+            changed['actions']['QQQ']['dividends'][i][1] = .125
+        other_root, other_registration = RootACoreOnlyBatchTests().archive_registration(options, changed)
+        callbacks = []
+        def swap_after_started():
+            for suffix in ('-A-double', '-B-single'):
+                row = options['store'].load_research_trial('us_equity',
+                    'r0_r3_qqq_pair_sensitivity_v1', options['batch_id'] + suffix)
+                self.assertEqual(row.status.value, 'started')
+                self.assertEqual(row.actual_params['input_source_registration'], registered)
+            options['input_source_registration'].update(deepcopy(other_registration))
+            callbacks.append(True)
+            return other_root
+        with patch.object(caller, '_r0_r3_prepare_signal_inputs', side_effect=AssertionError('swapped archive generated')) as generated, \
+                patch.object(caller, 'run_offline_security_netting', side_effect=AssertionError('swapped archive ledger')) as netter:
+            with self.assertRaisesRegex(ValueError, 'UNAVAILABLE_ARCHIVE_OR_PARSER_IDENTITY'):
+                caller.run_registered_qqq_pair_sensitivity(**(options | {'load_source_root': swap_after_started}))
+        self.assertEqual(callbacks, [True])
+        generated.assert_not_called()
+        netter.assert_not_called()
+        for suffix in ('-A-double', '-B-single'):
+            row = options['store'].load_research_trial('us_equity',
+                'r0_r3_qqq_pair_sensitivity_v1', options['batch_id'] + suffix)
+            self.assertEqual(row.status.value, 'rejected')
+            self.assertEqual(row.actual_params['input_source_registration'], registered)
+            self.assertIsNone(row.run_id)
+        with self.assertRaisesRegex(ValueError, 'SENSITIVITY_TRIAL_ALREADY_EXISTS'):
+            caller.run_registered_qqq_pair_sensitivity(**(options | {
+                'load_source_root': lambda: self.fail('rejected swap reparsed')}))
+
+    def test_nested_caller_registration_mutation_does_not_poison_frozen_source(self):
+        from copy import deepcopy
+        from us_equity_strategies.research import rs04_netting_candidate as caller
+        options, body = self.fixture()
+        registered = deepcopy(options['input_source_registration'])
+        source_root = options['load_source_root']
+        changed = deepcopy(body)
+        changed['bars']['QQQ'][0][1] *= 1.01
+        _, other_registration = RootACoreOnlyBatchTests().archive_registration(options, changed)
+        def mutate_nested():
+            options['input_source_registration']['object_sha256'].update(other_registration['object_sha256'])
+            return source_root()
+        result = caller.run_registered_qqq_pair_sensitivity(**(options | {'load_source_root': mutate_nested}))
+        self.assertEqual(result['status'], 'COMPLETED_NO_RELEVANT_DIFFERENCE_NO_LEDGER')
+        self.assertEqual(result['source_registration'], registered)
+        self.assertEqual(result['derivation']['A_TWO_RECORDS']['raw_body_sha256'], caller._r0_r3_sha(body))
+        for row in result['trials'].values():
+            self.assertEqual(row['actual_params']['input_source_registration'], registered)
+        self.assertNotEqual(options['input_source_registration'], registered)
