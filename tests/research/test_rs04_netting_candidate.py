@@ -1766,6 +1766,9 @@ def test_TV1_late_declared_first_seen_real_admission_gap(tmp_path):
         'or authenticated producer linkage; early availability cannot be certified')
 
 
+@unittest.skipIf(
+    SecurityNettingSpec is None and os.environ.get('UES_REQUIRE_SECURITY_NETTING') != '1',
+    'requires the explicit QPK research overlay')
 def test_TV2_registered_version_hash_immutability(tmp_path):
     import copy
     from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch, _r0_r3_sha
@@ -1791,6 +1794,9 @@ def test_TV2_registered_version_hash_immutability(tmp_path):
     # Journal immutability passes; declared arrival times are not authenticated.
 
 
+@unittest.skipIf(
+    SecurityNettingSpec is None and os.environ.get('UES_REQUIRE_SECURITY_NETTING') != '1',
+    'requires the explicit QPK research overlay')
 def test_TV3_duplicate_journal_resume_unknown_first_seen(tmp_path):
     from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
     args, body, days = RootACoreOnlyBatchTests().fixture()
@@ -1839,6 +1845,9 @@ def test_TV1_declared_time_validation_and_legacy_identity(tmp_path):
             admit(args['projection'] | {field: invalid})
 
 
+@unittest.skipIf(
+    SecurityNettingSpec is None and os.environ.get('UES_REQUIRE_SECURITY_NETTING') != '1',
+    'requires the explicit QPK research overlay')
 def test_TV1_registered_declared_time_binding_and_resume(tmp_path):
     from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
     args, body, days = RootACoreOnlyBatchTests().fixture()
