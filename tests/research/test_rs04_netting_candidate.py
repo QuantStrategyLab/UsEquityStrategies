@@ -11,6 +11,7 @@ except ModuleNotFoundError:
     if os.environ.get("UES_REQUIRE_SECURITY_NETTING") == "1":
         raise
     SecurityNettingSpec = None  # production pin has no research netter
+from us_equity_strategies.research.cvar_exposure_constraint import weighted_cvar
 from us_equity_strategies.research.kelly_core_return_generator import CorePath, _replay
 from us_equity_strategies.research.rs04_netting_candidate import (
     NEXT_CLOSE_RESEARCH_CANDIDATE, CloseTarget, InitialNettingBook, OuterExposure,
@@ -510,6 +511,7 @@ def b5_rs04_policy(args, mode='FULL'):
     return RS04ResearchPolicy(mode, universe, opening, tuple(inputs))
 
 
+@unittest.skipIf(SecurityNettingSpec is None, "requires the explicit QPK research overlay")
 class B5FlatConsumerTests(unittest.TestCase):
     def run_b5(self, args, mode='FULL'):
         from us_equity_strategies.research.rs04_netting_candidate import run_rs04_partial_rebalance_candidate
@@ -626,7 +628,20 @@ class B5FlatConsumerTests(unittest.TestCase):
         self.assertEqual(band['rs04_research']['mode'], 'BAND_HOLD')
 
 
+@unittest.skipIf(SecurityNettingSpec is None, "requires the explicit QPK research overlay")
 class CVaRGeneratedConsumerTests(unittest.TestCase):
+    def test_same_equal_weight_sample_matches_existing_b3_signed_return_tail(self):
+        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
+
+        # Thirty observations put 1.5 atoms in the tail, exercising its boundary.
+        # These identical simple samples cross-check arithmetic, not horizons.
+        for returns in [(-.1, -.04, *([.01] * 28)), (.01, .04, *([.1] * 28))]:
+            with self.subTest(returns=returns):
+                descriptive = build_unified_net_report(returns).metric("cvar95_return_per_period")
+                self.assertEqual(descriptive.status, "COMPUTED")
+                es = weighted_cvar(tuple(-r for r in returns), (1. / len(returns),) * len(returns), .95)
+                self.assertAlmostEqual(es, -descriptive.value, places=14)
+
     @classmethod
     def setUpClass(cls):
         # Executes both actual no-plugin core generators on synthetic bars.

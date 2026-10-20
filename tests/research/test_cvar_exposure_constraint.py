@@ -105,18 +105,6 @@ class WeightedCvarTests(unittest.TestCase):
         self.assertAlmostEqual(weighted_cvar(list(map(float, losses)), list(map(float, ps)), .95),
                                float(oracle), places=14)
 
-    def test_same_equal_weight_sample_matches_existing_b3_signed_return_tail(self):
-        from quant_platform_kit.research_stats.unified_report import build_unified_net_report
-
-        # Thirty observations put 1.5 atoms in the tail, exercising its boundary.
-        # These identical simple samples cross-check arithmetic, not horizons.
-        for returns in [(-.1, -.04, *([.01] * 28)), (.01, .04, *([.1] * 28))]:
-            with self.subTest(returns=returns):
-                descriptive = build_unified_net_report(returns).metric("cvar95_return_per_period")
-                self.assertEqual(descriptive.status, "COMPUTED")
-                es = weighted_cvar(tuple(-r for r in returns), (1. / len(returns),) * len(returns), .95)
-                self.assertAlmostEqual(es, -descriptive.value, places=14)
-
 
 class KernelFixture(unittest.TestCase):
     def args(self):
