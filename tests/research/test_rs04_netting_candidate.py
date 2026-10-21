@@ -2134,6 +2134,137 @@ class QQQPairSensitivityTests(unittest.TestCase):
         self.assertNotEqual(options['input_source_registration'], registered)
 
 
+def test_TV1_late_declared_first_seen_real_admission_gap(tmp_path):
+    from us_equity_strategies.research.rs04_netting_candidate import admit_r0_r3_source_metadata
+    args, body, days = r0_r3_fixture(tmp_path)
+    # Declared synthetic example only: no authenticated producer/arrival claim.
+    declared = {'observed_at': '2030-01-02T21:00:00+00:00',
+        'declared_available_at': '2030-01-02T21:01:00+00:00',
+        'first_seen': '2030-01-02T21:07:00+00:00', 'revision': 'r1'}
+    admitted = admit_r0_r3_source_metadata(args['projection'] | declared,
+        identity_packet_sha256=args['identity_packet_sha256'], dataset_class='ARTIFICIAL_FIXTURE')
+    assert declared['declared_available_at'] < '2030-01-02T21:05:00+00:00' < declared['first_seen']
+    assert admitted['PIT'] == 'NOT_ATTESTED'
+    assert admitted['observed_at'] == declared['observed_at']
+    assert admitted['declared_available_at'] == declared['declared_available_at']
+    assert admitted['source_time_basis'] == 'CALLER_DECLARED_NOT_AUTHENTICATED'
+    # Canonical declarations preserve linkage, but the late record remains
+    # NOT_ATTESTED. This API cannot certify availability at an actual cutoff.
+    assert admitted.get('first_seen') == declared['first_seen'], (
+        'FIRST_SEEN_CONTRACT_UNCOVERED: public admission has no canonical first_seen '
+        'or authenticated producer linkage; early availability cannot be certified')
+
+
+@unittest.skipIf(
+    SecurityNettingSpec is None and os.environ.get('UES_REQUIRE_SECURITY_NETTING') != '1',
+    'requires the explicit QPK research overlay')
+def test_TV2_registered_version_hash_immutability(tmp_path):
+    import copy
+    from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch, _r0_r3_sha
+    args, body, days = RootACoreOnlyBatchTests().fixture()
+    args['source_revision'] = 'r1'
+    args['projection'] = args['projection'] | {'first_seen': '2030-01-02T21:02:00+00:00'}
+    first = run_registered_r0_r3_batch(**args)
+    assert first['trial']['source_revision'] == 'r1'
+    before = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id']).to_dict()
+    revised_body = copy.deepcopy(body)
+    revised_body['bars']['TQQQ'][0][2] += .01
+    revised_hash = _r0_r3_sha(revised_body)
+    assert revised_hash != args['input_body_sha256']
+    def forbidden_second_parse():
+        raise AssertionError('conflicting revision must be refused before parsing/computation')
+    revised = args | {'source_revision': 'r2', 'input_body_sha256': revised_hash,
+        'projection': args['projection'] | {'first_seen': '2030-01-02T21:06:00+00:00'},
+        'load_input_body': forbidden_second_parse}
+    with unittest.TestCase().assertRaisesRegex(ValueError, '^research_trial_conflict$'):
+        run_registered_r0_r3_batch(**revised)
+    assert args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id']).to_dict() == before
+    assert first['PIT'] == 'NOT_ATTESTED'
+    # Journal immutability passes; declared arrival times are not authenticated.
+
+
+@unittest.skipIf(
+    SecurityNettingSpec is None and os.environ.get('UES_REQUIRE_SECURITY_NETTING') != '1',
+    'requires the explicit QPK research overlay')
+def test_TV3_duplicate_journal_resume_unknown_first_seen(tmp_path):
+    from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
+    args, body, days = RootACoreOnlyBatchTests().fixture()
+    args['source_revision'] = 'r1'
+    args['projection'] = args['projection'] | {'observed_at': '2020-01-02T21:00:00+00:00',
+        'declared_available_at': '2020-01-02T21:01:00+00:00', 'first_seen': None}
+    first = run_registered_r0_r3_batch(**args)
+    def forbidden_duplicate_parse():
+        raise AssertionError('duplicate journal resume must not parse or compute again')
+    second = run_registered_r0_r3_batch(**(args | {'load_input_body': forbidden_duplicate_parse}))
+    assert not first['resumed_without_compute']
+    assert second['resumed_without_compute']
+    assert second['trial'] == first['trial']
+    assert second['subresults'] == first['subresults']
+    assert second['PIT'] == 'NOT_ATTESTED'
+    assert second['trial']['run_id'] == first['trial']['run_id']
+    assert second['trial']['param_version'] == first['trial']['param_version']
+    assert 'first_seen' not in second['trial']['actual_params']['source']
+    # Absence stays UNKNOWN; neither old observed time nor current clock is proof.
+
+
+def test_TV1_declared_time_validation_and_legacy_identity(tmp_path):
+    from us_equity_strategies.research.rs04_netting_candidate import admit_r0_r3_source_metadata
+    args, body, days = r0_r3_fixture(tmp_path)
+    def admit(projection):
+        return admit_r0_r3_source_metadata(projection,
+            identity_packet_sha256=args['identity_packet_sha256'], dataset_class='ARTIFICIAL_FIXTURE')
+    legacy = admit(args['projection'])
+    assert 'first_seen' not in legacy
+    assert 'source_time_basis' not in legacy
+    assert admit(args['projection'] | dict(observed_at=None, declared_available_at=None, first_seen=None)) == legacy
+    zulu = args['projection'] | {'first_seen': '2030-01-02T21:07:00Z',
+        'source_time_basis': 'AUTHENTICATED_PRODUCER'}
+    normalized = admit(zulu)
+    assert normalized['first_seen'] == '2030-01-02T21:07:00+00:00'
+    assert normalized == admit(args['projection'] | {'first_seen': normalized['first_seen']})
+    assert normalized['source_time_basis'] == 'CALLER_DECLARED_NOT_AUTHENTICATED'
+    assert normalized['PIT'] == legacy['PIT'] == 'NOT_ATTESTED'
+    assert 'observed_at' not in normalized and 'declared_available_at' not in normalized
+    # Reuse the current explicit UTC contract; never call str() on arbitrary objects.
+    for field, invalid in [('observed_at', '2030-01-02T21:00:00'),
+            ('declared_available_at', 'not-a-time'), ('first_seen', object()),
+            ('first_seen', True), ('first_seen', '2030-01-02'),
+            ('first_seen', '2030-01-03T05:07:00+08:00')]:
+        with unittest.TestCase().assertRaisesRegex(ValueError, '^RS04_EXPLICIT_UTC_TIME_REQUIRED$'):
+            admit(args['projection'] | {field: invalid})
+
+
+@unittest.skipIf(
+    SecurityNettingSpec is None and os.environ.get('UES_REQUIRE_SECURITY_NETTING') != '1',
+    'requires the explicit QPK research overlay')
+def test_TV1_registered_declared_time_binding_and_resume(tmp_path):
+    from us_equity_strategies.research.rs04_netting_candidate import run_registered_r0_r3_batch
+    args, body, days = RootACoreOnlyBatchTests().fixture()
+    declared = {'observed_at': '2030-01-02T21:00:00+00:00',
+        'declared_available_at': '2030-01-02T21:01:00+00:00',
+        'first_seen': '2030-01-02T21:07:00+00:00'}
+    args['projection'] = args['projection'] | declared
+    first = run_registered_r0_r3_batch(**args)
+    source = first['trial']['actual_params']['source']
+    assert all(source[k] == v for k, v in declared.items())
+    assert source['source_time_basis'] == 'CALLER_DECLARED_NOT_AUTHENTICATED'
+    assert source['PIT'] == first['PIT'] == 'NOT_ATTESTED'
+    def forbidden_parse():
+        raise AssertionError('duplicate or changed declaration cannot parse or recompute')
+    # Equivalent UTC spellings keep the same identity and real persisted result.
+    duplicate = run_registered_r0_r3_batch(**(args | {'load_input_body': forbidden_parse,
+        'projection': args['projection'] | {'first_seen': '2030-01-02T21:07:00Z'}}))
+    assert duplicate['resumed_without_compute']
+    assert duplicate['trial'] == first['trial']
+    assert duplicate['subresults'] == first['subresults']
+    for field in declared:
+        changed = args['projection'] | {field: '2030-01-02T21:08:00+00:00'}
+        with unittest.TestCase().assertRaisesRegex(ValueError, '^research_trial_conflict$'):
+            run_registered_r0_r3_batch(**(args | {'projection': changed, 'load_input_body': forbidden_parse}))
+        stored = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+        assert stored.to_dict() == first['trial']
+
+
 @requires_security_netting
 @pytest.mark.parametrize("mutation", ["candidate_pending_swap", "malformed_cached_pending"])
 def test_syn001_reviewer_pending_counterexamples(tmp_path, mutation):

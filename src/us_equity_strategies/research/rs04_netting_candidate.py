@@ -1098,6 +1098,22 @@ def _r0_r3_sha(value: Any) -> str:
     return hashlib.sha256(_r0_r3_json(value).encode()).hexdigest()
 
 
+def _r0_r3_declared_source_times(projection):
+    """Canonical caller declarations for identity, never authenticated availability.
+
+    This metadata API has no decision cutoff or producer attestation. Missing
+    times stay missing; NOT_ATTESTED is unchanged even when all times are given.
+    """
+    from .security_netting_runner import _rs04_time
+
+    times = {name: _rs04_time(projection[name]).isoformat()
+             for name in ('observed_at', 'declared_available_at', 'first_seen')
+             if name in projection and projection[name] is not None}
+    if times:
+        times['source_time_basis'] = 'CALLER_DECLARED_NOT_AUTHENTICATED'
+    return times
+
+
 def admit_r0_r3_source_metadata(projection: Mapping[str, Any], *,
                                 identity_packet_sha256: str, dataset_class: str) -> dict[str, Any]:
     """Validate metadata only; no path, manifest or market-page I/O.
@@ -1158,7 +1174,8 @@ def admit_r0_r3_source_metadata(projection: Mapping[str, Any], *,
         'source_verified_objects': 13, 'source_verified_bytes': projection['source_verified_bytes'],
         'manifest_metadata': dict(metadata),
         'groups': sorted((dict(g) for g in groups), key=lambda g: (g['symbol'], g['kind'])),
-        'PIT': 'NOT_ATTESTED', 'OOS': 'SEEN_DEVELOPMENT_NOT_INDEPENDENT'}
+        'PIT': 'NOT_ATTESTED', 'OOS': 'SEEN_DEVELOPMENT_NOT_INDEPENDENT',
+        **_r0_r3_declared_source_times(projection)}
 
 
 def _root_a_core_contexts(binding, implementation, identity, dataset_class):
