@@ -2665,3 +2665,496 @@ def test_r1_mechanism_two_native_books_chronology_fees_persistence_resume(tmp_pa
 @requires_security_netting
 def test_r1_mechanism_ARTIFICIAL_FIXTURE_exact_793_evaluation_n792(tmp_path, monkeypatch, record_property):
     _assert_r1_mechanism_native_chronology(tmp_path, monkeypatch, record_property, evaluation_sessions=793)
+
+
+# ARTIFICIAL_FIXTURE M1: exact opt-in policy, no historical data or study.
+R1_FEE_RESERVE_POLICY = {'schema': 'qsl.research.r1.prefee_proportional_reserve.policy.v1',
+ 'policy_id': 'R1_PREFEE_PROPORTIONAL_RESERVE_V1',
+ 'parent_mechanism_policy_sha256': '087b9f05d55d99989fabb440a81f34ac513082a6a4ee11debdeafe0e67f9318a',
+ 'economic_status': 'NEW_OFFLINE_RESEARCH_ASSUMPTION_NOT_OLD_CONTRACT_BUG_FIX',
+ 'capital_basis': 'PRE_FEE_NAV',
+ 'fee_bps_per_side': 5,
+ 'fee_rate_rational': [1, 2000],
+ 'cash_payer': 'inner_residual_cash',
+ 'securities_include_BOXX': True,
+ 'assumptions': ['finite positive pre-fill NAV',
+                 'long-only nonnegative securities and true cash',
+                 'no external flows or financing',
+                 'common fixed proportional one-side fee on actual net security trades',
+                 'fractional security quantities; no fixed minimum/slippage/tax/round lot/frozen '
+                 'funds'],
+ 'rule': {'input': 'original composed pre-fee target d after prior-only and terminal zero cases',
+          'D': 'sum_s d_s',
+          'Tmax_rational': [1999, 2001],
+          'beta': '1 if D=0 or D<=Tmax; otherwise Tmax/D, represented conservatively inward',
+          'output': 'x_s=beta*d_s for every traded security including BOXX',
+          'pre_fee_true_cash_lower_bound_when_binding_rational': [2, 2001],
+          'existing_cash': 'if original target already satisfies the bound keep it; never add a '
+                           'second economic reserve',
+          'actual_fee': 'exact existing netter fee once, on sum abs(actual net trades); remaining '
+                        'reserve remains wealth',
+          'HOLD': 'not activated for B5 in this version; a future HOLD must retain actual '
+                  'quantities and not top up reserve by phantom trading',
+          'prior_and_terminal': 'zero targets remain zero; None is not AVAILABLE zero; do not turn '
+                                'prior-only into BOXX purchase',
+          'rounding': 'finite binary64 results must be componentwise nonincreasing versus original '
+                      'target and inward to exact rational total bound; author freezes '
+                      'deterministic inward representation/error allowance as numerical policy; no '
+                      'fee tolerance or native guard change'},
+ 'unchanged': {'c': 0.25,
+               'train_complete_sessions': 63,
+               'cap_by_profile': {'TQQQ': 1, 'SOXL': 1},
+               'covariance': 'fixed once fit, same update order',
+               'fee': '5bps one side, same original fee/time model',
+               'default': 'None preserves old behavior/params/identity/outputs; explicit new '
+                          'version opt-in only'},
+ 'post_fee_cap_certified': False,
+ 'CVaR_and_joint_correlation_consumers': 'NOT_CLOSED_NOT_CERTIFIED',
+ 'real_trial_permission': 'NONE_THIS_PHASE',
+ 'financial': 'NOT_READY'}
+
+
+def test_m1_fraction_oracle_and_binding_contract(record_property):
+    from fractions import Fraction as F
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    q = F(5, 10000)
+    t = (1-q)/(1+q)
+    assert t == F(1999, 2001)
+    assert 1-t == q*(1+t)
+    assert 1-F(2000,2001) < q*(1+F(2000,2001))
+    # b=0 is a mathematical control only, never a registered fee change.
+    assert (1-F(0))/(1+F(0)) == 1
+    original = {'BOXX': 1., 'QQQM': 0., 'TQQQ': 0.}
+    target, evidence = caller._r1_prefee_proportional_reserve(original)
+    assert 0 < target['BOXX'] < 1 and target['QQQM'] == target['TQQQ'] == 0
+    assert sum(map(F, target.values())) <= t
+    assert evidence['original_target'] == original
+    assert evidence['final_target'] == target
+    assert evidence['post_fee_cap_certified'] is False
+    record_property('independent_fraction_oracle', {'Tmax':str(t),'cash':str(1-t),
+        'tight_turnover':str(1+t),'forbidden_empty_book_bound':'2000/2001'})
+
+
+def _m1_context():
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    return caller._root_a_core_contexts(ROOT_A_CORE_ONLY_BINDING, _m1_implementation(),
+        'ARTIFICIAL_FIXTURE:M1_SEVEN_SESSION_ONLY', 'ARTIFICIAL_FIXTURE')['TQQQ']
+
+
+def _m1_compose(f, inner):
+    from quant_platform_kit.research_stats.security_netting import compose_security_targets
+    spec = SecurityNettingSpec(bps_per_side={s:5. for s in ('BOXX','QQQM','TQQQ')},
+        outer_cash_mode='merge_into_security', outer_cash_symbol='BOXX', cash_like_symbols=('BOXX',))
+    target, _ = compose_security_targets(f=f, inner_weights=inner, spec=spec)
+    return {s:target.get(s,0.) for s in ('BOXX','QQQM','TQQQ')}
+
+
+def _m1_native(initial, targets, *, nav=1., returns=None, invalid_time=False):
+    from datetime import timedelta
+    from us_equity_strategies.research.security_netting_runner import (
+        NettingSession, DecisionSnapshot, RS04DecisionInput, RS04NoPluginCoreResearchPolicy,
+        run_offline_security_netting)
+    universe = ('BOXX','QQQM','TQQQ')
+    context = _m1_context()
+    anchor = date(2001,1,2)
+    def close(d):return d.isoformat()+'T23:00:00+00:00'
+    zero = {s:0. for s in universe}
+    rows, infos = [], []
+    for n, target in enumerate(targets):
+        decision, fill = anchor+timedelta(days=n), anchor+timedelta(days=n+1)
+        ret = zero if returns is None else returns[n]
+        rows.append(NettingSession(fill,decision,1.,target,ret,0.))
+        infos.append(RS04DecisionInput(decision,fill,close(decision),close(fill),
+            close(fill) if invalid_time else close(decision),context.exact_source,
+            tuple(target.items()),context,False))
+    opening = DecisionSnapshot(anchor,close(anchor),nav,
+        tuple((s,nav*initial[s]) for s in universe),nav*(1-sum(initial.values())),True)
+    policy = RS04NoPluginCoreResearchPolicy('FULL',universe,opening,tuple(infos),
+        profile='TQQQ',source_identity=context.source_identity)
+    flat = SecurityNettingSpec(bps_per_side={s:5. for s in universe},cash_like_symbols=('BOXX',))
+    return run_offline_security_netting(tuple(rows),initial_nav=nav,initial_f=1.,
+        initial_inner_weights=initial,spec=flat,fee_cash_role=flat.inner_residual_role,
+        execution_timing='next_close',report_periods_per_year=252,rs04_research_policy=policy)
+
+
+@requires_security_netting
+def test_m1_initial_low_f_available_zero_and_old_refusal(record_property):
+    from datetime import datetime, timezone, timedelta
+    from fractions import Fraction as F
+    from us_equity_strategies.research import bayesian_kelly as b4
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    stamp = datetime(2001,1,2,23,tzinfo=timezone.utc)
+    state = b4.initialise_b4(b4.B4Spec(('TQQQ',),stamp),((.04,),),'ARTIFICIAL_FIXTURE:M1_SIGMA')
+    prior = b4.b4_fractional_target(b4.b4_predictive_moments(state),c=.25,
+        scope_cap={'TQQQ':1.},cap_source='ARTIFICIAL_FIXTURE:M1')
+    assert prior.targets is None and prior.status == 'PRIOR_ONLY'
+    stamp += timedelta(days=1)
+    state = b4.update_b4(state,b4.B4Observation('ARTIFICIAL_FIXTURE:M1_NEGATIVE',1,stamp,stamp,
+        ('TQQQ',),(math.log(.9),)),decision_cutoff=stamp).state
+    available = b4.b4_fractional_target(b4.b4_predictive_moments(state),c=.25,
+        scope_cap={'TQQQ':1.},cap_source='ARTIFICIAL_FIXTURE:M1')
+    assert available.status == 'AVAILABLE' and available.targets == (0.,)
+    assert available.fractional_applied_once
+    zero = {'BOXX':0.,'QQQM':0.,'TQQQ':0.}
+    original = _m1_compose(available.targets[0], {'TQQQ':.5,'QQQM':0.,'BOXX':0.})
+    assert original == zero | {'BOXX':1.}
+    with pytest.raises(ValueError,match='^FEE_CASH_INSUFFICIENT$'):
+        _m1_native(zero,[original])
+    rows = []
+    for f, inner in [(0.,{'TQQQ':1.}),(.05,{'TQQQ':1.}),(1.,{'TQQQ':1.})]:
+        d = _m1_compose(f,inner)
+        x, evidence = caller._r1_prefee_proportional_reserve(d)
+        packet = _m1_native(zero,[x]);row = packet['ledger'][0]
+        fee = sum(map(F,x.values()))/2000
+        assert row['fees'] == pytest.approx(float(fee),rel=2e-14)
+        assert row['virtual_cash_end']['inner_residual_cash'] >= 0
+        assert row['nav_end'] == pytest.approx(1-float(fee))
+        assert packet['target_basis'] == 'pre_fee_nav_cash_funded'
+        assert packet['rs04_research']['mode'] == 'FULL'
+        assert x['BOXX'] == d['BOXX']*evidence['beta']
+        rows.append({'f':f,'mapping':evidence,'actual':row})
+    record_property('initial_and_low_f_native',rows)
+
+
+@requires_security_netting
+@pytest.mark.parametrize('nav',[2.**-500,1.,2.**500])
+def test_m1_tight_disjoint_scaled_nav_and_mixed_conservation(nav,record_property):
+    from fractions import Fraction as F
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    zero = {'BOXX':0.,'QQQM':0.,'TQQQ':0.}
+    initial = zero | {'BOXX':1.}
+    d = _m1_compose(1.,{'QQQM':1.})
+    target, evidence = caller._r1_prefee_proportional_reserve(d)
+    row = _m1_native(initial,[target],nav=nav)['ledger'][0]
+    expected = (F(1)+F(target['QQQM']))/2000*F(nav)
+    assert row['fees']/nav == pytest.approx(float(expected/F(nav)),rel=2e-14)
+    assert row['virtual_cash_end']['inner_residual_cash'] >= 0
+    assert sum(row['security_end'].values()) + sum(row['virtual_cash_end'].values()) + row['fees'] == pytest.approx(nav,rel=2e-14)
+    assert row['net_trades']['BOXX'] == -nav
+    assert row['net_trades']['QQQM'] == target['QQQM']*nav
+    # BOXX is a valued security; a later mixed rebalance is actually netted.
+    mixed = {'BOXX':.2,'QQQM':.3,'TQQQ':.4}
+    returns = [zero,zero | {'BOXX':.125,'QQQM':-.0625}]
+    packet = _m1_native({'BOXX':.4,'QQQM':.2,'TQQQ':.1},[mixed,{'BOXX':.1,'QQQM':.4,'TQQQ':.25}],nav=nav,returns=returns)
+    # Independent ideal-dollar recurrence uses only fixture inputs, no native
+    # implementation or returned trades/fees as oracle inputs.
+    oracle_values = {s:F(nav)*F(v) for s,v in {'BOXX':.4,'QQQM':.2,'TQQQ':.1}.items()}
+    oracle_cash = F(nav)-sum(oracle_values.values(),F())
+    oracle_rows = []
+    for actual,desired,ret in zip(packet['ledger'],[mixed,{'BOXX':.1,'QQQM':.4,'TQQQ':.25}],returns,strict=True):
+        grown = {s:v*(1+F(ret[s])) for s,v in oracle_values.items()}
+        oracle_nav = sum(grown.values(),F())+oracle_cash
+        next_values = {s:oracle_nav*F(desired[s]) for s in desired}
+        oracle_fee = sum((abs(next_values[s]-grown[s]) for s in desired),F())/2000
+        oracle_cash = oracle_nav-sum(next_values.values(),F())-oracle_fee
+        oracle_values = next_values
+        assert actual['fees']/nav == pytest.approx(float(oracle_fee/F(nav)),rel=2e-13)
+        assert actual['nav_end']/nav == pytest.approx(float((oracle_nav-oracle_fee)/F(nav)),rel=2e-14)
+        oracle_rows.append({'fee':str(oracle_fee),'cash':str(oracle_cash),'pre_nav':str(oracle_nav)})
+        pre = actual['nav_pre_trade']
+        independent_fee = sum((abs(F(v)) for v in actual['net_trades'].values()),F())/2000
+        assert actual['fees']/pre == pytest.approx(float(independent_fee/F(pre)),rel=2e-14)
+        assert (sum(actual['security_end'].values())+sum(actual['virtual_cash_end'].values())+actual['fees'])/pre == pytest.approx(1.,rel=2e-14)
+        assert sum(actual['fee_by_security'].values())/pre == pytest.approx(actual['fees']/pre,rel=2e-14)
+    record_property('native_scaled_nav',{'nav':nav,'tight':row,'mapping':evidence,'mixed':packet['ledger'],'independent_oracle':oracle_rows})
+
+
+@requires_security_netting
+def test_m1_domain_near_boundary_rounding_proof_and_genuine_failures(tmp_path,monkeypatch,record_property):
+    from fractions import Fraction as F
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    zero = {'BOXX':0.,'QQQM':0.,'TQQQ':0.}
+    for bad in [float('nan'),float('inf'),-1.,True,'0']:
+        with pytest.raises(ValueError,match='R1_FEE_RESERVE_TARGET_DOMAIN'):
+            caller._r1_prefee_proportional_reserve(zero | {'BOXX':bad})
+    with pytest.raises(ValueError,match='R1_FEE_RESERVE_TARGET_DOMAIN'):
+        caller._r1_prefee_proportional_reserve({'BOXX':.5,'QQQM':.3,'TQQQ':.3})
+    with pytest.raises(ValueError,match='R1_FEE_RESERVE_TARGET_DOMAIN'):
+        caller._r1_prefee_proportional_reserve({'BOXX':.1})
+    # Independent rational upper error bound for native three-security fee.
+    # Nonnegative pre-values + cash, finite positive preNAV, no overflow.
+    # Summation: gamma3; rounded w divisions: (1+u), 3 subnormal errors.
+    # Subtract, *5, sum3, /10000 fit within gamma12 + 64*eta.
+    u,eta = F(1,2**53),F(1,2**1074)
+    gamma = lambda n:n*u/(1-n*u)
+    bound = F(1999,2001)
+    inward = float(bound)
+    if F(inward)>bound:inward=math.nextafter(inward,0.)
+    cash = 1-F(inward)
+    fee_upper = (bound+(1+u)/(1-gamma(3))+3*eta)/2000*(1+gamma(12))+64*eta
+    assert cash > fee_upper
+    # Fee and residual fractions multiply by the SAME finite positive preNAV:
+    # correctly rounded multiplication is monotone, even at subnormal NAV.
+    # Counterexample to using an uncorrected rounded sum at the boundary.
+    d = {'BOXX':0.,'QQQM':.6511424675693973,'TQQQ':.3478580321807276}
+    assert sum(map(F,d.values())) < bound < F(sum(d.values()))
+    # File-local Fraction facts precede the actual artificial native call;
+    # no delivery packet or environment variable is a test input.
+    import hashlib
+    from pathlib import Path
+    monkeypatch.delenv('TMPDIR',raising=False)
+    assert 'TMPDIR' not in os.environ
+    exact_D = F(17996393113670407,18014398509481984)
+    assert sum(map(F,d.values()))==exact_D
+    assert sum(d.values())==0.999000499750125
+    oracle = {'fixture':'ARTIFICIAL_A6_EXACT_D_INSIDE_BINARY64_D_OUTSIDE',
+        'target':d,'exact_D':str(exact_D),'exact_cash_before_fee':str(1-exact_D),
+        'exact_fee':str((1+exact_D)/2000),
+        'exact_positive_fee_slack':str(1-exact_D-(1+exact_D)/2000)}
+    assert F(oracle['exact_positive_fee_slack'])>0
+    oracle_bytes = json.dumps(oracle,sort_keys=True,separators=(',',':')).encode()
+    with pytest.raises(ValueError,match='^FEE_CASH_INSUFFICIENT$') as caught:
+        _m1_native(zero | {'BOXX':1.},[d])
+    actual = None
+    tb = caught.value.__traceback__
+    native_file = Path(caller.__file__).with_name('security_netting_runner.py').resolve()
+    while tb is not None:
+        frame = tb.tb_frame
+        if (frame.f_code.co_name=='run_offline_security_netting'
+                and Path(frame.f_code.co_filename).resolve()==native_file):
+            values = frame.f_locals
+            actual = {name:copy.deepcopy(values[name]) for name in
+                ('fees','cash_before_fee','pre_nav','fee_cash_role','effective_target')}
+            actual.update(native_source=str(native_file),native_line=tb.tb_lineno)
+        tb = tb.tb_next
+    assert actual is not None
+    assert actual['effective_target']==d and actual['pre_nav']==1.
+    assert actual['fee_cash_role']=='inner_residual_cash'
+    assert actual['fees']>actual['cash_before_fee'][actual['fee_cash_role']]
+    del tb, frame
+    x, evidence = caller._r1_prefee_proportional_reserve(d)
+    capture = {'fixture':oracle['fixture'],'oracle_sha256':hashlib.sha256(oracle_bytes).hexdigest(),
+        'in_file_fraction_oracle':oracle,'TMPDIR_present':'TMPDIR' in os.environ,'original_target':d,
+        'actual_exception_type':type(caught.value).__name__,'actual_exception':str(caught.value),
+        'actual_native_frame':actual,'mapping':evidence,'original_target_triggers_scale':evidence['beta']<1.,
+        'actual_source_sha256':_m1_implementation(),
+        'actual_test_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        'scope':'ARTIFICIAL_FIXTURE only; not the old real trial failure trace'}
+    capture_path = tmp_path/'A6_NATIVE_COUNTEREXAMPLE.json'
+    capture_path.write_text(json.dumps(capture,indent=2)+'\n')
+    assert json.loads(capture_path.read_text())==capture
+    record_property('pytest_owned_capture_path',str(capture_path))
+    record_property('actual_native_counterexample',capture)
+    assert sum(map(F,x.values()))<=bound and F(sum(x.values()))<=bound
+    assert evidence['beta'] < 1
+    _m1_native(zero | {'BOXX':1.},[x])
+    for value in [math.nextafter(inward,0.),inward,math.nextafter(inward,1.),1.]:
+        original = zero | {'QQQM':value}
+        x, e = caller._r1_prefee_proportional_reserve(original)
+        if F(value)<=bound:assert x==original and e['beta']==1.
+        assert all(0<=x[s]<=original[s] for s in x)
+        _m1_native(zero | {'BOXX':1.},[x])
+    with pytest.raises(ValueError,match='RS04_DECISION_TIME_MISMATCH'):
+        _m1_native(zero,[x],invalid_time=True)
+    with pytest.raises(ValueError,match='^FEE_CASH_INSUFFICIENT$'):
+        _m1_native(zero,[zero | {'BOXX':1.}])
+    record_property('binary64_proof',{'unit_roundoff':str(u),'underflow_quantum':str(eta),
+        'cash_fraction_lower':str(cash),'fee_fraction_upper':str(fee_upper),
+        'strict_positive_margin':str(cash-fee_upper),'near_boundary':evidence,
+        'proof_scope':'native fee guard under finite nonnegative actual book invariants; other native validations remain authoritative'})
+
+
+@requires_security_netting
+def test_m1_cash_rich_zero_and_no_future_fill_input(record_property):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    zero = {'BOXX':0.,'QQQM':0.,'TQQQ':0.}
+    rich = {'BOXX':.1,'QQQM':.2,'TQQQ':.3}
+    for d in [zero,rich]:
+        x,e = caller._r1_prefee_proportional_reserve(d)
+        assert x==d and e['beta']==1.
+    x,_ = caller._r1_prefee_proportional_reserve(_m1_compose(.1,{'TQQQ':1.}))
+    initial = {'BOXX':.3,'QQQM':.2,'TQQQ':.1}
+    first = _m1_native(initial,[x],returns=[zero])
+    shock = _m1_native(initial,[x],returns=[zero | {'BOXX':.9,'TQQQ':-.7}])
+    assert first['ledger'][0]['nav_pre_trade'] != shock['ledger'][0]['nav_pre_trade']
+    left,right = first['rs04_research']['decisions'][0],shock['rs04_research']['decisions'][0]
+    assert {k:v for k,v in left.items() if k!='execution'} == {k:v for k,v in right.items() if k!='execution'}
+    terminal = _m1_native({'BOXX':1.,'QQQM':0.,'TQQQ':0.},[zero,zero],returns=[zero | {'BOXX':.1},zero | {'BOXX':.5}])
+    a,b=terminal['ledger']
+    assert a['security_end']==zero and a['fees']==pytest.approx(1.1/2000)
+    assert b['fees']==0 and b['security_pnl']==zero and b['net_trades']==zero
+    assert _m1_native(zero,[zero])['ledger'][0]['fees']==0
+    record_property('prior_terminal_cash_rich',{'cash_rich':rich,'terminal':terminal['ledger']})
+
+
+def _m1_implementation():
+    import hashlib
+    from pathlib import Path
+    package = Path(__file__).resolve().parents[2]/'src/us_equity_strategies'
+    return {'research/'+name+'.py':hashlib.sha256((package/'research'/ (name+'.py')).read_bytes()).hexdigest()
+        for name in ('partial_rebalance','rs04_netting_candidate','security_netting_runner')}
+
+
+def _m1_registered_fixture(tmp_path):
+    """Nine artificial sessions; no production 63-session prepare or archive reads.
+
+    The prepared-input seam replaces source generation only. Actual covariance,
+    B4 prior/update/fraction, original compose, FULL selector, netter, and journal
+    run unchanged. A three-observation unit fixture is not a training study.
+    """
+    from datetime import timedelta
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    sessions = tuple(date(2001,1,2)+timedelta(days=i) for i in range(9))
+    body = {'fixture':'ARTIFICIAL_FIXTURE:M1_NINE_SESSIONS_NOT_REAL_DATA'}
+    identity = caller._r0_r3_sha(body)
+    projection = r0_r3_real_metadata_fixture()
+    projection.update(source_packet_sha256=identity,source_verified_bytes=len(json.dumps(body).encode()))
+    projection['manifest_metadata'].update(window_start=sessions[0].isoformat(),window_end=sessions[-1].isoformat())
+    for g in projection['groups']:g['count'] = 9 if g['kind']=='bars' else 0
+    paths = {}
+    for j,(profile,other) in enumerate([('TQQQ','QQQM'),('SOXL','SOXX')]):
+        assets = (profile,other,'BOXX')
+        returns = {profile:tuple(.015+.004*math.sin(i*(.7+j*.3)) for i in range(9)),
+            other:tuple(.008+.003*math.cos(i*(.4+j*.2)) for i in range(9)), 'BOXX':(0.,)*9}
+        paths[profile] = _replay(profile,sessions,returns,assets,
+            lambda i,held,p=profile,o=other:{p:.25,o:.25,'BOXX':0.},None)
+    args = dict(projection=projection,identity_packet_sha256=identity,dataset_class='ARTIFICIAL_FIXTURE',
+        input_body_sha256=identity,implementation_sha256=_m1_implementation(),policies=None,
+        original_scope_caps=None,original_scope_cap_source=None,
+        original_outer_f={'TQQQ':1.,'SOXL':1.},original_policy_configs=None,last_close_targets=None,
+        requested_start=sessions[0],requested_end=sessions[-1],source_revision='ARTIFICIAL_FIXTURE:M1_LOCAL_ONLY',
+        trial_id='ARTIFICIAL_FIXTURE-M1-own-nine-sessions',store=PerformanceStore(local_root=tmp_path/'fake-journal'),
+        load_input_body=lambda:copy.deepcopy(body),core_only_source_binding=copy.deepcopy(ROOT_A_CORE_ONLY_BINDING),
+        r1_mechanism_policy=copy.deepcopy(R1_MECHANISM_POLICY))
+    def prepared(loaded,params):
+        assert loaded==body
+        return dict(paths=paths,sessions=sessions,indices=tuple(range(9)),eligible=tuple(range(9)),
+            train=(2,3,4),evaluate=(5,6,7,8),body_sha256=caller._r0_r3_sha(loaded),params_sha256=caller._r0_r3_sha(params))
+    return args,body,prepared
+
+
+@requires_security_netting
+def test_m1_registered_native_raw_model_identity_resume_and_default_compatibility(tmp_path,monkeypatch,record_property):
+    import hashlib
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    from us_equity_strategies.research import portfolio_kelly_walk_forward as fit
+    from us_equity_strategies.research import bayesian_kelly as b4
+    args,body,prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepared)
+    # Full base-adapter comparison belongs to the sealed external audit. This
+    # checkout test uses tracked interfaces and a small legacy contract golden.
+    def legacy_body(store):
+        row = store.load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+        assert row.status.value=='started'
+        assert row.actual_params['r1_mechanism_policy']==R1_MECHANISM_POLICY
+        assert 'r1_fee_reserve_policy' not in row.actual_params
+        assert row.cost_inputs=={'per_side_bps':5.}
+        return body
+    default = caller.run_registered_r0_r3_batch(**(args | {'load_input_body':lambda:legacy_body(args['store'])}))
+    none_store = PerformanceStore(local_root=tmp_path/'fake-none')
+    explicit_none = caller.run_registered_r0_r3_batch(**(args | {'store':none_store,
+        'load_input_body':lambda:legacy_body(none_store),'r1_fee_reserve_policy':None}))
+    assert default==explicit_none
+    legacy_params = default['trial']['actual_params']
+    legacy_golden = {'rows':['R1_B4_ONLY'],'active_rows':['R1_B4_ONLY'],
+        'profiles':['TQQQ','SOXL'],'c':.25,'train_complete_sessions':63,
+        'cost_identity':'ASSUMED_FLAT_BPS5_SINGLE_CASE_NOT_BROKER_FEE_FACT',
+        'initial':{'per_cell_nav':1.,'cash':1.,'security_values':0.,'outer_f':0.,'flows':0.},
+        'purpose':'RETROSPECTIVE_DESCRIPTIVE_MECHANISM_ABLATION',
+        'ledger_role':'ADDITIVE_AUDIT_OF_TWO_R1_BOOKS_NOT_JOINT_ALLOCATION',
+        'cell_unit':'DEPENDENT_SUBRESULT_NOT_TRIAL','no_order':True,
+        'r1_mechanism_policy':R1_MECHANISM_POLICY,
+        'original_outer_f':{'TQQQ':1.,'SOXL':1.},'original_scope_caps':None,
+        'original_scope_cap_source':None,'original_policy_configs':None,'policies':None,
+        'terminal_target_role':'EXPLICIT_ZERO_MODEL_BOUNDARY_NOT_ACTUAL_STRATEGY_TERMINAL',
+        'last_close_target_rule':'SOURCE_LAST_TWO_EVALUATION_SESSIONS_ZERO_SECURITY_TARGET',
+        'unavailable_cells':{},'PIT':'NOT_ATTESTED','OOS':'SEEN_DEVELOPMENT_NOT_INDEPENDENT','promotion':'NONE'}
+    assert {key:legacy_params[key] for key in legacy_golden}==legacy_golden
+    assert legacy_params['implementation_sha256']==args['implementation_sha256']
+    fingerprint = hashlib.sha256(json.dumps(legacy_params,sort_keys=True,
+        separators=(',',':'),allow_nan=False).encode()).hexdigest()
+    assert default['fingerprint']==fingerprint
+    assert default['trial']['param_set_id']=='sha256:'+fingerprint
+    assert default['status']=='succeeded'
+    assert set(default['engineering']['cells'])=={'R1_B4_ONLY:TQQQ','R1_B4_ONLY:SOXL'}
+    for cell,packet in default['engineering']['cells'].items():
+        profile = cell.split(':')[1]
+        other = 'QQQM' if profile=='TQQQ' else 'SOXX'
+        zero = {'BOXX':0.,profile:0.,other:0.}
+        funded = {'BOXX':0.,profile:.25,other:.25}
+        assert [row['inner_target'] for row in packet['ledger']]==[zero,funded,funded,zero]
+        assert packet['rs04_research']['mode']=='FULL'
+        assert packet['spec']['bps_per_side']=={s:5. for s in zero}
+        assert packet['target_basis']=='pre_fee_nav_cash_funded'
+    assert 'r1_fee_reserve_policy' not in default['trial']['actual_params']
+    assert all('r1_fee_reserve' not in p for p in default['engineering']['cells'].values())
+    calls = {'fit':0,'fraction':0}
+    native_fit,native_fraction = fit.ledoit_wolf,b4.b4_fractional_target
+    def wrapped_fit(*a,**kw):calls['fit']+=1;return native_fit(*a,**kw)
+    def wrapped_fraction(*a,**kw):
+        calls['fraction']+=1
+        assert kw['c']==.25 and kw['scope_cap']=={'TQQQ':1,'SOXL':1}
+        return native_fraction(*a,**kw)
+    monkeypatch.setattr(fit,'ledoit_wolf',wrapped_fit)
+    monkeypatch.setattr(b4,'b4_fractional_target',wrapped_fraction)
+    new_args = args | {'store':PerformanceStore(local_root=tmp_path/'fake-new-policy'),
+        'r1_fee_reserve_policy':copy.deepcopy(R1_FEE_RESERVE_POLICY)}
+    def registered_body():
+        row = new_args['store'].load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+        assert row.status.value=='started'
+        assert row.actual_params['r1_fee_reserve_policy']==R1_FEE_RESERVE_POLICY
+        assert row.actual_params['r1_fee_reserve_policy_sha256']==caller._R1_FEE_RESERVE_POLICY_SHA256
+        return body
+    new = caller.run_registered_r0_r3_batch(**(new_args | {'load_input_body':registered_body}))
+    assert new['status']=='succeeded' and calls=={'fit':1,'fraction':4}
+    assert new['fingerprint'] != default['fingerprint']
+    assert new['engineering']['model_decisions']==default['engineering']['model_decisions']
+    assert new['engineering']['training']==default['engineering']['training']
+    assert new['engineering']['checkpoint']==default['engineering']['checkpoint']
+    for cell,packet in new['engineering']['cells'].items():
+        evidence = packet['r1_fee_reserve']
+        assert evidence[0]['prior_only'] and evidence[0]['raw_b4_f'] is None
+        assert evidence[-1]['terminal_zero']
+        for raw,ev,row in zip(new['engineering']['model_decisions'],evidence,packet['ledger'],strict=True):
+            f = None if raw['targets'] is None else raw['targets'][0 if cell.endswith('TQQQ') else 1]
+            assert ev['raw_b4_f']==f
+            assert row['inner_target']==ev['final_target']
+            if ev['prior_only'] or ev['terminal_zero']:assert not any(ev['final_target'].values())
+            assert ev['post_fee_cap_certified'] is False
+            assert ev['CVaR_and_joint_correlation_consumers']=='NOT_CLOSED_NOT_CERTIFIED'
+        assert packet['rs04_research']['mode']=='FULL'
+    resumed = caller.run_registered_r0_r3_batch(**(new_args | {'load_input_body':lambda:pytest.fail('cached body reentered')}))
+    restart_args = new_args | {'store':PerformanceStore(local_root=tmp_path/'fake-new-policy')}
+    restarted = caller.run_registered_r0_r3_batch(**(restart_args | {'load_input_body':lambda:pytest.fail('restart body reentered')}))
+    assert resumed['resumed_without_compute'] and restarted==resumed
+    assert resumed['subresults']==new['subresults'] and calls=={'fit':1,'fraction':4}
+    record_property('registered_small_fixture',{'session_count':9,'synthetic_training_observations':3,
+        'not_production_training_validation':True,'default_none_full_payload_equal':True,
+        'in_file_legacy_contract_golden_asserted':True,
+        'actual_current_parser_identity':caller.r0_r3_parser_identity(),'new':new,'native_calls':calls})
+
+
+@requires_security_netting
+@pytest.mark.parametrize('mutation',['hash','parent','fee','mode','missing_parent','missing_core','restrictions','version','bool_fee'])
+def test_m1_rejects_inside_started_before_body_or_computation(tmp_path,monkeypatch,mutation,record_property):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args,body,_ = _m1_registered_fixture(tmp_path)
+    policy = copy.deepcopy(R1_FEE_RESERVE_POLICY)
+    if mutation=='hash':policy['financial']='READY'
+    elif mutation=='parent':policy['parent_mechanism_policy_sha256']='0'*64
+    elif mutation=='fee':policy['fee_bps_per_side']=0
+    elif mutation=='bool_fee':policy['fee_bps_per_side']=True
+    elif mutation=='version':policy['policy_id']='R1_PREFEE_PROPORTIONAL_RESERVE_V2'
+    elif mutation=='mode':args['r1_mechanism_policy']=None
+    elif mutation=='missing_parent':args['r1_mechanism_policy']={}
+    elif mutation=='missing_core':args['core_only_source_binding']=None
+    elif mutation=='restrictions':args['original_scope_caps']={'TQQQ':.9,'SOXL':.9}
+    # last target must be explicit when deliberately removing core-only binding.
+    if mutation=='missing_core':
+        args['last_close_targets']={k:CloseTarget(date(2001,1,9),date(2001,1,10),
+            {s:0. for s in (k,'QQQM' if k=='TQQQ' else 'SOXX','BOXX')}) for k in ('TQQQ','SOXL')}
+    def forbidden(*a,**kw):pytest.fail('validation reached body/parser/source/generator/fit/compute')
+    for name in ['parse_registered_r0_r3_archive','_r0_r3_generate','_r0_r3_compute']:
+        monkeypatch.setattr(caller,name,forbidden)
+    options = args | {'r1_fee_reserve_policy':policy,'load_input_body':forbidden,'load_source_root':forbidden}
+    with pytest.raises(ValueError,match='UNAVAILABLE_'):
+        caller.run_registered_r0_r3_batch(**options)
+    row = args['store'].load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+    assert row.status.value=='rejected' and row.actual_params['r1_fee_reserve_policy']==policy
+    assert row.actual_params['r1_fee_reserve_policy_sha256']==caller._r0_r3_sha(policy)
+    # Terminal retry preserves rejected registration without evaluating callbacks.
+    cached = caller.run_registered_r0_r3_batch(**options)
+    assert cached['status']=='rejected' and cached['resumed_without_compute']
+    record_property('registered_rejection',{'mutation':mutation,'terminal':row.to_dict()})
