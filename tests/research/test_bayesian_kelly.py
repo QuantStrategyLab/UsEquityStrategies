@@ -50,6 +50,40 @@ class BayesianKellyTests(unittest.TestCase):
     def close(self, actual, expected):
         self.assertLessEqual(abs(actual - expected), 1e-12 + 1e-10 * abs(expected))
 
+    def test_prediction_scaling_zero_available_is_not_unknown_or_prior(self):
+        """Only an admitted negative mean produces a numerical zero target."""
+        prior = b4_predictive_moments(initialise_b4(SPEC, SIGMA, TRAINING))
+        state = admit(initialise_b4(SPEC, SIGMA, TRAINING),
+                      observation(1, (-.002,))).state
+        available = b4_predictive_moments(state)
+        zero = b4_fractional_target(available, scope_cap={"TQQQ": 1.}, cap_source=TRAINING)
+        unknown = b4_fractional_target(available, scope_cap=None, cap_source=TRAINING)
+        opening = b4_fractional_target(prior, scope_cap={"TQQQ": 1.}, cap_source=TRAINING)
+        self.assertEqual((available.status, zero.status, zero.targets),
+                         ("AVAILABLE", "AVAILABLE", (0.,)))
+        self.assertLess(available.mean_simple[0], 0.)
+        self.assertEqual((unknown.status, unknown.targets, unknown.fractional_applied_once),
+                         ("UNAVAILABLE_SCOPE_CAP", None, False))
+        self.assertEqual((opening.status, opening.targets, opening.fractional_applied_once),
+                         ("PRIOR_ONLY", None, False))
+        for result in (zero, unknown, opening):
+            self.assertTrue(result.no_order)
+            self.assertFalse(result.live_ready)
+            self.assertEqual(result.budget_effect, "NONE")
+
+    def test_prediction_scaling_moment_units_and_invalid_numbers_do_not_make_targets(self):
+        """Moment admission is distinct from observation admission and missing caps."""
+        moments = b4_predictive_moments(example())
+        with self.assertRaisesRegex(B4Error, "SIMPLE_RETURN_MOMENTS_REQUIRED"):
+            b4_fractional_target(replace(moments, unit=LOG_RETURN_UNIT),
+                                 scope_cap={"TQQQ": 1.}, cap_source=TRAINING)
+        for value in (None, float('nan'), float('inf'), float('-inf')):
+            with self.subTest(value=value), self.assertRaises(B4Error):
+                b4_fractional_target(replace(moments, mean_simple=(value,)),
+                                     scope_cap={"TQQQ": 1.}, cap_source=TRAINING)
+        with self.assertRaises(B4Error):
+            b4_fractional_target(moments, scope_cap={"TQQQ": 1.}, cap_source="")
+
     def test_hand_posterior_sequence(self):
         state = initialise_b4(SPEC, SIGMA, TRAINING)
         first = admit(state, observation(1))
