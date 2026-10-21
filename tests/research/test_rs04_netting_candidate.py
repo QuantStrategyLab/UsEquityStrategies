@@ -2876,7 +2876,8 @@ def test_m1_domain_near_boundary_rounding_proof_and_genuine_failures(tmp_path,mo
     # Summation: gamma3; rounded w divisions: (1+u), 3 subnormal errors.
     # Subtract, *5, sum3, /10000 fit within gamma12 + 64*eta.
     u,eta = F(1,2**53),F(1,2**1074)
-    gamma = lambda n:n*u/(1-n*u)
+    def gamma(n):
+        return n*u/(1-n*u)
     bound = F(1999,2001)
     inward = float(bound)
     if F(inward)>bound:inward=math.nextafter(inward,0.)
