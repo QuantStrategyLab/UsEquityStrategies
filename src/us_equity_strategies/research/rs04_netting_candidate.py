@@ -1784,10 +1784,11 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         extra = {'unavailable_cells': params['unavailable_cells'], 'whole_comparison_complete': False,
                  'terminal_target_role': params['terminal_target_role']}
     if r1_mechanism_policy is not None:
-        extra.update(mechanism_policy=params['r1_mechanism_policy'],
-            control_reference_status=params['control_reference_status'],
-            predecessor_trial_id=params['r1_mechanism_policy']['predecessor_trial_id'],
-            dependent_cells=2)
+        mechanism = params['r1_mechanism_policy']
+        extra.update(mechanism_policy=mechanism,
+            control_reference_status=params['control_reference_status'], dependent_cells=2)
+        if isinstance(mechanism, dict) and 'predecessor_trial_id' in mechanism:
+            extra['predecessor_trial_id'] = mechanism['predecessor_trial_id']
     if input_body_sha256 is None and terminal.status is ResearchTrialStatus.SUCCEEDED:
         prefix, digest, batch_digest = terminal.run_id.split('-')
         if prefix != 'parsed' or batch_digest != fingerprint or len(digest) != 64:
