@@ -1098,6 +1098,64 @@ def _r0_r3_sha(value: Any) -> str:
     return hashlib.sha256(_r0_r3_json(value).encode()).hexdigest()
 
 
+_R1_FEE_RESERVE_POLICY_SHA256 = 'f3f8817e5cdd8412bd138b76c40826809313b10cd200b16d03a3d83eae5a6169'
+_R1_FEE_RESERVE_ID = 'R1_PREFEE_PROPORTIONAL_RESERVE_V1'
+_R1_FEE_RESERVE_NUMERICS = 'BINARY64_SORTED_SUM_RATIONAL_BOUND_INWARD_BETA_V1'
+
+
+def _r1_prefee_proportional_reserve(target: Mapping[str, float]):
+    """Scale the three-security composed target once; never refill BOXX.
+
+    D uses the native binary64 sum in sorted security order, with its exact
+    rational sum as an additional inwardness check. Input sum<=1 uses that
+    same binary64 sum (e.g. original compose .1+.9 rounds to 1).
+    Compare it to the exact 1999/2001, not an outward rounded constant. Also
+    constrain the exact sum of the output floats. A near-boundary sum may round
+    outward even if its exact sum is inside: correcting that is numerical
+    inwardness only. Already funded binary64 totals are returned unchanged.
+
+    No economic buffer: start at the exact rational beta, round it inward, then
+    move beta down by ULPs only until both sums are inside. Products remain
+    ordinary binary64 beta*d. No fee guard/tolerance or future fill is used.
+    """
+    from fractions import Fraction as F
+
+    if (not isinstance(target, Mapping) or len(target) != 3
+            or any(not isinstance(s, str) for s in target)
+            or any(type(v) not in (int, float) or not math.isfinite(v) or v < 0
+                   for v in target.values())):
+        raise ValueError('UNAVAILABLE_R1_FEE_RESERVE_TARGET_DOMAIN')
+    original = {s: float(target[s]) for s in sorted(target)}
+    total = sum(original.values())
+    exact_total = sum(map(F, original.values()), F())
+    if total > 1:
+        raise ValueError('UNAVAILABLE_R1_FEE_RESERVE_TARGET_DOMAIN')
+    bound = F(1999, 2001)
+    beta, steps = 1., 0
+    final = dict(original)
+    if max(F(total), exact_total) > bound:
+        rational_beta = min(F(1), bound / exact_total)
+        beta = float(rational_beta)
+        if F(beta) > rational_beta:
+            beta = math.nextafter(beta, 0.)
+        final = {s: beta*v for s, v in original.items()}
+        while (sum(map(F, final.values()), F()) > bound
+               or F(sum(final.values())) > bound):
+            beta = math.nextafter(beta, 0.)
+            steps += 1
+            final = {s: beta*v for s, v in original.items()}
+    return final, {'policy_id': _R1_FEE_RESERVE_ID,
+        'policy_sha256': _R1_FEE_RESERVE_POLICY_SHA256,
+        'numerical_policy': _R1_FEE_RESERVE_NUMERICS,
+        'original_target': original, 'original_total_binary64': total,
+        'original_total_exact': str(exact_total), 'beta': beta,
+        'additional_inward_beta_ulps': steps, 'final_target': dict(final),
+        'final_total_exact': str(sum(map(F, final.values()), F())),
+        'Tmax_rational': [1999, 2001], 'cash_bound_rational': [2, 2001],
+        'post_fee_cap_certified': False,
+        'CVaR_and_joint_correlation_consumers': 'NOT_CLOSED_NOT_CERTIFIED'}
+
+
 def _r0_r3_declared_source_times(projection):
     """Canonical caller declarations for identity, never authenticated availability.
 
@@ -1379,6 +1437,7 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
 
     core_only = params.get('core_only_source_binding') is not None
     mechanism = params.get('r1_mechanism_policy')
+    fee_reserve = params.get('r1_fee_reserve_policy')
     requires_b4 = not core_only or mechanism is not None
     if not requires_b4:
         sigma = shrinkage = None
@@ -1443,6 +1502,7 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
         for row_id in params.get('active_rows', R0_R3_ROWS):
             mode = {'R2_B5_HALF_ONLY': 'PROPORTIONAL', 'R3_B5_BAND_ONLY': 'BAND_HOLD'}.get(row_id, 'FULL')
             rows, decisions = [], []
+            reserve_evidence = []
             if not core_only:
                 rules = params['original_policy_configs'][k]['decision_rules']
                 if set(rules) != {sessions[i].isoformat() for i in indices[:-1]}:
@@ -1461,6 +1521,12 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                 parked = row_id == 'R1_B4_ONLY' and b4_targets[j] is None
                 terminal_zero = mechanism is not None and j + 1 == len(evaluate)
                 target = {s: 0. if parked or terminal_zero else target.get(s, 0.) for s in universe}
+                if fee_reserve is not None:
+                    target, reserve = _r1_prefee_proportional_reserve(target)
+                    reserve.update(raw_b4_f=None if b4_targets[j] is None else f,
+                        prior_only=parked, terminal_zero=terminal_zero,
+                        decision_session=calendar[j].isoformat())
+                    reserve_evidence.append(reserve)
                 d, fill = calendar[j:j + 2]
                 if core_only:
                     info = RS04DecisionInput(d, fill, close(d), close(fill), close(d),
@@ -1493,6 +1559,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                 initial_inner_weights={s: 0. for s in universe}, spec=flat_spec,
                 fee_cash_role=flat_spec.inner_residual_role, execution_timing='next_close',
                 report_periods_per_year=252, rs04_research_policy=policy)
+            if fee_reserve is not None:
+                cells[row_id + ':' + k]['r1_fee_reserve'] = reserve_evidence
     return {'cells': cells, 'opening_books': openings, 'training': {
         'sessions': [sessions[i].isoformat() for i in train], 'count': 63,
         'sigma': sigma, 'shrinkage': shrinkage, 'identity': training_id,
@@ -1577,7 +1645,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     core_only_source_binding: Mapping[str, Any] | None = None,
     input_source_registration: Mapping[str, Any] | None = None,
     load_source_root: Any | None = None,
-    r1_mechanism_policy: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    r1_mechanism_policy: Mapping[str, Any] | None = None,
+    r1_fee_reserve_policy: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Register one frozen R0-R3 batch before loading inputs or generating models.
 
     Explicit real retrospective and artificial admissions share the same native
@@ -1649,6 +1718,12 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
             purpose='RETROSPECTIVE_DESCRIPTIVE_MECHANISM_ABLATION',
             ledger_role='ADDITIVE_AUDIT_OF_TWO_R1_BOOKS_NOT_JOINT_ALLOCATION',
             control_reference_status='IMMUTABLE_PREDECESSOR_NOT_REPLAYED_COMPARABILITY_NOT_ATTESTED')
+    if r1_fee_reserve_policy is not None:
+        params.update(r1_fee_reserve_policy=json.loads(_r0_r3_json(r1_fee_reserve_policy)),
+            r1_fee_reserve_policy_id=_R1_FEE_RESERVE_ID,
+            r1_fee_reserve_policy_sha256=_r0_r3_sha(r1_fee_reserve_policy),
+            r1_fee_reserve_numerical_policy=_R1_FEE_RESERVE_NUMERICS,
+            post_fee_cap_certified=False)
     if last_close_targets is None:
         params['last_close_target_rule'] = 'SOURCE_LAST_TWO_EVALUATION_SESSIONS_ZERO_SECURITY_TARGET'
     if input_body_sha256 is None:
@@ -1673,6 +1748,18 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
 
     def simulate(registered: dict[str, Any]) -> dict[str, Any]:
         contexts = policies
+        if r1_fee_reserve_policy is not None:
+            # Inside STARTED/readback, before body/parser/generator/fit/compute.
+            reserve = registered['r1_fee_reserve_policy']
+            if (not isinstance(reserve, dict)
+                    or _r0_r3_sha(reserve) != _R1_FEE_RESERVE_POLICY_SHA256
+                    or registered['r1_fee_reserve_policy_sha256'] != _R1_FEE_RESERVE_POLICY_SHA256
+                    or registered.get('r1_mechanism_policy') is None
+                    or registered.get('core_only_source_binding') is None
+                    or registered['active_rows'] != ['R1_B4_ONLY']
+                    or registered['rows'] != ['R1_B4_ONLY']
+                    or registered['cost_identity'] != _R0_R3_COST):
+                raise ValueError('UNAVAILABLE_R1_FEE_RESERVE_POLICY_BINDING')
         if r1_mechanism_policy is not None:
             # Validation is inside the journal, after STARTED/readback and before
             # source callbacks, parser, generators or the model are entered.
@@ -1789,6 +1876,11 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
             control_reference_status=params['control_reference_status'], dependent_cells=2)
         if isinstance(mechanism, dict) and 'predecessor_trial_id' in mechanism:
             extra['predecessor_trial_id'] = mechanism['predecessor_trial_id']
+    if r1_fee_reserve_policy is not None:
+        extra.update(r1_fee_reserve_policy_id=params['r1_fee_reserve_policy_id'],
+            r1_fee_reserve_policy_sha256=params['r1_fee_reserve_policy_sha256'],
+            r1_fee_reserve_numerical_policy=params['r1_fee_reserve_numerical_policy'],
+            post_fee_cap_certified=False)
     if input_body_sha256 is None and terminal.status is ResearchTrialStatus.SUCCEEDED:
         prefix, digest, batch_digest = terminal.run_id.split('-')
         if prefix != 'parsed' or batch_digest != fingerprint or len(digest) != 64:
