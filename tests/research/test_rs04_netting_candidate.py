@@ -4,6 +4,9 @@ from datetime import date
 import math
 import os
 import unittest
+import json
+import copy
+import pytest
 
 try:
     from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec
@@ -22,6 +25,392 @@ from us_equity_strategies.research.rs04_netting_candidate import (
 CALENDAR = (date(2026, 1, 16), date(2026, 1, 20), date(2026, 1, 21), date(2026, 1, 22))
 TARGETS = ({"SOXL": .6, "BOXX": .2}, {"SOXL": .2, "BOXX": .5},
            {"SOXL": .4, "BOXX": .3})
+
+
+requires_security_netting = pytest.mark.skipif(
+    SecurityNettingSpec is None and os.environ.get("UES_REQUIRE_SECURITY_NETTING") != "1",
+    reason="production QPK pin lacks research-only security netting",
+)
+
+
+def _synthetic_forward_state():
+    from us_equity_strategies.research.rs04_netting_candidate import new_synthetic_r0_r3_state
+    return new_synthetic_r0_r3_state(
+        calendar=["2026-01-15", "2026-01-16", "2026-01-20", "2026-01-21", "2026-01-22", "2026-01-23"],
+        code_sha256="a" * 64, source_contract_sha256="b" * 64)
+
+
+def _synthetic_forward_input(state, index, *, levered=.5, other=.2, boxx=.1, shock=0., boxx_return=0.):
+    day = state["calendar"][index]
+    profiles = {}
+    for profile, unlevered in (("TQQQ", "QQQM"), ("SOXL", "SOXX")):
+        profiles[profile] = {
+            "full_target": {profile: levered, unlevered: other, "BOXX": boxx},
+            "security_returns": {profile: shock, unlevered: 0., "BOXX": boxx_return},
+        }
+    return dict(schema_version="qsl.synthetic_r0_r3_snapshot.v1", scope="ARTIFICIAL_FIXTURE",
+                input_id=f"artificial-{index}", revision=1, session=day,
+                event_at=day+"T21:00:00+00:00", first_seen_at=day+"T21:01:00+00:00",
+                persisted_at=day+"T21:02:00+00:00", decision_cutoff=day+"T21:03:00+00:00",
+                code_sha256=state["code_sha256"], config_sha256=state["config_sha256"],
+                source_contract_sha256=state["source_contract_sha256"], profiles=profiles)
+
+
+def _synthetic_bytes(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def _synthetic_step(state, payload):
+    from us_equity_strategies.research.rs04_netting_candidate import step_synthetic_r0_r3
+    return step_synthetic_r0_r3(state, _synthetic_bytes(payload), code_sha256="a"*64,
+                               source_contract_sha256="b"*64)
+
+
+@requires_security_netting
+def test_synthetic_forward_pending_own_band_hand_math_and_endpoint(monkeypatch):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    monkeypatch.setattr(module, "run_registered_r0_r3_batch", lambda **kw: pytest.fail("historical batch called"))
+    state = _synthetic_forward_state()
+    first, _ = _synthetic_step(state, _synthetic_forward_input(state, 1, shock=.9, boxx_return=.4))
+    assert len(first["books"]) == 4
+    for book in first["books"].values():
+        assert book["nav"] == book["cash"] == 1.
+        assert book["fees"] == book["trade_events"] == 0
+        assert book["pending"]["fill_session"] == "2026-01-20"
+    second, _ = _synthetic_step(first, _synthetic_forward_input(first, 2, shock=.2, boxx_return=.1))
+    for book in second["books"].values():
+        assert book["nav"] == pytest.approx(.9996)
+        assert book["cash"] == pytest.approx(.1996)
+        assert book["fees"] == pytest.approx(.0004)
+    prior_units = dict(second["books"]["TQQQ:R3"]["units"])
+    third, receipt = _synthetic_step(second, _synthetic_forward_input(
+        second, 3, levered=.55, other=.18, boxx=.1, shock=.2, boxx_return=.1))
+    band = third["books"]["TQQQ:R3"]
+    full = third["books"]["TQQQ:R0"]
+    assert band["security_values"] == pytest.approx({"TQQQ": .6, "QQQM": .2, "BOXX": .11})
+    assert band["units"] == prior_units  # HOLD is unchanged total-return units, no reweighting.
+    assert band["fees"] == pytest.approx(.0004)
+    assert band["pending"]["kind"] == "HOLD_POSITIONS"
+    assert abs(.55-full["security_values"]["TQQQ"]/full["nav"]) > .01
+    assert abs(.55-band["security_values"]["TQQQ"]/band["nav"]) < .01
+    assert receipt["cells"]["TQQQ:R3"]["executed_fees"] == 0.
+    assert receipt["cells"]["TQQQ:R0"]["executed_fees"] > 0.
+    assert receipt["cells"]["TQQQ:R0"]["input_sha256"] == receipt["cells"]["TQQQ:R3"]["input_sha256"]
+    assert all(sum(b["security_values"].values()) > 0 and b["pending"] for b in third["books"].values())
+    assert state == _synthetic_forward_state()  # all transitions are non-mutating and paired atomically.
+
+
+@requires_security_netting
+def test_synthetic_forward_duplicate_is_exactly_once_even_after_later_inputs():
+    state = _synthetic_forward_state(); p1 = _synthetic_forward_input(state, 1)
+    first, r1 = _synthetic_step(state, p1)
+    second, _ = _synthetic_step(first, _synthetic_forward_input(first, 2))
+    duplicate, old_receipt = _synthetic_step(second, p1)
+    assert duplicate == second and old_receipt == r1
+    changed = copy.deepcopy(p1); changed["profiles"]["TQQQ"]["full_target"]["TQQQ"] = .51
+    before = _synthetic_bytes(second)
+    with pytest.raises(ValueError): _synthetic_step(second, changed)
+    changed = copy.deepcopy(p1); changed["revision"] = 2
+    with pytest.raises(ValueError): _synthetic_step(second, changed)
+    assert _synthetic_bytes(second) == before
+
+
+@requires_security_netting
+def test_synthetic_forward_receipt_mutation_cannot_change_committed_pending():
+    state = _synthetic_forward_state()
+    first, receipt = _synthetic_step(state, _synthetic_forward_input(state, 1))
+    before = _synthetic_bytes(first)
+    receipt["cells"]["TQQQ:R3"]["next_pending"]["weights"]["TQQQ"] = .01
+    assert _synthetic_bytes(first) == before
+
+
+@requires_security_netting
+def test_synthetic_forward_future_fill_snapshot_never_changes_prior_pending():
+    state = _synthetic_forward_state()
+    first, _ = _synthetic_step(state, _synthetic_forward_input(state, 1))
+    before = _synthetic_bytes(first)
+    up, _ = _synthetic_step(first, _synthetic_forward_input(first, 2, levered=.7, shock=3., boxx_return=.5))
+    down, _ = _synthetic_step(first, _synthetic_forward_input(first, 2, levered=.1, shock=-.5, boxx_return=-.2))
+    for name in up["books"]:
+        assert up["books"][name]["security_values"] == down["books"][name]["security_values"]
+        assert up["books"][name]["fees"] == down["books"][name]["fees"] == pytest.approx(.0004)
+    assert _synthetic_bytes(first) == before
+
+
+@requires_security_netting
+def test_synthetic_forward_checkpoint_carrier_real_encoded_sizes(record_property):
+    from quant_platform_kit.common.strategy_risk_state import (
+        StrategyRiskStateIdentity, build_strategy_risk_state_transition)
+    state = _synthetic_forward_state()
+    for i in (1, 2, 3): state, _ = _synthetic_step(state, _synthetic_forward_input(state, i))
+    four_size = len(_synthetic_bytes(state))
+    record_property("four_book_canonical_bytes", four_size)
+    # A capacity assessment, not an implemented pair codec or a saved checkpoint.
+    for profile in ("TQQQ", "SOXL"):
+        pair = copy.deepcopy(state)
+        pair["books"] = {k:v for k,v in pair["books"].items() if k.startswith(profile+":")}
+        for item in pair["inputs"]:
+            item["receipt"]["cells"] = {k:v for k,v in item["receipt"]["cells"].items() if k.startswith(profile+":")}
+        pair["pair_profile"] = profile
+        size = len(_synthetic_bytes(pair)); record_property(profile+"_pair_canonical_bytes", size)
+        identity = StrategyRiskStateIdentity("synthetic.r0r3", "synthetic.fixture", profile.lower(), "c"*64)
+        if size <= 8192:
+            transition = build_strategy_risk_state_transition(identity=identity, effective_session=state["completed_session"],
+                input_sha256="d"*64, state=pair)
+            assert len(transition.state_json.encode()) == size
+        else:
+            with pytest.raises(ValueError):
+                build_strategy_risk_state_transition(identity=identity, effective_session=state["completed_session"],
+                    input_sha256="d"*64, state=pair)
+    assert len(state["inputs"]) == 3 and len(state["books"]) == 4
+
+
+@pytest.mark.parametrize("mutation", ["late", "missing", "out_of_order", "code", "config", "source", "nonfinite", "unknown_field"])
+def test_synthetic_forward_invalid_input_leaves_all_four_books_unchanged(mutation):
+    state = _synthetic_forward_state(); payload = _synthetic_forward_input(state, 1)
+    if mutation == "late": payload["persisted_at"] = payload["session"]+"T21:04:00+00:00"
+    elif mutation == "missing": del payload["first_seen_at"]
+    elif mutation == "out_of_order": payload = _synthetic_forward_input(state, 2)
+    elif mutation in ("code", "config", "source"): payload[mutation+"_sha256" if mutation != "source" else "source_contract_sha256"] = "c"*64
+    elif mutation == "nonfinite": payload["profiles"]["SOXL"]["security_returns"]["SOXL"] = float("nan")
+    else: payload["broker"] = "not permitted"
+    before = _synthetic_bytes(state)
+    with pytest.raises(ValueError): _synthetic_step(state, payload)
+    assert _synthetic_bytes(state) == before
+
+
+@requires_security_netting
+def test_synthetic_forward_fee_cash_failure_does_not_partially_commit_other_books():
+    state = _synthetic_forward_state(); p = _synthetic_forward_input(state, 1)
+    p["profiles"]["SOXL"]["full_target"] = {"SOXL": 1., "SOXX": 0., "BOXX": 0.}
+    first, _ = _synthetic_step(state, p); before = _synthetic_bytes(first)
+    with pytest.raises(ValueError, match="FEE_CASH_INSUFFICIENT"):
+        _synthetic_step(first, _synthetic_forward_input(first, 2))
+    assert _synthetic_bytes(first) == before
+
+
+@requires_security_netting
+def test_synthetic_forward_strict_codec_restore_continues_identically():
+    from us_equity_strategies.research.rs04_netting_candidate import (
+        encode_synthetic_r0_r3_state, decode_synthetic_r0_r3_state)
+    state = _synthetic_forward_state()
+    for i in (1, 2): state, _ = _synthetic_step(state, _synthetic_forward_input(state, i))
+    wire = encode_synthetic_r0_r3_state(state)
+    restored = decode_synthetic_r0_r3_state(wire, code_sha256="a"*64, source_contract_sha256="b"*64)
+    p = _synthetic_forward_input(state, 3, shock=.2, boxx_return=.1)
+    assert _synthetic_step(restored, p) == _synthetic_step(state, p)
+    corrupt = bytearray(wire); corrupt[-2] ^= 1
+    with pytest.raises(ValueError): decode_synthetic_r0_r3_state(bytes(corrupt), code_sha256="a"*64, source_contract_sha256="b"*64)
+    with pytest.raises(ValueError): decode_synthetic_r0_r3_state(wire, code_sha256="c"*64, source_contract_sha256="b"*64)
+    # Duplicate JSON keys and extra codec fields are not silently normalized.
+    with pytest.raises(ValueError): decode_synthetic_r0_r3_state(b'{"body":{},"body":{},"sha256":"x"}', code_sha256="a"*64, source_contract_sha256="b"*64)
+
+
+@requires_security_netting
+def test_synthetic_forward_memory_commit_unknown_and_serialized_boundary_recovery():
+    from us_equity_strategies.research.rs04_netting_candidate import (
+        SyntheticR0R3MemorySession, encode_synthetic_r0_r3_state)
+    state = _synthetic_forward_state(); original = encode_synthetic_r0_r3_state(state)
+    session = SyntheticR0R3MemorySession(original, code_sha256="a"*64, source_contract_sha256="b"*64)
+    prepared, receipt = session.prepare(_synthetic_bytes(_synthetic_forward_input(state, 1)))
+    assert session.state_bytes == original and session.status == "PREPARED"
+    # Simulated crash before commit: authoritative readback is original bytes.
+    session.mark_unknown()
+    restored = SyntheticR0R3MemorySession.from_bytes(session.to_bytes(), code_sha256="a"*64, source_contract_sha256="b"*64)
+    with pytest.raises(ValueError): restored.prepare(_synthetic_bytes(_synthetic_forward_input(state, 2)))
+    with pytest.raises(ValueError): restored.resolve_readback(b"corrupt")
+    assert restored.status == "UNKNOWN"
+    restored.resolve_readback(original)
+    assert restored.status == "READY" and restored.state_bytes == original
+    same_prepared, same_receipt = restored.prepare(_synthetic_bytes(_synthetic_forward_input(state, 1)))
+    assert same_prepared == prepared and same_receipt == receipt
+    # Simulated crash after commit, before acknowledgement: readback equals prepared bundle.
+    restored.mark_unknown()
+    restored = SyntheticR0R3MemorySession.from_bytes(restored.to_bytes(), code_sha256="a"*64, source_contract_sha256="b"*64)
+    restored.resolve_readback(prepared)
+    assert restored.state_bytes == prepared and restored.status == "READY"
+    duplicate, duplicate_receipt = restored.prepare(_synthetic_bytes(_synthetic_forward_input(state, 1)))
+    assert duplicate == prepared and duplicate_receipt == receipt and restored.status == "READY"
+
+
+@requires_security_netting
+def test_synthetic_forward_existing_local_carrier_pair_atomicity_capacity_and_restore(tmp_path, record_property):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateStore, StrategyRiskStateIdentity
+    state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
+    module.save_synthetic_r0_r3_checkpoint(state, fixture_root=root)
+    memory = module.SyntheticR0R3MemorySession(module.encode_synthetic_r0_r3_state(state),
+        code_sha256="a"*64, source_contract_sha256="b"*64)
+    for index in (1, 2, 3):
+        expected, _ = _synthetic_step(state, _synthetic_forward_input(state, index))
+        memory.prepare(_synthetic_bytes(_synthetic_forward_input(state, index)))
+        memory.commit_local_checkpoint(fixture_root=root)
+        state = expected
+        readback = module.load_synthetic_r0_r3_checkpoint(fixture_root=root,
+            config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
+        assert readback == module.encode_synthetic_r0_r3_state(expected) == memory.state_bytes
+    stores = []
+    for profile in ("TQQQ", "SOXL"):
+        store = StrategyRiskStateStore(local_dir=root, namespace="synthetic.r0r3.prototype")
+        identity = StrategyRiskStateIdentity("synthetic.r0r3", "synthetic.fixture", profile.lower(), state["config_sha256"])
+        chain = store.load_chain(identity)
+        assert len(chain) == 4 and set(chain[-1].state["state"]["books"]) == {profile+":R0", profile+":R3"}
+        assert len(chain[-1].state["state"]["inputs"]) == 3  # no dedup/provenance pruning to fit.
+        record_property(profile+"_actual_carrier_state_bytes", len(chain[-1].state_json.encode()))
+        assert len(chain[-1].state_json.encode()) <= 8192
+        stores.append((store, identity))
+    module.save_synthetic_r0_r3_checkpoint(state, fixture_root=root)  # exact duplicate does not append.
+    assert all(len(store.load_chain(identity)) == 4 for store,identity in stores)
+    oversized, _ = _synthetic_step(state, _synthetic_forward_input(state, 4))
+    with pytest.raises(ValueError, match="maximum serialized size"):
+        module.save_synthetic_r0_r3_checkpoint(oversized, fixture_root=root)
+    assert all(len(store.load_chain(identity)) == 4 for store,identity in stores)  # both preflight before either append.
+    assert module.load_synthetic_r0_r3_checkpoint(fixture_root=root, config_sha256=state["config_sha256"],
+        code_sha256="a"*64, source_contract_sha256="b"*64) == memory.state_bytes
+
+
+@requires_security_netting
+def test_synthetic_forward_existing_carrier_partial_profile_unknown_stops_new_id(tmp_path, monkeypatch):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateStore
+    state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
+    original = module.encode_synthetic_r0_r3_state(state)
+    module.save_synthetic_r0_r3_checkpoint(state, fixture_root=root)
+    memory = module.SyntheticR0R3MemorySession(original, code_sha256="a"*64, source_contract_sha256="b"*64)
+    memory.prepare(_synthetic_bytes(_synthetic_forward_input(state, 1)))
+    append = StrategyRiskStateStore.append
+    def fail_second_profile(self, transition):
+        if transition.identity.candidate_id == "soxl":
+            raise OSError("artificial second-profile write failure")
+        return append(self, transition)
+    monkeypatch.setattr(StrategyRiskStateStore, "append", fail_second_profile)
+    with pytest.raises(OSError): memory.commit_local_checkpoint(fixture_root=root)
+    assert memory.status == "UNKNOWN" and memory.state_bytes == original
+    with pytest.raises(ValueError, match="PARTIAL_UNKNOWN"):
+        module.load_synthetic_r0_r3_checkpoint(fixture_root=root, config_sha256=state["config_sha256"],
+            code_sha256="a"*64, source_contract_sha256="b"*64)
+    with pytest.raises(ValueError, match="UNRESOLVED"):
+        memory.prepare(_synthetic_bytes(_synthetic_forward_input(state, 2)))
+    with pytest.raises(ValueError): module.save_synthetic_r0_r3_checkpoint(state, fixture_root=root)
+
+
+@requires_security_netting
+def test_synthetic_forward_existing_carrier_after_write_unknown_readback_and_corruption(tmp_path, monkeypatch):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
+    module.save_synthetic_r0_r3_checkpoint(state, fixture_root=root)
+    memory = module.SyntheticR0R3MemorySession(module.encode_synthetic_r0_r3_state(state),
+        code_sha256="a"*64, source_contract_sha256="b"*64)
+    proposed, _ = memory.prepare(_synthetic_bytes(_synthetic_forward_input(state, 1)))
+    load = module.load_synthetic_r0_r3_checkpoint; calls = 0
+    def fail_after_commit(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 1: raise OSError("artificial committed-but-readback-unknown")
+        return load(**kwargs)
+    monkeypatch.setattr(module, "load_synthetic_r0_r3_checkpoint", fail_after_commit)
+    with pytest.raises(OSError): memory.commit_local_checkpoint(fixture_root=root)
+    assert memory.status == "UNKNOWN"
+    monkeypatch.setattr(module, "load_synthetic_r0_r3_checkpoint", load)
+    recovered = load(fixture_root=root, config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
+    assert recovered == proposed
+    memory.resolve_readback(recovered)
+    assert memory.status == "READY" and memory.state_bytes == proposed
+    file = next(root.rglob("*.json")); file.write_text("artificial corrupted fixture")
+    with pytest.raises(ValueError):
+        load(fixture_root=root, config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
+
+
+@requires_security_netting
+def test_synthetic_bundle_file_checkpoint_keeps_complete_four_book_state_above_8k(tmp_path, record_property):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
+    module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    for index in (1, 2, 3, 4):
+        state, _ = _synthetic_step(state, _synthetic_forward_input(state, index))
+        module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    encoded = module.encode_synthetic_r0_r3_state(state)
+    record_property("four_step_full_checkpoint_bytes", len(encoded))
+    assert len(encoded) > 8192
+    readback = module.load_synthetic_r0_r3_file_checkpoint(fixture_root=root,
+        config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
+    assert readback == encoded
+    restored = module.decode_synthetic_r0_r3_state(readback, code_sha256="a"*64, source_contract_sha256="b"*64)
+    assert len(restored["inputs"]) == 4 and len(restored["books"]) == 4
+    assert all(b["pending"] and sum(b["security_values"].values()) > 0 for b in restored["books"].values())
+    before = {p.name:p.read_bytes() for p in root.glob("checkpoint.v*.json")}
+    module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    assert {p.name:p.read_bytes() for p in root.glob("checkpoint.v*.json")} == before
+    with pytest.raises(ValueError): module.save_synthetic_r0_r3_file_checkpoint(_synthetic_forward_state(), fixture_root=root)
+
+
+@requires_security_netting
+@pytest.mark.parametrize("failure", ["before_link", "after_link", "readback"])
+def test_synthetic_bundle_file_checkpoint_unknown_same_id_restart_single_fee(tmp_path, monkeypatch, failure, record_property):
+    import os
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
+    module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    state, _ = _synthetic_step(state, _synthetic_forward_input(state, 1))
+    module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    original = module.encode_synthetic_r0_r3_state(state)
+    memory = module.SyntheticR0R3MemorySession(original, code_sha256="a"*64, source_contract_sha256="b"*64)
+    payload = _synthetic_bytes(_synthetic_forward_input(state, 2))
+    proposed, _ = memory.prepare(payload)
+    link = os.link; read = module._synthetic_file_read_head; count = 0
+    if failure in ("before_link", "after_link"):
+        def fail_link(source, target, *args, **kwargs):
+            # This injection point is AFTER temporary flush/fsync, with complete bytes.
+            assert Path(source).read_bytes() == proposed
+            record_property("temporary_write_complete_before_failure", True)
+            if failure == "after_link": link(source, target, *args, **kwargs)
+            raise OSError("artificial commit response lost")
+        from pathlib import Path
+        monkeypatch.setattr(os, "link", fail_link)
+    else:
+        def fail_read(*args, **kwargs):
+            nonlocal count
+            count += 1
+            if count == 2: raise OSError("artificial readback failure after commit")
+            return read(*args, **kwargs)
+        monkeypatch.setattr(module, "_synthetic_file_read_head", fail_read)
+    with pytest.raises(OSError): memory.commit_local_checkpoint(fixture_root=root, carrier="bundle_file")
+    assert memory.status == "UNKNOWN" and memory.state_bytes == original
+    with pytest.raises(ValueError, match="UNRESOLVED"):
+        memory.prepare(_synthetic_bytes(_synthetic_forward_input(state, 3)))
+    memory = module.SyntheticR0R3MemorySession.from_bytes(memory.to_bytes(),
+        code_sha256="a"*64, source_contract_sha256="b"*64)
+    monkeypatch.setattr(os, "link", link); monkeypatch.setattr(module, "_synthetic_file_read_head", read)
+    readback = module.load_synthetic_r0_r3_file_checkpoint(fixture_root=root,
+        config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
+    memory.resolve_readback(readback)
+    if failure == "before_link":
+        assert readback == original
+        memory.prepare(payload)  # exact original ID/content only, after definite old-state readback.
+        memory.commit_local_checkpoint(fixture_root=root, carrier="bundle_file")
+    assert memory.state_bytes == proposed
+    restarted = module.SyntheticR0R3MemorySession(memory.state_bytes, code_sha256="a"*64, source_contract_sha256="b"*64)
+    duplicate, _ = restarted.prepare(payload)
+    assert duplicate == proposed and restarted.status == "READY"
+    decoded = module.decode_synthetic_r0_r3_state(duplicate, code_sha256="a"*64, source_contract_sha256="b"*64)
+    assert all(b["fees"] == pytest.approx(.0004) for b in decoded["books"].values())
+    assert decoded["version"] == 2 and len(list(root.glob("checkpoint.v*.json"))) == 3
+
+
+@requires_security_netting
+@pytest.mark.parametrize("corruption", ["bytes", "missing_parent", "conflicting_version"])
+def test_synthetic_bundle_file_checkpoint_corrupt_or_conflicting_chain_parks(tmp_path, corruption):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    state = _synthetic_forward_state(); root = tmp_path/"checkpoint_fixture_SYNTHETIC_ONLY"
+    module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    state, _ = _synthetic_step(state, _synthetic_forward_input(state, 1))
+    module.save_synthetic_r0_r3_file_checkpoint(state, fixture_root=root)
+    files = sorted(root.glob("checkpoint.v*.json"))
+    if corruption == "bytes": files[-1].write_text("corrupt artificial fixture")
+    elif corruption == "missing_parent": files[0].unlink()
+    else: (root/("checkpoint.v00000001."+"f"*64+".json")).write_bytes(files[-1].read_bytes())
+    with pytest.raises(ValueError): module.load_synthetic_r0_r3_file_checkpoint(fixture_root=root,
+        config_sha256=state["config_sha256"], code_sha256="a"*64, source_contract_sha256="b"*64)
 
 
 def synthetic_spec(a=0., boxx=0.):
@@ -1743,3 +2132,134 @@ class QQQPairSensitivityTests(unittest.TestCase):
         for row in result['trials'].values():
             self.assertEqual(row['actual_params']['input_source_registration'], registered)
         self.assertNotEqual(options['input_source_registration'], registered)
+
+
+@requires_security_netting
+@pytest.mark.parametrize("mutation", ["candidate_pending_swap", "malformed_cached_pending"])
+def test_syn001_reviewer_pending_counterexamples(tmp_path, mutation):
+    # Original reviewer body; this execution is AUTHOR reproduction, not prior independent PASS.
+    from us_equity_strategies.research import rs04_netting_candidate as m
+    CODE = 'd580c05d89d318763a67c9fa2c36843ca65e13569f9c2a5cbae292309461bf32'
+    SOURCE = 'cafcb07c8c010621aaa27be04a836f7915d38fecbba6296dca69c2eae302f153'
+    IDENTITY = dict(code_sha256=CODE, source_contract_sha256=SOURCE)
+    def initial():
+        from us_equity_strategies.research import rs04_netting_candidate as m
+        return m.new_synthetic_r0_r3_state(calendar=['2031-01-02','2031-01-03','2031-01-06','2031-01-07','2031-01-08','2031-01-09','2031-01-10'],**IDENTITY)
+    def payload(state,index,shock=0.,boxx=0.):
+        day=state['calendar'][index]
+        return dict(schema_version='qsl.synthetic_r0_r3_snapshot.v1',scope='ARTIFICIAL_FIXTURE',input_id='independent-'+str(index),revision=1,
+            session=day,event_at=day+'T21:00:00+00:00',first_seen_at=day+'T21:01:00+00:00',persisted_at=day+'T21:02:00+00:00',decision_cutoff=day+'T21:03:00+00:00',
+            code_sha256=CODE,config_sha256=state['config_sha256'],source_contract_sha256=SOURCE,
+            profiles={p:dict(full_target={p:.5,s:.2,'BOXX':.1},security_returns={p:shock,s:0.,'BOXX':boxx}) for p,s in [('TQQQ','QQQM'),('SOXL','SOXX')]})
+    def wire(value):return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
+    def step(state,index,**kw):
+        from us_equity_strategies.research import rs04_netting_candidate as m
+        return m.step_synthetic_r0_r3(state,wire(payload(state,index,**kw)),**IDENTITY)
+    def save(tmp_path,name,value):(tmp_path/name).write_text(json.dumps(value,indent=2)+'\n')
+    one,_=step(initial(),1);two,_=step(one,2)
+    assert two['books']['TQQQ:R0']['pending']['kind']=='TARGET_WEIGHTS'
+    assert two['books']['TQQQ:R3']['pending']['kind']=='HOLD_POSITIONS'
+    corrupt=copy.deepcopy(two)
+    if mutation=='candidate_pending_swap':
+        corrupt['books']['TQQQ:R0']['pending']=copy.deepcopy(corrupt['books']['TQQQ:R3']['pending'])
+    else:
+        corrupt['inputs'][-1]['receipt']['cells']['TQQQ:R0']['next_pending']='NOT_A_PENDING_OBJECT'
+    try:
+        encoded=m.encode_synthetic_r0_r3_state(corrupt)
+        restored=m.decode_synthetic_r0_r3_state(encoded,**IDENTITY)
+    except ValueError:return
+    proof={'mutation':mutation,'codec_accepted':True,'code_source_config_IDs_unchanged':True,'state_version':restored['version'],
+        'latest_R0_recorded_pending':restored['inputs'][-1]['receipt']['cells']['TQQQ:R0']['next_pending'],
+        'current_R0_pending':restored['books']['TQQQ:R0']['pending'],'checkpoint_body_sha256':m._synthetic_sha(restored)}
+    if mutation=='candidate_pending_swap':
+        valid,valid_r=step(two,3,shock=.1,boxx=.02);bad,bad_r=step(restored,3,shock=.1,boxx=.02)
+        proof.update(valid_R0_step_fee=valid_r['cells']['TQQQ:R0']['executed_fees'],
+            corrupt_R0_step_fee=bad_r['cells']['TQQQ:R0']['executed_fees'],
+            valid_R0_nav=valid['books']['TQQQ:R0']['nav'],corrupt_R0_nav=bad['books']['TQQQ:R0']['nav'])
+    else:
+        _,replay=m.step_synthetic_r0_r3(restored,wire(payload(restored,2)),**IDENTITY)
+        proof['replayed_R0_next_pending']=replay['cells']['TQQQ:R0']['next_pending']
+    save(tmp_path,'CODEC_'+mutation+'.json',proof)
+    pytest.fail('SYN-001: codec accepts internally inconsistent candidate pending / cached receipt')
+
+
+@requires_security_netting
+@pytest.mark.parametrize("mutation", [
+    "current_target", "current_owner", "latest_string", "latest_target", "extra_pending_key",
+    "historical_next_string", "historical_next_target", "historical_previous_string",
+    "historical_previous_target", "first_previous", "cross_candidate", "cross_profile_hold",
+    "wrong_fill_session", "wrong_decision_session", "wrong_universe", "legacy_wire_version",
+])
+def test_syn001_pending_chain_rejected_at_encoder_decoder_and_cached_replay(mutation):
+    import us_equity_strategies.research.rs04_netting_candidate as module
+    state = _synthetic_forward_state()
+    for index in (1, 2, 3):
+        state, _ = _synthetic_step(state, _synthetic_forward_input(state, index))
+    valid_before = _synthetic_bytes(state)
+    corrupt = copy.deepcopy(state)
+    latest = corrupt["inputs"][-1]["receipt"]["cells"]
+    early = corrupt["inputs"][0]["receipt"]["cells"]["TQQQ:R0"]
+    later = corrupt["inputs"][1]["receipt"]["cells"]["TQQQ:R0"]
+    if mutation == "current_target": corrupt["books"]["TQQQ:R0"]["pending"]["weights"]["TQQQ"] = .52
+    elif mutation == "current_owner": corrupt["books"]["TQQQ:R3"]["pending"]["profile"] = "SOXL"
+    elif mutation == "latest_string": latest["TQQQ:R0"]["next_pending"] = "NOT_A_PENDING_OBJECT"
+    elif mutation == "latest_target": latest["TQQQ:R0"]["next_pending"]["weights"]["TQQQ"] = .52
+    elif mutation == "extra_pending_key": latest["TQQQ:R3"]["next_pending"]["unexpected"] = True
+    elif mutation == "historical_next_string": early["next_pending"] = "broken"
+    elif mutation == "historical_next_target": early["next_pending"]["weights"]["TQQQ"] = .52
+    elif mutation == "historical_previous_string": later["previous_pending"] = "broken"
+    elif mutation == "historical_previous_target": later["previous_pending"]["weights"]["TQQQ"] = .52
+    elif mutation == "first_previous":
+        early["previous_pending"] = dict(profile="TQQQ", candidate="R0", decision_session=state["calendar"][0],
+            fill_session=state["calendar"][1], kind="TARGET_WEIGHTS", weights={"TQQQ": .5, "QQQM": .2, "BOXX": .1})
+    elif mutation == "cross_candidate": latest["TQQQ:R3"]["next_pending"] = copy.deepcopy(latest["TQQQ:R0"]["next_pending"])
+    elif mutation == "cross_profile_hold": latest["TQQQ:R3"]["next_pending"] = copy.deepcopy(latest["SOXL:R3"]["next_pending"])
+    elif mutation == "wrong_fill_session": later["previous_pending"]["fill_session"] = state["calendar"][3]
+    elif mutation == "wrong_decision_session": latest["TQQQ:R3"]["next_pending"]["decision_session"] = state["calendar"][2]
+    elif mutation == "wrong_universe": latest["TQQQ:R0"]["next_pending"]["weights"] = {"SOXL": .5, "SOXX": .2, "BOXX": .1}
+    else: corrupt["schema_version"] = "qsl.synthetic_r0_r3_memory.v1"
+    corrupt_before = _synthetic_bytes(corrupt)
+    with pytest.raises(ValueError): module.encode_synthetic_r0_r3_state(corrupt)
+    # A freshly computed valid checksum is deliberately NOT an internal semantic proof.
+    forged_wire = _synthetic_bytes(dict(body=corrupt, sha256=module._synthetic_sha(corrupt)))
+    with pytest.raises(ValueError): module.decode_synthetic_r0_r3_state(forged_wire,
+        code_sha256="a"*64, source_contract_sha256="b"*64)
+    with pytest.raises(ValueError): _synthetic_step(corrupt, _synthetic_forward_input(state, 2))
+    assert _synthetic_bytes(corrupt) == corrupt_before
+    assert _synthetic_bytes(state) == valid_before
+
+
+@requires_security_netting
+def test_syn001_normal_owned_pending_and_cached_receipt_remain_independent(record_property):
+    state = _synthetic_forward_state()
+    first, first_receipt = _synthetic_step(state, _synthetic_forward_input(state, 1))
+    second, second_receipt = _synthetic_step(first, _synthetic_forward_input(first, 2))
+    for name, book in second["books"].items():
+        profile, candidate = name.split(":")
+        pending = book["pending"]
+        assert (pending["profile"], pending["candidate"]) == (profile, candidate)
+        assert pending == second_receipt["cells"][name]["next_pending"]
+        assert second_receipt["cells"][name]["previous_pending"] == first_receipt["cells"][name]["next_pending"]
+        assert pending["kind"] == ("TARGET_WEIGHTS" if candidate == "R0" else "HOLD_POSITIONS")
+    duplicate, old_receipt = _synthetic_step(second, _synthetic_forward_input(state, 1))
+    assert duplicate == second and old_receipt == first_receipt
+    old_receipt["cells"]["TQQQ:R0"]["next_pending"]["weights"]["TQQQ"] = .01
+    assert duplicate == second and second["books"]["TQQQ:R0"]["pending"]["weights"]["TQQQ"] == .5
+    # Record modules actually loaded in this guarded test process, rather than
+    # treating a dependency inventory as an actual-import receipt.
+    import sys
+    import hashlib
+    from pathlib import Path
+    bindings = []
+    for name, module in sorted(sys.modules.items()):
+        if not name.startswith(("us_equity_strategies", "quant_platform_kit")):
+            continue
+        file = getattr(module, "__file__", None)
+        if file:
+            path = Path(file)
+            origin = getattr(getattr(module, "__spec__", None), "origin", None)
+            bindings.append(dict(module=name, file=str(path), origin=origin,
+                                 sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
+    assert any(x["module"].endswith("rs04_netting_candidate") for x in bindings)
+    assert any(x["module"].endswith("security_netting_runner") for x in bindings)
+    record_property("actual_loaded_module_bindings", bindings)
