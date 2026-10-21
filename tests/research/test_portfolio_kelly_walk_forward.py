@@ -229,6 +229,144 @@ def test_qp_interior_equals_fractional_kelly_and_clip_scale_rules():
     assert neg == [0.0, 0.0]
 
 
+def test_prediction_scaling_cash_bridge_keeps_predictive_and_excess_proxies_distinct():
+    """B4 has no cash input; its target is not an excess-over-cash QP target.
+
+    A deterministic synthetic cash return is an explicit assumption here, not
+    a BOXX return or a source/PIT attestation. No production bridge is implied.
+    """
+    from test_bayesian_kelly import example, TRAINING
+    from us_equity_strategies.research.bayesian_kelly import (
+        b4_fractional_target, b4_predictive_moments,
+    )
+    from decimal import Decimal, localcontext
+
+    moments = b4_predictive_moments(example())
+    with localcontext() as context:
+        context.prec = 60
+        # Two observations .002,-.001, kappa0=1, sigma=.0004.
+        p = Decimal('.0004') * Decimal(4) / Decimal(3)
+        a = Decimal('.0002') + p / 2
+        mean = a.exp() - 1
+        covariance = (2 * a).exp() * (p.exp() - 1)
+        second = covariance + mean * mean
+        cash = Decimal('.001')
+        excess_mean = mean - cash
+        excess_second = second - 2 * cash * mean + cash * cash
+        assert moments.predictive_cov_log[0][0] == pytest.approx(float(p))
+        assert moments.mean_simple[0] == pytest.approx(float(mean))
+        assert moments.second_raw_moment_simple[0] == pytest.approx(float(second))
+        assert float(mean) != pytest.approx(moments.mean_log[0])
+        assert excess_mean < 0 < mean
+        assert excess_second != second  # shifting a raw moment changes it
+        # Deterministic cash shifts the mean, not the covariance.
+        for c in (.25, .5):
+            target = b4_fractional_target(moments, c=c, scope_cap={"TQQQ": 1.},
+                                         cap_source=TRAINING)
+            expected = float(Decimal(str(c)) * mean / second)
+            assert 0 < expected < .9  # slack cap: double-c cannot hide in clipping
+            assert target.targets == pytest.approx((expected,))
+            assert target.targets[0] != pytest.approx(c * expected)
+            gross_cov_qp = pw.constrained_kelly_qp([float(mean)], [[float(covariance)]], c)
+            assert gross_cov_qp == pytest.approx([float(Decimal(str(c)) * mean / covariance)])
+            assert gross_cov_qp != pytest.approx(target.targets, rel=1e-6)
+            excess_qp = pw.constrained_kelly_qp([float(excess_mean)], [[float(covariance)]], c)
+            assert excess_qp == [0.0]
+            assert target.no_order and not target.live_ready
+
+
+def test_prediction_scaling_portfolio_fit_requires_explicit_simple_cash_basis():
+    """An explicit synthetic cash shift is invariant; omitting it is not.
+
+    Numeric arrays have no units/source DTO: this checks the existing numerical
+    contract, not automatic detection of mislabeled log returns or missing PIT.
+    """
+    assets = ("A", "B")
+    cash = [.001] * 64
+    strategy = {"A": [.006 + x for x in (.01, -.01, .01, -.01)] * 16,
+                "B": [.004 + x for x in (.015, .015, -.015, -.015)] * 16}
+    excess = {a: [r - rf for r, rf in zip(strategy[a], cash)] for a in assets}
+    original = pw.fit_portfolio_kelly(assets, strategy, cash, (.25, .5))
+    shifted = pw.fit_portfolio_kelly(assets, excess, [0.] * 64, (.25, .5))
+    omitted = pw.fit_portfolio_kelly(assets, strategy, [0.] * 64, (.25, .5))
+    assert original["status"] == shifted["status"] == omitted["status"] == "COMPUTED"
+    assert original["mu_excess"] == shifted["mu_excess"]
+    assert original["mu_shrunk"] == shifted["mu_shrunk"]
+    assert original["covariance_ledoit_wolf"] == shifted["covariance_ledoit_wolf"]
+    assert original["weights"] == shifted["weights"]
+    for a in assets:
+        assert omitted["mu_excess"][a] - original["mu_excess"][a] == pytest.approx(.001)
+    with pytest.raises(TypeError):
+        pw.fit_portfolio_kelly(assets, strategy, None, (.25,))
+    parked = pw.fit_portfolio_kelly(assets, strategy, [], (.25,))
+    assert parked["status"] == "PARKED"
+    assert parked["reason_code"] == "INSUFFICIENT_TRAIN_OBSERVATIONS"
+    # A research PARKED zero schedule is not an executable liquidation instruction.
+    assert not parked.get("execution_authorized", False)
+
+
+def test_prediction_scaling_joint_covariance_is_not_full_raw_second_moment():
+    """Bridge two predictive cores into the existing covariance QP, not B4 sizing.
+
+    B4 exposes Q's diagonal for its per-core proxy, not a joint optimizer. The
+    off-diagonal raw moment below is an independent expectation identity.
+    """
+    from decimal import Decimal as D, localcontext
+    from test_bayesian_kelly import ANCHOR, TRAINING, observation
+    from us_equity_strategies.research.bayesian_kelly import (
+        B4Spec, batch_b4, b4_predictive_moments,
+    )
+    spec = B4Spec(("TQQQ", "SOXL"), ANCHOR)
+    obs = [observation(1, (.002, .001), spec=spec),
+           observation(2, (-.001, .002), spec=spec)]
+    moments = b4_predictive_moments(batch_b4(spec,
+        ((.0004, .00012), (.00012, .0009)), TRAINING, obs,
+        decision_cutoff=obs[-1].available_at))
+    with localcontext() as context:
+        context.prec = 60
+        sigma = ((D('.0004'), D('.00012')), (D('.00012'), D('.0009')))
+        p = [[x * 4 / 3 for x in row] for row in sigma]
+        a = [D('.0002') + p[0][0] / 2, D('.0007') + p[1][1] / 2]
+        mean = [x.exp() - 1 for x in a]
+        cov = [[(a[i] + a[j]).exp() * (p[i][j].exp() - 1)
+                for j in range(2)] for i in range(2)]
+        raw = [[cov[i][j] + mean[i] * mean[j] for j in range(2)] for i in range(2)]
+        # Closed-form interior FOC for a positive-definite two-dimensional C.
+        determinant = cov[0][0] * cov[1][1] - cov[0][1] ** 2
+        expected = [float(D('.25') * (cov[1][1] * mean[0] - cov[0][1] * mean[1]) / determinant),
+                    float(D('.25') * (cov[0][0] * mean[1] - cov[0][1] * mean[0]) / determinant)]
+    assert all(x > 0 for x in expected) and sum(expected) < .9
+    for i in range(2):
+        assert moments.predictive_cov_log[i] == pytest.approx([float(x) for x in p[i]])
+        assert moments.predictive_cov_simple[i] == pytest.approx([float(x) for x in cov[i]])
+        assert moments.second_raw_moment_simple[i] == pytest.approx(float(raw[i][i]))
+    weights = pw.constrained_kelly_qp(moments.mean_simple, moments.predictive_cov_simple, .25)
+    assert weights == pytest.approx(expected)
+    assert weights != pytest.approx(pw.constrained_kelly_qp(
+        moments.mean_simple, [[float(x) for x in row] for row in raw], .25), rel=1e-6)
+    assert weights != pytest.approx(pw.constrained_kelly_qp(
+        moments.mean_simple, [[float(cov[0][0]), 0.], [0., float(cov[1][1])]], .25))
+
+
+@pytest.mark.parametrize("c,expected", [(.25, [.05, .025]), (.5, [.1, .05])])
+def test_prediction_scaling_c_is_once_not_account_capital_or_half_rebalance(c, expected):
+    # Independent diagonal FOC: full Kelly=(.008/.04,.009/.09)=(.2,.1).
+    target = pw.constrained_kelly_qp([.008, .009], [[.04, 0.], [0., .09]], c)
+    assert target == pytest.approx(expected)
+    assert sum(target) < .2  # neither the capital constraint nor a cap can mask c^2
+    assert target != pytest.approx([c * x for x in expected])
+    assert pw.clip_scale([.2, .1], c) == pytest.approx(expected)
+    for capital in (100., 10000.):
+        dollars = [capital * x for x in target]
+        assert [x / capital for x in dollars] == pytest.approx(expected)
+    current = [.3, .2]
+    half_step = [(w + d) / 2 for w, d in zip(current, target)]
+    assert half_step != pytest.approx([d / 2 for d in target])
+    # Algebraic convention only: this is not a test of B5's runtime consumer.
+    outer_f = .8
+    assert [outer_f * x for x in target] != pytest.approx([c * x for x in target])
+
+
 def test_fit_parks_short_or_degenerate_samples():
     days, s = _streams(60)
     fit = pw.fit_portfolio_kelly(("A", "B"), {"A": [0.01] * 20, "B": [0.02] * 20}, [0.0] * 20, (0.25, 0.5))
