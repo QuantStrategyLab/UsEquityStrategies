@@ -27,6 +27,593 @@ from .security_netting_runner import NettingSession, run_offline_security_nettin
 
 NEXT_CLOSE_RESEARCH_CANDIDATE = "NEXT_CLOSE_RESEARCH_CANDIDATE"
 
+# v2 adds explicit pending cell ownership and enforces its receipt chain.
+# Rejected v1 prototype checkpoints are not silently re-signed or migrated.
+_SYNTHETIC_STATE_SCHEMA = "qsl.synthetic_r0_r3_memory.v2"
+
+
+def _synthetic_bytes(value):
+    import json
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def _synthetic_sha(value):
+    import hashlib
+    return hashlib.sha256(_synthetic_bytes(value)).hexdigest()
+
+
+def _synthetic_keys(value, keys):
+    if type(value) is not dict or set(value) != set(keys):
+        raise ValueError("SYNTHETIC_FIELDS")
+
+
+def _synthetic_hash(value):
+    if (type(value) is not str or len(value) != 64
+            or any(c not in "0123456789abcdef" for c in value)):
+        raise ValueError("SYNTHETIC_HASH")
+
+
+def _synthetic_read(data):
+    import json
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("SYNTHETIC_DUPLICATE_KEY")
+            result[key] = value
+        return result
+    def constant(_):
+        raise ValueError("SYNTHETIC_NONFINITE")
+    if type(data) is not bytes:
+        raise ValueError("SYNTHETIC_BYTES_REQUIRED")
+    try:
+        value = json.loads(data, object_pairs_hook=pairs, parse_constant=constant)
+    except (UnicodeError, TypeError, ValueError) as exc:
+        raise ValueError("SYNTHETIC_JSON") from exc
+    if _synthetic_bytes(value) != data:
+        raise ValueError("SYNTHETIC_CANONICAL_BYTES_REQUIRED")
+    return value
+
+
+def _synthetic_config(calendar):
+    from .security_netting_runner import SYNTHETIC_R0_R3_UNIVERSES
+    return dict(universes={k: list(v) for k, v in SYNTHETIC_R0_R3_UNIVERSES.items()},
+                candidates={"R0": "FULL", "R3": "BAND_HOLD"}, band=.01,
+                bps_per_side=5., cash_return=0., outer_f=1., calendar=calendar,
+                source_class="ARTIFICIAL_FIXTURE", unit_basis="SYNTHETIC_TOTAL_RETURN_UNITS")
+
+
+def _validate_synthetic_state(state):
+    from .security_netting_runner import validate_synthetic_virtual_book, _validate_synthetic_pending
+    _synthetic_keys(state, ("schema_version", "scope", "code_sha256", "source_contract_sha256",
+                           "config_sha256", "calendar", "version", "parent_sha256",
+                           "completed_session", "books", "inputs"))
+    if state["schema_version"] != _SYNTHETIC_STATE_SCHEMA or state["scope"] != "SYNTHETIC_ONLY_ARTIFICIAL":
+        raise ValueError("SYNTHETIC_SCOPE")
+    for field in ("code_sha256", "source_contract_sha256", "config_sha256"):
+        _synthetic_hash(state[field])
+    calendar = state["calendar"]
+    if (type(calendar) is not list or len(calendar) < 2
+            or any(type(d) is not str or date.fromisoformat(d).isoformat() != d for d in calendar)
+            or sorted(set(calendar)) != calendar):
+        raise ValueError("SYNTHETIC_CALENDAR")
+    if state["config_sha256"] != _synthetic_sha(_synthetic_config(calendar)):
+        raise ValueError("SYNTHETIC_CONFIG_DRIFT")
+    version = state["version"]
+    if (type(version) is not int or not 0 <= version < len(calendar)-1
+            or type(state["inputs"]) is not list or len(state["inputs"]) != version
+            or state["completed_session"] != calendar[version]):
+        raise ValueError("SYNTHETIC_STATE_SEQUENCE")
+    if version == 0:
+        if state["parent_sha256"] is not None:
+            raise ValueError("SYNTHETIC_PARENT")
+    else:
+        _synthetic_hash(state["parent_sha256"])
+    _synthetic_keys(state["books"], ("TQQQ:R0", "TQQQ:R3", "SOXL:R0", "SOXL:R3"))
+    for name, book in state["books"].items():
+        validate_synthetic_virtual_book(book)
+        if name != book["profile"]+":"+book["candidate"] or book["completed_session"] != state["completed_session"]:
+            raise ValueError("SYNTHETIC_BOOK_ANCHOR")
+        if version == 0:
+            from .security_netting_runner import new_synthetic_virtual_book
+            if book != new_synthetic_virtual_book(book["profile"], book["candidate"], calendar[0]):
+                raise ValueError("SYNTHETIC_OPENING")
+        elif book["pending"] is None or book["pending"]["fill_session"] != calendar[version+1]:
+            raise ValueError("SYNTHETIC_PENDING_ANCHOR")
+    for profile in ("TQQQ", "SOXL"):
+        if state["books"][profile+":R0"]["marks"] != state["books"][profile+":R3"]["marks"]:
+            raise ValueError("SYNTHETIC_MARKET_PAIRING")
+    seen = set()
+    previous_next = {name: None for name in state["books"]}
+    for index, item in enumerate(state["inputs"], start=1):
+        _synthetic_keys(item, ("input_id", "revision", "content_sha256", "session", "receipt"))
+        if (type(item["input_id"]) is not str or not item["input_id"] or item["input_id"] in seen
+                or type(item["revision"]) is not int or item["revision"] != 1
+                or item["session"] != calendar[index]):
+            raise ValueError("SYNTHETIC_INPUT_LOG")
+        seen.add(item["input_id"])
+        _synthetic_hash(item["content_sha256"])
+        receipt = item["receipt"]
+        _synthetic_keys(receipt, ("version", "session", "input_id", "input_sha256", "times", "cells", "scope", "no_order"))
+        if (type(receipt["version"]) is not int or receipt["version"] != index or receipt["session"] != item["session"]
+                or receipt["input_id"] != item["input_id"] or receipt["input_sha256"] != item["content_sha256"]
+                or receipt["scope"] != "SYNTHETIC_ONLY" or receipt["no_order"] is not True):
+            raise ValueError("SYNTHETIC_RECEIPT")
+        _synthetic_keys(receipt["cells"], state["books"])
+        from .security_netting_runner import _rs04_time, SYNTHETIC_R0_R3_UNIVERSES
+        _synthetic_keys(receipt["times"], ("event_at", "first_seen_at", "persisted_at", "decision_cutoff"))
+        times = [_rs04_time(receipt["times"][k]) for k in ("event_at", "first_seen_at", "persisted_at", "decision_cutoff")]
+        if times != sorted(times) or any(t.date().isoformat() != item["session"] for t in times):
+            raise ValueError("SYNTHETIC_RECEIPT_TIME")
+        for name, cell in receipt["cells"].items():
+            _synthetic_keys(cell, ("executed_fees", "net_trades", "turnover", "previous_pending", "next_pending",
+                                   "decision_mode", "band", "decision_weights", "nav", "cash", "scope", "no_order", "input_sha256"))
+            if cell["input_sha256"] != item["content_sha256"] or cell["scope"] != "SYNTHETIC_ONLY" or cell["no_order"] is not True:
+                raise ValueError("SYNTHETIC_RECEIPT_PAIRING")
+            if cell["decision_mode"] != ("FULL" if name.endswith(":R0") else "BAND_HOLD") or cell["band"] != .01:
+                raise ValueError("SYNTHETIC_RECEIPT_MODE")
+            profile, candidate = name.split(":")
+            if cell["previous_pending"] is not None:
+                _validate_synthetic_pending(cell["previous_pending"], profile=profile, candidate=candidate,
+                    decision_session=calendar[index-1], fill_session=calendar[index])
+            if cell["previous_pending"] != previous_next[name]:
+                raise ValueError("SYNTHETIC_RECEIPT_PENDING_CHAIN")
+            _validate_synthetic_pending(cell["next_pending"], profile=profile, candidate=candidate,
+                decision_session=calendar[index], fill_session=calendar[index+1])
+            previous_next[name] = cell["next_pending"]
+            symbols = SYNTHETIC_R0_R3_UNIVERSES[name.split(":")[0]]
+            for field in ("net_trades", "decision_weights"):
+                _synthetic_keys(cell[field], symbols)
+                for number in cell[field].values():
+                    if _number(number, "SYNTHETIC_RECEIPT_NUMBER") < 0 and field == "decision_weights":
+                        raise ValueError("SYNTHETIC_RECEIPT_NUMBER")
+            for field in ("executed_fees", "turnover", "nav", "cash"):
+                if _number(cell[field], "SYNTHETIC_RECEIPT_NUMBER") < 0:
+                    raise ValueError("SYNTHETIC_RECEIPT_NUMBER")
+    if version and any(book["pending"] != previous_next[name] for name, book in state["books"].items()):
+        raise ValueError("SYNTHETIC_CURRENT_PENDING_RECEIPT_MISMATCH")
+    # Reject nonfinite values anywhere, including historical receipt metadata.
+    _synthetic_bytes(state)
+
+
+def new_synthetic_r0_r3_state(*, calendar: Sequence[str], code_sha256: str,
+                             source_contract_sha256: str) -> dict[str, Any]:
+    """Four distinct artificial books, no trials, market data, or disk access."""
+    from .security_netting_runner import new_synthetic_virtual_book
+    dates = list(calendar)
+    if len(dates) < 2:
+        raise ValueError("SYNTHETIC_CALENDAR")
+    state = dict(schema_version=_SYNTHETIC_STATE_SCHEMA, scope="SYNTHETIC_ONLY_ARTIFICIAL",
+                 code_sha256=code_sha256, source_contract_sha256=source_contract_sha256,
+                 config_sha256=_synthetic_sha(_synthetic_config(dates)), calendar=dates, version=0,
+                 parent_sha256=None, completed_session=dates[0], inputs=[],
+                 books={p+":"+c: new_synthetic_virtual_book(p, c, dates[0])
+                        for p in ("TQQQ", "SOXL") for c in ("R0", "R3")})
+    _validate_synthetic_state(state)
+    return state
+
+
+def encode_synthetic_r0_r3_state(state: Mapping[str, Any]) -> bytes:
+    _validate_synthetic_state(state)
+    return _synthetic_bytes(dict(body=state, sha256=_synthetic_sha(state)))
+
+
+def decode_synthetic_r0_r3_state(data: bytes, *, code_sha256: str,
+                                source_contract_sha256: str) -> dict[str, Any]:
+    envelope = _synthetic_read(data)
+    _synthetic_keys(envelope, ("body", "sha256"))
+    if envelope["sha256"] != _synthetic_sha(envelope["body"]):
+        raise ValueError("SYNTHETIC_CHECKSUM")
+    state = envelope["body"]
+    _validate_synthetic_state(state)
+    if state["code_sha256"] != code_sha256 or state["source_contract_sha256"] != source_contract_sha256:
+        raise ValueError("SYNTHETIC_IDENTITY_DRIFT")
+    return state
+
+
+def step_synthetic_r0_r3(state: Mapping[str, Any], snapshot_bytes: bytes, *, code_sha256: str,
+                        source_contract_sha256: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Atomic in-memory four-book transition from explicit artificial snapshots.
+
+    Event/first_seen/persisted/cutoff are fixture assertions only, never actual
+    provider publication or PIT evidence. Exact duplicates return their prior
+    receipt with the CURRENT state, including after later sessions were consumed.
+    """
+    import hashlib
+    from .partial_rebalance import (NoPluginCorePolicyContext, CORE_ONLY_MAPPING_SHA256,
+                                   CORE_ONLY_CONFIG_SHA256, CORE_ONLY_SOURCE_SHA256)
+    from .security_netting_runner import _rs04_time, step_synthetic_virtual_book
+    working = decode_synthetic_r0_r3_state(encode_synthetic_r0_r3_state(state),
+        code_sha256=code_sha256, source_contract_sha256=source_contract_sha256)
+    value = _synthetic_read(snapshot_bytes)
+    _synthetic_keys(value, ("schema_version", "scope", "input_id", "revision", "session", "event_at",
+                            "first_seen_at", "persisted_at", "decision_cutoff", "code_sha256",
+                            "config_sha256", "source_contract_sha256", "profiles"))
+    if (value["schema_version"] != "qsl.synthetic_r0_r3_snapshot.v1" or value["scope"] != "ARTIFICIAL_FIXTURE"
+            or type(value["input_id"]) is not str or not value["input_id"]
+            or type(value["revision"]) is not int or value["revision"] != 1):
+        raise ValueError("SYNTHETIC_INPUT_IDENTITY")
+    for field in ("code_sha256", "config_sha256", "source_contract_sha256"):
+        if value[field] != working[field]:
+            raise ValueError("SYNTHETIC_INPUT_DRIFT")
+    content_hash = hashlib.sha256(snapshot_bytes).hexdigest()
+    for item in working["inputs"]:
+        if item["input_id"] == value["input_id"]:
+            if item["revision"] != value["revision"] or item["content_sha256"] != content_hash:
+                raise ValueError("SYNTHETIC_ID_CONFLICT")
+            return working, _synthetic_read(_synthetic_bytes(item["receipt"]))
+    version = working["version"]+1
+    if version+1 >= len(working["calendar"]) or value["session"] != working["calendar"][version]:
+        raise ValueError("SYNTHETIC_INPUT_SEQUENCE")
+    times = {k: _rs04_time(value[k]) for k in ("event_at", "first_seen_at", "persisted_at", "decision_cutoff")}
+    if (any(t.date().isoformat() != value["session"] for t in times.values())
+            or not times["event_at"] <= times["first_seen_at"] <= times["persisted_at"] <= times["decision_cutoff"]):
+        raise ValueError("SYNTHETIC_INPUT_LATE_OR_CLOCK")
+    _synthetic_keys(value["profiles"], ("TQQQ", "SOXL"))
+    cells = {}
+    for profile, data in value["profiles"].items():
+        _synthetic_keys(data, ("full_target", "security_returns"))
+        context = NoPluginCorePolicyContext(profile, "SYNTHETIC_ONLY", "ARTIFICIAL_FIXTURE", code_sha256,
+            CORE_ONLY_MAPPING_SHA256, CORE_ONLY_CONFIG_SHA256, tuple(sorted(CORE_ONLY_SOURCE_SHA256.items())))
+        for candidate in ("R0", "R3"):
+            name = profile+":"+candidate
+            working["books"][name], cell = step_synthetic_virtual_book(working["books"][name],
+                session=value["session"], next_session=working["calendar"][version+1],
+                security_returns=data["security_returns"], full_target=data["full_target"],
+                cutoff=value["decision_cutoff"], policy_context=context)
+            cells[name] = dict(cell, input_sha256=content_hash)
+    receipt = dict(version=version, session=value["session"], input_id=value["input_id"],
+                   input_sha256=content_hash, times={k: value[k] for k in times}, cells=cells,
+                   scope="SYNTHETIC_ONLY", no_order=True)
+    working.update(version=version, completed_session=value["session"], parent_sha256=_synthetic_sha(state))
+    working["inputs"].append(dict(input_id=value["input_id"], revision=value["revision"],
+                                 content_sha256=content_hash, session=value["session"], receipt=receipt))
+    _validate_synthetic_state(working)
+    # Independent values at the public boundary: mutating a returned receipt
+    # must not mutate the committed book or its pending target through aliases.
+    working = decode_synthetic_r0_r3_state(encode_synthetic_r0_r3_state(working),
+        code_sha256=code_sha256, source_contract_sha256=source_contract_sha256)
+    return working, _synthetic_read(_synthetic_bytes(receipt))
+
+
+class SyntheticR0R3MemorySession:
+    """Artificial preparation/codec coordinator with optional existing carrier.
+
+    PREPARED/UNKNOWN blocks all other inputs, including new IDs. A caller may
+    resolve only with authoritative exact old or proposed serialized bytes.
+    Byte-only recovery simulates a save boundary. The explicitly opt-in local
+    commit method delegates storage; no new carrier or power-loss guarantee.
+    """
+    def __init__(self, state_bytes: bytes, *, code_sha256: str, source_contract_sha256: str):
+        decode_synthetic_r0_r3_state(state_bytes, code_sha256=code_sha256,
+                                    source_contract_sha256=source_contract_sha256)
+        self._state = state_bytes
+        self._prepared = None
+        self._identity = dict(code_sha256=code_sha256, source_contract_sha256=source_contract_sha256)
+        self._status = "READY"
+
+    @property
+    def status(self):
+        return self._status
+
+    @property
+    def state_bytes(self):
+        return self._state
+
+    def prepare(self, snapshot_bytes: bytes):
+        if self.status != "READY":
+            raise ValueError("SYNTHETIC_COMMIT_UNRESOLVED")
+        state = decode_synthetic_r0_r3_state(self._state, **self._identity)
+        proposed, receipt = step_synthetic_r0_r3(state, snapshot_bytes, **self._identity)
+        encoded = encode_synthetic_r0_r3_state(proposed)
+        if encoded != self._state:
+            self._prepared, self._status = encoded, "PREPARED"
+        return encoded, receipt
+
+    def accept_readback(self, readback_bytes: bytes):
+        if self.status != "PREPARED" or readback_bytes != self._prepared:
+            if self._prepared is not None:
+                self._status = "UNKNOWN"
+            raise ValueError("SYNTHETIC_COMMIT_READBACK_UNKNOWN")
+        self._state, self._prepared, self._status = self._prepared, None, "READY"
+
+    def mark_unknown(self):
+        if self._prepared is None:
+            raise ValueError("SYNTHETIC_NO_PREPARED_COMMIT")
+        self._status = "UNKNOWN"
+
+    def commit_local_checkpoint(self, *, fixture_root, carrier="existing"):
+        """Explicit local carrier choice; UNKNOWN never silently changes it.
+
+        Existing carrier pairs commit separately; mixed profile heads park.
+        The bounded file fallback atomically commits all four books, after
+        the existing carrier's measured capacity failure. Neither is live.
+        """
+        if self.status != "PREPARED":
+            raise ValueError("SYNTHETIC_NO_PREPARED_COMMIT")
+        proposed = decode_synthetic_r0_r3_state(self._prepared, **self._identity)
+        try:
+            if carrier == "existing":
+                save, load = save_synthetic_r0_r3_checkpoint, load_synthetic_r0_r3_checkpoint
+            elif carrier == "bundle_file":
+                save, load = save_synthetic_r0_r3_file_checkpoint, load_synthetic_r0_r3_file_checkpoint
+            else:
+                raise ValueError("SYNTHETIC_CHECKPOINT_CARRIER")
+            save(proposed, fixture_root=fixture_root)
+            readback = load(fixture_root=fixture_root,
+                config_sha256=proposed["config_sha256"], **self._identity)
+            self.accept_readback(readback)
+        except Exception:
+            self._status = "UNKNOWN"
+            raise
+
+    def resolve_readback(self, readback_bytes: bytes):
+        if self.status != "UNKNOWN" or readback_bytes not in (self._state, self._prepared):
+            raise ValueError("SYNTHETIC_COMMIT_STILL_UNKNOWN")
+        self._state, self._prepared, self._status = readback_bytes, None, "READY"
+
+    def to_bytes(self):
+        body = dict(schema_version="qsl.synthetic_r0_r3_transaction.v1",
+            committed=self._state.decode(), prepared=None if self._prepared is None else self._prepared.decode(),
+            status=self.status)
+        return _synthetic_bytes(dict(body=body, sha256=_synthetic_sha(body)))
+
+    @classmethod
+    def from_bytes(cls, data: bytes, *, code_sha256: str, source_contract_sha256: str):
+        envelope = _synthetic_read(data)
+        _synthetic_keys(envelope, ("body", "sha256"))
+        if envelope["sha256"] != _synthetic_sha(envelope["body"]):
+            raise ValueError("SYNTHETIC_TRANSACTION_CHECKSUM")
+        value = envelope["body"]
+        _synthetic_keys(value, ("schema_version", "committed", "prepared", "status"))
+        if (value["schema_version"] != "qsl.synthetic_r0_r3_transaction.v1"
+                or type(value["committed"]) is not str
+                or (value["prepared"] is not None and type(value["prepared"]) is not str)):
+            raise ValueError("SYNTHETIC_TRANSACTION_SCHEMA")
+        result = cls(value["committed"].encode(), code_sha256=code_sha256,
+                     source_contract_sha256=source_contract_sha256)
+        if value["prepared"] is None:
+            if value["status"] != "READY":
+                raise ValueError("SYNTHETIC_TRANSACTION_STATE")
+        else:
+            if value["status"] not in ("PREPARED", "UNKNOWN"):
+                raise ValueError("SYNTHETIC_TRANSACTION_STATE")
+            prepared = decode_synthetic_r0_r3_state(value["prepared"].encode(), **result._identity)
+            committed = decode_synthetic_r0_r3_state(result._state, **result._identity)
+            if (prepared["version"] != committed["version"]+1
+                    or prepared["parent_sha256"] != _synthetic_sha(committed)
+                    or prepared["inputs"][:-1] != committed["inputs"]):
+                raise ValueError("SYNTHETIC_TRANSACTION_PARENT")
+            result._prepared, result._status = value["prepared"].encode(), value["status"]
+        return result
+
+
+def _synthetic_checkpoint_stores(fixture_root, config_sha256):
+    from pathlib import Path
+    from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateStore, StrategyRiskStateIdentity
+    _synthetic_hash(config_sha256)
+    root = Path(fixture_root)
+    if (not root.is_absolute() or root.name != "checkpoint_fixture_SYNTHETIC_ONLY"
+            or root.absolute() != root.resolve()):
+        raise ValueError("SYNTHETIC_EXPLICIT_FIXTURE_DIRECTORY")
+    # These identifiers explicitly denote artificial local state. No physical
+    # account or authenticated risk-policy authority is represented by them.
+    return {p: (StrategyRiskStateStore(local_dir=root, namespace="synthetic.r0r3.prototype"),
+                StrategyRiskStateIdentity("synthetic.r0r3", "synthetic.fixture", p.lower(), config_sha256))
+            for p in ("TQQQ", "SOXL")}
+
+
+def _synthetic_profile_checkpoint(state, profile):
+    value = _synthetic_read(_synthetic_bytes(state))
+    value["books"] = {k:v for k,v in value["books"].items() if k.startswith(profile+":")}
+    for item in value["inputs"]:
+        item["receipt"]["cells"] = {k:v for k,v in item["receipt"]["cells"].items() if k.startswith(profile+":")}
+    return dict(profile=profile, bundle_sha256=_synthetic_sha(state), state=value)
+
+
+def load_synthetic_r0_r3_checkpoint(*, fixture_root, config_sha256: str,
+                                  code_sha256: str, source_contract_sha256: str) -> bytes | None:
+    """Read existing immutable local chains; no env, cloud, trials or account API.
+
+    This establishes validated process-restart readback only. The underlying
+    carrier fsyncs its file and atomically links it, but not the directory;
+    whole-system power-loss durability is not claimed.
+    """
+    stores = _synthetic_checkpoint_stores(fixture_root, config_sha256)
+    chains = {p:store.load_chain(identity) for p,(store,identity) in stores.items()}
+    if not any(chains.values()):
+        return None
+    if not all(chains.values()):
+        raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_PARTIAL_UNKNOWN")
+    payloads = {p:chain[-1].state for p,chain in chains.items()}
+    for profile, payload in payloads.items():
+        _synthetic_keys(payload, ("profile", "bundle_sha256", "state"))
+        if payload["profile"] != profile:
+            raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_IDENTITY")
+        _synthetic_keys(payload["state"]["books"], (profile+":R0", profile+":R3"))
+    left, right = payloads["TQQQ"], payloads["SOXL"]
+    if left["bundle_sha256"] != right["bundle_sha256"]:
+        raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_PARTIAL_UNKNOWN")
+    combined = _synthetic_read(_synthetic_bytes(left["state"]))
+    other = right["state"]
+    if {k:v for k,v in combined.items() if k not in ("books", "inputs")} != {
+            k:v for k,v in other.items() if k not in ("books", "inputs")}:
+        raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_CONFLICT")
+    if len(combined["inputs"]) != len(other["inputs"]):
+        raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_CONFLICT")
+    combined["books"].update(other["books"])
+    for one, two in zip(combined["inputs"], other["inputs"], strict=True):
+        # Each immutable chain keeps complete provenance/dedup and its own pair
+        # receipts. No field is discarded merely to fit the 8KiB capacity.
+        if {k:v for k,v in one.items() if k != "receipt"} != {k:v for k,v in two.items() if k != "receipt"}:
+            raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_CONFLICT")
+        a, b = one["receipt"], two["receipt"]
+        if {k:v for k,v in a.items() if k != "cells"} != {k:v for k,v in b.items() if k != "cells"}:
+            raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_CONFLICT")
+        a["cells"].update(b["cells"])
+    if _synthetic_sha(combined) != left["bundle_sha256"]:
+        raise ValueError("SYNTHETIC_PROFILE_CHECKPOINT_CHECKSUM")
+    encoded = encode_synthetic_r0_r3_state(combined)
+    decode_synthetic_r0_r3_state(encoded, code_sha256=code_sha256,
+                               source_contract_sha256=source_contract_sha256)
+    return encoded
+
+
+def save_synthetic_r0_r3_checkpoint(state, *, fixture_root):
+    """Preflight BOTH pairs, then reuse create-only carrier and exact readback.
+
+    No new persistence implementation. Uncertain/partial outcomes raise and
+    block the memory session; mismatched profile heads never auto-advance.
+    Capacity failure is detected before either profile is written.
+    """
+    from quant_platform_kit.common.strategy_risk_state import build_strategy_risk_state_transition
+    encoded = encode_synthetic_r0_r3_state(state)
+    stores = _synthetic_checkpoint_stores(fixture_root, state["config_sha256"])
+    existing = load_synthetic_r0_r3_checkpoint(fixture_root=fixture_root,
+        config_sha256=state["config_sha256"], code_sha256=state["code_sha256"],
+        source_contract_sha256=state["source_contract_sha256"])
+    if existing == encoded:
+        return encoded
+    if existing is None:
+        if state["version"] != 0:
+            raise ValueError("SYNTHETIC_CHECKPOINT_MISSING_PARENT")
+    else:
+        previous = decode_synthetic_r0_r3_state(existing, code_sha256=state["code_sha256"],
+            source_contract_sha256=state["source_contract_sha256"])
+        if state["version"] != previous["version"]+1 or state["parent_sha256"] != _synthetic_sha(previous):
+            raise ValueError("SYNTHETIC_CHECKPOINT_STALE_OR_CONFLICT")
+    prepared = []
+    for profile, (store, identity) in stores.items():
+        chain = store.load_chain(identity)
+        transition = build_strategy_risk_state_transition(identity=identity,
+            effective_session=state["completed_session"],
+            input_sha256=state["inputs"][-1]["content_sha256"] if state["inputs"] else _synthetic_sha({"opening": state["calendar"][0]}),
+            state=_synthetic_profile_checkpoint(state, profile), previous_transition=None if not chain else chain[-1])
+        prepared.append((store, transition))
+    for store, transition in prepared:
+        store.append(transition)
+    readback = load_synthetic_r0_r3_checkpoint(fixture_root=fixture_root,
+        config_sha256=state["config_sha256"], code_sha256=state["code_sha256"],
+        source_contract_sha256=state["source_contract_sha256"])
+    if readback != encoded:
+        raise ValueError("SYNTHETIC_CHECKPOINT_READBACK_UNKNOWN")
+    return encoded
+
+
+def _synthetic_file_root(fixture_root):
+    from pathlib import Path
+    root = Path(fixture_root)
+    if (not root.is_absolute() or root.name != "checkpoint_fixture_SYNTHETIC_ONLY"
+            or root.absolute() != root.resolve()):
+        raise ValueError("SYNTHETIC_EXPLICIT_FIXTURE_DIRECTORY")
+    return root
+
+
+def _synthetic_file_read_head(root, *, config_sha256, code_sha256, source_contract_sha256):
+    """Called under the same directory's shared/exclusive writer lock."""
+    import re
+    files = sorted(root.glob("checkpoint.v*.json"))
+    previous = None
+    encoded = None
+    for version, path in enumerate(files):
+        match = re.fullmatch(r"checkpoint\.v([0-9]{8})\.([0-9a-f]{64})\.json", path.name)
+        if not match or int(match[1]) != version or path.is_symlink():
+            raise ValueError("SYNTHETIC_FILE_CHAIN_GAP_OR_CONFLICT")
+        encoded = path.read_bytes()
+        state = decode_synthetic_r0_r3_state(encoded, code_sha256=code_sha256,
+                                            source_contract_sha256=source_contract_sha256)
+        if state["config_sha256"] != config_sha256 or state["version"] != version or _synthetic_sha(state) != match[2]:
+            raise ValueError("SYNTHETIC_FILE_IDENTITY_OR_HASH")
+        if previous is not None and (state["parent_sha256"] != _synthetic_sha(previous)
+                or state["inputs"][:-1] != previous["inputs"]):
+            raise ValueError("SYNTHETIC_FILE_PARENT")
+        previous = state
+    return encoded
+
+
+def load_synthetic_r0_r3_file_checkpoint(*, fixture_root, config_sha256: str,
+                                       code_sha256: str, source_contract_sha256: str) -> bytes | None:
+    """Strict four-book immutable-chain readback, never fallback past corruption.
+
+    Process restart recovery is tested separately from whole-machine power loss.
+    No fixture or filesystem time is treated as provider availability evidence.
+    """
+    import fcntl
+    root = _synthetic_file_root(fixture_root)
+    if not root.exists():
+        return None
+    lock = root/"WRITER.lock"
+    if lock.is_symlink() or not lock.is_file():
+        raise ValueError("SYNTHETIC_FILE_LOCK_MISSING")
+    with lock.open("rb") as handle:
+        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        return _synthetic_file_read_head(root, config_sha256=config_sha256,
+            code_sha256=code_sha256, source_contract_sha256=source_contract_sha256)
+
+
+def save_synthetic_r0_r3_file_checkpoint(state, *, fixture_root):
+    """Bounded opt-in local bundle fallback after the measured 8KiB nonfit.
+
+    One atomic, create-only file contains ALL four books and complete identity,
+    input dedup and receipts. An exclusive writer lock protects parent checking.
+    A flushed/fsynced temporary is linked without replacement, directory-fsynced,
+    and read back exactly. Unknown outcomes preserve the same version/hash/ID;
+    no new identifier, mutable latest file, history rewrite or general store.
+    """
+    import os
+    import fcntl
+    encoded = encode_synthetic_r0_r3_state(state)
+    root = _synthetic_file_root(fixture_root)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = root/"WRITER.lock"
+    if lock.is_symlink():
+        raise ValueError("SYNTHETIC_FILE_LOCK_SYMLINK")
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "r+b") as writer:
+        fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        identity = dict(config_sha256=state["config_sha256"], code_sha256=state["code_sha256"],
+                        source_contract_sha256=state["source_contract_sha256"])
+        previous_bytes = _synthetic_file_read_head(root, **identity)
+        if previous_bytes == encoded:
+            return encoded
+        if previous_bytes is None:
+            if state["version"] != 0:
+                raise ValueError("SYNTHETIC_FILE_MISSING_PARENT")
+        else:
+            previous = decode_synthetic_r0_r3_state(previous_bytes,
+                code_sha256=state["code_sha256"], source_contract_sha256=state["source_contract_sha256"])
+            if state["version"] != previous["version"]+1 or state["parent_sha256"] != _synthetic_sha(previous):
+                raise ValueError("SYNTHETIC_FILE_STALE_OR_CONFLICT")
+        name = f'checkpoint.v{state["version"]:08d}.{_synthetic_sha(state)}.json'
+        final, temporary = root/name, root/("."+name+".tmp")
+        if temporary.is_symlink() or final.is_symlink():
+            raise ValueError("SYNTHETIC_FILE_SYMLINK")
+        try:
+            staged = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        except FileExistsError:
+            # Resume only the identical staged input after definite readback.
+            # A truncated/conflicting temporary is retained and parked.
+            with temporary.open("r+b") as handle:
+                if handle.read() != encoded:
+                    raise ValueError("SYNTHETIC_FILE_TEMP_CONFLICT_UNKNOWN")
+                handle.flush()
+                os.fsync(handle.fileno())
+        else:
+            with os.fdopen(staged, "wb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+        # Commit point: creation of this exact immutable version/hash filename.
+        os.link(temporary, final)
+        directory = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        if _synthetic_file_read_head(root, **identity) != encoded:
+            raise ValueError("SYNTHETIC_FILE_READBACK_UNKNOWN")
+        return encoded
+
 
 @dataclass(frozen=True)
 class InitialNettingBook:
