@@ -1378,7 +1378,9 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
         return d.isoformat() + 'T23:00:00+00:00'
 
     core_only = params.get('core_only_source_binding') is not None
-    if core_only:
+    mechanism = params.get('r1_mechanism_policy')
+    requires_b4 = not core_only or mechanism is not None
+    if not requires_b4:
         sigma = shrinkage = None
         training_id = _r0_r3_sha({'reserved_alignment_prefix': [sessions[i].isoformat() for i in train]})
         calendar = (sessions[train[-1]], *(sessions[i] for i in evaluate))
@@ -1405,12 +1407,16 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                 state = update_b4(state, obs, decision_cutoff=stamp).state
             moments = b4_predictive_moments(state)
             target = b4_fractional_target(moments, c=.25,
-                scope_cap=params['original_scope_caps'], cap_source=params['original_scope_cap_source'])
+                scope_cap=(mechanism['cap_by_profile'] if mechanism is not None else params['original_scope_caps']),
+                cap_source=(mechanism['cap_source'] if mechanism is not None else params['original_scope_cap_source']))
             if target.targets is None and target.status != 'PRIOR_ONLY':
                 raise ValueError('UNAVAILABLE_B4_' + target.status)
             b4_targets.append(target.targets)
             model_decisions.append({'session': d.isoformat(), 'n': state.n, 'status': target.status,
                 'targets': target.targets, 'source_prefix_sha256': moments.source_prefix_sha256})
+            if mechanism is not None:
+                model_decisions[-1].update(c=.25, caps=dict(mechanism['cap_by_profile']),
+                    cap_source=mechanism['cap_source'], fractional_applied_once=target.fractional_applied_once)
     cells, openings = {}, {}
     for k in _R0_R3_CORES:
         if _profiles is not None and k not in _profiles:
@@ -1453,7 +1459,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                 # Prior-only means no model target and unchanged cash-only book,
                 # rather than an invented, fully invested BOXX parking trade.
                 parked = row_id == 'R1_B4_ONLY' and b4_targets[j] is None
-                target = {s: 0. if parked else target.get(s, 0.) for s in universe}
+                terminal_zero = mechanism is not None and j + 1 == len(evaluate)
+                target = {s: 0. if parked or terminal_zero else target.get(s, 0.) for s in universe}
                 d, fill = calendar[j:j + 2]
                 if core_only:
                     info = RS04DecisionInput(d, fill, close(d), close(fill), close(d),
@@ -1489,9 +1496,9 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
     return {'cells': cells, 'opening_books': openings, 'training': {
         'sessions': [sessions[i].isoformat() for i in train], 'count': 63,
         'sigma': sigma, 'shrinkage': shrinkage, 'identity': training_id,
-        'covariance_fits': 0 if core_only else 1, 'posterior_training_observations': 0},
+        'covariance_fits': 1 if requires_b4 else 0, 'posterior_training_observations': 0},
         'evaluation_sessions': [sessions[i].isoformat() for i in evaluate],
-        'model_decisions': model_decisions, 'checkpoint': None if core_only else state_to_dict(state),
+        'model_decisions': model_decisions, 'checkpoint': state_to_dict(state) if requires_b4 else None,
         'requested_sessions': [sessions[i].isoformat() for i in indices]}
 
 
@@ -1569,7 +1576,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     source_revision: str, trial_id: str, store: Any, load_input_body: Any,
     core_only_source_binding: Mapping[str, Any] | None = None,
     input_source_registration: Mapping[str, Any] | None = None,
-    load_source_root: Any | None = None) -> dict[str, Any]:
+    load_source_root: Any | None = None,
+    r1_mechanism_policy: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Register one frozen R0-R3 batch before loading inputs or generating models.
 
     Explicit real retrospective and artificial admissions share the same native
@@ -1581,6 +1589,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     For unknown canonical digest, register13 source objects/parser first, pass
     load_input_body=None and load_source_root returning a private directory.
     The internal fixed parser runs after STARTED; source paths never enter params.
+    The optional frozen mechanism record selects only two new R1 books, with
+    a separately labelled research cap. Older controls are references, never run.
     """
     import json
     from copy import deepcopy
@@ -1633,6 +1643,12 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
             unavailable_cells={f'R1_B4_ONLY:{k}': 'PAUSED_UNAVAILABLE_SAME_SCOPE_B4_CAP_UNDEFINED'
                                for k in _R0_R3_CORES},
             ledger_role='ADDITIVE_AUDIT_OF_SIX_EXECUTED_BOOKS_NOT_COMPARISON_COMPLETION')
+    if r1_mechanism_policy is not None:
+        params.update(r1_mechanism_policy=json.loads(_r0_r3_json(r1_mechanism_policy)),
+            active_rows=['R1_B4_ONLY'], rows=['R1_B4_ONLY'], unavailable_cells={},
+            purpose='RETROSPECTIVE_DESCRIPTIVE_MECHANISM_ABLATION',
+            ledger_role='ADDITIVE_AUDIT_OF_TWO_R1_BOOKS_NOT_JOINT_ALLOCATION',
+            control_reference_status='IMMUTABLE_PREDECESSOR_NOT_REPLAYED_COMPARABILITY_NOT_ATTESTED')
     if last_close_targets is None:
         params['last_close_target_rule'] = 'SOURCE_LAST_TWO_EVALUATION_SESSIONS_ZERO_SECURITY_TARGET'
     if input_body_sha256 is None:
@@ -1652,10 +1668,29 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         calendar_id='XNYS', periods_per_year=252, cost_source=_R0_R3_COST,
         cost_inputs={'per_side_bps': 5.}, reason_code='', synthetic=dataset_class == 'ARTIFICIAL_FIXTURE',
         run_id=None, param_version=None, research_identity={'batch_fingerprint': fingerprint,
-            'purpose': _R0_R3_PURPOSE, 'trial_count': 1, 'dependent_cells': 8})
+            'purpose': params['purpose'], 'trial_count': 1,
+            'dependent_cells': 2 if r1_mechanism_policy is not None else 8})
 
     def simulate(registered: dict[str, Any]) -> dict[str, Any]:
         contexts = policies
+        if r1_mechanism_policy is not None:
+            # Validation is inside the journal, after STARTED/readback and before
+            # source callbacks, parser, generators or the model are entered.
+            candidate = '087b9f05d55d99989fabb440a81f34ac513082a6a4ee11debdeafe0e67f9318a'
+            expected = {'candidate_id': 'B4_R1_NO_PLUGIN_MECHANISM_DOMAIN_V1',
+                'candidate_record_sha256': candidate, 'cap_by_profile': {'TQQQ': 1, 'SOXL': 1},
+                'cap_origin': 'NEW_OFFLINE_MECHANISM_ASSUMPTION_NOT_HISTORICAL_LIMIT',
+                'cap_source': 'offline-mechanism-policy:sha256:' + candidate,
+                'predecessor_trial_id': 'r0-r2-r3-core-only-d5-repair-20261020-02'}
+            policy = registered['r1_mechanism_policy']
+            if (not isinstance(policy, dict) or policy != expected
+                    or any(type(v) not in (int, float) for v in policy['cap_by_profile'].values())):
+                raise ValueError('UNAVAILABLE_R1_MECHANISM_POLICY_BINDING')
+            if core_only_source_binding is None:
+                raise ValueError('UNAVAILABLE_R1_CORE_ONLY_SOURCE_REQUIRED')
+            if (dataset_class == 'REAL_ARCHIVED_RAW_ACTIONS'
+                    and registered['requested_window'] != ['2023-03-28', '2026-08-25']):
+                raise ValueError('UNAVAILABLE_R1_FROZEN_WINDOW')
         if core_only_source_binding is not None:
             if (registered['policies'] is not None or registered['original_scope_caps'] is not None
                     or registered['original_scope_cap_source'] is not None
@@ -1723,6 +1758,9 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         body_digest = _r0_r3_sha(body)
         if registration is None and body_digest != registered['input_body_sha256']:
             raise ValueError('UNAVAILABLE_FROZEN_INPUT_BODY_DIGEST_MISMATCH')
+        if (r1_mechanism_policy is not None and dataset_class == 'REAL_ARCHIVED_RAW_ACTIONS'
+                and body_digest != '7c15a10444edcbadd9eb3dd4f2dff5dda006bbb629fefc87d183e6e79ccb7396'):
+            raise ValueError('UNAVAILABLE_R1_FROZEN_INPUT_BODY_DIGEST_MISMATCH')
         computed = _r0_r3_compute(body, registered, contexts, last_close_targets)
         if registration is not None:
             computed['derived_input_body_sha256'] = body_digest
@@ -1745,16 +1783,24 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     if core_only_source_binding is not None:
         extra = {'unavailable_cells': params['unavailable_cells'], 'whole_comparison_complete': False,
                  'terminal_target_role': params['terminal_target_role']}
+    if r1_mechanism_policy is not None:
+        mechanism = params['r1_mechanism_policy']
+        extra.update(mechanism_policy=mechanism,
+            control_reference_status=params['control_reference_status'], dependent_cells=2)
+        if isinstance(mechanism, dict) and 'predecessor_trial_id' in mechanism:
+            extra['predecessor_trial_id'] = mechanism['predecessor_trial_id']
     if input_body_sha256 is None and terminal.status is ResearchTrialStatus.SUCCEEDED:
         prefix, digest, batch_digest = terminal.run_id.split('-')
         if prefix != 'parsed' or batch_digest != fingerprint or len(digest) != 64:
             raise ValueError('UNAVAILABLE_DERIVED_INPUT_RUN_ID')
         extra['derived_input_body_sha256'] = digest
     status = ('PARTIAL_COMPLETED_R1_UNAVAILABLE' if core_only_source_binding is not None
+              and r1_mechanism_policy is None
               and terminal.status is ResearchTrialStatus.SUCCEEDED else terminal.status.value)
     return {'status': status, **extra, 'trial': terminal.to_dict(), 'fingerprint': fingerprint,
         'resumed_without_compute': output is None, 'subresults': cells, 'engineering': output,
-        'financial': 'NOT_READY', 'adoption': 'UNKNOWN', 'productionbuild': 'NOT_READY',
+        'financial': 'NOT_READY', 'adoption': 'UNKNOWN',
+        'productionbuild': 'UNKNOWN' if r1_mechanism_policy is not None else 'NOT_READY',
         'fullchain': 'NOT_CLOSED', 'live_ready': False, 'no_order': True,
         'PIT': 'NOT_ATTESTED', 'OOS': 'SEEN_DEVELOPMENT_NOT_INDEPENDENT', 'promotion': 'NONE'}
 

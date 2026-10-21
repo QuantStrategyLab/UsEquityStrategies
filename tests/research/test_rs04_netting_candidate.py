@@ -1141,7 +1141,7 @@ def r0_r3_real_metadata_fixture():
             for s in action_counts for kind in ('bars', 'actions')]}
 
 
-def r0_r3_fixture(tmp_path):
+def r0_r3_fixture(tmp_path, *, session_count=600):
     import hashlib
     import json
     from pathlib import Path
@@ -1153,7 +1153,7 @@ def r0_r3_fixture(tmp_path):
 
     days = []
     d = date(2023, 1, 2)
-    while len(days) < 600:
+    while len(days) < session_count:
         if d.weekday() < 5:
             days.append(d)
         d += timedelta(days=1)
@@ -1183,7 +1183,7 @@ def r0_r3_fixture(tmp_path):
     projection = {'source_packet_sha256': identity, 'source_verified_objects': 13,
         'source_verified_bytes': len(json.dumps(body).encode()), 'manifest_metadata': metadata,
         'actual_raw_bodies_not_included': True, 'groups': [
-            {'symbol': s, 'kind': kind, 'count': 600 if kind == 'bars' else 2,
+            {'symbol': s, 'kind': kind, 'count': session_count if kind == 'bars' else 2,
              'complete_pagination': True, 'pages': 1} for s in symbols for kind in ('bars', 'actions')]}
     root = Path(__file__).resolve().parents[2]
     import quant_platform_kit
@@ -1247,12 +1247,12 @@ def r0_r3_positive_risk_prices(body):
     return result
 
 
-def r0_r3_positive_fixture(tmp_path):
+def r0_r3_positive_fixture(tmp_path, *, session_count=600):
     """Explicit alternate artificial body, with original .99 caps and5bps."""
     import hashlib
     import json
     from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_sha
-    args, original, days = r0_r3_fixture(tmp_path)
+    args, original, days = r0_r3_fixture(tmp_path, session_count=session_count)
     body = r0_r3_positive_risk_prices(original)
     identity = hashlib.sha256(b'artificial-positive-risk-path-engineering-v1').hexdigest()
     projection = args['projection'] | {'source_packet_sha256': identity,
@@ -2394,3 +2394,274 @@ def test_syn001_normal_owned_pending_and_cached_receipt_remain_independent(recor
     assert any(x["module"].endswith("rs04_netting_candidate") for x in bindings)
     assert any(x["module"].endswith("security_netting_runner") for x in bindings)
     record_property("actual_loaded_module_bindings", bindings)
+
+
+R1_MECHANISM_POLICY = {
+    'candidate_id': 'B4_R1_NO_PLUGIN_MECHANISM_DOMAIN_V1',
+    'candidate_record_sha256': '087b9f05d55d99989fabb440a81f34ac513082a6a4ee11debdeafe0e67f9318a',
+    'cap_by_profile': {'TQQQ': 1, 'SOXL': 1},
+    'cap_origin': 'NEW_OFFLINE_MECHANISM_ASSUMPTION_NOT_HISTORICAL_LIMIT',
+    'cap_source': 'offline-mechanism-policy:sha256:087b9f05d55d99989fabb440a81f34ac513082a6a4ee11debdeafe0e67f9318a',
+    'predecessor_trial_id': 'r0-r2-r3-core-only-d5-repair-20261020-02',
+}
+
+
+def r1_mechanism_fixture(tmp_path, *, evaluation_sessions=37):
+    """Tagged artificial prefix/evaluation, never a historical packet or body."""
+    import hashlib
+    from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_sha
+    args, body, days = r0_r3_positive_fixture(tmp_path, session_count=563+evaluation_sessions)
+    identity = hashlib.sha256(('ARTIFICIAL_FIXTURE_R1_MECHANISM:' + _r0_r3_sha(body)).encode()).hexdigest()
+    args.update(identity_packet_sha256=identity,
+        projection=args['projection'] | {'source_packet_sha256': identity})
+    return args | {'policies': None, 'original_scope_caps': None,
+        'original_scope_cap_source': None, 'original_policy_configs': None,
+        'original_outer_f': {'TQQQ': 1., 'SOXL': 1.},
+        'core_only_source_binding': copy.deepcopy(ROOT_A_CORE_ONLY_BINDING),
+        'r1_mechanism_policy': copy.deepcopy(R1_MECHANISM_POLICY),
+        'trial_id': f'ARTIFICIAL_FIXTURE-r1-mechanism-{evaluation_sessions}',
+        'source_revision': 'ARTIFICIAL_FIXTURE_R1_MECHANISM_ONLY'}, body, days
+
+
+def _assert_r1_mechanism_native_chronology(tmp_path, monkeypatch, record_property, *, evaluation_sessions):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    from us_equity_strategies.research import bayesian_kelly as b4
+    from us_equity_strategies.research import portfolio_kelly_walk_forward as fit
+    from us_equity_strategies.research import kelly_core_return_generator as gen
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    args, body, days = r1_mechanism_fixture(tmp_path, evaluation_sessions=evaluation_sessions)
+    calls, observations, ledgers, paths, sigmas = {}, [], [], {}, []
+    def instrument(owner, name):
+        native = getattr(owner, name)
+        def invoke(*a, **kw):
+            calls[name] = calls.get(name, 0) + 1
+            row = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+            assert row.status.value == 'started'
+            if name == 'update_b4':
+                assert a[0].sigma == sigmas[0]
+                observations.append((a[1], kw['decision_cutoff']))
+            if name == 'save_research_ledger':
+                ledgers.append(a[1].strategy_profile)
+            if name == 'b4_fractional_target':
+                assert kw['c'] == .25 and kw['scope_cap'] == {'TQQQ': 1, 'SOXL': 1}
+                assert kw['cap_source'] == R1_MECHANISM_POLICY['cap_source']
+            result = native(*a, **kw)
+            if name == 'initialise_b4':
+                sigmas.append(result.sigma)
+            if name == 'update_b4':
+                assert result.state.sigma == sigmas[0]
+            if name == 'b4_fractional_target' and a[0].n:
+                expected = tuple(min(1., .25*max(0., m)/q) for m,q in zip(
+                    a[0].mean_simple, a[0].second_raw_moment_simple, strict=True))
+                assert result.targets == pytest.approx(expected, abs=1e-13)
+                assert result.fractional_applied_once
+            if name.startswith('generate_'):
+                paths[result.strategy_key] = result
+            return result
+        monkeypatch.setattr(owner, name, invoke)
+    for owner, name in [(caller, 'run_offline_security_netting'), (fit, 'ledoit_wolf'),
+            (b4, 'initialise_b4'), (b4, 'update_b4'), (b4, 'b4_fractional_target'),
+            (gen, 'generate_tqqq_core_path'), (gen, 'generate_soxl_core_path'),
+            (PerformanceStore, 'save_research_ledger')]:
+        instrument(owner, name)
+    def load():
+        row = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+        assert row.status.value == 'started'
+        assert row.actual_params['active_rows'] == ['R1_B4_ONLY']
+        assert row.research_identity['dependent_cells'] == 2
+        assert row.actual_params['original_scope_caps'] is None
+        return body
+    result = caller.run_registered_r0_r3_batch(**(args | {'load_input_body': load}))
+    assert result['status'] == 'succeeded' and not result['whole_comparison_complete']
+    assert set(result['subresults']) == {'R1_B4_ONLY:TQQQ', 'R1_B4_ONLY:SOXL'}
+    assert len(ledgers) == 3  # Two physical books plus the existing additive journal receipt.
+    assert not any(x in p for p in ledgers for x in ('R0_ORIGINAL', 'R2_B5', 'R3_B5'))
+    assert calls['run_offline_security_netting'] == 2
+    assert calls['ledoit_wolf'] == calls['initialise_b4'] == 1
+    assert calls['generate_tqqq_core_path'] == calls['generate_soxl_core_path'] == 1
+    engineering = result['engineering']
+    decisions = engineering['model_decisions']
+    assert len(engineering['evaluation_sessions']) == evaluation_sessions
+    assert engineering['training']['sessions'] == [d.isoformat() for d in days[500:563]]
+    assert engineering['evaluation_sessions'] == [d.isoformat() for d in days[563:]]
+    assert engineering['training']['covariance_fits'] == 1
+    assert engineering['training']['count'] == 63
+    assert engineering['training']['posterior_training_observations'] == 0
+    assert [d['n'] for d in decisions] == list(range(len(engineering['evaluation_sessions'])))
+    assert decisions[0]['n'] == 0 and decisions[0]['status'] == 'PRIOR_ONLY'
+    assert decisions[0]['targets'] is None
+    assert decisions[-1]['n'] == len(decisions)-1
+    assert calls['update_b4'] == len(decisions)-1
+    assert all(obs.observed_at <= cutoff and obs.available_at <= cutoff for obs, cutoff in observations)
+    assert [obs.observed_at.date().isoformat() for obs, _ in observations] == engineering['evaluation_sessions'][:-1]
+    for obs, cutoff in observations:
+        index = paths['TQQQ'].sessions.index(obs.observed_at.date())
+        assert obs.values == tuple(math.log1p(paths[k].gross_returns[index]) for k in ('TQQQ', 'SOXL'))
+        assert obs.observed_at == obs.available_at == cutoff
+    assert decisions[-1]['n'] == evaluation_sessions-1
+    for cell, packet in engineering['cells'].items():
+        path = paths[cell.split(':')[1]]
+        first, last = packet['ledger'][0], packet['ledger'][-1]
+        assert first['fees'] == 0 and first['nav_end'] == 1
+        assert all(v == 0 for v in first['security_end'].values())
+        assert all(v == 0 for v in last['security_end'].values())
+        for row, receipt in zip(packet['ledger'], packet['rs04_research']['decisions'], strict=True):
+            assert row['fees'] == pytest.approx(sum(abs(v)*.0005 for v in row['net_trades'].values()), abs=1e-13)
+            assert row['nav_end'] == pytest.approx(row['nav_pre_trade']-row['fees'], abs=1e-12)
+            assert min(row['virtual_cash_end'].values()) >= 0
+            index = path.sessions.index(date.fromisoformat(row['session']))
+            for symbol, start in row['security_start'].items():
+                assert row['security_pre'][symbol] == pytest.approx(start*(1+path.asset_returns[symbol][index]), abs=1e-12)
+            assert receipt['original_policy']['source_mapping_sha256'] == ROOT_A_CORE_ONLY_BINDING['mapping_sha256']
+            assert receipt['original_policy']['source'] != R1_MECHANISM_POLICY['cap_source']
+    snapshot = dict(calls)
+    resumed = caller.run_registered_r0_r3_batch(**(args | {'load_input_body': lambda: pytest.fail('terminal replay')}))
+    assert resumed['resumed_without_compute'] and resumed['subresults'] == result['subresults']
+    assert calls == snapshot
+    for key, value in [('financial', 'NOT_READY'), ('PIT', 'NOT_ATTESTED'), ('adoption', 'UNKNOWN'),
+                       ('productionbuild', 'UNKNOWN'), ('fullchain', 'NOT_CLOSED'), ('promotion', 'NONE')]:
+        assert result[key] == value
+    record_property('native_calls', calls)
+    record_property('evaluation_count', len(decisions))
+    record_property('posterior_first_n', decisions[0]['n'])
+    record_property('posterior_last_n', decisions[-1]['n'])
+    record_property('training_prefix_count', engineering['training']['count'])
+    record_property('fixed_sigma', sigmas[0])
+    record_property('fixture_class', args['dataset_class'])
+    record_property('fixture_packet_sha256', args['identity_packet_sha256'])
+    record_property('fixture_body_sha256', caller._r0_r3_sha(body))
+    record_property('physical_R1_ledgers', 2)
+    record_property('additive_audit_ledger', 1)
+
+
+@requires_security_netting
+@pytest.mark.parametrize('mutation', ['candidate', 'cap', 'boolean_cap', 'source', 'scope', 'legacy_cap',
+    'legacy_config', 'source_config', 'outer', 'missing_core'])
+def test_r1_mechanism_rejects_registered_drift_before_body(tmp_path, mutation):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, _ = r1_mechanism_fixture(tmp_path)
+    policy = args['r1_mechanism_policy']
+    if mutation == 'candidate': policy['candidate_record_sha256'] = '0'*64
+    elif mutation == 'cap': policy['cap_by_profile']['SOXL'] = .5
+    elif mutation == 'boolean_cap': policy['cap_by_profile']['SOXL'] = True
+    elif mutation == 'source': policy['cap_source'] = 'fixture-original-no-plugin-policy'
+    elif mutation == 'scope': policy['scope'] = 'FULL_RUNTIME'
+    elif mutation == 'legacy_cap': args['original_scope_caps'] = {'TQQQ': 1, 'SOXL': 1}
+    elif mutation == 'legacy_config': args['original_policy_configs'] = {}
+    elif mutation == 'source_config': args['core_only_source_binding']['config_sha256'] = '0'*64
+    elif mutation == 'outer': args['original_outer_f']['TQQQ'] = .5
+    elif mutation == 'missing_core': args['core_only_source_binding'] = None
+    args['load_input_body'] = lambda: pytest.fail('invalid mechanism loaded body')
+    with pytest.raises(ValueError, match='UNAVAILABLE_'):
+        caller.run_registered_r0_r3_batch(**args)
+    terminal = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+    assert terminal.status.value == 'rejected'
+    assert caller.run_registered_r0_r3_batch(**args)['resumed_without_compute']
+
+
+@requires_security_netting
+def test_r1_mechanism_archive_identity_order_input_drift_and_resume(tmp_path, monkeypatch):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, body, _ = r1_mechanism_fixture(tmp_path)
+    fixture = RootACoreOnlyBatchTests()
+    root, registration = fixture.archive_registration(args, body)
+    assert registration['parser_sha256'] == caller.r0_r3_parser_identity()
+    native = caller.parse_registered_r0_r3_archive
+    parsed = []
+    def parse(*a, **kw):
+        row = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+        assert row.status.value == 'started'
+        parsed.append(True)
+        return native(*a, **kw)
+    monkeypatch.setattr(caller, 'parse_registered_r0_r3_archive', parse)
+    options = args | {'input_body_sha256': None, 'input_source_registration': registration,
+        'load_input_body': None, 'load_source_root': lambda: root, 'last_close_targets': None}
+    result = caller.run_registered_r0_r3_batch(**options)
+    assert parsed == [True] and result['derived_input_body_sha256'] == caller._r0_r3_sha(body)
+    assert len(result['subresults']) == 2
+    assert caller.run_registered_r0_r3_batch(**(options | {'load_source_root': lambda: pytest.fail('parser replay')}))['resumed_without_compute']
+    for field in ('parser_sha256', 'manifest_sha256', 'source_packet_sha256'):
+        bad = copy.deepcopy(registration); bad[field] = '0'*64
+        with pytest.raises(ValueError):
+            caller.run_registered_r0_r3_batch(**(options | {'trial_id': field,
+                'input_source_registration': bad, 'load_source_root': lambda: pytest.fail('bad identity read source')}))
+    changed = copy.deepcopy(body); changed['bars']['TQQQ'][-1][2] *= 1.01
+    with pytest.raises(ValueError, match='FROZEN_INPUT_BODY_DIGEST_MISMATCH'):
+        caller.run_registered_r0_r3_batch(**(args | {'trial_id': 'body-drift', 'load_input_body': lambda: changed}))
+    # The canonical journal identity also rejects changing caps under a terminal ID.
+    bad = copy.deepcopy(R1_MECHANISM_POLICY); bad['cap_by_profile']['TQQQ'] = .5
+    with pytest.raises(ValueError):
+        caller.run_registered_r0_r3_batch(**(options | {'r1_mechanism_policy': bad}))
+
+
+@requires_security_netting
+@pytest.mark.parametrize('stage', ['start', 'terminal', 'body'])
+def test_r1_mechanism_unknown_write_or_failure_resume_zero_replay(tmp_path, monkeypatch, stage):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    args, _, _ = r1_mechanism_fixture(tmp_path)
+    native = PerformanceStore.save_research_trial
+    def save(store, record):
+        result = native(store, record)
+        if record.status.value == ('started' if stage == 'start' else 'succeeded'):
+            raise OSError('ARTIFICIAL_FIXTURE-response-unknown')
+        return result
+    if stage != 'body': monkeypatch.setattr(PerformanceStore, 'save_research_trial', save)
+    else:
+        def fail(): raise ValueError('ARTIFICIAL_FIXTURE-body-refused')
+        args['load_input_body'] = fail
+    with pytest.raises((OSError, ValueError)):
+        caller.run_registered_r0_r3_batch(**args)
+    monkeypatch.setattr(PerformanceStore, 'save_research_trial', native)
+    result = caller.run_registered_r0_r3_batch(**(args | {'load_input_body': lambda: pytest.fail('unknown/failure replay')}))
+    assert result['status'] == {'start': 'started', 'terminal': 'succeeded', 'body': 'rejected'}[stage]
+    assert result['resumed_without_compute']
+
+
+@requires_security_netting
+@pytest.mark.parametrize('malformed', [{},
+    {k: v for k, v in R1_MECHANISM_POLICY.items() if k != 'predecessor_trial_id'},
+    {k: v for k, v in R1_MECHANISM_POLICY.items() if k != 'cap_by_profile'},
+    [], ['not-a-policy'], 'not-a-policy', 7, False],
+    ids=['empty', 'missing_predecessor', 'missing_cap', 'empty_list', 'list', 'string', 'integer', 'boolean'])
+def test_r1_mechanism_malformed_policy_recorded_rejection_resumes_stably(tmp_path, monkeypatch, malformed):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, _ = r1_mechanism_fixture(tmp_path)
+    args['r1_mechanism_policy'] = copy.deepcopy(malformed)
+    calls = {'body': 0, 'parse': 0, 'compute': 0, 'netter': 0}
+    def body():
+        calls['body'] += 1
+        pytest.fail('malformed policy replayed body')
+    args['load_input_body'] = body
+    for name, key in [('parse_registered_r0_r3_archive', 'parse'),
+                      ('_r0_r3_compute', 'compute'), ('run_offline_security_netting', 'netter')]:
+        native = getattr(caller, name)
+        def invoke(*a, _native=native, _key=key, **kw):
+            calls[_key] += 1
+            return _native(*a, **kw)
+        monkeypatch.setattr(caller, name, invoke)
+    with pytest.raises(ValueError, match='^UNAVAILABLE_R1_MECHANISM_POLICY_BINDING$'):
+        caller.run_registered_r0_r3_batch(**args)
+    record = args['store'].load_research_trial('us_equity', 'r0_r3_batch_additive_audit_v1', args['trial_id'])
+    assert record.status.value == 'rejected' and record.reason_code == 'simulation_rejected'
+    assert record.actual_params['r1_mechanism_policy'] == malformed
+    resumed = caller.run_registered_r0_r3_batch(**args)
+    assert resumed['status'] == 'rejected' and resumed['resumed_without_compute']
+    assert resumed['engineering'] is None and resumed['subresults'] == {}
+    assert resumed['mechanism_policy'] == malformed
+    if isinstance(malformed, dict) and 'predecessor_trial_id' in malformed:
+        assert resumed['predecessor_trial_id'] == malformed['predecessor_trial_id']
+    else:
+        assert 'predecessor_trial_id' not in resumed
+    assert json.dumps(resumed, sort_keys=True) == json.dumps(caller.run_registered_r0_r3_batch(**args), sort_keys=True)
+    assert calls == {'body': 0, 'parse': 0, 'compute': 0, 'netter': 0}
+
+
+@requires_security_netting
+def test_r1_mechanism_two_native_books_chronology_fees_persistence_resume(tmp_path, monkeypatch, record_property):
+    _assert_r1_mechanism_native_chronology(tmp_path, monkeypatch, record_property, evaluation_sessions=37)
+
+
+@requires_security_netting
+def test_r1_mechanism_ARTIFICIAL_FIXTURE_exact_793_evaluation_n792(tmp_path, monkeypatch, record_property):
+    _assert_r1_mechanism_native_chronology(tmp_path, monkeypatch, record_property, evaluation_sessions=793)
