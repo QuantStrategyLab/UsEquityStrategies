@@ -1457,6 +1457,10 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
     from .portfolio_kelly_walk_forward import ledoit_wolf
     from .security_netting_runner import (DecisionSnapshot, RS04DecisionInput,
         RS04RetrospectiveResearchPolicy)
+    pit_rows = None
+    if 'pit_session_inputs' in params:
+        from .pit_session_inputs import validate_pit_session_inputs
+        pit_rows = validate_pit_session_inputs(body, params['pit_session_inputs'])
     from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec, compose_security_targets
 
     prepared = _r0_r3_prepare_signal_inputs(body, params) if _prepared is None else _prepared
@@ -1469,6 +1473,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
             or not _profiles or set(_profiles) - set(_R0_R3_CORES)):
         raise ValueError('UNAVAILABLE_SENSITIVITY_PROFILE_SELECTION')
     def close(d: date) -> str:
+        if pit_rows is not None:
+            return pit_rows[d.isoformat()]['decision_cutoff']
         # An explicitly assumed model clock; never source historical available_at.
         return d.isoformat() + 'T23:00:00+00:00'
 
@@ -1501,7 +1507,9 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
             if j:
                 i = evaluate[j - 1]
                 stamp = datetime.fromisoformat(close(d)).astimezone(timezone.utc)
-                obs = B4Observation('r0-r3:' + d.isoformat(), 1, stamp, stamp, _R0_R3_CORES,
+                observed = stamp if pit_rows is None else datetime.fromisoformat(pit_rows[d.isoformat()]['event_at'])
+                available = stamp if pit_rows is None else datetime.fromisoformat(pit_rows[d.isoformat()]['persisted_at'])
+                obs = B4Observation('r0-r3:' + d.isoformat(), 1, observed, available, _R0_R3_CORES,
                     tuple(math.log1p(paths[k].gross_returns[i]) for k in _R0_R3_CORES))
                 state = update_b4(state, obs, decision_cutoff=stamp).state
             moments = b4_predictive_moments(state)
@@ -1513,6 +1521,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
             b4_targets.append(target.targets)
             model_decisions.append({'session': d.isoformat(), 'n': state.n, 'status': target.status,
                 'targets': target.targets, 'source_prefix_sha256': moments.source_prefix_sha256})
+            if pit_rows is not None:
+                model_decisions[-1]['declared_pit_session'] = dict(pit_rows[d.isoformat()])
             if mechanism is not None:
                 model_decisions[-1].update(c=.25, caps=dict(mechanism['cap_by_profile']),
                     cap_source=mechanism['cap_source'], fractional_applied_once=target.fractional_applied_once)
@@ -2295,7 +2305,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     r1_fee_reserve_policy: Mapping[str, Any] | None = None,
     turnover_evidence_context: Mapping[str, Any] | None = None,
     fixed_exposure_analysis: Mapping[str, Any] | None = None,
-    q18_summary: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    q18_summary: Mapping[str, Any] | None = None,
+    pit_session_inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Register one frozen R0-R3 batch before loading inputs or generating models.
 
     Explicit real retrospective and artificial admissions share the same native
@@ -2357,6 +2368,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         'promotion': 'NONE', 'R4': 'OUT_OF_SCOPE', 'cost_identity': _R0_R3_COST,
         'ledger_role': 'ADDITIVE_AUDIT_OF_EIGHT_SEPARATE_BOOKS_NOT_JOINT_ALLOCATION',
         'cell_unit': 'DEPENDENT_SUBRESULT_NOT_TRIAL', 'no_order': True}
+    if pit_session_inputs is not None:
+        params['pit_session_inputs'] = json.loads(_r0_r3_json(pit_session_inputs))
     if core_only_source_binding is not None:
         params.update(core_only_source_binding=json.loads(_r0_r3_json(core_only_source_binding)),
             terminal_target_role='EXPLICIT_ZERO_MODEL_BOUNDARY_NOT_ACTUAL_STRATEGY_TERMINAL',
@@ -2410,6 +2423,10 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
 
     def simulate(registered: dict[str, Any]) -> dict[str, Any]:
         nonlocal bound_turnover_context
+        if ('pit_session_inputs' in registered
+                and (not isinstance(registered['pit_session_inputs'], dict)
+                     or registered['pit_session_inputs'].get('source_revision') != source_revision)):
+            raise ValueError('PIT_SOURCE_REVISION_MISMATCH')
         if fixed_exposure_analysis is not None:
             if (_r0_r3_json(registered['fixed_exposure_analysis'])!=_r0_r3_json(_fixed_exposure_protocol())
                     or core_only_source_binding is None or r1_mechanism_policy is not None
@@ -2797,10 +2814,13 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
             run_id=None, param_version=None, research_identity={'batch_fingerprint': fingerprint,
                 'purpose': 'QQQ_PAIR_DEPENDENT_HYPOTHESES', 'trial_count': 1, 'dependent_cells': 6})
     # Unknown STARTED writes/readbacks stop here, before any source access.
+    from .trial_inventory import record_trial_event
+
     for label in labels:
         store.save_research_trial(records[label])
         if store.load_research_trial('us_equity', profile, records[label].trial_id) != records[label]:
             raise ValueError('RESEARCH_TRIAL_READBACK_INVALID')
+        record_trial_event(store, records[label], 'started')
     terminal_attempted = {label: False for label in labels}
     try:
         loaded = parse_registered_r0_r3_archive(load_source_root(), input_source_registration)
@@ -2833,6 +2853,7 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
                 store.save_research_trial(terminal)
                 if store.load_research_trial('us_equity', profile, terminal.trial_id) != terminal:
                     raise ValueError('RESEARCH_TRIAL_READBACK_INVALID')
+                record_trial_event(store, terminal, 'terminal')
                 records[label] = terminal
             status = ('STOPPED_CALENDAR_MISMATCH_NO_INTERSECTION' if not calendar_equal
                       else 'COMPLETED_NO_RELEVANT_DIFFERENCE_NO_LEDGER')
@@ -2851,6 +2872,7 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
                 store.save_research_trial(terminal)
                 if store.load_research_trial('us_equity', profile, terminal.trial_id) != terminal:
                     raise ValueError('RESEARCH_TRIAL_READBACK_INVALID')
+                record_trial_event(store, terminal, 'terminal')
                 records[label] = terminal
                 engineering[label] = output
                 executed += len(output['cells'])
@@ -2873,7 +2895,7 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
             'R1': 'PAUSED_UNAVAILABLE', 'no_order': True}
     except BaseException as exc:
         for label in labels:
-            state = (ResearchTrialStatus.ABORTED if isinstance(exc, (KeyboardInterrupt, SystemExit))
+            state = (ResearchTrialStatus.ABORTED if isinstance(exc, (KeyboardInterrupt, SystemExit, GeneratorExit))
                      else ResearchTrialStatus.REJECTED if isinstance(exc, ValueError)
                      else ResearchTrialStatus.FAILED)
             _record_trial_failure(store, records[label], state, 'qqq_pair_sensitivity_stopped',
