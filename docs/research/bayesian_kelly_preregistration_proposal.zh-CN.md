@@ -4,6 +4,8 @@
 
 排序保持为：**B1/B2 可靠对照与候选、holdout 隔离及累计 trial ledger 冻结 → 独立 B4 合成研究 → E1 独立晋级审查**。B1/B2 当前仍未冻结；允许先准备本草案，不据此提前实施或运行 B4。未来产物固定 `DEVELOPMENT_ONLY`、`live_ready=False`、`no_order=True`、`budget_effect=NONE`，只可作为封顶或降低既有预算的研究备注；不交易、不提高预算、不启用候选或访问真实研究数据。
 
+当前本地进度（不改变本草案的 `NOT_FROZEN` 状态）：独立 worktree 已有 `us_equity_strategies.research.bayesian_kelly` 的合成实现，以及 [B4 预测校准评分器](b4_predictive_calibration.zh-CN.md)。评分器只检验给定固定 `Sigma` 的预测分布，不验证 `Sigma`/训练身份是否诚实，也未接真实数据或作为 B4 冻结/晋级依据。下文“尚未创建”“未运行”等语句保留为草案编写时的历史状态。
+
 ## 依据与许可边界
 
 - UES 阅读基线为 `26e77dad6e5d5d54a15c6d9fadd94d46b94c3a0f`：[RS-04 预注册](fractional_kelly_preregistration.zh-CN.md)、[评估器说明](fractional_kelly_walk_forward.zh-CN.md)、[RS-06 组合预注册](portfolio_kelly_preregistration.zh-CN.md)和[累计账本](kelly_trial_ledger.json)。这些是历史版本和授权记录，不能充当当前运行状态或 B4 许可。
