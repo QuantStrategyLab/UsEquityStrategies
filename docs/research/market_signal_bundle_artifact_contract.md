@@ -1,5 +1,7 @@
 # Market Signal Bundle Artifact Contract
 
+[English overview](market_signal_bundle_artifact_contract.en.md) · [Research index](README.md)
+
 研究日期：2026-06-19。
 
 本文把后续 `MarketSignalSources` 仓库需要发布的最小 artifact 契约固化下来。
