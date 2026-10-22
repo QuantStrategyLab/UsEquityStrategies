@@ -32,6 +32,27 @@ def write_new(path, value):
         stream.write('\n')
 
 
+def validate_r0_binding(old, wire, raw):
+    """Require the frozen R0 predecessor, not just any self-consistent result."""
+    trial = old.get('trial') or {}
+    if (wire.get('dataset_class') != 'REAL_ARCHIVED_RAW_ACTIONS'
+            or trial.get('trial_id') != (wire.get('r1_mechanism_policy') or {}).get('predecessor_trial_id')
+            or trial.get('synthetic') is not False
+            or trial.get('cost_source') != 'ASSUMED_FLAT_BPS5_SINGLE_CASE_NOT_BROKER_FEE_FACT'
+            or trial.get('window_start') != wire.get('requested_start')
+            or trial.get('window_end') != wire.get('requested_end')
+            or trial.get('calendar_id') != 'XNYS'
+            or old.get('derived_input_body_sha256') != raw.get('canonical_body_sha256')):
+        raise ValueError('M1_R0_BINDING_MISMATCH')
+
+
+def record_failure(store, summary_key, failure, terminal, run_dir):
+    """Only a real native terminal owns the shared metrics key."""
+    if terminal is not None and store._read_research_json(summary_key) is None:
+        store._create_same(summary_key, failure)
+    write_new(Path(run_dir) / 'FAILURE.json', failure)
+
+
 def packet_metrics(packet):
     """Describe actual native net trades, never infer turnover from fees."""
     from us_equity_strategies.research.cvar_exposure_constraint import weighted_cvar
@@ -106,6 +127,7 @@ def run(args):
             or old['trial']['cost_inputs'] != {'per_side_bps': 5.}
             or old['derived_input_body_sha256'] != raw['canonical_body_sha256']):
         raise ValueError('M1_FROZEN_SOURCE_OR_COST_MISMATCH')
+    validate_r0_binding(old, wire, raw)
     package = Path(caller.__file__).resolve().parents[1]
     names = ('partial_rebalance', 'rs04_netting_candidate', 'security_netting_runner',
         'bayesian_kelly', 'kelly_core_return_generator', 'kelly_private_runner', 'portfolio_kelly_walk_forward')
@@ -198,10 +220,8 @@ def run(args):
                 'reason_code': None if terminal is None else terminal.reason_code,
                 'fee_cash_insufficient': str(error) == 'FEE_CASH_INSUFFICIENT'}
             # A successful native terminal can coexist with failed diagnostics.
-            # Do not replace it or any already-written metrics artifact.
-            if store._read_research_json(summary_key) is None:
-                store._create_same(summary_key, failure)
-            write_new(args.run_dir / 'FAILURE.json', failure)
+            # No native terminal means the shared metrics key stays untouched.
+            record_failure(store, summary_key, failure, terminal, args.run_dir)
             raise
 
 
