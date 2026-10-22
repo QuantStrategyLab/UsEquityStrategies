@@ -1,5 +1,7 @@
 # Smart DCA Indicator Research Plan
 
+[English overview](smart_dca_indicator_research_plan.en.md) · [Research index](README.md)
+
 Run date: 2026-06-19.
 
 本文记录 `nasdaq_sp500_smart_dca` 与 `ibit_smart_dca` 的下一轮指标与

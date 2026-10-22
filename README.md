@@ -1,5 +1,7 @@
 # UsEquityStrategies
 
+[Research and contract index](docs/research/README.md) — English overviews, complete source documents and historical runtime references.
+
 UsEquityStrategies is the strategy-lib behind QuantStrategyLab's US equity trading: it holds the strategy implementations, manifests, and runtime metadata that platform repositories load through strategy loaders. It consumes QuantPlatformKit and validated snapshot artifacts from `UsEquitySnapshotPipelines`, but it does not hold broker credentials, submit orders, or own deployment settings — that lives in the platform repositories (CharlesSchwabPlatform, InteractiveBrokersPlatform, LongBridgePlatform, FirstradePlatform).
 
 [Chinese README](README.zh-CN.md)

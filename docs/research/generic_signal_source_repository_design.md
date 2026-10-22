@@ -1,5 +1,7 @@
 # 通用数据源/信号源仓库设计
 
+[English overview](generic_signal_source_repository_design.en.md) · [Research index](README.md)
+
 研究日期：2026-06-19。
 
 本文设计一个后续可独立创建的通用数据源/信号源仓库，例如

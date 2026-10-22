@@ -1,5 +1,7 @@
 # UsEquityStrategies
 
+[研究与契约索引](docs/research/README.md)：英文概要、完整原文与历史运行参考。
+
 UsEquityStrategies 是 QuantStrategyLab 美股交易背后的策略库：保存策略实现、manifest 和运行元数据，供执行平台仓库通过 strategy loader 加载。它消费 QuantPlatformKit 和 `UsEquitySnapshotPipelines` 产出的已验证 snapshot artifact，但不持有券商凭据、不直接提交订单、也不拥有部署设置——这些留在执行平台仓库（CharlesSchwabPlatform、InteractiveBrokersPlatform、LongBridgePlatform、FirstradePlatform）。
 
 [English README](README.md)

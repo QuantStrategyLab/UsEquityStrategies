@@ -21,7 +21,7 @@ upside with premium at risk and behave like a capped re-leverage sleeve.
 ## Related artifacts
 
 - Full Chinese design note: [index_leaps_growth_overlay.zh-CN.md](index_leaps_growth_overlay.zh-CN.md)
-- Proxy backtest module and CLI outputs: [UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md](../../UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md)
+- Proxy backtest module and CLI outputs: [UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/541a59686b17a4ab8f75319673b4712aa99be929/docs/index-leaps-growth-overlay-research.md)
 
 ## Status
 
