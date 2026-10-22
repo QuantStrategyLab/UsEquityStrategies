@@ -85,11 +85,10 @@ result = evaluate_cost_aware_walk_forward(
 ## 已验证
 
 - 17 项测试：固定路径与 RS-04 `_scaled_path` 逐元素一致；折内 fit 只来自训练段；零成本退化为固定分数 Kelly；成本带降低再平衡换手；权重不越界；PARKED 折回现金；内部换手计入会计但不改变带；`H` 与 `min_trade_weight` 的方向性；输入校验；缺 QPK 时无数字；公开输出的配对差、可复现 bootstrap，以及固定变体与 RS-04 公开输出的窗口/折/各档指标逐项一致。
-- 本地用 QPK `research_stats` 副本（`39484acc`，非 UES pin `442b729`）跑通全部 17 项；pinned QPK 的 `research-stats-integration` CI 尚未运行。
+- 本地用 QPK `research_stats` 副本（`39484acc`，非 UES pin `442b729`）跑通全部 17 项；已随 PR #649 squash 合并到 main（`68ba57a4`），CI run `39739109111` 的 `research-stats-integration` 使用 overlay `dd17abb` 实际执行并通过。
 - 相关回归：R5 kernel 19 项、RS-04 15 项、研究导入边界 1 项，共 52 项通过（同一副本）。
 
 ## 尚未做
 
-1. 在 pinned QPK `442b729` 的 CI job 中运行本模块，确认 `cost_stress_recompute` 与本地副本口径一致。
-2. 在真实 SOXL/TQQQ 数据上按预注册窗口运行；当前只有合成证据，且 `H`、`c`、`min_trade_weight` 尚未校准。
-3. 组合层（B4 后验、CVaR、组合 Kelly）的同输入 oracle；本模块不做组合。
+1. 在真实 SOXL/TQQQ 数据上按预注册窗口运行；当前只有合成证据，且 `H`、`c`、`min_trade_weight` 尚未校准。
+2. 组合层（B4 后验、CVaR、组合 Kelly）的同输入 oracle；本模块不做组合。
