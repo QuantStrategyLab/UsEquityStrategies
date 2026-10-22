@@ -3,6 +3,8 @@
 模块：`us_equity_strategies.research.fractional_kelly_walk_forward`
 测试：`tests/research/test_fractional_kelly_walk_forward.py`（只用合成收益）
 
+> 成本进入 sizing 的独立 R5 kernel 见 [cost_aware_fractional_kelly](cost_aware_fractional_kelly.zh-CN.md)，同窗口对照见 [cost_aware_walk_forward_comparator](cost_aware_walk_forward_comparator.zh-CN.md)。二者都未接入本评估器的输出/DSR 试验集；其合成结果不是本文件的 OOS 证据。
+
 ## 做什么
 
 对一个已定义策略的逐会话满仓收益，按滚动前推（walk-forward）折：
