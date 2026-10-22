@@ -99,7 +99,7 @@ jobs:
       - name: Run research_stats integration tests
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/research/test_fractional_kelly_walk_forward.py tests/research/test_cost_aware_walk_forward_comparator.py tests/research/test_fractional_kelly_preregistration.py tests/research/test_kelly_core_return_generator.py tests/research/test_portfolio_kelly_preregistration.py tests/research/test_portfolio_kelly_walk_forward.py tests/research/test_rs07_parity.py tests/test_research_import_boundary.py
+          PYTHONPATH=src python -m pytest -q -rs tests/research/test_trial_overfitting_report.py tests/research/test_fractional_kelly_walk_forward.py tests/research/test_r2_cv_leakage_v2.py tests/research/test_cost_aware_walk_forward_comparator.py tests/research/test_fractional_kelly_preregistration.py tests/research/test_kelly_core_return_generator.py tests/research/test_portfolio_kelly_preregistration.py tests/research/test_portfolio_kelly_walk_forward.py tests/research/test_rs07_parity.py tests/test_research_import_boundary.py
 
   research-execution-integration:
     # Test A2 against an immutable research-only QPK overlay. Production pins
