@@ -1,0 +1,751 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "P4 risk preview response; read-only design contract",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "const": "r-risk-01.p4-preview.v1"
+    },
+    "definition_version": {
+      "const": "r-risk-01.draft.v1"
+    },
+    "definition_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "enum": [
+        "simple",
+        "advanced"
+      ]
+    },
+    "level": {
+      "enum": [
+        "conservative",
+        "balanced",
+        "growth"
+      ]
+    },
+    "requested_settings": {
+      "$ref": "urn:qsl:r-risk-01:risk-settings:draft-v1"
+    },
+    "parameter_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target_annual_volatility": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "max_drawdown_tolerance": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "daily_cvar95_loss_limit": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "two_session_cvar95_budget": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "kelly_fraction": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "max_symbol_nominal_weight": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "max_leveraged_etf_nominal_weight": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "max_effective_risk_exposure": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "max_underlying_effective_exposure": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "max_gross_nominal_weight": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "cash_floor_ratio": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "m1_fee_reserve_ratio": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "strategy_selection_mode": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "strategy_ids": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "strategy_weight_mode": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "strategy_weights": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "rebalance_method": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "rebalance_absolute_band": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "rebalance_relative_band": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "breaker_daily_loss": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "breaker_drawdown": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "stop_loss_ratio": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "take_profit_ratio": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "trailing_stop_ratio": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "resume_observation_sessions": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "resume_daily_loss_fraction_of_trigger": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "resume_cvar_vol_fraction_of_limit": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "upgrade_cooldown_seconds": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "confirmation_ttl_seconds": {
+          "$ref": "#/$defs/parameterComparison"
+        },
+        "benchmark": {
+          "$ref": "#/$defs/parameterComparison"
+        }
+      },
+      "required": [
+        "target_annual_volatility",
+        "max_drawdown_tolerance",
+        "daily_cvar95_loss_limit",
+        "two_session_cvar95_budget",
+        "kelly_fraction",
+        "max_symbol_nominal_weight",
+        "max_leveraged_etf_nominal_weight",
+        "max_effective_risk_exposure",
+        "max_underlying_effective_exposure",
+        "max_gross_nominal_weight",
+        "cash_floor_ratio",
+        "m1_fee_reserve_ratio",
+        "strategy_selection_mode",
+        "strategy_ids",
+        "strategy_weight_mode",
+        "strategy_weights",
+        "rebalance_method",
+        "rebalance_absolute_band",
+        "rebalance_relative_band",
+        "breaker_daily_loss",
+        "breaker_drawdown",
+        "stop_loss_ratio",
+        "take_profit_ratio",
+        "trailing_stop_ratio",
+        "resume_observation_sessions",
+        "resume_daily_loss_fraction_of_trigger",
+        "resume_cvar_vol_fraction_of_limit",
+        "upgrade_cooldown_seconds",
+        "confirmation_ttl_seconds",
+        "benchmark"
+      ]
+    },
+    "application_status": {
+      "enum": [
+        "NOT_APPLIED",
+        "UNKNOWN",
+        "REJECTED",
+        "PENDING_CONFIRMATION",
+        "COOLDOWN",
+        "APPLIED_OBSERVED"
+      ]
+    },
+    "effective_parameters_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "effective_observed_at_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "confirmation_state": {
+      "enum": [
+        "NOT_REQUIRED",
+        "REQUIRED",
+        "WAITING_COOLDOWN",
+        "EXPIRED",
+        "CONFIRMED_SERVER_VALIDATED"
+      ]
+    },
+    "cooldown_until_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "confirmation_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_budget_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "preview_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "previous_effective_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requested_parameters_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "server_confirmation_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirmed_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "expires_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "account_budget_sha256",
+        "preview_sha256",
+        "previous_effective_sha256",
+        "requested_parameters_sha256",
+        "server_confirmation_ref",
+        "confirmed_at_utc",
+        "expires_at_utc"
+      ]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "enum": [
+            "DESIGN_ONLY",
+            "SYNTHETIC",
+            "SEEN_DEVELOPMENT",
+            "PROSPECTIVE_UNQUALIFIED",
+            "QUALIFIED_RESEARCH"
+          ]
+        },
+        "estimated": {
+          "const": true
+        },
+        "data_cutoff_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "start_session": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "end_session": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z]{3}$"
+        },
+        "data_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cost_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cash_contract_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frozen_reference_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trial_set_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "comparable": {
+          "type": "boolean"
+        },
+        "limitation_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "classification",
+        "estimated",
+        "data_cutoff_utc",
+        "start_session",
+        "end_session",
+        "currency",
+        "data_sha256",
+        "model_sha256",
+        "cost_sha256",
+        "cash_contract_sha256",
+        "frozen_reference_sha256",
+        "trial_set_sha256",
+        "comparable",
+        "limitation_codes"
+      ]
+    },
+    "estimates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "system_recommended": {
+          "$ref": "#/$defs/metricSet"
+        },
+        "with_overrides": {
+          "$ref": "#/$defs/metricSet"
+        },
+        "override_minus_recommended": {
+          "$ref": "#/$defs/metricSet"
+        }
+      },
+      "required": [
+        "system_recommended",
+        "with_overrides",
+        "override_minus_recommended"
+      ]
+    },
+    "research_only": {
+      "const": true
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "live_ready": {
+      "const": false
+    }
+  },
+  "required": [
+    "contract_version",
+    "definition_version",
+    "definition_sha256",
+    "request_id",
+    "scope_ref",
+    "mode",
+    "level",
+    "requested_settings",
+    "parameter_comparison",
+    "application_status",
+    "effective_parameters_sha256",
+    "effective_observed_at_utc",
+    "confirmation_state",
+    "cooldown_until_utc",
+    "confirmation_binding",
+    "reason_codes",
+    "evidence",
+    "estimates",
+    "research_only",
+    "execution_authorized",
+    "live_ready"
+  ],
+  "$defs": {
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "COMPUTED",
+            "UNCOMPUTABLE"
+          ]
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "enum": [
+            "natural_log_per_session",
+            "natural_log_per_session",
+            "positive_nav_loss_ratio",
+            "daily_signed_loss_ratio",
+            "two_session_signed_loss_ratio",
+            "sum_abs_net_trade_over_pretrade_nav"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "status",
+        "value",
+        "unit",
+        "reason_codes"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "COMPUTED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "reason_codes": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "value": {
+                "type": "null"
+              },
+              "reason_codes": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "metricSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "g": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "natural_log_per_session"
+                }
+              }
+            }
+          ]
+        },
+        "delta_g_vs_frozen_reference": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "natural_log_per_session"
+                }
+              }
+            }
+          ]
+        },
+        "max_drawdown": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "positive_nav_loss_ratio"
+                }
+              }
+            }
+          ]
+        },
+        "daily_cvar95_loss": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "daily_signed_loss_ratio"
+                }
+              }
+            }
+          ]
+        },
+        "two_session_cvar95_loss": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "two_session_signed_loss_ratio"
+                }
+              }
+            }
+          ]
+        },
+        "turnover_l1": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "sum_abs_net_trade_over_pretrade_nav"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "g",
+        "delta_g_vs_frozen_reference",
+        "max_drawdown",
+        "daily_cvar95_loss",
+        "two_session_cvar95_loss",
+        "turnover_l1"
+      ]
+    },
+    "parameterComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recommended_value": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "override_value": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "has_override": {
+          "type": "boolean"
+        },
+        "effective_value": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "limiting_sources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "risk_direction": {
+          "enum": [
+            "INCREASE",
+            "DECREASE",
+            "UNCHANGED",
+            "UNKNOWN_OR_MIXED"
+          ]
+        },
+        "confirmation_required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recommended_value",
+        "override_value",
+        "has_override",
+        "effective_value",
+        "limiting_sources",
+        "risk_direction",
+        "confirmation_required"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "application_status": {
+            "const": "APPLIED_OBSERVED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "effective_parameters_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "effective_observed_at_utc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  ]
+}

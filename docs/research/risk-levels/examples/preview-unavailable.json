@@ -1,0 +1,549 @@
+{
+  "contract_version": "r-risk-01.p4-preview.v1",
+  "definition_version": "r-risk-01.draft.v1",
+  "definition_sha256": "29ca57c5dc3278f9631b0ac435907e1385f5179e4b33d47f914e390157c38a41",
+  "request_id": "r-risk-01-design-example",
+  "scope_ref": "SYNTHETIC_SCOPE_ONLY",
+  "mode": "advanced",
+  "level": "balanced",
+  "requested_settings": {
+    "definition_version": "r-risk-01.draft.v1",
+    "request_id": "r-risk-01-design-example",
+    "scope_ref": "SYNTHETIC_SCOPE_ONLY",
+    "mode": "advanced",
+    "level": "balanced",
+    "overrides": {
+      "kelly_fraction": 0.1,
+      "cash_floor_ratio": 0.2
+    },
+    "restore_system_recommendation": false,
+    "research_only": true,
+    "execution_authorized": false
+  },
+  "parameter_comparison": {
+    "target_annual_volatility": {
+      "recommended_value": 0.1,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "max_drawdown_tolerance": {
+      "recommended_value": 0.12,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "daily_cvar95_loss_limit": {
+      "recommended_value": 0.02,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "two_session_cvar95_budget": {
+      "recommended_value": 0.03,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "kelly_fraction": {
+      "recommended_value": 0.25,
+      "override_value": 0.1,
+      "has_override": true,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNKNOWN_OR_MIXED",
+      "confirmation_required": true
+    },
+    "max_symbol_nominal_weight": {
+      "recommended_value": 0.25,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "max_leveraged_etf_nominal_weight": {
+      "recommended_value": 0.2,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "max_effective_risk_exposure": {
+      "recommended_value": 0.75,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "max_underlying_effective_exposure": {
+      "recommended_value": 0.5,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "max_gross_nominal_weight": {
+      "recommended_value": 1,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "cash_floor_ratio": {
+      "recommended_value": 0.1,
+      "override_value": 0.2,
+      "has_override": true,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNKNOWN_OR_MIXED",
+      "confirmation_required": true
+    },
+    "m1_fee_reserve_ratio": {
+      "recommended_value": 0.0009995002498750624,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "strategy_selection_mode": {
+      "recommended_value": "system_eligible",
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "strategy_ids": {
+      "recommended_value": [],
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "strategy_weight_mode": {
+      "recommended_value": "system_recommended",
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "strategy_weights": {
+      "recommended_value": {},
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "rebalance_method": {
+      "recommended_value": "band",
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "rebalance_absolute_band": {
+      "recommended_value": 0.03,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "rebalance_relative_band": {
+      "recommended_value": 0.25,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "breaker_daily_loss": {
+      "recommended_value": 0.03,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "breaker_drawdown": {
+      "recommended_value": 0.1,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "stop_loss_ratio": {
+      "recommended_value": 0.05,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "take_profit_ratio": {
+      "recommended_value": 0.15,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "trailing_stop_ratio": {
+      "recommended_value": 0.06,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "resume_observation_sessions": {
+      "recommended_value": 5,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "resume_daily_loss_fraction_of_trigger": {
+      "recommended_value": 0.5,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "resume_cvar_vol_fraction_of_limit": {
+      "recommended_value": 0.8,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "upgrade_cooldown_seconds": {
+      "recommended_value": 172800,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "confirmation_ttl_seconds": {
+      "recommended_value": 900,
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    },
+    "benchmark": {
+      "recommended_value": "SPY_TOTAL_RETURN_USD",
+      "override_value": null,
+      "has_override": false,
+      "effective_value": null,
+      "limiting_sources": [
+        "NO_EFFECTIVE_POLICY_OBSERVED"
+      ],
+      "risk_direction": "UNCHANGED",
+      "confirmation_required": false
+    }
+  },
+  "application_status": "NOT_APPLIED",
+  "effective_parameters_sha256": null,
+  "effective_observed_at_utc": null,
+  "confirmation_state": "REQUIRED",
+  "cooldown_until_utc": null,
+  "confirmation_binding": {
+    "account_budget_sha256": null,
+    "preview_sha256": null,
+    "previous_effective_sha256": null,
+    "requested_parameters_sha256": "4076d7bfa8466196d3cfb45a08a2199af1086a30386d4a7fcf3795e5093d3d39",
+    "server_confirmation_ref": null,
+    "confirmed_at_utc": null,
+    "expires_at_utc": null
+  },
+  "reason_codes": [
+    "DESIGN_ONLY",
+    "B4_C_DOMAIN_UNSUPPORTED",
+    "ACCOUNT_BUDGET_UNBOUND",
+    "PREVIOUS_EFFECTIVE_POLICY_UNKNOWN"
+  ],
+  "evidence": {
+    "classification": "DESIGN_ONLY",
+    "estimated": true,
+    "data_cutoff_utc": null,
+    "start_session": null,
+    "end_session": null,
+    "currency": null,
+    "data_sha256": null,
+    "model_sha256": null,
+    "cost_sha256": null,
+    "cash_contract_sha256": null,
+    "frozen_reference_sha256": null,
+    "trial_set_sha256": null,
+    "comparable": false,
+    "limitation_codes": [
+      "NO_FINANCIAL_ESTIMATE",
+      "NO_ACCOUNT_ACCESS"
+    ]
+  },
+  "estimates": {
+    "system_recommended": {
+      "g": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "natural_log_per_session",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "delta_g_vs_frozen_reference": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "natural_log_per_session",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "max_drawdown": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "positive_nav_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "daily_cvar95_loss": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "daily_signed_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "two_session_cvar95_loss": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "two_session_signed_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "turnover_l1": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "sum_abs_net_trade_over_pretrade_nav",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      }
+    },
+    "with_overrides": {
+      "g": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "natural_log_per_session",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "delta_g_vs_frozen_reference": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "natural_log_per_session",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "max_drawdown": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "positive_nav_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "daily_cvar95_loss": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "daily_signed_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "two_session_cvar95_loss": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "two_session_signed_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "turnover_l1": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "sum_abs_net_trade_over_pretrade_nav",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      }
+    },
+    "override_minus_recommended": {
+      "g": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "natural_log_per_session",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "delta_g_vs_frozen_reference": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "natural_log_per_session",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "max_drawdown": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "positive_nav_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "daily_cvar95_loss": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "daily_signed_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "two_session_cvar95_loss": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "two_session_signed_loss_ratio",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      },
+      "turnover_l1": {
+        "status": "UNCOMPUTABLE",
+        "value": null,
+        "unit": "sum_abs_net_trade_over_pretrade_nav",
+        "reason_codes": [
+          "NO_BOUND_COMPARABLE_TRIAL"
+        ]
+      }
+    }
+  },
+  "research_only": true,
+  "execution_authorized": false,
+  "live_ready": false
+}
