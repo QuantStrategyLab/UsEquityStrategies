@@ -1,0 +1,56 @@
+{
+  "status": "PASS_SCOPED_DESIGN_AND_INTERFACE_CHECKS",
+  "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 docs/research/risk-levels/verify_design.py",
+  "checks": [
+    "schema_valid:parameter-catalogue",
+    "schema_valid:risk-settings",
+    "schema_valid:p4-preview",
+    "all_parameter_defaults_and_metadata:30",
+    "examples_and_all_three_default_settings_valid",
+    "six_blocked_cells_and_historical_48_lower_bound_no_financial_result",
+    "existing_weighted_cvar_fractional_tail_and_negative_loss_sign",
+    "existing_risk_budget_reduces_synthetic_target_without_execution_authority"
+  ],
+  "negative_schema_cases_rejected": [
+    "kelly_fraction",
+    "cash_floor_ratio",
+    "max_leveraged_etf_nominal_weight",
+    "benchmark",
+    "strategy_weights",
+    "m1_fee_reserve_ratio",
+    "upgrade_cooldown_seconds",
+    "unknown_parameter",
+    "execution_authorized_true",
+    "restore_with_residual_overrides",
+    "catalogue_missing_defaults_by_level",
+    "catalogue_missing_hard_limits",
+    "catalogue_missing_user_override_allowed",
+    "catalogue_missing_secondary_confirmation",
+    "computed_null_metric",
+    "uncomputable_zero_metric",
+    "applied_without_effective_readback",
+    "live_ready_true"
+  ],
+  "b4_c_domain_synthetic_probe": {
+    "0.1": "FRACTION_OR_VETO_INVALID",
+    "0.25": "AVAILABLE_RESEARCH_ONLY",
+    "0.4": "FRACTION_OR_VETO_INVALID"
+  },
+  "qpk_research_stats_available": false,
+  "source_sha256": {
+    "src/us_equity_strategies/research/bayesian_kelly.py": "7e8e7c5df1ecfda4359c6d9f19937a07b5f37939a7417b1d539710bf00328a0f",
+    "src/us_equity_strategies/research/rs04_netting_candidate.py": "5db195a2a60cc07d617785b7e44b07640d570d052057fc248af355d88b8eea24",
+    "src/us_equity_strategies/portfolio_risk_budget.py": "af593ea8963db655efcdfab28bfe9fe1025b35e52a8deb606bc15f06d2f128ba",
+    "src/us_equity_strategies/research/cvar_exposure_constraint.py": "d88d6767955412bd2a8a7d44c6688cab25bf9473a60168c024e45fff19c9991d",
+    "src/us_equity_strategies/research/portfolio_kelly_walk_forward.py": "3c1edd342bf353eecbffd80c6b320c8de2d307c70b6b720f6cd2bfdb003bbaeb",
+    "src/us_equity_strategies/research/trial_overfitting_report.py": "a2fbc693be53146868f55e3f04e6433ba2bf4030dfa8b51ebbb60f4cfdb5ea8b"
+  },
+  "parameter_definition_sha256": "29ca57c5dc3278f9631b0ac435907e1385f5179e4b33d47f914e390157c38a41",
+  "validation_scope": "Schema/default/example checks and synthetic existing-function probes only; no three-level performance backtest.",
+  "financial_qualification": "NOT_READY",
+  "real_trials": 0,
+  "synthetic_performance_trials": 0,
+  "r4_store_mutated": false,
+  "execution_authorized": false,
+  "python_version": "3.13.7"
+}
