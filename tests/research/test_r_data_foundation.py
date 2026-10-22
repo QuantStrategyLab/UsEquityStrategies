@@ -208,6 +208,8 @@ def test_r6_strict_smoke_refuses_noop_mutation(factor):
     ([1, 0, pd.NA], "Int64"),
     ([1., 0., pd.NA], "Float64"),
     ([1., None, 0.], "object"),
+    ([1, pd.NA, pd.NA], "object"),
+    ([1, pd.NA, 0], "object"),
 ])
 def test_r6_strict_smoke_refuses_numerically_unchanged_future(values, dtype):
     closes = pd.Series(values, index=pd.date_range("2030-01-01", periods=3), dtype=dtype)
@@ -223,6 +225,7 @@ def test_r6_strict_smoke_refuses_numerically_unchanged_future(values, dtype):
     ([1, pd.NA, 2], "Int64"),
     ([1., pd.NA, 2.], "Float64"),
     ([1., None, 2.], "object"),
+    ([1, pd.NA, 2], "object"),
 ])
 def test_r6_strict_smoke_accepts_actual_future_mutation(values, dtype):
     closes = pd.Series(values, index=pd.date_range("2030-01-01", periods=3), dtype=dtype)

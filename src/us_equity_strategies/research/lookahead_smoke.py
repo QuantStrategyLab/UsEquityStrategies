@@ -115,7 +115,9 @@ def assert_no_lookahead(signal_fn: Callable[[pd.Series], object], closes: pd.Ser
     future = closes.loc[closes.index > pd.Timestamp(cutoff)]
     mutated_future = future * future_factor
     # Compare values exactly across dtypes; matching missing values are unchanged.
-    unchanged = future.eq(mutated_future).fillna(False) | (future.isna() & mutated_future.isna())
+    unchanged = future.isna() & mutated_future.isna()
+    present = future.notna() & mutated_future.notna()
+    unchanged.loc[present] = future.loc[present].eq(mutated_future.loc[present]).fillna(False)
     if future.empty or unchanged.all():
         raise AssertionError("LOOKAHEAD_SMOKE_NO_FUTURE_MUTATION")
     if result.status != "NO_LEAKAGE":
