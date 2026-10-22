@@ -204,6 +204,7 @@ jobs:
             tests/research/test_rs04_mechanism_comparison.py \
             tests/research/test_r_data_foundation.py \
             tests/research/test_r_data_04_pit_gaps.py \
+            tests/research/test_r_data_05_producer_integration.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
@@ -219,6 +220,12 @@ jobs:
           for required in ("test_r1_first_seen_persisted_and_actual_cutoff_consumed",
                            "test_r1_future_bars_and_actions_cannot_change_earlier_native_decisions"):
               assert any(c.attrib["name"] == required for c in foundation_cases), required
+          producer_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_05_producer_integration")]
+          for required in ("test_declared_producer_clocks_reach_native_model_and_saved_replay",
+                           "test_missing_or_late_producer_bundle_is_journaled_without_compute",
+                           "test_changed_producer_or_receipt_conflicts_before_replay_input",
+                           "test_revised_bundle_needs_new_identity_and_later_declared_cutoff"):
+              assert any(c.attrib["name"].split("[")[0] == required for c in producer_cases), required
           rs04_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_netting_candidate.RS04NettingCandidateTests")]
           assert len(rs04_cases) >= 13, "RS04 CorePath netting candidate tests were not fully collected"
           mechanism_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_mechanism_comparison.MechanismComparisonTests")]
