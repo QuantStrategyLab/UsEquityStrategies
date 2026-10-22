@@ -1156,6 +1156,9 @@ def _r1_prefee_proportional_reserve(target: Mapping[str, float]):
         'CVaR_and_joint_correlation_consumers': 'NOT_CLOSED_NOT_CERTIFIED'}
 
 
+_R0_R3_SOURCE_AVAILABILITY_SCHEMA_VERSION = 'qsl.research.r0_r3_source_availability.v1'
+
+
 def _r0_r3_declared_source_times(projection):
     """Canonical caller declarations for identity, never authenticated availability.
 
@@ -1170,6 +1173,40 @@ def _r0_r3_declared_source_times(projection):
     if times:
         times['source_time_basis'] = 'CALLER_DECLARED_NOT_AUTHENTICATED'
     return times
+
+
+def validate_r0_r3_source_availability(metadata: Mapping[str, Any], *, decision_at: object) -> dict[str, Any]:
+    """Compare caller-declared times to a cutoff without attesting availability."""
+    from .security_netting_runner import _rs04_time
+
+    if not isinstance(metadata, Mapping):
+        raise ValueError('UNAVAILABLE_SOURCE_AVAILABILITY_METADATA')
+    decision_at = _rs04_time(decision_at)
+    if ('source_time_basis' in metadata
+            and metadata['source_time_basis'] != 'CALLER_DECLARED_NOT_AUTHENTICATED'):
+        raise ValueError('UNAVAILABLE_SOURCE_TIME_BASIS')
+    fields = {}
+    late_or_unverified = []
+    for name in ('observed_at', 'declared_available_at', 'first_seen'):
+        value = metadata.get(name)
+        if value is None:
+            fields[name] = {'status': 'MISSING', 'value': None, 'relation': 'UNKNOWN'}
+            continue
+        parsed = _rs04_time(value)
+        late = parsed > decision_at
+        if late:
+            if name == 'declared_available_at':
+                raise ValueError('UNAVAILABLE_SOURCE_FUTURE_AVAILABILITY')
+            late_or_unverified.append(name)
+        fields[name] = {'status': 'PRESENT', 'value': parsed.isoformat(),
+                        'relation': 'AFTER_CUTOFF' if late else 'BEFORE_OR_AT_CUTOFF'}
+    return {'schema_version': _R0_R3_SOURCE_AVAILABILITY_SCHEMA_VERSION,
+        'status': 'COMPUTED', 'PIT': 'NOT_ATTESTED',
+        'attestation': 'CALLER_DECLARED_NOT_AUTHENTICATED',
+        'source_time_basis': metadata.get('source_time_basis') or 'MISSING',
+        'decision_cutoff': decision_at.isoformat(), 'fields': fields,
+        'late_or_unverified': sorted(late_or_unverified), 'verifiable_fields': [],
+        'research_only': True, 'no_order': True}
 
 
 def admit_r0_r3_source_metadata(projection: Mapping[str, Any], *,

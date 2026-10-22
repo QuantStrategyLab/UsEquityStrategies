@@ -19,6 +19,7 @@ from us_equity_strategies.research.kelly_core_return_generator import CorePath, 
 from us_equity_strategies.research.rs04_netting_candidate import (
     NEXT_CLOSE_RESEARCH_CANDIDATE, CloseTarget, InitialNettingBook, OuterExposure,
     build_rs04_netting_sessions, run_rs04_netting_candidate,
+    validate_r0_r3_source_availability,
 )
 
 # Friday -> Tuesday crosses a weekend and the Monday MLK exchange holiday.
@@ -2132,6 +2133,81 @@ class QQQPairSensitivityTests(unittest.TestCase):
         for row in result['trials'].values():
             self.assertEqual(row['actual_params']['input_source_registration'], registered)
         self.assertNotEqual(options['input_source_registration'], registered)
+
+
+def test_source_availability_rejects_future_declared_availability():
+    with pytest.raises(ValueError, match='^UNAVAILABLE_SOURCE_FUTURE_AVAILABILITY$'):
+        validate_r0_r3_source_availability(
+            {'declared_available_at': '2030-01-02T21:05:00.000001+00:00'},
+            decision_at='2030-01-02T21:05:00+00:00')
+
+
+@pytest.mark.parametrize('metadata', [{},
+    dict(observed_at=None, declared_available_at=None, first_seen=None),
+    {'observed_at': '2030-01-02T21:00:00+00:00', 'first_seen': None}])
+def test_source_availability_missing_times_stay_unknown(metadata):
+    report = validate_r0_r3_source_availability(metadata, decision_at='2030-01-02T21:05:00Z')
+    assert report['PIT'] == 'NOT_ATTESTED'
+    assert report['source_time_basis'] == 'MISSING'
+    assert report['verifiable_fields'] == []
+    assert report['late_or_unverified'] == []
+    assert set(report['fields']) == {'observed_at', 'declared_available_at', 'first_seen'}
+    for name, field in report['fields'].items():
+        if metadata.get(name) is None:
+            assert field == {'status': 'MISSING', 'value': None, 'relation': 'UNKNOWN'}
+        else:
+            assert field == {'status': 'PRESENT', 'value': metadata[name],
+                             'relation': 'BEFORE_OR_AT_CUTOFF'}
+
+
+@pytest.mark.parametrize('names', [('first_seen',), ('observed_at',), ('observed_at', 'first_seen')])
+def test_source_availability_late_observation_is_reported(names):
+    metadata = {name: '2030-01-02T21:07:00Z' for name in names}
+    report = validate_r0_r3_source_availability(metadata, decision_at='2030-01-02T21:05:00+00:00')
+    assert report['late_or_unverified'] == sorted(names)
+    assert report['PIT'] == 'NOT_ATTESTED'
+    assert report['verifiable_fields'] == []
+    for name in names:
+        assert report['fields'][name] == {'status': 'PRESENT',
+            'value': '2030-01-02T21:07:00+00:00', 'relation': 'AFTER_CUTOFF'}
+
+
+def test_source_availability_declared_times_do_not_attest_pit():
+    metadata = {'observed_at': '2030-01-02T21:00:00+00:00',
+        'declared_available_at': '2030-01-02T21:05:00+00:00',
+        'first_seen': '2030-01-02T21:05:00+00:00',
+        'source_time_basis': 'CALLER_DECLARED_NOT_AUTHENTICATED'}
+    before = copy.deepcopy(metadata)
+    report = validate_r0_r3_source_availability(metadata, decision_at='2030-01-02T21:05:00Z')
+    assert metadata == before
+    assert report == {'schema_version': 'qsl.research.r0_r3_source_availability.v1',
+        'status': 'COMPUTED', 'PIT': 'NOT_ATTESTED',
+        'attestation': 'CALLER_DECLARED_NOT_AUTHENTICATED',
+        'source_time_basis': 'CALLER_DECLARED_NOT_AUTHENTICATED',
+        'decision_cutoff': '2030-01-02T21:05:00+00:00',
+        'fields': {name: {'status': 'PRESENT', 'value': metadata[name],
+                         'relation': 'BEFORE_OR_AT_CUTOFF'}
+                   for name in ('observed_at', 'declared_available_at', 'first_seen')},
+        'late_or_unverified': [], 'verifiable_fields': [], 'research_only': True, 'no_order': True}
+
+
+@pytest.mark.parametrize('decision_at', ['2030-01-02T21:05:00', '2030-01-03T05:05:00+08:00'])
+def test_source_availability_requires_explicit_utc_cutoff(decision_at):
+    with pytest.raises(ValueError, match='^RS04_EXPLICIT_UTC_TIME_REQUIRED$'):
+        validate_r0_r3_source_availability({}, decision_at=decision_at)
+
+
+@pytest.mark.parametrize('metadata', [None, [], 'metadata'])
+def test_source_availability_rejects_non_mapping_metadata(metadata):
+    with pytest.raises(ValueError, match='^UNAVAILABLE_SOURCE_AVAILABILITY_METADATA$'):
+        validate_r0_r3_source_availability(metadata, decision_at='2030-01-02T21:05:00+00:00')
+
+
+@pytest.mark.parametrize('basis', ['AUTHENTICATED_PRODUCER', '', None])
+def test_source_availability_rejects_other_time_basis(basis):
+    with pytest.raises(ValueError, match='^UNAVAILABLE_SOURCE_TIME_BASIS$'):
+        validate_r0_r3_source_availability({'source_time_basis': basis},
+                                         decision_at='2030-01-02T21:05:00+00:00')
 
 
 def test_TV1_late_declared_first_seen_real_admission_gap(tmp_path):
