@@ -199,6 +199,44 @@ def test_r6_strict_smoke_refuses_noop_mutation(factor):
         assert_no_lookahead(lambda values: 1., closes, cutoff=closes.index[0], future_factor=factor)
 
 
+@pytest.mark.parametrize("values,dtype", [
+    ([1, 0, 0], "int64"),
+    ([1., 0., 0.], "float64"),
+    ([1., float("nan"), float("nan")], "float64"),
+    ([1., 0., float("nan")], "float64"),
+    ([1, pd.NA, pd.NA], "Int64"),
+    ([1, 0, pd.NA], "Int64"),
+    ([1., 0., pd.NA], "Float64"),
+    ([1., None, 0.], "object"),
+])
+def test_r6_strict_smoke_refuses_numerically_unchanged_future(values, dtype):
+    closes = pd.Series(values, index=pd.date_range("2030-01-01", periods=3), dtype=dtype)
+    with pytest.raises(AssertionError, match="^LOOKAHEAD_SMOKE_NO_FUTURE_MUTATION$"):
+        assert_no_lookahead(lambda series: series.iloc[0], closes,
+                            cutoff=closes.index[0], future_factor=10.0)
+
+
+@pytest.mark.parametrize("values,dtype", [
+    ([1, 0, 2], "int64"),
+    ([1., 0., 2.], "float64"),
+    ([1., float("nan"), 2.], "float64"),
+    ([1, pd.NA, 2], "Int64"),
+    ([1., pd.NA, 2.], "Float64"),
+    ([1., None, 2.], "object"),
+])
+def test_r6_strict_smoke_accepts_actual_future_mutation(values, dtype):
+    closes = pd.Series(values, index=pd.date_range("2030-01-01", periods=3), dtype=dtype)
+    observed = []
+    def signal(series):
+        observed.append(series.copy())
+        return series.iloc[0]
+    result = assert_no_lookahead(signal, closes, cutoff=closes.index[0], future_factor=10.0)
+    assert result.status == "NO_LEAKAGE" and result.promotion_eligible is False
+    assert observed[0].iloc[-1] == 2 and observed[1].iloc[-1] == 20
+    assert observed[0].isna().tolist() == observed[1].isna().tolist()
+    assert closes.iloc[-1] == 2
+
+
 def test_r2_nested_purge_and_embargo_have_independent_interval_oracle():
     plan = WalkForwardPlan(40, 5, 3, label_horizon_sessions=3, embargo_sessions=4)
     for fold in plan.nested_folds(100, inner_splits=3):

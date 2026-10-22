@@ -113,7 +113,10 @@ def assert_no_lookahead(signal_fn: Callable[[pd.Series], object], closes: pd.Ser
         raise ValueError("LOOKAHEAD_SMOKE_MUTATION_INVALID")
     result = run_lookahead_smoke(signal_fn, closes, cutoff=cutoff, future_factor=future_factor)
     future = closes.loc[closes.index > pd.Timestamp(cutoff)]
-    if future.empty or (future * future_factor).equals(future):
+    mutated_future = future * future_factor
+    # Compare values exactly across dtypes; matching missing values are unchanged.
+    unchanged = future.eq(mutated_future).fillna(False) | (future.isna() & mutated_future.isna())
+    if future.empty or unchanged.all():
         raise AssertionError("LOOKAHEAD_SMOKE_NO_FUTURE_MUTATION")
     if result.status != "NO_LEAKAGE":
         raise AssertionError(result.status)
