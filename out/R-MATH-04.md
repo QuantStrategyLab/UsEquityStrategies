@@ -1,6 +1,6 @@
 # R-MATH-04：失败、依赖与累计族登记结构
 
-状态：本地登记结构已实现并通过相关检查；非作者独审 PASS，PR 发布准备中。完整累计来源与可比族认证为 **NEED_USER**。
+状态：本地登记结构已实现并通过相关检查；非作者独审 PASS，已创建 [PR #668](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/668)。本报告提交时远端 CI 尚未完成。完整累计来源与可比族认证为 **NEED_USER**。
 
 ## NEED_USER
 
@@ -56,7 +56,7 @@ DSR 仍为 `value=null / UNCOMPUTABLE / COMPLETE_CUMULATIVE_TRIAL_SOURCE_NOT_VER
 | Python 标准库 SHA-256 只读比对 R-MATH-03 `artifacts` 和 `p-protocol` 来源 | 0；38 原生文件 + 1 协议同字节 | `R-MATH-04-evidence/native-readback.json`，未重新计算逐日会计 |
 | `git diff --check` | 0 | 最终暂存差异通过（测试 EOF 空白行提示已修正） |
 
-本机使用 `/usr/local/bin/python3`（3.13）、pytest 9.1.1、Ruff 0.15.22，没有安装/升级依赖。本轮本地没有执行全仓测试或金融研究测试；所增模块仅依赖标准库。远端 CI 状态待 PR 后回读，不能用本地通过代替。
+本机使用 `/usr/local/bin/python3`（3.13）、pytest 9.1.1、Ruff 0.15.22，没有安装/升级依赖。本轮本地没有执行全仓测试或金融研究测试；所增模块仅依赖标准库。远端 CI 将对 PR 最终 head 回读，不能用本地通过代替。
 
 内部校验只证明投影一致性；原生源校验也只覆盖显式七 store，不能发现未提供的 store，不能认证全组织历史。时间链、完整失败列表、同口径 Sharpe 分布和有效数没有补造。未读取账户、凭据或原始行情；ledger JSON 为身份与摘要解析，逐日值不导出、不参与统计。
 
@@ -80,3 +80,7 @@ Chrome：不适用，未使用。非作者只读独审由 `/root/r_math_04_revie
 修正为对每个 `(native_identity_key, object_kind)` 比较字节摘要与所投影元数据，覆盖 STARTED/terminal/ledger；冲突返回 `CROSS_STORE_OBJECT_CONFLICT`，同字节副本仍保留位置。修正后相关测试 23 passed、Ruff 和原生源验证均退出码 0。原 reviewer 增量复核已 PASS；初审缺陷不会被改记为首次直接 PASS。登记 JSON 本身无需变化。
 
 独立 reviewer 最终实际执行登记测试 23 passed、真实源校验与相关 Ruff，均退出码 0；受审 code/README/registry SHA 见 `R-MATH-04-evidence/review-final.json`。最终测试文件仅去掉末尾一空行以通过 `git diff --cached --check`，无逻辑变化；原 reviewer 对精确新摘要的适用确认单列保存。
+
+## PR 发布
+
+已提交并推送实现 `58ea3325c23193b441e492b8a5fb4a578d433837`，随后创建 [PR #668](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/668)，目标 main，GitHub 创建回执为 open、merged=false。main 保护规则实际读回要求 `test`、strict=true、enforce_admins=true，不绕过检查。此报告提交记录发布时点；auto-merge 请求及最终 CI/合并回执另于本机报告的最终交付部分补记，不提前宣称已合并。
