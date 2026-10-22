@@ -304,7 +304,7 @@ jobs:
         run: |
           python - <<'PYCODE'
           import hashlib, os, pathlib, re, subprocess, sys
-          for prefix, name in (("CLIENT", "personal_ai_service-2.0.0-"), ("QPK", "quant_platform_kit-1.0.0-")):
+          for prefix, name in (("CLIENT", "quant_ai_service-2."), ("QPK", "quant_platform_kit-1.0.0-")):
               path = pathlib.Path(os.environ.get("AI_SERVICE_" + prefix + "_WHEEL", ""))
               digest = os.environ.get("AI_SERVICE_" + prefix + "_SHA256", "")
               if not re.fullmatch(r"[0-9a-f]{64}", digest) or not path.is_file() or path.is_symlink() or not path.name.startswith(name) or path.suffix != ".whl":
