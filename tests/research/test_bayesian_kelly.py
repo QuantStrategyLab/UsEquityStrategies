@@ -323,8 +323,8 @@ class BayesianKellyTests(unittest.TestCase):
     def test_fractional_once_cap_and_veto(self):
         m = b4_predictive_moments(example())
         a = b4_fractional_target(m, c=.25, scope_cap={"TQQQ": 1.}, cap_source="toy")
-        b = b4_fractional_target(m, c=.5, scope_cap={"TQQQ": 1.}, cap_source="toy")
-        self.close(b.targets[0], 2 * a.targets[0])
+        b = b4_fractional_target(m, c=.4, scope_cap={"TQQQ": 1.}, cap_source="toy")
+        self.close(b.targets[0], 1.6 * a.targets[0])
         capped = b4_fractional_target(m, scope_cap={"TQQQ": .1}, cap_source="toy")
         self.assertEqual(capped.targets, (.1,))
         self.assertEqual(b4_fractional_target(m, scope_cap={"TQQQ": 0.}, cap_source="toy").targets, (0.,))
@@ -337,11 +337,44 @@ class BayesianKellyTests(unittest.TestCase):
         self.assertEqual(a.approximation, "SECOND_ORDER_FRICTIONLESS_PROXY")
         self.assertTrue(a.fractional_applied_once)
 
+    def test_approved_fractions_apply_before_cap_without_changing_requested_c(self):
+        m = b4_predictive_moments(example())
+        for c in (.10, .25, .40):
+            for cap, veto in ((1., False), (.1, False), (0., False), (1., True)):
+                with self.subTest(c=c, cap=cap, veto=veto):
+                    out = b4_fractional_target(m, c=c, scope_cap={"TQQQ": cap},
+                                               cap_source="toy", veto=veto)
+                    self.assertEqual(out.c, c)
+                    self.assertEqual(out.targets, (0. if veto else min(cap, c * .8737980336182832),))
+                    self.assertEqual(out.raw_second_order, (.8737980336182832,))
+                    self.assertEqual(out.status, "VETOED" if veto else "AVAILABLE")
+                    self.assertTrue(out.fractional_applied_once)
+                    self.assertTrue(out.no_order)
+                    self.assertFalse(out.live_ready)
+                    self.assertEqual(out.budget_effect, "NONE")
+
+    def test_quarter_fraction_matches_frozen_pre_extension_result(self):
+        # Captured on b018372b before changing the domain; exact equality.
+        m = b4_predictive_moments(example())
+        explicit = b4_fractional_target(m, c=.25, scope_cap={"TQQQ": 1.}, cap_source="toy")
+        default = b4_fractional_target(m, scope_cap={"TQQQ": 1.}, cap_source="toy")
+        self.assertEqual(default, explicit)
+        self.assertEqual(explicit.targets, (.2184495084045708,))
+        self.assertEqual(explicit.raw_second_order, (.8737980336182832,))
+        self.assertEqual(explicit.c, .25)
+        self.assertEqual(explicit.unit, "CAPITAL_FRACTION")
+
     def test_invalid_fraction_cap_or_veto_is_rejected(self):
         m = b4_predictive_moments(example())
-        for c in (True, .75, -.1, .1, float('nan')):
-            with self.subTest(c=c), self.assertRaises(B4Error):
-                b4_fractional_target(m, c=c, scope_cap={"TQQQ": .4}, cap_source="toy")
+        prior = b4_predictive_moments(initialise_b4(SPEC, SIGMA, TRAINING))
+        for c in (0, -0., -.1, .05, .2, .3, .5, .75, 1.,
+                  math.nextafter(.1, 0.), math.nextafter(.25, 1.), math.nextafter(.4, 1.),
+                  float('nan'), float('inf'), float('-inf'), '0.10', '0.25', '0.40',
+                  True, False, None):
+            # Invalid c cannot become a harmless prior/unavailable result.
+            for moments, caps in ((m, {"TQQQ": .4}), (m, None), (prior, {"TQQQ": .4})):
+                with self.subTest(c=c, n=moments.n, caps=caps), self.assertRaises(B4Error):
+                    b4_fractional_target(moments, c=c, scope_cap=caps, cap_source="toy")
         for cap in (True, -1., 1.1, float('nan')):
             with self.subTest(cap=cap), self.assertRaises(B4Error):
                 b4_fractional_target(m, scope_cap={"TQQQ": cap}, cap_source="toy")
@@ -382,7 +415,7 @@ class ExpectedLogProxyBoundaryTests(unittest.TestCase):
                 d1 = 1 - (-md + v / 2).exp()
                 location = "ZERO" if d0 <= 0 else "ONE" if d1 >= 0 else "INTERIOR"
                 self.assertEqual(location, expected)
-                out = b4_fractional_target(m, c=.5, scope_cap={"TQQQ": 1.},
+                out = b4_fractional_target(m, c=.4, scope_cap={"TQQQ": 1.},
                                            cap_source="synthetic-math-domain-only")
                 self.assertEqual(out.approximation, "SECOND_ORDER_FRICTIONLESS_PROXY")
                 if expected == "ZERO":
@@ -401,7 +434,7 @@ class ExpectedLogProxyBoundaryTests(unittest.TestCase):
         # closed form or numerical utility gap is asserted.
         m = self.moments_at(0.)
         self.assertEqual(m.mean_log, (0.,))
-        out = b4_fractional_target(m, c=.5, scope_cap={"TQQQ": 1.},
+        out = b4_fractional_target(m, c=.4, scope_cap={"TQQQ": 1.},
                                    cap_source="synthetic-math-domain-only")
         raw = out.raw_second_order[0]
         mean, second = m.mean_simple[0], m.second_raw_moment_simple[0]
@@ -412,8 +445,8 @@ class ExpectedLogProxyBoundaryTests(unittest.TestCase):
         self.assertLess(.5 - raw, .04)
         # Compare to c times the exact full optimum, preserving the
         # intentional fractional rule instead of calling it a sizing bug.
-        self.assertGreater(.25 - out.targets[0], .015)
-        self.assertLess(.25 - out.targets[0], .02)
+        self.assertGreater(.4 * .5 - out.targets[0], .4 * .03)
+        self.assertLess(.4 * .5 - out.targets[0], .4 * .04)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+{
+  "definition_version": "r-risk-01.research.v2",
+  "request_id": "r-risk-01-design-example",
+  "scope_ref": "SYNTHETIC_SCOPE_ONLY",
+  "mode": "advanced",
+  "level": "balanced",
+  "overrides": {
+    "kelly_fraction": 0.1,
+    "cash_floor_ratio": 0.2
+  },
+  "restore_system_recommendation": false,
+  "research_only": true,
+  "execution_authorized": false
+}

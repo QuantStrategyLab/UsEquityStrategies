@@ -1,0 +1,109 @@
+{
+  "schema_version": "r-risk-01.r4-handoff.v1",
+  "role": "PENDING_HANDOFF_NOT_AUTHORITATIVE_R4_STORE",
+  "task_id": "R-RISK-01",
+  "research_only": true,
+  "execution_authorized": false,
+  "authoritative_store": "Existing R4 PerformanceStore; not read or mutated by this task.",
+  "authoritative_registration_status": "NOT_WRITTEN_WRITESET_EXCLUDES_STORE",
+  "historical_ledger": {
+    "path": "docs/research/kelly_trial_ledger.json",
+    "sha256": "740e069690e285f2c9f810efe11e7cc897d8886a2c6022c3a5094642027d93bd",
+    "declared_cumulative_sizing_trials": 48,
+    "coverage": "EARLY_RS04E_RS06_RS07_ONLY_NOT_CURRENT_TOTAL"
+  },
+  "cumulative_trials_current": null,
+  "new_real_trials": 0,
+  "new_synthetic_performance_trials": 0,
+  "interface_probes_are_trials": false,
+  "planned_cells": [
+    {
+      "cell_id": "R-RISK-01:TQQQ:conservative",
+      "state": "NOT_RUN_BLOCKED",
+      "native_trial_id": null,
+      "native_r4_readback_ref": null,
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ]
+    },
+    {
+      "cell_id": "R-RISK-01:TQQQ:balanced",
+      "state": "NOT_RUN_BLOCKED",
+      "native_trial_id": null,
+      "native_r4_readback_ref": null,
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ]
+    },
+    {
+      "cell_id": "R-RISK-01:TQQQ:growth",
+      "state": "NOT_RUN_BLOCKED",
+      "native_trial_id": null,
+      "native_r4_readback_ref": null,
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ]
+    },
+    {
+      "cell_id": "R-RISK-01:SOXL:conservative",
+      "state": "NOT_RUN_BLOCKED",
+      "native_trial_id": null,
+      "native_r4_readback_ref": null,
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ]
+    },
+    {
+      "cell_id": "R-RISK-01:SOXL:balanced",
+      "state": "NOT_RUN_BLOCKED",
+      "native_trial_id": null,
+      "native_r4_readback_ref": null,
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ]
+    },
+    {
+      "cell_id": "R-RISK-01:SOXL:growth",
+      "state": "NOT_RUN_BLOCKED",
+      "native_trial_id": null,
+      "native_r4_readback_ref": null,
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ]
+    }
+  ],
+  "counting_rule": "Six planned cells are not six executed/registered financial trials. Do not claim cumulative=54. At future registration bind batch and all cells to native journal IDs before data/performance reads, preserve failures and aborted attempts, no overwrites.",
+  "dsr_status": "UNCOMPUTABLE",
+  "dsr_value": null,
+  "dsr_reason": "Complete cumulative trial evidence and local research_stats unavailable; no six-trial substitute."
+}
