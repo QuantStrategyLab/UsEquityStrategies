@@ -8,7 +8,7 @@ import sys
 
 
 def main():
-    specs = [("AI_SERVICE_CLIENT", "personal_ai_service-2.0.0-"),
+    specs = [("AI_SERVICE_CLIENT", "quant_ai_service-2."),
              ("AI_SERVICE_QPK", "quant_platform_kit-1.0.0-")]
     paths = []
     for key, prefix in specs:
