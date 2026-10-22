@@ -1,0 +1,175 @@
+{
+  "status": "PASS",
+  "native_artifacts_unchanged": 38,
+  "native_objects": [
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/5ed51a049cdf540b51194659c3d10b9a9fa305556fa6a849b11c452317c97192/ledger.json",
+      "sha256": "752f1d33d6ac514aa60a8c66d9b6ad80e84fd6ab977fd7ef122722fb5522dd26"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/6ed3ba27013008effd1a2ab85da5d4bbee0074513853c2226be2a5aa84cb914b/ledger.json",
+      "sha256": "5b59ea90f7d0b1a03a1d3a4772f7589b40b9aead5dbebe06ae20404e1d5dbaf8"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/adfae728a26a2f728c6e706940dfede3e9301cdd79175428c29cc3c00dfcfe66/ledger.json",
+      "sha256": "6a3ec97006db19421d098e0ca7a0c47d0040f55e0e6bdd48209713236feb21ce"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/bc67f2f32ffa99fc685d08dadb5bbc6b42fe5619511f72dce031f16a737f9fa8/fixed_exposure_summary.json",
+      "sha256": "5d39d8feca8bc754fb318fa06aa02b960fc367927ab155d723bbd66bd05fab3e"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/bc67f2f32ffa99fc685d08dadb5bbc6b42fe5619511f72dce031f16a737f9fa8/ledger.json",
+      "sha256": "b92a3ce4dd53b4d8c371c17b5ebdea8c2c51efb63b26a97513fc77882ddabbba"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/bc67f2f32ffa99fc685d08dadb5bbc6b42fe5619511f72dce031f16a737f9fa8/started.json",
+      "sha256": "7d5bb253b4a32e2c5754dcf90fc37debb436e95aa614ce92b42f3e8bb40ad281"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/bc67f2f32ffa99fc685d08dadb5bbc6b42fe5619511f72dce031f16a737f9fa8/terminal.json",
+      "sha256": "f50739a0f217269a833631661957709ae1bce653d62fc566fac34b558a5a8996"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/fixed_exposure_controls_d5_20261022_01/performance/research_trial/f3d8a608d7d890bdb3eefdc72188c1ab2cc064a7e44fec41d564756992ee3c7e/ledger.json",
+      "sha256": "b83d2b07a74be04d57e8a2b529046c83560c7bf430ab9857b4157d691d377ca0"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r1_private_no_plugin_mechanism_d5_20261021_01/performance/research_trial/3a0f470454b5f1cc47744bbcef33186bce9e18a6d00a619a40edcb84e3f5f0ad/started.json",
+      "sha256": "e0daddd423070a9ac57526538ffd08c0b880cf975d72c347aa30cf6064d8c9fc"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r1_private_no_plugin_mechanism_d5_20261021_01/performance/research_trial/3a0f470454b5f1cc47744bbcef33186bce9e18a6d00a619a40edcb84e3f5f0ad/terminal.json",
+      "sha256": "0e9fb264d4b572161b2b8b8bf2aa966100a45a67ea7d6d7ce8cd0815bba28c92"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/30fe076d2baa40b0defd132ae7e1576b953e3f30722514982f20c96b013e5861/ledger.json",
+      "sha256": "d3824561f854270bda8380beb10ba57cd2ad0a7ca7749f42d02c090417383761"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/30fe076d2baa40b0defd132ae7e1576b953e3f30722514982f20c96b013e5861/m1_execution_facts.json",
+      "sha256": "f2052d0f10d1c3708c8cb013bb32237451d6f0c30371c39a3dd261cc52635b4d"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/30fe076d2baa40b0defd132ae7e1576b953e3f30722514982f20c96b013e5861/m1_metrics.json",
+      "sha256": "fc24323986ffab81478b97980906b873cf6c6050305a92078f78519e7016b7fe"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/30fe076d2baa40b0defd132ae7e1576b953e3f30722514982f20c96b013e5861/started.json",
+      "sha256": "a9197c7f7fed6efe08eed63f0cff899f6a2a403d0d765032ab6fea986d93fe1e"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/30fe076d2baa40b0defd132ae7e1576b953e3f30722514982f20c96b013e5861/terminal.json",
+      "sha256": "e68b0bb0eb041a0fd9dbf1065e61c1661b41c2a1eadb8bf8fb3b66f4902467ab"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/3bba06b72533baa1cc6a70cb9a7ea09cffaadb7f7285d94c445e568cdcc2ed35/ledger.json",
+      "sha256": "4e9eb363761709e77f0277905eeebf7a12a490dd876a2a37dfd3eb9981556bea"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/3bba06b72533baa1cc6a70cb9a7ea09cffaadb7f7285d94c445e568cdcc2ed35/started.json",
+      "sha256": "64b7687c512253cd14e7caaa082433ff0fce92eeaa7c0f033bb35a290463017b"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/3bba06b72533baa1cc6a70cb9a7ea09cffaadb7f7285d94c445e568cdcc2ed35/terminal.json",
+      "sha256": "48ffbfa4358564c0eb5fac10b31198df4c0230b9bd18d977857edd081cc3b539"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/3f46770c7704bff21c6bdb15abb483aa95ee7fe3523cc329490cac18560427b3/ledger.json",
+      "sha256": "0595fa35e25692926bb997bdfeb1edc4b77936c4916a48b040bdc7bc17d6b7dc"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/72c954742672b6a890226130bfeb999dadb1deff3495b8aec0bad09a6e935c1d/ledger.json",
+      "sha256": "1bc5b4da9d03f93efec35eb69c0856df5b3d3380973601bd0d3c6db3bee6ee86"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/a7c56e60e0cc2364c13e8d506bd2b02f5befcf801bce9e101f590c2232b0ad8a/ledger.json",
+      "sha256": "7841c680111813478f78207dff47729ef3333063e4b9c8ae6de0ee1e31c26ef2"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_02/performance/research_trial/c28a9ff639a8083f4163f50ae7d24c5a6010a9d95aca834d61955e78eb24b62e/ledger.json",
+      "sha256": "eb6b2bcdaf2fd3d936b058b200804667e7178b0570c45787f94aac507e07af30"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_qqq_pair_ab_20261020_01/performance/research_trial/32542b46eb7649efdecb52ec20f8f7b09e12d93ee78cae4e6bfa11e2b908ef31/started.json",
+      "sha256": "b7fbff5af1cc2d4e1f242f5542a1f51d041e8da9dd983faca80fb4f10f753a25"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_qqq_pair_ab_20261020_01/performance/research_trial/32542b46eb7649efdecb52ec20f8f7b09e12d93ee78cae4e6bfa11e2b908ef31/terminal.json",
+      "sha256": "bfb0b747ca5c89dba1161f940136488b890baf748f0089ca89b337413ca48e49"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_qqq_pair_ab_20261020_01/performance/research_trial/587d8d965a751ff1d2c69cf1b308c250883af6b972db8a15669f787f4106a8da/started.json",
+      "sha256": "500ddac808875007c8069e52d848a396a004153c19f5eb2ca30ad09ae9dc4803"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_qqq_pair_ab_20261020_01/performance/research_trial/587d8d965a751ff1d2c69cf1b308c250883af6b972db8a15669f787f4106a8da/terminal.json",
+      "sha256": "83a25948fe5d273b6c5f0205058939ad0890b953c9a371e29661149b97edcaab"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_once_20261020/performance/research_trial/c0ce12cb80236143fb3260ffa5b339418348756ee1fd38b3fbc779f6a76e8e34/started.json",
+      "sha256": "5ef35bd7f4540841cae31c375ecc337bd2d2fb9aa4b539be2fa00b86391e97c1"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_once_20261020/performance/research_trial/c0ce12cb80236143fb3260ffa5b339418348756ee1fd38b3fbc779f6a76e8e34/terminal.json",
+      "sha256": "578500dc8e6b8bd5939f02ff7f8e9e7cc0225302540f84d9ebde6e2a4a7cae1f"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/343c9db1272de536670374c9bfc17ea3a315668895f56b3edb52eebc27f43ae3/ledger.json",
+      "sha256": "d8a676cea31c9966cf731814e4844b50bc24b5cf5adcc4c070911ac9a270b3c7"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/393c2f283097c7249f6944ed36db31ed28b16f02104c9bd9198f987cdfbc5bb7/ledger.json",
+      "sha256": "327d0f0aec9ca6be3f2fe81246b8dadb9cb6fa75827521b928a31ee4ad4c8638"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/393c2f283097c7249f6944ed36db31ed28b16f02104c9bd9198f987cdfbc5bb7/started.json",
+      "sha256": "c43e75ef00819b1fb4a221ff7059ca37afe80a0dea4f92780e481c712483e1da"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/393c2f283097c7249f6944ed36db31ed28b16f02104c9bd9198f987cdfbc5bb7/terminal.json",
+      "sha256": "fb03489310ffe5e11b6827c0eb3c38c08ac5f2d0d990fc5679dadacbff7ec00b"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/3a003041ab9c1d505b9e571bdbdec4b9c12d32f675f5af2572fec9d481756f67/ledger.json",
+      "sha256": "536ac72250dc0c9196e874d344bb69baf18236c5462f4474af9440fe8605f5f6"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/3d5e813f416f51809220d197c256115e6158945e7828e7bf14b7c6d0b2f02904/ledger.json",
+      "sha256": "e9720256c55a7fa0c8ab2e6099f1213c5d05652b8d1ff14f2141bee9b30161f0"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/50caccc5b064063595b2da0be52cac3e11b7335213713f3b181029ecff3ecdd5/ledger.json",
+      "sha256": "406a6a2738884ef455aaec02f9780f8fbd44f83f271ab0ead3583b295c9d5e55"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/643e6ef2e4d42b9d7ce1540d406ec344bffc24ff6c0e9c4600c840266778181e/ledger.json",
+      "sha256": "ec5abd96c4727ac41f1992efeb75df89d73a5aec24547dfd85b8d61175e0e9db"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/r0_r3_caller_20261020/private_root_a_d5_repair_20261020_02/performance/research_trial/dae1ecf5882937aec8ac473d67041a0c766b08e71c7b962b47cb89601e5a00f5/ledger.json",
+      "sha256": "54dad0b9fe66a585e7dd0e3f5465b5010961941f5b553473760bae1a365713aa"
+    },
+    {
+      "path": "/Users/lisiyi/Documents/Codex/2026-10-20/qsl-b5-kernel-20261020/work/m1_private_fee_reserve_v1_d5_20261021_01/performance/research_trial/d8be4ddf7892126a24adf0aa43423a5a6cc85c44cc0a9b6836f6703bb97a4ae0/started.json",
+      "sha256": "7e2ae69c4579b4b3d97ae0e272e3dc53cdc5601c494f147d6a329a43f1ae12a3"
+    }
+  ],
+  "m2_protocol_unchanged": [
+    {
+      "id": "p-protocol",
+      "path": "/Users/lisiyi/Projects/_worktrees/ues-m2-protocol-20261022/docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.json",
+      "sha256": "7d10f4c3af1aaa0e640d795f300be4915685a9bb78e6d570969d8afee24a31db",
+      "lines": 491,
+      "numbered_copy": "p-protocol.txt"
+    }
+  ],
+  "r_math_03_audit": {
+    "path": "/Users/lisiyi/Projects/UsEquityStrategies/out/R-MATH-03-evidence/native-audit.json",
+    "sha256": "b756164e55bbb06d027f3ff46fec5eccfb920d5f4ef13449334da3392798d0e3"
+  },
+  "registry_sha256": "8e58f27e9eaef1e7da2e46b540d92d12c5fdd52196eedf94ba707721df6b340d",
+  "trial_execution": false,
+  "returns_recomputed": false,
+  "note": "Native bytes match prior R-MATH-03 audit; this does not attest complete cumulative history."
+}
