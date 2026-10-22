@@ -1475,6 +1475,9 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
     core_only = params.get('core_only_source_binding') is not None
     mechanism = params.get('r1_mechanism_policy')
     fee_reserve = params.get('r1_fee_reserve_policy')
+    fixed = params.get('fixed_exposure_analysis')
+    if fixed is not None and (tuple(train) != tuple(indices[:63]) or list(evaluate) != list(indices[63:])):
+        raise ValueError('UNAVAILABLE_FIXED_ALIGNMENT_PREFIX')
     requires_b4 = not core_only or mechanism is not None
     if not requires_b4:
         sigma = shrinkage = None
@@ -1550,13 +1553,16 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                 f = params['original_outer_f'][k]
                 if row_id == 'R1_B4_ONLY':
                     f = 0. if b4_targets[j] is None else b4_targets[j][_R0_R3_CORES.index(k)]
+                if fixed is not None:
+                    f = _fixed_exposure_protocol()['arms'][row_id]
                 merged = SecurityNettingSpec(bps_per_side={s: 5. for s in universe},
                     outer_cash_mode='merge_into_security', outer_cash_symbol='BOXX', cash_like_symbols=('BOXX',))
                 target, _ = compose_security_targets(f=f, inner_weights=inner, spec=merged)
+                composed = dict(target) if fixed is not None else None
                 # Prior-only means no model target and unchanged cash-only book,
                 # rather than an invented, fully invested BOXX parking trade.
                 parked = row_id == 'R1_B4_ONLY' and b4_targets[j] is None
-                terminal_zero = mechanism is not None and j + 1 == len(evaluate)
+                terminal_zero = (mechanism is not None or fixed is not None) and j + 1 == len(evaluate)
                 target = {s: 0. if parked or terminal_zero else target.get(s, 0.) for s in universe}
                 if fee_reserve is not None:
                     target, reserve = _r1_prefee_proportional_reserve(target)
@@ -1564,6 +1570,11 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                         prior_only=parked, terminal_zero=terminal_zero,
                         decision_session=calendar[j].isoformat())
                     reserve_evidence.append(reserve)
+                elif fixed is not None:
+                    target, reserve = _r1_prefee_proportional_reserve(target)
+                    reserve_evidence.append({'fixed_f': f, 'inner_weights': dict(inner),
+                        'composed_target': composed, 'target': dict(target), 'reserve': reserve,
+                        'terminal_zero': terminal_zero, 'decision_session': calendar[j].isoformat()})
                 d, fill = calendar[j:j + 2]
                 if core_only:
                     info = RS04DecisionInput(d, fill, close(d), close(fill), close(d),
@@ -1598,6 +1609,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
                 report_periods_per_year=252, rs04_research_policy=policy)
             if fee_reserve is not None:
                 cells[row_id + ':' + k]['r1_fee_reserve'] = reserve_evidence
+            elif fixed is not None:
+                cells[row_id + ':' + k]['fixed_exposure_trace'] = reserve_evidence
     return {'cells': cells, 'opening_books': openings, 'training': {
         'sessions': [sessions[i].isoformat() for i in train], 'count': 63,
         'sigma': sigma, 'shrinkage': shrinkage, 'identity': training_id,
@@ -1605,6 +1618,228 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
         'evaluation_sessions': [sessions[i].isoformat() for i in evaluate],
         'model_decisions': model_decisions, 'checkpoint': state_to_dict(state) if requires_b4 else None,
         'requested_sessions': [sessions[i].isoformat() for i in indices]}
+
+
+def _r0_r3_turnover_context(context, started, params):
+    """Validate opt-in fixture declarations, never attest a trusted producer."""
+    import json
+    from .security_netting_runner import _rs04_time
+
+    def require(ok):
+        if not ok:
+            raise ValueError('TURNOVER_CONTEXT_INVALID')
+
+    require(type(context) is dict and set(context) == {'schema', 'source_revision', 'input_id',
+        'currency', 'notional_unit', 'clock', 'time_basis', 'calendar', 'decisions'})
+    require(started.synthetic is True and context['schema'] == 'qsl.research.turnover_context.v1'
+        and context['source_revision'] == started.source_revision and context['input_id'] == started.input_id
+        and context['currency'] == params['source']['manifest_metadata']['currency'] == 'USD'
+        and context['notional_unit'] == 'INITIAL_NAV_UNITS' and context['clock'] == 'MODEL_NEXT_CLOSE'
+        and context['time_basis'] == 'DECLARED_FIXTURE_NOT_AUTHENTICATED')
+    calendar = context['calendar']
+    require(type(calendar) is list and len(calendar) >= 2 and all(type(v) is str for v in calendar))
+    parsed = [date.fromisoformat(v) for v in calendar]
+    require(all(a < b for a, b in zip(parsed, parsed[1:]))
+        and calendar[0] == params['requested_window'][0] and calendar[-1] == params['requested_window'][1])
+    require(type(context['decisions']) is list and bool(context['decisions']))
+    previous = None
+    for row in context['decisions']:
+        require(type(row) is dict and set(row) == {'decision_session', 'fill_session', 'decision_cutoff',
+            'input_event_at', 'input_known_at', 'input_persisted_at', 'input_prefix_sha256', 'input_version',
+            'mark_at', 'mark_known_at', 'mark_persisted_at', 'execution_observed_at', 'execution_cutoff'})
+        require(type(row['input_version']) is int and row['input_version'] == 1)
+        prefix = row['input_prefix_sha256']
+        require(prefix is None or type(prefix) is str and len(prefix) == 64
+            and all(c in '0123456789abcdef' for c in prefix))
+        d, fill = row['decision_session'], row['fill_session']
+        require(type(d) is str and d in calendar[:-1] and calendar[calendar.index(d) + 1] == fill
+            and (previous is None or previous < d))
+        previous = d
+        try:
+            t = {k: _rs04_time(row[k]) for k in ('input_event_at', 'input_known_at', 'input_persisted_at',
+                'decision_cutoff', 'mark_at', 'mark_known_at', 'mark_persisted_at', 'execution_observed_at', 'execution_cutoff')}
+        except (TypeError, ValueError):
+            raise ValueError('TURNOVER_TIME_INVALID') from None
+        require(t['input_event_at'].date().isoformat() <= d
+            and t['decision_cutoff'].date().isoformat() == d and t['mark_at'].date().isoformat() == fill
+            and t['input_event_at'] <= t['input_known_at'] <= t['input_persisted_at'] <= t['decision_cutoff']
+            < t['mark_at'] <= t['mark_known_at'] <= t['mark_persisted_at']
+            <= t['execution_observed_at'] <= t['execution_cutoff'])
+    return json.loads(_r0_r3_json(context))
+
+
+def _r0_r3_turnover_evidence(started, params, output, context):
+    """Preserve original netter facts; no fee inversion or economic replay."""
+    from .security_netting_runner import _rs04_time
+
+    def require(ok):
+        if not ok:
+            raise ValueError('TURNOVER_NATIVE_FACT_MISMATCH')
+
+    def number(value):
+        return _number(value, 'TURNOVER_NUMBER_INVALID')
+
+    def same_number(left, right):
+        left, right = number(left), number(right)
+        return abs(left - right) <= 16 * math.ulp(max(abs(left), abs(right)))
+
+    require(context['calendar'] == output['requested_sessions'])
+    times = {r['decision_session']: r for r in context['decisions']}
+    prefixes = {r['session']: r['source_prefix_sha256'] for r in output['model_decisions']}
+    cells = {}
+    for cell, packet in output['cells'].items():
+        profile = cell.split(':')[-1]
+        symbols = {'TQQQ': {'TQQQ', 'QQQM', 'BOXX'}, 'SOXL': {'SOXL', 'SOXX', 'BOXX'}}.get(profile)
+        require(symbols is not None and set(packet['spec']['bps_per_side']) == symbols
+            and all(type(v) in (int, float) and v == 5 for v in packet['spec']['bps_per_side'].values())
+            and packet['spec']['multiplier'] == 1 and type(packet['spec']['multiplier']) in (int, float)
+            and packet['target_basis'] == 'pre_fee_nav_cash_funded' and number(packet['initial_nav']) == 1.
+            and packet['fill_convention'] == 'prior_decision_close_fill_after_held_book_return')
+        native, decisions = packet['ledger'], packet['rs04_research']['decisions']
+        require(type(native) is list and type(decisions) is list
+            and all(type(row) is dict and 'decision_session' in row for row in native)
+            and packet['rs04_research']['mode'] in ('FULL', 'PROPORTIONAL', 'BAND_HOLD')
+            and len(native) == len(decisions) == len(times)
+            and [r['decision_session'] for r in native] == list(times))
+        saved = []
+        for row, receipt in zip(native, decisions):
+            require(type(row) is dict and {'decision_session', 'session', 'nav_pre_trade', 'fees',
+                'net_trades', 'fee_by_security', 'security_pre', 'security_end', 'net_security_turnover',
+                'nav_start', 'nav_end', 'security_pnl', 'outer_cash_pnl'} <= set(row))
+            t = times[row['decision_session']]
+            require(row['session'] == t['fill_session']
+                and receipt['snapshot']['completed_session'] == row['decision_session']
+                and receipt['original_policy']['source_identity'] == params['source']['identity_packet_sha256']
+                and receipt['original_policy']['code_sha256'] == _r0_r3_sha(params['implementation_sha256'])
+                and receipt['decision']['decision_session'] == row['decision_session']
+                and receipt['decision']['status'] == 'ACCEPTED'
+                and type(receipt['decision']['reason']) is str and bool(receipt['decision']['reason'])
+                and _rs04_time(receipt['decision']['cutoff']) == _rs04_time(t['decision_cutoff'])
+                and receipt['decision']['mode'] == packet['rs04_research']['mode']
+                and _rs04_time(receipt['full_target_available_at']) <= _rs04_time(t['decision_cutoff'])
+                and t['input_prefix_sha256'] == prefixes.get(row['decision_session']))
+            nav, fees = number(row['nav_pre_trade']), number(row['fees'])
+            require(nav > 0 and fees >= 0 and all(type(row[k]) is dict and set(row[k]) == symbols
+                for k in ('net_trades', 'fee_by_security', 'security_pre', 'security_end')))
+            trades = {s: number(row['net_trades'][s]) for s in sorted(symbols)}
+            fee_map = {s: number(row['fee_by_security'][s]) for s in sorted(symbols)}
+            for s in symbols:
+                require(fee_map[s] >= 0 and same_number(fee_map[s], abs(trades[s]) * .0005)
+                    and number(row['security_pre'][s]) >= 0 and number(row['security_end'][s]) >= 0
+                    and same_number(row['security_pre'][s] + trades[s], row['security_end'][s]))
+            turnover = number(math.fsum(abs(v) for v in trades.values()) / nav)
+            require(same_number(fees, math.fsum(fee_map.values()))
+                and same_number(turnover, row['net_security_turnover'])
+                and same_number(row['nav_end'], nav - fees)
+                and same_number(nav, number(row['nav_start']) + math.fsum(number(v) for v in row['security_pnl'].values())
+                    + number(row['outer_cash_pnl'])))
+            kind = receipt['decision']['kind']
+            require(kind in ('TARGET_WEIGHTS', 'HOLD_POSITIONS'))
+            if kind == 'HOLD_POSITIONS':
+                require(not any(trades.values()) and fees == 0 and turnover == 0
+                    and row['security_pre'] == row['security_end'])
+            saved.append({'decision_session': row['decision_session'], 'fill_session': row['session'],
+                'NAV_pretrade': nav, 'net_notional': trades, 'fee_by_security': fee_map, 'fees': fees,
+                'turnover': turnover, 'mode': packet['rs04_research']['mode'], 'decision_kind': kind,
+                'decision_status': receipt['decision']['status'], 'decision_reason': receipt['decision']['reason'],
+                'times': dict(t), 'input_prefix_status': 'AVAILABLE_MODEL_STATE_HASH' if prefixes else 'UNAVAILABLE',
+                'input_prefix_reason': None if prefixes else 'NATIVE_CORE_PREFIX_NOT_PRODUCED'})
+        cells[cell] = saved
+    return {**_r0_r3_turnover_metadata(started, context, output.get('derived_run_id', started.trial_id)),
+        'cells': cells}
+
+
+def _r0_r3_turnover_metadata(started, context, run_id):
+    return {'schema': 'qsl.research.turnover_evidence.v1', 'status': 'AVAILABLE_MODEL_EVIDENCE_NOT_PIT',
+        'trial_id': started.trial_id, 'run_id': run_id,
+        'source_revision': started.source_revision, 'input_id': started.input_id,
+        'economic_fingerprint': started.param_set_id, 'context_sha256': _r0_r3_sha(context),
+        'context': context, 'currency': 'USD', 'notional_unit': 'INITIAL_NAV_UNITS',
+        'NAV_stage': 'AFTER_OLD_HOLDING_RETURN_BEFORE_CURRENT_FEE',
+        'turnover_definition': 'sum(abs(per_security_NET_notional))/OWN_same_stage_NAV_pretrade',
+        'time_basis': context['time_basis'], 'calendar_basis': 'DECLARED_FIXTURE_CALENDAR_NOT_EXCHANGE_ATTESTED',
+        'quantity_price': {'status': 'UNAVAILABLE', 'reason': 'RETURN_INDEX_ACCOUNTING_NOT_BROKER_EXECUTIONS'},
+        'financial': 'NOT_READY', 'PIT': 'NOT_ATTESTED', 'no_order': True}
+
+
+def _r0_r3_saved_turnover_evidence(evidence, terminal, context, native_cells):
+    """Check saved facts against their contract and already-loaded native books.
+
+    No model, netter, input callback or ledger reconstruction is invoked. These
+    checks establish local contract/accounting consistency, not source truth or
+    protection against coordinated rewriting of all evidence and native books.
+    """
+    expected = _r0_r3_turnover_metadata(terminal, context, terminal.run_id)
+
+    def require(ok):
+        if not ok:
+            raise ValueError('TURNOVER_SAVED_FACT_INVALID')
+
+    def same(left, right):
+        left, right = _number(left, 'TURNOVER_NUMBER_INVALID'), _number(right, 'TURNOVER_NUMBER_INVALID')
+        return abs(left - right) <= 16 * math.ulp(max(abs(left), abs(right)))
+
+    try:
+        require(type(evidence) is dict and set(evidence) == set(expected) | {'cells'})
+        require(_r0_r3_json({k: evidence[k] for k in expected}) == _r0_r3_json(expected))
+        require(type(evidence['cells']) is dict and set(evidence['cells']) == set(native_cells))
+        row_keys = {'decision_session', 'fill_session', 'NAV_pretrade', 'net_notional',
+            'fee_by_security', 'fees', 'turnover', 'mode', 'decision_kind', 'decision_status',
+            'decision_reason', 'times', 'input_prefix_status', 'input_prefix_reason'}
+        for cell, rows in evidence['cells'].items():
+            profile = cell.split(':')[-1]
+            symbols = {'TQQQ': {'TQQQ', 'QQQM', 'BOXX'}, 'SOXL': {'SOXL', 'SOXX', 'BOXX'}}[profile]
+            mode = {'R2_B5_HALF_ONLY': 'PROPORTIONAL', 'R3_B5_BAND_ONLY': 'BAND_HOLD'}.get(cell.split(':')[0], 'FULL')
+            ledger = native_cells[cell]
+            require(ledger['trial_id'] == terminal.trial_id and ledger['run_id'] == terminal.run_id
+                and ledger['input_id'] == terminal.input_id and ledger['synthetic'] is True
+                and ledger['domain'] == terminal.domain
+                and ledger['strategy_profile'] == terminal.strategy_profile + '__' + cell.replace(':', '__')
+                and ledger['calendar_id'] == terminal.calendar_id and ledger['cost_source'] == terminal.cost_source
+                and type(ledger['param_version']) is int and ledger['param_version'] == 1
+                and _r0_r3_json(ledger['cost_inputs']) == _r0_r3_json({'per_side_bps': 5.}))
+            days = {day['session_date']: day for day in ledger['days']}
+            require(type(rows) is list and len(rows) == len(context['decisions']))
+            for row, times in zip(rows, context['decisions']):
+                require(type(row) is dict and set(row) == row_keys
+                    and row['decision_session'] == times['decision_session']
+                    and row['fill_session'] == times['fill_session']
+                    and _r0_r3_json(row['times']) == _r0_r3_json(times)
+                    and row['mode'] == mode and row['decision_status'] == 'ACCEPTED')
+                prefix = times['input_prefix_sha256']
+                require(row['input_prefix_status'] == ('AVAILABLE_MODEL_STATE_HASH' if prefix else 'UNAVAILABLE')
+                    and row['input_prefix_reason'] == (None if prefix else 'NATIVE_CORE_PREFIX_NOT_PRODUCED'))
+                reason, kind = row['decision_reason'], row['decision_kind']
+                reasons = {'FULL': {'FULL_TARGET', 'MANDATORY_REDUCTION'},
+                    'PROPORTIONAL': {'FULL_TARGET', 'PROPORTIONAL_DECISION_GAP', 'MANDATORY_REDUCTION', 'ZERO_LAMBDA_HOLD'},
+                    'BAND_HOLD': {'FULL_TARGET', 'MANDATORY_REDUCTION', 'WITHIN_BAND_HOLD'}}[mode]
+                require(type(reason) is str and reason in reasons
+                    and kind == ('HOLD_POSITIONS' if reason in {'ZERO_LAMBDA_HOLD', 'WITHIN_BAND_HOLD'} else 'TARGET_WEIGHTS'))
+                require(all(type(row[k]) is dict and set(row[k]) == symbols for k in ('net_notional', 'fee_by_security')))
+                nav = _number(row['NAV_pretrade'], 'TURNOVER_NUMBER_INVALID')
+                fees = _number(row['fees'], 'TURNOVER_NUMBER_INVALID')
+                turnover = _number(row['turnover'], 'TURNOVER_NUMBER_INVALID')
+                require(nav > 0 and fees >= 0 and turnover >= 0)
+                trades = [_number(v, 'TURNOVER_NUMBER_INVALID') for v in row['net_notional'].values()]
+                for symbol in symbols:
+                    fee = _number(row['fee_by_security'][symbol], 'TURNOVER_NUMBER_INVALID')
+                    require(fee >= 0 and same(fee, abs(row['net_notional'][symbol]) * .0005))
+                require(same(turnover, math.fsum(abs(v) for v in trades) / nav)
+                    and same(fees, math.fsum(row['fee_by_security'].values())))
+                # These books are already parsed by PerformanceStore on resume.
+                # Compare recorded accounting facts; never derive trades from
+                # price/quantity changes or infer turnover from fees/cashflow.
+                day = days[row['fill_session']]
+                require(same(fees, day['fees']) and same(nav, day['nav'] + day['fees'])
+                    and same(math.fsum(trades), -day['trade_net_cashflow']))
+                if kind == 'HOLD_POSITIONS':
+                    require(not any(trades) and fees == 0 and turnover == 0)
+        return evidence
+    except (ValueError, TypeError, KeyError, OverflowError):
+        # Do not return damaged cells or turn missing/unknown facts into zeros.
+        identity = {k: expected[k] for k in ('context_sha256', 'trial_id', 'run_id',
+            'source_revision', 'input_id', 'economic_fingerprint')}
+        return {**identity, 'status': 'UNAVAILABLE', 'reason': 'SAVED_TURNOVER_EVIDENCE_INVALID'}
 
 
 def _r0_r3_persist_cells(started: Any, params: dict[str, Any], output: dict[str, Any], store: Any):
@@ -1650,10 +1885,18 @@ def _r0_r3_persist_cells(started: Any, params: dict[str, Any], output: dict[str,
             raise ValueError('BATCH_CELL_LEDGER_READBACK_FAILED')
         cell_ledgers.append((cell, ledger))
     aggregate_days, previous_nav = [], float(len(cell_ledgers))
+    def audit_symbol(cell, symbol):
+        if params.get('fixed_exposure_analysis') is not None:
+            arm, profile = cell.split(':')
+            # Diagnostic book namespace, not a broker security. Full arm IDs
+            # remain in per-cell ledgers; QPK position symbols have a32-char cap.
+            return {'C_FIXED_F100_COMMON_RESERVE':'CF100',
+                'C_FIXED_F025_COMMON_RESERVE':'CF025'}[arm]+'_'+profile+'_'+symbol
+        return cell.replace(':','_')+'_'+symbol
     for i, d in enumerate(dates[1:]):
         days = [(cell, ledger.days[i]) for cell, ledger in cell_ledgers]
         nav = math.fsum(day.nav for _, day in days)
-        positions = tuple(ResearchPositionMark(cell.replace(':', '_') + '_' + p.symbol,
+        positions = tuple(ResearchPositionMark(audit_symbol(cell,p.symbol),
                                                p.quantity, p.valuation)
                           for cell, day in days for p in day.positions)
         aggregate_days.append(ResearchLedgerDay(d, math.fsum(day.cash for _, day in days), positions,
@@ -1672,6 +1915,372 @@ def _r0_r3_persist_cells(started: Any, params: dict[str, Any], output: dict[str,
     return result, ledger
 
 
+def _fixed_exposure_protocol():
+    """One closed research comparison, not arbitrary exposure configuration."""
+    return {'schema': 'qsl.research.fixed_exposure_analysis.v1',
+        'analysis_id': 'FIXED_F100_F025_COMMON_RESERVE_V1',
+        'arms': {'C_FIXED_F100_COMMON_RESERVE': 1.0, 'C_FIXED_F025_COMMON_RESERVE': .25},
+        'reserve_rule_sha256': _R1_FEE_RESERVE_POLICY_SHA256,
+        'capital_basis': 'OWN_PRE_FEE_NAV', 'cost_bps_per_side': 5.0, 'true_cash_return': 0.0,
+        'terminal': 'EXISTING_FINAL_CLOSE_ZERO_ALL_SECURITIES', 'scope': 'DEVELOPMENT_RETROSPECTIVE_ONLY'}
+
+
+def _fixed_exposure_metrics(rows):
+    """Statistics of already-produced native rows, never a trading replay."""
+    from .cvar_exposure_constraint import weighted_cvar
+
+    def require(ok):
+        if not ok:
+            raise ValueError('FIXED_SUMMARY_FACT_INVALID')
+
+    def number(v):
+        return _number(v, 'FIXED_SUMMARY_NUMBER_INVALID')
+
+    def same(a, b):
+        a, b = number(a), number(b)
+        return abs(a-b) <= 32 * math.ulp(max(abs(a), abs(b)))
+
+    require(type(rows) is list and bool(rows))
+    returns, turns, fees, fee_days, exposure = [], [], [], [], {}
+    previous, peak, mdd = 1., 1., 0.
+    keys = {'session', 'decision_session', 'NAV_pretrade', 'NAV_end', 'net_return',
+        'net_notional', 'fee_by_security', 'fees', 'turnover', 'security_end', 'true_cash_end'}
+    for row in rows:
+        require(type(row) is dict and set(row) == keys)
+        require(type(row['session']) is str and type(row['decision_session']) is str
+            and date.fromisoformat(row['decision_session']) < date.fromisoformat(row['session'])
+            and (not returns or row['decision_session']==rows[len(returns)-1]['session']))
+        nav, pre, fee, cash = map(number, (row['NAV_end'],row['NAV_pretrade'],row['fees'],row['true_cash_end']))
+        require(nav > 0 and pre > 0 and fee >= 0 and cash >= 0)
+        symbols = set(row['net_notional'])
+        require(symbols in ({'TQQQ','QQQM','BOXX'}, {'SOXL','SOXX','BOXX'})
+            and all(type(row[k]) is dict and set(row[k]) == symbols for k in ('net_notional','fee_by_security','security_end')))
+        trades = {s:number(v) for s,v in row['net_notional'].items()}
+        values = {s:number(v) for s,v in row['security_end'].items()}
+        require(all(v>=0 for v in values.values()))
+        require(all(number(row['fee_by_security'][s])>=0 and same(row['fee_by_security'][s],abs(trades[s])*.0005) for s in symbols))
+        turn = number(row['turnover']); ret = number(row['net_return'])
+        require(turn>=0 and ret>-1 and same(turn,math.fsum(abs(v) for v in trades.values())/pre)
+            and same(fee,math.fsum(row['fee_by_security'].values())) and same(nav,pre-fee)
+            and same(nav,math.fsum(values.values())+cash) and same(ret,nav/previous-1))
+        returns.append(ret);turns.append(turn);fees.append(fee)
+        if fee>0:fee_days.append(row['session'])
+        group = {s:v/nav for s,v in values.items()}
+        group.update(non_BOXX=math.fsum(v for s,v in values.items() if s!='BOXX')/nav, true_cash=cash/nav)
+        for s,v in group.items():exposure.setdefault(s,[]).append(v)
+        peak=max(peak,nav);mdd=max(mdd,1-nav/peak);previous=nav
+    n=len(rows)
+    return {'observations':n,'evaluation_start':rows[0]['session'],'evaluation_end':rows[-1]['session'],
+        'initial_NAV':1.0,'final_NAV':previous,'cumulative_net_log_growth':math.fsum(math.log1p(r) for r in returns),
+        'max_drawdown_fraction':mdd,'daily_net_loss_ES95':weighted_cvar([-r for r in returns],[1/n]*n,.95),
+        'turnover_sum':math.fsum(turns),'turnover_mean':math.fsum(turns)/n,
+        'fees_initial_NAV_units':math.fsum(fees),'fee_charged_sessions':fee_days,
+        'mean_peak_exposure':{s:{'mean':math.fsum(v)/n,'peak':max(v)} for s,v in exposure.items()}}
+
+
+def _fixed_exposure_summary(record, params, body_sha256, facts, *, run_id=None):
+    expected={a+':'+p for a in _fixed_exposure_protocol()['arms'] for p in _R0_R3_CORES}
+    if type(facts) is not dict or set(facts)!=expected:
+        raise ValueError('FIXED_SUMMARY_CELLS_INVALID')
+    for cell,rows in facts.items():
+        symbols={'TQQQ':{'TQQQ','QQQM','BOXX'},'SOXL':{'SOXL','SOXX','BOXX'}}[cell.split(':')[-1]]
+        if type(rows) is not list or any(type(r) is not dict or type(r.get('net_notional')) is not dict
+                or set(r['net_notional'])!=symbols for r in rows):
+            raise ValueError('FIXED_SUMMARY_SYMBOLS_INVALID')
+    return {'schema':'qsl.research.fixed_exposure_summary.v1',
+        'status':'AVAILABLE_NATIVE_FIXED_EXPOSURE_SUMMARY_NOT_PIT','trial_id':record.trial_id,
+        'run_id':run_id or record.run_id or record.trial_id,'source_revision':record.source_revision,'input_id':record.input_id,
+        'economic_fingerprint':record.param_set_id,'analysis_sha256':_r0_r3_sha(params['fixed_exposure_analysis']),
+        'canonical_body_sha256':body_sha256,'alignment_prefix_sessions':63,'estimator_fits':0,
+        'units':'INITIAL_NAV_UNITS; TURNOVER=sum(abs(security_NET_notional))/OWN_pretrade_NAV',
+        'exposure_basis':'POST_FEE_CLOSE_NAV_FRACTION; BOXX_IS_A_SECURITY; TRUE_CASH_RETURN_0',
+        'time_basis':'ASSUMED_MODEL_NEXT_CLOSE_NOT_AUTHENTICATED_FIRST_SEEN',
+        'financial':'NOT_READY','PIT':'NOT_ATTESTED','OOS':'SEEN_DEVELOPMENT_NOT_INDEPENDENT',
+        'adoption':'UNKNOWN','fullchain':'NOT_CLOSED','no_order':True,'post_fee_cap_certified':False,
+        'joint_CVaR_consumed':False,
+        'quantity_price':'UNKNOWN_RETURN_INDEX_ACCOUNTING_NOT_BROKER_FILLS',
+        'cells':{c:{'native_facts':rows,'metrics':_fixed_exposure_metrics(rows)} for c,rows in facts.items()}}
+
+
+def _fixed_exposure_saved_summary(summary, terminal, params, body_sha256, native_cells):
+    """Validate private summary and saved native books; no economic recompute."""
+    try:
+        if type(summary) is not dict or type(summary.get('cells')) is not dict:
+            raise ValueError('FIXED_SUMMARY_MISSING')
+        facts={c:v['native_facts'] for c,v in summary['cells'].items()}
+        expected=_fixed_exposure_summary(terminal,params,body_sha256,facts)
+        if _r0_r3_json(expected)!=_r0_r3_json(summary) or set(facts)!=set(native_cells):
+            raise ValueError('FIXED_SUMMARY_IDENTITY_OR_METRIC_INVALID')
+        for cell,rows in facts.items():
+            ledger=native_cells[cell];days=ledger['days'][62:]
+            if (ledger['trial_id']!=terminal.trial_id or ledger['run_id']!=terminal.run_id
+                    or ledger['input_id']!=terminal.input_id or ledger['synthetic'] is not terminal.synthetic
+                    or ledger['strategy_profile']!=terminal.strategy_profile+'__'+cell.replace(':','__')
+                    or ledger['cost_source']!=terminal.cost_source
+                    or _r0_r3_json(ledger['cost_inputs'])!=_r0_r3_json({'per_side_bps':5.})):
+                raise ValueError('FIXED_SUMMARY_NATIVE_IDENTITY_MISMATCH')
+            if len(rows)!=len(days):raise ValueError('FIXED_SUMMARY_COUNT_INVALID')
+            calendar=[ledger['initial_session_date']]+[d['session_date'] for d in ledger['days']]
+            for i,(row,day) in enumerate(zip(rows,days)):
+                positions={p['symbol']:p['valuation'] for p in day['positions']}
+                values=[(row['NAV_end'],day['nav']),(row['fees'],day['fees']),
+                    (row['NAV_pretrade'],day['nav']+day['fees']),(row['true_cash_end'],day['cash']),
+                    (math.fsum(row['net_notional'].values()),-day['trade_net_cashflow']),
+                    (row['net_return'],day['daily_return'])]
+                values.extend((v,positions.get(s,0.)) for s,v in row['security_end'].items())
+                if (row['session']!=day['session_date'] or row['decision_session']!=calendar[62+i]
+                        or any(abs(a-b)>32*math.ulp(max(abs(a),abs(b))) for a,b in values)):
+                    raise ValueError('FIXED_SUMMARY_NATIVE_BOOK_MISMATCH')
+        return summary
+    except (ValueError,TypeError,KeyError,OverflowError):
+        return {'status':'UNAVAILABLE','reason':'FIXED_SUMMARY_MISSING_OR_INVALID_NO_RECOMPUTE'}
+
+
+def _rs04_q18_read(path):
+    import json
+
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise ValueError('Q18_DUPLICATE_KEY')
+            value[key]=item
+        return value
+
+    if path.is_symlink():raise ValueError('Q18_LINK')
+    raw=path.read_bytes();value=json.loads(raw,object_pairs_hook=unique)
+    if (type(value) is not dict or 'content_sha256' not in value
+            or value['content_sha256']!=_r0_r3_sha({k:v for k,v in value.items() if k!='content_sha256'})):
+        raise ValueError('Q18_CHECKPOINT_INVALID')
+    return value,raw
+
+
+def _rs04_q18_save(path,value,previous=None):
+    """One caller-owned checkpoint, durable before submit; no generic Store claim."""
+    import os
+
+    body={k:v for k,v in value.items() if k!='content_sha256'}
+    raw=_r0_r3_json(body|{'content_sha256':_r0_r3_sha(body)}).encode()
+    pending=path.with_name(path.name+'.pending')
+    if os.path.lexists(pending):raise ValueError('Q18_WRITE_UNKNOWN')
+    target=path if previous is None else pending
+    if previous is not None and path.read_bytes()!=previous:raise ValueError('Q18_CHECKPOINT_CONFLICT')
+    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'wb') as handle:
+        handle.write(raw);handle.flush();os.fsync(handle.fileno())
+    if target.read_bytes()!=raw:raise ValueError('Q18_WRITE_UNKNOWN')
+    if previous is not None:
+        if path.read_bytes()!=previous:raise ValueError('Q18_CHECKPOINT_CONFLICT')
+        os.replace(pending,path)
+    directory=os.open(path.parent,os.O_RDONLY)
+    try:os.fsync(directory)
+    finally:os.close(directory)
+    if path.read_bytes()!=raw:raise ValueError('Q18_WRITE_UNKNOWN')
+    return raw
+
+
+def _r0_r3_q18_summary(result,store,options):
+    """Explicit synthetic metadata-only seam; research state is never an AI claim.
+
+    The caller keeps its existing single-writer exclusion and supplies an actual
+    B4 moment plus a preinjected client. No environment route or prediction is
+    created here. One checkpoint directory belongs to one immutable identity.
+    """
+    import json
+
+    absent={'status':'unavailable','text':'','provider':'','model':''}
+    try:
+        trial=result['trial']
+        if (type(options) is not dict or set(options)!={'report','moments','checkpoint_dir','client','repository'}
+                or trial['synthetic'] is not True or trial['status']!='succeeded'
+                or result['status']!='succeeded' or options['report'] is None or options['moments'] is None):
+            return absent
+        from dataclasses import asdict
+        from pathlib import Path
+        import hashlib
+        import os
+        import sys
+        from .bayesian_kelly import B4Moments,SIMPLE_RETURN_UNIT
+        from quant_platform_kit.strategy_lifecycle import ai_provider,research_summary
+        from quant_platform_kit.strategy_lifecycle.ai_provider import AiServiceClient
+
+        client=options['client'];moments=options['moments'];params=trial['actual_params']
+        if (type(client) is not AiServiceClient or client._task_client is None or client.config.primary is None
+                or type(moments) is not B4Moments or type(moments.n) is not int or moments.n<0
+                or moments.core_ids!=_R0_R3_CORES or moments.unit!=SIMPLE_RETURN_UNIT
+                or moments.status!=('PRIOR_ONLY' if moments.n==0 else 'AVAILABLE')
+                or type(moments.source_prefix_sha256) is not str or len(moments.source_prefix_sha256)!=64
+                or any(c not in '0123456789abcdef' for c in moments.source_prefix_sha256)
+                or type(options['repository']) is not str or not options['repository'].strip()
+                or store.local_root is None or store.cloud_bucket or store.cloud_prefix
+                or store.project_id is not None or store.client_factory is not None):
+            return absent
+        canonical=params['input_body_sha256']
+        role='canonical_body' if canonical is not None else 'source_registration'
+        registration=None if canonical is not None else _r0_r3_sha(params['input_source_registration'])
+        body=canonical if canonical is not None else result.get('derived_input_body_sha256')
+        if (type(body) is not str or len(body)!=64
+                or trial['input_id']!='sha256:'+(canonical if canonical is not None else registration)
+                or type(trial['param_version']) is not int or trial['param_version']<1
+                or result['fingerprint']!=_r0_r3_sha(params)
+                or trial['param_set_id']!='sha256:'+result['fingerprint']):return absent
+        fields=('trial_id','domain','strategy_profile','run_id','source_revision','input_id',
+            'param_set_id','param_version','synthetic')
+        qualifications=('status','financial','adoption','productionbuild','fullchain','PIT','OOS',
+            'promotion','live_ready','no_order')
+        report={'trial':{**{k:trial[k] for k in fields},'status':'SUCCEEDED'},
+            'fingerprint':result['fingerprint'],'input_identity_role':role,
+            'qualifications':{k:result[k] for k in qualifications}}
+        if (any(type(trial[k]) is not str or not trial[k] for k in fields if k not in ('param_version','synthetic'))
+                or result['financial']!='NOT_READY' or result['adoption']!='UNKNOWN'
+                or result['PIT']!='NOT_ATTESTED' or result['live_ready'] is not False or result['no_order'] is not True
+                or _r0_r3_json(options['report'])!=_r0_r3_json(report)):return absent
+        terminal=store.load_research_trial(trial['domain'],trial['strategy_profile'],trial['trial_id'])
+        if terminal is None or _r0_r3_json(terminal.to_dict())!=_r0_r3_json(trial):return absent
+        expected={row+':'+core for row in params.get('active_rows',R0_R3_ROWS) for core in _R0_R3_CORES}
+        if type(result['subresults']) is not dict or set(result['subresults'])!=expected:return absent
+        for cell,ledger in result['subresults'].items():
+            if (ledger['trial_id']!=trial['trial_id'] or ledger['run_id']!=trial['run_id']
+                    or ledger['input_id']!=trial['input_id'] or ledger['synthetic'] is not True
+                    or ledger['param_version']!=trial['param_version']
+                    or ledger['strategy_profile']!=trial['strategy_profile']+'__'+cell.replace(':','__')):
+                return absent
+        transport_module=sys.modules.get(type(client._task_client).__module__)
+        module_paths={'caller':Path(__file__),'summary':Path(research_summary.__file__),
+            'client':Path(ai_provider.__file__),'injected_task_client':Path(transport_module.__file__)}
+        binding={k:trial[k] for k in fields}
+        binding.update(input_identity_role=role,canonical_body_sha256=body,source_registration_sha256=registration,
+            economic_fingerprint=result['fingerprint'],report_sha256=_r0_r3_sha(report),
+            moments_sha256=_r0_r3_sha(asdict(moments)),repository=options['repository'],
+            route=asdict(client.config.primary),module_sha256={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in module_paths.items()})
+        directory=Path(options['checkpoint_dir'])
+        if (directory.is_symlink() or not directory.is_dir()
+                or directory.resolve()==Path(store.local_root).resolve()
+                or directory.resolve().parent!=Path(store.local_root).resolve().parent):return absent
+        path=directory/'rs04-q18-summary.json'
+        if os.path.lexists(path.with_name(path.name+'.pending')):return absent
+        ref={'n':moments.n,'status':moments.status,'source_prefix_sha256':moments.source_prefix_sha256,
+            'sha256':binding['moments_sha256']}
+
+        def accepted(value):
+            return (type(value) is dict and set(value)=={'status','provider','model_requested','model_verification','locales'}
+                and value['status']=='available' and type(value['provider']) is str and bool(value['provider'])
+                and value['model_requested']==client.config.primary.model
+                and value['model_verification']==('provider_reported' if client.config.primary.mode=='api' else 'unavailable')
+                and research_summary._locales({'locales':value['locales']}) is not None)
+
+        if os.path.lexists(path):
+            current,raw=_rs04_q18_read(path)
+            if (set(current)!={'schema','binding','report','moments_ref','state','execute','request','task_id','summary','content_sha256'}
+                    or current['schema']!='qsl.research.rs04.q18.synthetic_summary.v1'
+                    or _r0_r3_json(current['binding'])!=_r0_r3_json(binding)
+                    or _r0_r3_json(current['report'])!=_r0_r3_json(report)
+                    or _r0_r3_json(current['moments_ref'])!=_r0_r3_json(ref)):return absent
+            if (current['state'] not in ('KNOWN','AVAILABLE') or type(current['task_id']) is not str or not current['task_id']
+                    or type(current['execute']) is not dict or type(current['request']) is not dict
+                    or set(current['execute'])!={'prompt','timeout','idempotency_key'}
+                    or set(current['request'])!={'value','idempotency_key'}
+                    or type(current['request']['value']) is not dict
+                    or type(current['request']['idempotency_key']) is not str or not current['request']['idempotency_key']):return absent
+            execute=current['execute']
+            if (type(execute['prompt']) is not str or not execute['prompt']
+                    or type(execute['idempotency_key']) is not str or not execute['idempotency_key']
+                    or type(execute['timeout']) not in (int,float) or not math.isfinite(execute['timeout'])
+                    or not 1<=execute['timeout']<=3600):return absent
+            if current['state']=='AVAILABLE':
+                if not accepted(current['summary']):return absent
+            elif _r0_r3_json(current['summary'])!=_r0_r3_json(absent):return absent
+            fresh=False
+        else:
+            engineering=result['engineering']
+            if (type(engineering) is not dict or not engineering.get('model_decisions')
+                    or type(engineering.get('checkpoint')) is not dict
+                    or engineering['model_decisions'][-1]['n']!=moments.n
+                    or engineering['model_decisions'][-1]['source_prefix_sha256']!=moments.source_prefix_sha256
+                    or engineering['checkpoint']['prefix_sha256']!=moments.source_prefix_sha256):return absent
+            current={'schema':'qsl.research.rs04.q18.synthetic_summary.v1','binding':binding,'report':report,
+                'moments_ref':ref,'state':'UNKNOWN','execute':None,'request':None,'task_id':None,'summary':absent}
+            raw=_rs04_q18_save(path,current);current=json.loads(raw);fresh=True
+
+        write_unknown=False
+
+        def save(**changes):
+            nonlocal current,raw,write_unknown
+            try:
+                raw=_rs04_q18_save(path,current|changes,raw);current=json.loads(raw)
+            except Exception:
+                write_unknown=True
+                raise
+
+        class Tasks:
+            def submit(self,request,key):
+                if not fresh or current['task_id'] is not None or current['request'] is not None:
+                    raise ValueError('Q18_NO_RESUBMIT')
+                save(request={'value':request,'idempotency_key':key})
+                submitted=client._task_client.submit(request,key)
+                task_id=submitted['id']
+                if type(task_id) is not str or not task_id:raise ValueError('Q18_TASK_ID_INVALID')
+                save(task_id=task_id,state='KNOWN')
+                return submitted
+
+            def wait(self,task_id,**kwargs):
+                if current['task_id']!=task_id or current['request'] is None:raise ValueError('Q18_TASK_ID_DRIFT')
+                record=client._task_client.wait(task_id,**kwargs)
+                if (type(record) is not dict
+                        or _r0_r3_json(record.get('request'))!=_r0_r3_json(current['request']['value'])):
+                    raise ValueError('Q18_SAVED_REQUEST_DRIFT')
+                return record
+
+        service=AiServiceClient(client.config,task_client=Tasks())
+        observed=None
+
+        class Execute:
+            def execute(self,prompt,*,timeout,idempotency_key):
+                nonlocal observed
+                execute={'prompt':prompt,'timeout':timeout,'idempotency_key':idempotency_key}
+                if fresh:save(execute=execute)
+                else:
+                    if _r0_r3_json(current['execute'])!=_r0_r3_json(execute):raise ValueError('Q18_REQUEST_DRIFT')
+                    request=current['request']['value'];route=client.config.primary
+                    if (set(request)!={'mode','profile','model','objective','materials','output_schema','timeout_seconds'}
+                            or any(type(request[k]) is not str or request[k]!=getattr(route,k) for k in ('mode','profile','model'))
+                            or type(request['objective']) is not str or not request['objective'].endswith(prompt)
+                            or type(request['timeout_seconds']) is not int or request['timeout_seconds']!=math.ceil(timeout)
+                            or _r0_r3_json(request['materials'])!='[]'
+                            or _r0_r3_json(request['output_schema'])!=_r0_r3_json(ai_provider.REPORT_SCHEMA)):
+                        raise ValueError('Q18_REQUEST_DRIFT')
+                    # Validate the captured key with the pinned existing client's
+                    # digest formula; do not construct another prompt or request.
+                    encoded=json.dumps({'role':route.label,'request':request},sort_keys=True,allow_nan=False)
+                    key='lifecycle:'+hashlib.sha256((idempotency_key+'\n'+encoded).encode()).hexdigest()
+                    if current['request']['idempotency_key']!=key:raise ValueError('Q18_REQUEST_DRIFT')
+                observed=service.execute(prompt,timeout=timeout,idempotency_key=idempotency_key,
+                    resume_task_id=None if fresh else current['task_id'])
+                return observed
+
+        def validate_context(value):
+            if _r0_r3_json(value)!=_r0_r3_json(report):raise ValueError('Q18_REPORT_DRIFT')
+            return report
+
+        summarize=research_summary.make_summary_callback(revision=trial['source_revision'],repository=options['repository'],
+            local_facts={'scope':'ARTIFICIAL_METADATA_ONLY','no_order':True},validate_context=validate_context,client=Execute())
+        summary=summarize(report)
+        if write_unknown:return absent
+        if not fresh and current['state']=='AVAILABLE':
+            return summary if accepted(summary) and _r0_r3_json(summary)==_r0_r3_json(current['summary']) else absent
+        if accepted(summary):
+            save(state='AVAILABLE',summary=summary)
+            return summary
+        if not fresh:return absent
+        unknown=(observed is not None and type(observed.raw) is dict
+            and observed.raw.get('status')!='completed' and observed.raw.get('id')==current['task_id']
+            and type(current['task_id']) is str)
+        save(state='UNKNOWN' if current['task_id'] is None else 'KNOWN' if unknown else 'UNAVAILABLE',summary=absent)
+        return absent
+    except Exception:
+        # Ambiguous local I/O or task outcome never permits another submit.
+        return absent
+
+
 def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet_sha256: str,
     dataset_class: str, input_body_sha256: str | None, implementation_sha256: Mapping[str, str],
     policies: Mapping[str, Any] | None, original_scope_caps: Mapping[str, float] | None,
@@ -1683,7 +2292,10 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     input_source_registration: Mapping[str, Any] | None = None,
     load_source_root: Any | None = None,
     r1_mechanism_policy: Mapping[str, Any] | None = None,
-    r1_fee_reserve_policy: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    r1_fee_reserve_policy: Mapping[str, Any] | None = None,
+    turnover_evidence_context: Mapping[str, Any] | None = None,
+    fixed_exposure_analysis: Mapping[str, Any] | None = None,
+    q18_summary: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Register one frozen R0-R3 batch before loading inputs or generating models.
 
     Explicit real retrospective and artificial admissions share the same native
@@ -1697,6 +2309,9 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     The internal fixed parser runs after STARTED; source paths never enter params.
     The optional frozen mechanism record selects only two new R1 books, with
     a separately labelled research cap. Older controls are references, never run.
+    Optional turnover evidence is a separate, create-once fixture fact artifact,
+    not economic params or authenticated availability. Legacy/resumed trials
+    without this artifact remain unavailable rather than being recomputed.
     """
     import json
     from copy import deepcopy
@@ -1761,6 +2376,14 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
             r1_fee_reserve_policy_sha256=_r0_r3_sha(r1_fee_reserve_policy),
             r1_fee_reserve_numerical_policy=_R1_FEE_RESERVE_NUMERICS,
             post_fee_cap_certified=False)
+    if fixed_exposure_analysis is not None:
+        arms=list(_fixed_exposure_protocol()['arms'])
+        params.update(fixed_exposure_analysis=json.loads(_r0_r3_json(fixed_exposure_analysis)),
+            active_rows=arms,rows=arms,unavailable_cells={},c=None,
+            band=None,kappa0=None,purpose='FIXED_EXPOSURE_CONTROL_DEVELOPMENT_ANALYSIS',
+            ledger_role='ADDITIVE_AUDIT_OF_FOUR_SEPARATE_BOOKS_NOT_JOINT_ALLOCATION',
+            post_fee_cap_certified=False)
+        params['lambda']=None
     if last_close_targets is None:
         params['last_close_target_rule'] = 'SOURCE_LAST_TWO_EVALUATION_SESSIONS_ZERO_SECURITY_TARGET'
     if input_body_sha256 is None:
@@ -1772,8 +2395,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     frozen = _r0_r3_json(params)
     fingerprint = _r0_r3_sha(params)
     started = ResearchTrialRecord(trial_id=trial_id, domain='us_equity',
-        strategy_profile='r0_r3_batch_additive_audit_v1', status=ResearchTrialStatus.STARTED,
-        candidate_config_id='r0-r3:' + fingerprint, actual_params=json.loads(frozen),
+        strategy_profile='fixed_exposure_common_reserve_v1' if fixed_exposure_analysis is not None else 'r0_r3_batch_additive_audit_v1', status=ResearchTrialStatus.STARTED,
+        candidate_config_id=('fixed-exposure:' if fixed_exposure_analysis is not None else 'r0-r3:') + fingerprint, actual_params=json.loads(frozen),
         param_set_id='sha256:' + fingerprint, source_revision=source_revision,
         input_id='sha256:' + (input_body_sha256 if input_body_sha256 is not None
             else _r0_r3_sha(params['input_source_registration'])), window_start=requested_start, window_end=requested_end,
@@ -1781,9 +2404,22 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         cost_inputs={'per_side_bps': 5.}, reason_code='', synthetic=dataset_class == 'ARTIFICIAL_FIXTURE',
         run_id=None, param_version=None, research_identity={'batch_fingerprint': fingerprint,
             'purpose': params['purpose'], 'trial_count': 1,
-            'dependent_cells': 2 if r1_mechanism_policy is not None else 8})
+            'dependent_cells': 4 if fixed_exposure_analysis is not None else 2 if r1_mechanism_policy is not None else 8})
+
+    bound_turnover_context = None
 
     def simulate(registered: dict[str, Any]) -> dict[str, Any]:
+        nonlocal bound_turnover_context
+        if fixed_exposure_analysis is not None:
+            if (_r0_r3_json(registered['fixed_exposure_analysis'])!=_r0_r3_json(_fixed_exposure_protocol())
+                    or core_only_source_binding is None or r1_mechanism_policy is not None
+                    or r1_fee_reserve_policy is not None or turnover_evidence_context is not None
+                    or last_close_targets is not None):
+                raise ValueError('UNAVAILABLE_FIXED_EXPOSURE_PROTOCOL')
+            if dataset_class=='REAL_ARCHIVED_RAW_ACTIONS' and registered['requested_window']!=['2023-03-28','2026-08-25']:
+                raise ValueError('UNAVAILABLE_FIXED_EXPOSURE_WINDOW')
+        if turnover_evidence_context is not None:
+            bound_turnover_context = _r0_r3_turnover_context(turnover_evidence_context, started, registered)
         contexts = policies
         if r1_fee_reserve_policy is not None:
             # Inside STARTED/readback, before body/parser/generator/fit/compute.
@@ -1885,14 +2521,45 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         if (r1_mechanism_policy is not None and dataset_class == 'REAL_ARCHIVED_RAW_ACTIONS'
                 and body_digest != '7c15a10444edcbadd9eb3dd4f2dff5dda006bbb629fefc87d183e6e79ccb7396'):
             raise ValueError('UNAVAILABLE_R1_FROZEN_INPUT_BODY_DIGEST_MISMATCH')
+        if (fixed_exposure_analysis is not None and dataset_class == 'REAL_ARCHIVED_RAW_ACTIONS'
+                and body_digest != '7c15a10444edcbadd9eb3dd4f2dff5dda006bbb629fefc87d183e6e79ccb7396'):
+            raise ValueError('UNAVAILABLE_FIXED_EXPOSURE_BODY_DIGEST_MISMATCH')
         computed = _r0_r3_compute(body, registered, contexts, last_close_targets)
         if registration is not None:
             computed['derived_input_body_sha256'] = body_digest
             computed['derived_run_id'] = 'parsed-' + body_digest + '-' + fingerprint
         return computed
 
-    terminal, output = tqqq_trial_journal._journal_trial(started, store, frozen, simulate,
-        lambda record, registered, computed: _r0_r3_persist_cells(record, registered, computed, store))
+    evidence_key = store._research_key(started.domain, started.strategy_profile, trial_id, 'turnover_evidence')
+
+    def persist(record, registered, computed):
+        evidence = None
+        if turnover_evidence_context is not None:
+            context = _r0_r3_turnover_context(turnover_evidence_context, record, registered)
+            if _r0_r3_json(context) != _r0_r3_json(bound_turnover_context):
+                raise ValueError('TURNOVER_CONTEXT_CHANGED_DURING_COMPUTATION')
+            evidence = _r0_r3_turnover_evidence(record, registered, computed, context)
+        result, ledger = _r0_r3_persist_cells(record, registered, computed, store)
+        if evidence is not None:
+            store._create_same(evidence_key, evidence)
+            if _r0_r3_json(store._read_research_json(evidence_key)) != _r0_r3_json(evidence):
+                raise ValueError('TURNOVER_EVIDENCE_READBACK_MISMATCH')
+        if fixed_exposure_analysis is not None:
+            facts={cell:[{'session':row['session'],'decision_session':row['decision_session'],
+                'NAV_pretrade':row['nav_pre_trade'],'NAV_end':row['nav_end'],'net_return':row['net_return'],
+                'net_notional':dict(row['net_trades']),'fee_by_security':dict(row['fee_by_security']),
+                'fees':row['fees'],'turnover':row['net_security_turnover'],
+                'security_end':dict(row['security_end']),'true_cash_end':math.fsum(row['virtual_cash_end'].values())}
+                for row in packet['ledger']] for cell,packet in computed['cells'].items()}
+            body_sha=computed.get('derived_input_body_sha256',registered['input_body_sha256'])
+            summary=_fixed_exposure_summary(record,registered,body_sha,facts,run_id=result.run_id)
+            key=store._research_key(record.domain,record.strategy_profile,record.trial_id,'fixed_exposure_summary')
+            store._create_same(key,summary)
+            if _r0_r3_json(store._read_research_json(key))!=_r0_r3_json(summary):
+                raise ValueError('FIXED_SUMMARY_READBACK_MISMATCH')
+        return result, ledger
+
+    terminal, output = tqqq_trial_journal._journal_trial(started, store, frozen, simulate, persist)
     cells = {}
     if terminal.status is ResearchTrialStatus.SUCCEEDED:
         for row in params.get('active_rows', R0_R3_ROWS):
@@ -1904,9 +2571,23 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
                     raise ValueError('BATCH_IMMUTABLE_CELL_LEDGER_MISSING_NO_RECOMPUTE')
                 cells[cell] = ledger.to_dict()
     extra = {}
+    if turnover_evidence_context is not None:
+        context = _r0_r3_turnover_context(turnover_evidence_context, started, params)
+        evidence = store._read_research_json(evidence_key)
+        if type(evidence) is dict and terminal.status is ResearchTrialStatus.SUCCEEDED and (
+                evidence.get('context_sha256') != _r0_r3_sha(context)
+                or evidence.get('trial_id') != trial_id or evidence.get('source_revision') != source_revision
+                or evidence.get('input_id') != started.input_id or evidence.get('economic_fingerprint') != started.param_set_id
+                or evidence.get('run_id') != terminal.run_id):
+            raise ValueError('TURNOVER_EVIDENCE_IDENTITY_MISMATCH')
+        if evidence is not None and terminal.status is ResearchTrialStatus.SUCCEEDED:
+            evidence = _r0_r3_saved_turnover_evidence(evidence, terminal, context, cells)
+        extra['turnover_evidence'] = {'status': 'UNAVAILABLE', 'reason': 'TRIAL_NOT_SUCCEEDED'} if (
+            terminal.status is not ResearchTrialStatus.SUCCEEDED) else evidence if evidence is not None else {
+            'status': 'UNAVAILABLE', 'reason': 'NO_SAVED_TURNOVER_EVIDENCE_NO_RECOMPUTE'}
     if core_only_source_binding is not None:
-        extra = {'unavailable_cells': params['unavailable_cells'], 'whole_comparison_complete': False,
-                 'terminal_target_role': params['terminal_target_role']}
+        extra.update(unavailable_cells=params['unavailable_cells'], whole_comparison_complete=False,
+                 terminal_target_role=params['terminal_target_role'])
     if r1_mechanism_policy is not None:
         mechanism = params['r1_mechanism_policy']
         extra.update(mechanism_policy=mechanism,
@@ -1923,15 +2604,25 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         if prefix != 'parsed' or batch_digest != fingerprint or len(digest) != 64:
             raise ValueError('UNAVAILABLE_DERIVED_INPUT_RUN_ID')
         extra['derived_input_body_sha256'] = digest
+    if fixed_exposure_analysis is not None:
+        key=store._research_key(started.domain,started.strategy_profile,trial_id,'fixed_exposure_summary')
+        summary=store._read_research_json(key)
+        extra['fixed_exposure_summary']=(_fixed_exposure_saved_summary(summary,terminal,params,
+            extra.get('derived_input_body_sha256',input_body_sha256),cells)
+            if terminal.status is ResearchTrialStatus.SUCCEEDED else {'status':'UNAVAILABLE','reason':'TRIAL_NOT_SUCCEEDED'})
     status = ('PARTIAL_COMPLETED_R1_UNAVAILABLE' if core_only_source_binding is not None
               and r1_mechanism_policy is None
+              and fixed_exposure_analysis is None
               and terminal.status is ResearchTrialStatus.SUCCEEDED else terminal.status.value)
-    return {'status': status, **extra, 'trial': terminal.to_dict(), 'fingerprint': fingerprint,
+    result = {'status': status, **extra, 'trial': terminal.to_dict(), 'fingerprint': fingerprint,
         'resumed_without_compute': output is None, 'subresults': cells, 'engineering': output,
         'financial': 'NOT_READY', 'adoption': 'UNKNOWN',
         'productionbuild': 'UNKNOWN' if r1_mechanism_policy is not None else 'NOT_READY',
         'fullchain': 'NOT_CLOSED', 'live_ready': False, 'no_order': True,
         'PIT': 'NOT_ATTESTED', 'OOS': 'SEEN_DEVELOPMENT_NOT_INDEPENDENT', 'promotion': 'NONE'}
+    if q18_summary is not None:
+        result['q18_summary']=_r0_r3_q18_summary(result,store,q18_summary)
+    return result
 
 
 

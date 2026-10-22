@@ -3101,6 +3101,353 @@ def _m1_registered_fixture(tmp_path):
     return args,body,prepared
 
 
+def _turnover_context(result):
+    """Declared fixture times from the native model receipt, not PIT evidence."""
+    from datetime import datetime, timedelta
+    engine = result['engineering']
+    packet = next(iter(engine['cells'].values()))
+    prefixes = {d['session']: d['source_prefix_sha256'] for d in engine['model_decisions']}
+    decisions = []
+    for row, receipt in zip(packet['ledger'], packet['rs04_research']['decisions'], strict=True):
+        cutoff = datetime.fromisoformat(receipt['decision']['cutoff'])
+        fill = cutoff + (date.fromisoformat(row['session']) - date.fromisoformat(row['decision_session']))
+        decisions.append(dict(decision_session=row['decision_session'], fill_session=row['session'],
+            decision_cutoff=cutoff.isoformat(), input_event_at=cutoff.isoformat(),
+            input_known_at=cutoff.isoformat(), input_persisted_at=cutoff.isoformat(),
+            input_prefix_sha256=prefixes.get(row['decision_session']), input_version=1,
+            mark_at=fill.isoformat(), mark_known_at=(fill+timedelta(seconds=1)).isoformat(),
+            mark_persisted_at=(fill+timedelta(seconds=2)).isoformat(),
+            execution_observed_at=(fill+timedelta(seconds=3)).isoformat(),
+            execution_cutoff=(fill+timedelta(seconds=4)).isoformat()))
+    return dict(schema='qsl.research.turnover_context.v1', source_revision=result['trial']['source_revision'],
+        input_id=result['trial']['input_id'], currency='USD', notional_unit='INITIAL_NAV_UNITS',
+        clock='MODEL_NEXT_CLOSE', time_basis='DECLARED_FIXTURE_NOT_AUTHENTICATED',
+        calendar=engine['requested_sessions'], decisions=decisions)
+
+
+@requires_security_netting
+def test_turnover_contract_native_persistence_resume_and_economic_default(tmp_path, monkeypatch):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller, '_r0_r3_prepare_signal_inputs', prepared)
+    baseline = caller.run_registered_r0_r3_batch(**args)
+    context = _turnover_context(baseline)
+    store = PerformanceStore(local_root=tmp_path/'contract')
+    options = args | dict(store=store, turnover_evidence_context=context)
+    result = caller.run_registered_r0_r3_batch(**options)
+    assert result['trial']['actual_params'] == baseline['trial']['actual_params']
+    assert result['fingerprint'] == baseline['fingerprint']
+    assert result['engineering'] == baseline['engineering']
+    evidence = result['turnover_evidence']
+    assert evidence['status'] == 'AVAILABLE_MODEL_EVIDENCE_NOT_PIT'
+    assert evidence['quantity_price']['status'] == 'UNAVAILABLE'
+    assert evidence['quantity_price']['reason'] == 'RETURN_INDEX_ACCOUNTING_NOT_BROKER_EXECUTIONS'
+    assert evidence['time_basis'] == 'DECLARED_FIXTURE_NOT_AUTHENTICATED'
+    for cell, rows in evidence['cells'].items():
+        native = result['engineering']['cells'][cell]['ledger']
+        for saved, row in zip(rows, native, strict=True):
+            assert saved['net_notional'] == row['net_trades']
+            assert saved['NAV_pretrade'] == row['nav_pre_trade']
+            assert saved['fee_by_security'] == row['fee_by_security']
+            assert saved['turnover'] == pytest.approx(math.fsum(abs(v) for v in row['net_trades'].values())/row['nav_pre_trade'])
+            assert saved['fees'] == pytest.approx(math.fsum(row['fee_by_security'].values()))
+            assert saved['mode'] == 'FULL'
+            assert saved['decision_status'] == 'ACCEPTED' and saved['decision_reason']
+            assert saved['times']['mark_known_at'] > saved['times']['decision_cutoff']
+    key = store._research_key('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'],'turnover_evidence')
+    assert store._read_research_json(key) == evidence
+    resumed = caller.run_registered_r0_r3_batch(**(options | {'load_input_body':lambda:pytest.fail('evidence resume recomputed')}))
+    assert resumed['resumed_without_compute'] and resumed['turnover_evidence'] == evidence
+    bad = copy.deepcopy(context); bad['decisions'][0]['input_known_at'] = bad['decisions'][0]['mark_known_at']
+    with pytest.raises(ValueError, match='TURNOVER_'):
+        caller.run_registered_r0_r3_batch(**(options | {'turnover_evidence_context':bad}))
+    missing = caller.run_registered_r0_r3_batch(**(args | {'turnover_evidence_context':context,
+        'load_input_body':lambda:pytest.fail('old terminal recomputed')}))
+    assert missing['turnover_evidence'] == {'status':'UNAVAILABLE','reason':'NO_SAVED_TURNOVER_EVIDENCE_NO_RECOMPUTE'}
+
+
+@requires_security_netting
+@pytest.mark.parametrize('mutation', ['missing_time','future_input','future_mark','wrong_prefix','wrong_source',
+    'wrong_input','wrong_version','wrong_currency','wrong_unit','wrong_calendar','wrong_next_session'])
+def test_turnover_contract_rejects_time_and_identity_drift(tmp_path, monkeypatch, mutation):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller, '_r0_r3_prepare_signal_inputs', prepared)
+    base = caller.run_registered_r0_r3_batch(**args)
+    ctx = _turnover_context(base); row = ctx['decisions'][0]
+    if mutation == 'missing_time': del row['input_persisted_at']
+    elif mutation == 'future_input': row['input_event_at'] = row['mark_at']
+    elif mutation == 'future_mark': row['mark_known_at'] = ctx['decisions'][-1]['execution_cutoff']
+    elif mutation == 'wrong_prefix': row['input_prefix_sha256'] = '0'*64
+    elif mutation == 'wrong_source': ctx['source_revision'] = 'other'
+    elif mutation == 'wrong_input': ctx['input_id'] = 'sha256:'+'0'*64
+    elif mutation == 'wrong_version': row['input_version'] = True
+    elif mutation == 'wrong_currency': ctx['currency'] = 'EUR'
+    elif mutation == 'wrong_unit': ctx['notional_unit'] = 'BROKER_SHARES'
+    elif mutation == 'wrong_calendar': ctx['calendar'] = ctx['calendar'][1:]
+    elif mutation == 'wrong_next_session': row['fill_session'] = ctx['decisions'][-1]['fill_session']
+    store = PerformanceStore(local_root=tmp_path/'invalid')
+    with pytest.raises(ValueError, match='TURNOVER_'):
+        caller.run_registered_r0_r3_batch(**(args | dict(store=store,turnover_evidence_context=ctx)))
+    assert store._read_research_json(store._research_key('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'],'turnover_evidence')) is None
+
+
+@requires_security_netting
+@pytest.mark.parametrize('mutation', ['missing_nav','bool_nav','nan_nav','zero_nav','negative_nav',
+    'pre_return_nav','missing_security','bool_trade','infinite_trade','bad_fee','bool_fee',
+    'bad_turnover','wrong_policy_source','wrong_policy_code','wrong_cutoff','wrong_mode',
+    'missing_decision','rejected_receipt','unknown_reason'])
+def test_turnover_contract_rejects_native_fact_drift(tmp_path, monkeypatch, mutation):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller, '_r0_r3_prepare_signal_inputs', prepared)
+    base = caller.run_registered_r0_r3_batch(**args)
+    context = _turnover_context(base)
+    output = copy.deepcopy(base['engineering'])
+    packet = next(iter(output['cells'].values()))
+    row = packet['ledger'][1]
+    receipt = packet['rs04_research']['decisions'][1]
+    if mutation == 'missing_nav': del row['nav_pre_trade']
+    elif mutation == 'bool_nav': row['nav_pre_trade'] = True
+    elif mutation == 'nan_nav': row['nav_pre_trade'] = float('nan')
+    elif mutation == 'zero_nav': row['nav_pre_trade'] = 0.
+    elif mutation == 'negative_nav': row['nav_pre_trade'] = -1.
+    elif mutation == 'pre_return_nav':
+        row = packet['ledger'][2]
+        assert row['nav_start'] != row['nav_pre_trade']
+        row['nav_pre_trade'] = row['nav_start']
+    elif mutation == 'missing_security': del row['net_trades']['BOXX']
+    elif mutation == 'bool_trade': row['net_trades']['BOXX'] = True
+    elif mutation == 'infinite_trade': row['net_trades']['BOXX'] = float('inf')
+    elif mutation == 'bad_fee': row['fee_by_security']['BOXX'] += .01
+    elif mutation == 'bool_fee': row['fees'] = False
+    elif mutation == 'bad_turnover': row['net_security_turnover'] += .01
+    elif mutation == 'wrong_policy_source': receipt['original_policy']['source_identity'] = '0'*64
+    elif mutation == 'wrong_policy_code': receipt['original_policy']['code_sha256'] = '0'*64
+    elif mutation == 'wrong_cutoff': receipt['decision']['cutoff'] = context['decisions'][-1]['execution_cutoff']
+    elif mutation == 'wrong_mode': receipt['decision']['mode'] = 'BAND_HOLD'
+    elif mutation == 'missing_decision': del packet['ledger'][0]['decision_session']
+    elif mutation == 'rejected_receipt': receipt['decision']['status'] = 'REJECTED'
+    elif mutation == 'unknown_reason': receipt['decision']['reason'] = None
+    started = args['store'].load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+    with pytest.raises(ValueError, match='TURNOVER_'):
+        caller._r0_r3_turnover_evidence(started, base['trial']['actual_params'], output, context)
+
+
+@requires_security_netting
+def test_turnover_contract_true_native_hold_zero_is_not_unknown():
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    from us_equity_strategies.research.security_netting_runner import (
+        NettingSession, DecisionSnapshot, RS04DecisionInput, RS04NoPluginCoreResearchPolicy,
+        run_offline_security_netting)
+    # Reuse the file's Friday/Tuesday fixture calendar (MLK closure), not a new
+    # exchange calendar. Explicit receipt times remain fixture declarations.
+    d, fill = CALENDAR[:2]
+    decision_at = d.isoformat()+'T21:00:00+00:00'
+    cutoff = d.isoformat()+'T21:05:00+00:00'
+    fill_at = fill.isoformat()+'T21:00:00+00:00'
+    context = replace(_m1_context(), code_sha256=caller._r0_r3_sha({}))
+    initial = {'BOXX':.2,'QQQM':.2,'TQQQ':.2}
+    ret = {'BOXX':0.,'QQQM':.001,'TQQQ':.002}
+    info = RS04DecisionInput(d,fill,cutoff,fill_at,decision_at,context.exact_source,
+        tuple(initial.items()),context,False)
+    snapshot = DecisionSnapshot(d,decision_at,1.,tuple(initial.items()),.4,True)
+    policy = RS04NoPluginCoreResearchPolicy('BAND_HOLD',tuple(initial),snapshot,(info,),
+        profile='TQQQ',source_identity=context.source_identity)
+    spec = SecurityNettingSpec(bps_per_side={s:5. for s in initial},cash_like_symbols=('BOXX',))
+    packet = run_offline_security_netting((NettingSession(fill,d,1.,initial,ret,0.),),
+        initial_nav=1.,initial_f=1.,initial_inner_weights=initial,spec=spec,
+        fee_cash_role=spec.inner_residual_role,execution_timing='next_close',
+        report_periods_per_year=252,rs04_research_policy=policy)
+    output = dict(cells={'R3_B5_BAND_ONLY:TQQQ':packet}, model_decisions=[],
+        requested_sessions=[d.isoformat(),fill.isoformat()])
+    started = SimpleNamespace(trial_id='ARTIFICIAL_FIXTURE:HOLD',source_revision='ARTIFICIAL_FIXTURE',
+        input_id='sha256:'+'1'*64,param_set_id='sha256:'+'2'*64,synthetic=True)
+    params = {'source':{'identity_packet_sha256':context.source_identity,
+        'manifest_metadata':{'currency':'USD'}},'implementation_sha256':{},
+        'requested_window':output['requested_sessions']}
+    declared = _turnover_context({'engineering':output,'trial':vars(started)})
+    # A known execution price/mark can arrive after the decision; it must be
+    # known by its own execution observation/cutoff, not the old decision cut.
+    stamp = datetime.fromisoformat(fill_at)
+    declared['decisions'][0].update(mark_at=fill_at,mark_known_at=(stamp+timedelta(seconds=1)).isoformat(),
+        mark_persisted_at=(stamp+timedelta(seconds=2)).isoformat(),
+        execution_observed_at=(stamp+timedelta(seconds=3)).isoformat(),
+        execution_cutoff=(stamp+timedelta(seconds=4)).isoformat())
+    checked = caller._r0_r3_turnover_context(declared,started,params)
+    saved = caller._r0_r3_turnover_evidence(started,params,output,checked)['cells']['R3_B5_BAND_ONLY:TQQQ'][0]
+    assert saved['decision_kind'] == 'HOLD_POSITIONS'
+    assert saved['net_notional'] == {s:0. for s in initial}
+    assert saved['turnover'] == saved['fees'] == 0.
+    assert saved['NAV_pretrade'] == pytest.approx(1+.2*.001+.2*.002)
+    assert saved['input_prefix_status'] == 'UNAVAILABLE'
+    assert saved['input_prefix_reason'] == 'NATIVE_CORE_PREFIX_NOT_PRODUCED'
+    assert packet['ledger'][0]['security_end'] == packet['ledger'][0]['security_pre']
+
+
+@requires_security_netting
+def test_turnover_contract_unknown_evidence_write_retains_terminal_without_replay(tmp_path, monkeypatch):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller, '_r0_r3_prepare_signal_inputs', prepared)
+    baseline = caller.run_registered_r0_r3_batch(**args)
+    ctx = _turnover_context(baseline)
+    store = PerformanceStore(local_root=tmp_path/'unknown-evidence')
+    native = PerformanceStore._create_same
+    def unknown(s, key, payload):
+        native(s, key, payload)
+        if key.endswith('/turnover_evidence.json'):
+            raise OSError('ARTIFICIAL_FIXTURE_WRITE_RESPONSE_UNKNOWN')
+    with monkeypatch.context() as patch:
+        patch.setattr(PerformanceStore, '_create_same', unknown)
+        with pytest.raises(OSError, match='ARTIFICIAL_FIXTURE_WRITE_RESPONSE_UNKNOWN'):
+            caller.run_registered_r0_r3_batch(**(args | dict(store=store,turnover_evidence_context=ctx)))
+    row = store.load_research_trial('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'])
+    assert row.status.value == 'failed'
+    resumed = caller.run_registered_r0_r3_batch(**(args | dict(store=store,turnover_evidence_context=ctx,
+        load_input_body=lambda:pytest.fail('unknown evidence write recomputed'))))
+    assert resumed['status'] == 'failed' and resumed['resumed_without_compute']
+    assert resumed['turnover_evidence'] == {'status':'UNAVAILABLE','reason':'TRIAL_NOT_SUCCEEDED'}
+    assert store._read_research_json(store._research_key('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'],'turnover_evidence')) is not None
+
+
+@requires_security_netting
+def test_turnover_contract_caller_mutation_after_started_is_rejected(tmp_path, monkeypatch):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, body, prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller, '_r0_r3_prepare_signal_inputs', prepared)
+    baseline = caller.run_registered_r0_r3_batch(**args)
+    ctx = _turnover_context(baseline)
+    def mutate():
+        ctx['decisions'][0]['input_prefix_sha256'] = '0'*64
+        return body
+    with pytest.raises(ValueError, match='TURNOVER_CONTEXT_CHANGED_DURING_COMPUTATION'):
+        caller.run_registered_r0_r3_batch(**(args | dict(store=PerformanceStore(local_root=tmp_path/'mutated'),
+            turnover_evidence_context=ctx,load_input_body=mutate)))
+
+
+@requires_security_netting
+@pytest.mark.parametrize('corruption', ['missing_cells','bool_NAV','false_turnover','root_list',
+    'missing_cell','extra_cell','missing_row','row_shape','wrong_schema','currency','unit','stage',
+    'context','times','symbol_set','bool_trade','nan_trade','negative_NAV','bool_fee','false_fee',
+    'bool_turnover','prefix_status','reason_mode','coherent_NAV','coherent_signed_flow','availability_type'])
+def test_turnover_saved_body_corruption_unavailable_without_replay(tmp_path, monkeypatch, corruption):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, prepared = _m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller, '_r0_r3_prepare_signal_inputs', prepared)
+    base = caller.run_registered_r0_r3_batch(**args)
+    context = _turnover_context(base)
+    store = PerformanceStore(local_root=tmp_path/'saved-body')
+    options = args | dict(store=store,turnover_evidence_context=context)
+    first = caller.run_registered_r0_r3_batch(**options)
+    key = store._research_key('us_equity','r0_r3_batch_additive_audit_v1',args['trial_id'],'turnover_evidence')
+    evidence = store._read_research_json(key)
+    cell = next(iter(evidence['cells']))
+    row = evidence['cells'][cell][1]
+    if corruption == 'missing_cells': del evidence['cells']
+    elif corruption == 'bool_NAV': row['NAV_pretrade'] = True
+    elif corruption == 'false_turnover': row['turnover'] = 9.
+    elif corruption == 'root_list': evidence = []
+    elif corruption == 'missing_cell': del evidence['cells'][cell]
+    elif corruption == 'extra_cell': evidence['cells']['UNREGISTERED:TQQQ'] = evidence['cells'][cell]
+    elif corruption == 'missing_row': evidence['cells'][cell].pop()
+    elif corruption == 'row_shape': del row['mode']
+    elif corruption == 'wrong_schema': evidence['schema'] = 'other'
+    elif corruption == 'currency': evidence['currency'] = 'EUR'
+    elif corruption == 'unit': evidence['notional_unit'] = 'BROKER_SHARES'
+    elif corruption == 'stage': evidence['NAV_stage'] = 'BEFORE_OLD_HOLDING_RETURN'
+    elif corruption == 'context': evidence['context']['decisions'][0]['input_version'] = True
+    elif corruption == 'times': row['times']['input_known_at'] = row['times']['execution_cutoff']
+    elif corruption == 'symbol_set': del row['net_notional']['BOXX']
+    elif corruption == 'bool_trade': row['net_notional']['BOXX'] = False
+    elif corruption == 'nan_trade': row['net_notional']['BOXX'] = float('nan')
+    elif corruption == 'negative_NAV': row['NAV_pretrade'] = -1.
+    elif corruption == 'bool_fee': row['fees'] = False
+    elif corruption == 'false_fee': row['fee_by_security']['BOXX'] += .01
+    elif corruption == 'bool_turnover': row['turnover'] = False
+    elif corruption == 'prefix_status': row['input_prefix_status'] = 'UNAVAILABLE'
+    elif corruption == 'reason_mode': row.update(decision_kind='HOLD_POSITIONS',decision_reason='WITHIN_BAND_HOLD')
+    elif corruption == 'coherent_NAV':
+        # Internally consistent ratio and 5bps still must match saved native NAV/fee facts.
+        row['NAV_pretrade'] *= 2
+        row['net_notional'] = {s:2*v for s,v in row['net_notional'].items()}
+        row['fee_by_security'] = {s:2*v for s,v in row['fee_by_security'].items()}
+        row['fees'] *= 2
+    elif corruption == 'coherent_signed_flow':
+        assert any(row['net_notional'].values())
+        row['net_notional'] = {s:-v for s,v in row['net_notional'].items()}
+    elif corruption == 'availability_type': evidence['no_order'] = 1
+    path = store._local_path(key)
+    damaged = json.dumps(evidence,sort_keys=True)+'\n'
+    path.write_text(damaged)
+    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('saved evidence replayed model'))
+    resumed = caller.run_registered_r0_r3_batch(**(options | {'load_input_body':lambda:pytest.fail('saved evidence read input')}))
+    assert resumed['resumed_without_compute'] and resumed['status'] == 'succeeded'
+    invalid = resumed['turnover_evidence']
+    expected_reason = ('NO_SAVED_TURNOVER_EVIDENCE_NO_RECOMPUTE' if corruption == 'root_list'
+        else 'SAVED_TURNOVER_EVIDENCE_INVALID')  # Store rejects non-object roots before this consumer.
+    assert invalid['status'] == 'UNAVAILABLE' and invalid['reason'] == expected_reason
+    assert 'cells' not in invalid
+    if corruption != 'root_list':
+        for name in ['context_sha256','trial_id','run_id','source_revision','input_id','economic_fingerprint']:
+            assert invalid[name] == first['turnover_evidence'][name]
+    assert path.read_text() == damaged  # No rewrite or synthetic replacement terminal.
+
+
+@requires_security_netting
+def test_turnover_saved_valid_native_hold_and_unavailable_prefix(tmp_path, monkeypatch):
+    from quant_platform_kit.strategy_lifecycle.contracts import ResearchDailyLedger, ResearchLedgerDay, ResearchPositionMark
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    native = caller._r0_r3_turnover_evidence
+    captured = {}
+    def capture(started, params, output, context):
+        evidence = native(started,params,output,context)
+        captured.update(started=started,output=output,context=context,evidence=evidence)
+        return evidence
+    with monkeypatch.context() as patch:
+        patch.setattr(caller,'_r0_r3_turnover_evidence',capture)
+        test_turnover_contract_true_native_hold_zero_is_not_unknown()
+    terminal = captured['started']
+    terminal.run_id = captured['evidence']['run_id']
+    terminal.domain = 'us_equity'
+    terminal.strategy_profile = 'r0_r3_batch_additive_audit_v1'
+    terminal.calendar_id = 'XNYS'
+    terminal.cost_source = caller._R0_R3_COST
+    cell, packet = next(iter(captured['output']['cells'].items()))
+    row = packet['ledger'][0]
+    initial = row['security_start']
+    # One new artificial native book, with actual HOLD quantities unchanged.
+    # This is fixture setup only; the recovery checker never builds a ledger.
+    ledger = ResearchDailyLedger(terminal.trial_id,terminal.domain,
+        terminal.strategy_profile+'__'+cell.replace(':','__'),terminal.run_id,1,
+        terminal.input_id,terminal.calendar_id,252.,terminal.cost_source,{'per_side_bps':5.},
+        date.fromisoformat(row['decision_session']),1.,.4,
+        tuple(ResearchPositionMark(s,v,v) for s,v in initial.items()),
+        (ResearchLedgerDay(date.fromisoformat(row['session']),.4,
+            tuple(ResearchPositionMark(s,initial[s],v) for s,v in row['security_end'].items()),
+            -math.fsum(row['net_trades'].values()),row['fees'],row['nav_end'],row['net_return']),),True)
+    store = PerformanceStore(local_root=tmp_path/'hold-native-book')
+    store.save_research_ledger(ledger)
+    loaded = store.load_research_ledger(terminal.domain,ledger.strategy_profile,
+        terminal.trial_id,terminal.run_id,1)
+    evidence = captured['evidence']
+    checked = caller._r0_r3_saved_turnover_evidence(evidence,terminal,captured['context'],{cell:loaded.to_dict()})
+    assert checked == evidence and checked['status'] == 'AVAILABLE_MODEL_EVIDENCE_NOT_PIT'
+    saved = checked['cells'][cell][0]
+    assert saved['decision_kind'] == 'HOLD_POSITIONS'
+    assert saved['turnover'] == saved['fees'] == 0.
+    assert saved['input_prefix_status'] == 'UNAVAILABLE'
+    assert saved['input_prefix_reason'] == 'NATIVE_CORE_PREFIX_NOT_PRODUCED'
+
+
 @requires_security_netting
 def test_m1_registered_native_raw_model_identity_resume_and_default_compatibility(tmp_path,monkeypatch,record_property):
     import hashlib
@@ -3235,3 +3582,498 @@ def test_m1_rejects_inside_started_before_body_or_computation(tmp_path,monkeypat
     cached = caller.run_registered_r0_r3_batch(**options)
     assert cached['status']=='rejected' and cached['resumed_without_compute']
     record_property('registered_rejection',{'mutation':mutation,'terminal':row.to_dict()})
+
+
+FIXED_EXPOSURE_ANALYSIS = {
+    'schema':'qsl.research.fixed_exposure_analysis.v1',
+    'analysis_id':'FIXED_F100_F025_COMMON_RESERVE_V1',
+    'arms':{'C_FIXED_F100_COMMON_RESERVE':1.0,'C_FIXED_F025_COMMON_RESERVE':.25},
+    'reserve_rule_sha256':'f3f8817e5cdd8412bd138b76c40826809313b10cd200b16d03a3d83eae5a6169',
+    'capital_basis':'OWN_PRE_FEE_NAV','cost_bps_per_side':5.0,'true_cash_return':0.0,
+    'terminal':'EXISTING_FINAL_CLOSE_ZERO_ALL_SECURITIES',
+    'scope':'DEVELOPMENT_RETROSPECTIVE_ONLY',
+}
+
+
+def _fixed_exposure_fixture(tmp_path):
+    """67 artificial sessions:63 alignment only, four native rows, no raw13."""
+    from datetime import timedelta
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args, _, _ = _m1_registered_fixture(tmp_path)
+    sessions = tuple(date(2001,1,2)+timedelta(days=i) for i in range(67))
+    body = {'fixture':'ARTIFICIAL_FIXED_67_SESSIONS_NOT_EXCHANGE_CALENDAR'}
+    identity = caller._r0_r3_sha(body)
+    args.pop('r1_mechanism_policy')
+    args.update(trial_id='ARTIFICIAL_FIXTURE-fixed-f100-f025',
+        fixed_exposure_analysis=copy.deepcopy(FIXED_EXPOSURE_ANALYSIS),
+        identity_packet_sha256=identity,input_body_sha256=identity,
+        requested_start=sessions[0],requested_end=sessions[-1],load_input_body=lambda:copy.deepcopy(body))
+    args['projection'].update(source_packet_sha256=identity,source_verified_bytes=len(json.dumps(body).encode()))
+    args['projection']['manifest_metadata'].update(window_start=sessions[0].isoformat(),window_end=sessions[-1].isoformat())
+    for group in args['projection']['groups']:group['count']=67 if group['kind']=='bars' else 0
+    def prepare(loaded, params):
+        assert loaded==body
+        paths = {}
+        for j,profile in enumerate(['TQQQ','SOXL']):
+            other = 'QQQM' if profile=='TQQQ' else 'SOXX'
+            returns = {profile:tuple(.015+.004*math.sin(i*(.7+j*.3)) for i in range(67)),
+                other:tuple(.008+.003*math.cos(i*(.4+j*.2)) for i in range(67)), 'BOXX':(.0001,)*67}
+            paths[profile] = _replay(profile,sessions,returns,(profile,other,'BOXX'),
+                lambda i,held,p=profile,o=other:{p:.6,o:.4,'BOXX':0.},None)
+        return dict(paths=paths,sessions=sessions,indices=tuple(range(67)),eligible=tuple(range(67)),
+            train=tuple(range(63)),evaluate=tuple(range(63,67)),
+            body_sha256=caller._r0_r3_sha(loaded),params_sha256=caller._r0_r3_sha(params))
+    return args, body, prepare
+
+
+@requires_security_netting
+def test_fixed_exposure_two_native_controls_no_fit_and_common_funding(tmp_path,monkeypatch):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    from us_equity_strategies.research import portfolio_kelly_walk_forward as fit
+    from us_equity_strategies.research import bayesian_kelly as b4
+    args, body, prepare = _fixed_exposure_fixture(tmp_path)
+    monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepare)
+    def no_fit(*a,**k):pytest.fail('fixed exposure must not fit/estimate Kelly or Bayes')
+    monkeypatch.setattr(fit,'ledoit_wolf',no_fit)
+    monkeypatch.setattr(b4,'initialise_b4',no_fit)
+    def load():
+        row = args['store'].load_research_trial('us_equity','fixed_exposure_common_reserve_v1',args['trial_id'])
+        assert row.status.value=='started' and row.research_identity['dependent_cells']==4
+        assert row.actual_params['fixed_exposure_analysis']==FIXED_EXPOSURE_ANALYSIS
+        assert row.actual_params['c'] is None
+        return body
+    result = caller.run_registered_r0_r3_batch(**(args | {'load_input_body':load}))
+    assert result['status']=='succeeded' and not result['resumed_without_compute']
+    engine = result['engineering']
+    assert engine['training']['covariance_fits']==0 and engine['training']['sigma'] is None
+    assert engine['model_decisions']==[] and engine['checkpoint'] is None
+    expected = {a+':'+p for a in FIXED_EXPOSURE_ANALYSIS['arms'] for p in ['TQQQ','SOXL']}
+    assert set(result['subresults'])==set(engine['cells'])==expected
+    for profile in ['TQQQ','SOXL']:
+        other = 'QQQM' if profile=='TQQQ' else 'SOXX'
+        a,b=(engine['cells'][arm+':'+profile] for arm in FIXED_EXPOSURE_ANALYSIS['arms'])
+        assert a['spec']==b['spec'] and a['fill_convention']==b['fill_convention']
+        assert [(r['decision_session'],r['inner_weights']) for r in a['fixed_exposure_trace']]==[
+            (r['decision_session'],r['inner_weights']) for r in b['fixed_exposure_trace']]
+        for arm,f in FIXED_EXPOSURE_ANALYSIS['arms'].items():
+            packet = engine['cells'][arm+':'+profile]
+            assert packet['rs04_research']['mode']=='FULL'
+            trace = packet['fixed_exposure_trace'][0]
+            assert trace['fixed_f']==f and trace['inner_weights']=={profile:.6,other:.4}
+            assert trace['composed_target']==pytest.approx({profile:.6*f,other:.4*f,'BOXX':1-f})
+            from fractions import Fraction as F
+            assert trace['reserve']['beta']<=1 and F(trace['reserve']['final_total_exact'])<=F(1999,2001)
+            actual = packet['ledger'][0]
+            assert actual['inner_target']==trace['target']
+            assert actual['fees']==pytest.approx(sum(abs(v) for v in actual['net_trades'].values())*.0005)
+            assert actual['fee_by_security']['BOXX']==pytest.approx(abs(actual['net_trades']['BOXX'])*.0005)
+            assert all(v>=0 for v in actual['virtual_cash_end'].values())
+            assert all(v==0 for v in packet['ledger'][-1]['security_end'].values())
+    summary = result['fixed_exposure_summary']
+    assert summary['status']=='AVAILABLE_NATIVE_FIXED_EXPOSURE_SUMMARY_NOT_PIT'
+    assert set(summary['cells'])==expected
+    for value in summary['cells'].values():
+        assert value['metrics']['observations']==4
+        assert value['metrics']['turnover_sum']>=0 and value['metrics']['fees_initial_NAV_units']>=0
+    resumed = caller.run_registered_r0_r3_batch(**(args | {'load_input_body':lambda:pytest.fail('fixed resume replayed')}))
+    assert resumed['resumed_without_compute'] and resumed['fixed_exposure_summary']==summary
+
+
+@requires_security_netting
+@pytest.mark.parametrize('mutation',['half','third_arm','bool_f','missing_arm','unknown_field',
+    'r1','legacy_reserve','legacy_outer','turnover_context','code_drift'])
+def test_fixed_exposure_closed_protocol_rejects_before_body(tmp_path,monkeypatch,mutation):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args,_,prepare=_fixed_exposure_fixture(tmp_path)
+    monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepare)
+    spec=args['fixed_exposure_analysis']
+    if mutation=='half':spec['arms']['C_FIXED_F025_COMMON_RESERVE']=.5
+    elif mutation=='third_arm':spec['arms']['C_EXTRA']=.5
+    elif mutation=='bool_f':spec['arms']['C_FIXED_F100_COMMON_RESERVE']=True
+    elif mutation=='missing_arm':del spec['arms']['C_FIXED_F025_COMMON_RESERVE']
+    elif mutation=='unknown_field':spec['future_grid']=True
+    elif mutation=='r1':args['r1_mechanism_policy']=copy.deepcopy(R1_MECHANISM_POLICY)
+    elif mutation=='legacy_reserve':args['r1_fee_reserve_policy']=copy.deepcopy(R1_FEE_RESERVE_POLICY)
+    elif mutation=='legacy_outer':args['original_outer_f']['SOXL']=.25
+    elif mutation=='turnover_context':args['turnover_evidence_context']={}
+    elif mutation=='code_drift':args['implementation_sha256']['research/rs04_netting_candidate.py']='0'*64
+    args['load_input_body']=lambda:pytest.fail('invalid fixed protocol read input')
+    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('invalid fixed protocol computed'))
+    with pytest.raises(ValueError,match='UNAVAILABLE_'):
+        caller.run_registered_r0_r3_batch(**args)
+    row=args['store'].load_research_trial('us_equity','fixed_exposure_common_reserve_v1',args['trial_id'])
+    assert row.status.value=='rejected'
+
+
+@requires_security_netting
+@pytest.mark.parametrize('corruption',['missing','cells','metric','bool_NAV','fees','decision','unit'])
+def test_fixed_exposure_summary_resume_invalid_never_recomputes(tmp_path,monkeypatch,corruption):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args,_,prepare=_fixed_exposure_fixture(tmp_path)
+    monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepare)
+    first=caller.run_registered_r0_r3_batch(**args)
+    key=args['store']._research_key('us_equity','fixed_exposure_common_reserve_v1',args['trial_id'],'fixed_exposure_summary')
+    path=args['store']._local_path(key)
+    if corruption=='missing':path.unlink()
+    else:
+        summary=json.loads(path.read_text());cell=next(iter(summary['cells']))
+        if corruption=='cells':del summary['cells'][cell]
+        elif corruption=='metric':summary['cells'][cell]['metrics']['turnover_sum']=9.
+        elif corruption=='bool_NAV':summary['cells'][cell]['native_facts'][0]['NAV_pretrade']=True
+        elif corruption=='fees':summary['cells'][cell]['native_facts'][0]['fee_by_security']['BOXX']+=.1
+        elif corruption=='decision':summary['cells'][cell]['native_facts'][0]['decision_session']='2099-01-01'
+        elif corruption=='unit':summary['units']='REAL_BROKER_SHARES'
+        path.write_text(json.dumps(summary,sort_keys=True)+'\n')
+    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('bad summary recomputed'))
+    result=caller.run_registered_r0_r3_batch(**(args|{'load_input_body':lambda:pytest.fail('bad summary read body')}))
+    assert result['resumed_without_compute'] and result['status']=='succeeded'
+    assert result['fixed_exposure_summary']=={'status':'UNAVAILABLE','reason':'FIXED_SUMMARY_MISSING_OR_INVALID_NO_RECOMPUTE'}
+    assert first['trial']==result['trial']
+
+
+@requires_security_netting
+def test_fixed_exposure_zero_core_target_is_cash_not_invented_trade(tmp_path,monkeypatch):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args,_,original=_fixed_exposure_fixture(tmp_path)
+    def prepare(body,params):
+        value=original(body,params)
+        value['paths']={p:_replay(p,path.sessions,path.asset_returns,tuple(path.asset_returns),
+            lambda i,held:{},None) for p,path in value['paths'].items()}
+        return value
+    monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepare)
+    result=caller.run_registered_r0_r3_batch(**args)
+    for p in ['TQQQ','SOXL']:
+        packet=result['engineering']['cells']['C_FIXED_F100_COMMON_RESERVE:'+p]
+        assert all(r['fees']==r['net_security_turnover']==0 for r in packet['ledger'])
+        metrics=result['fixed_exposure_summary']['cells']['C_FIXED_F100_COMMON_RESERVE:'+p]['metrics']
+        assert metrics['cumulative_net_log_growth']==metrics['daily_net_loss_ES95']==0
+        assert metrics['mean_peak_exposure']['true_cash']['mean']==1.
+
+
+@requires_security_netting
+@pytest.mark.parametrize('flag',['outer_without_optin','reserve_without_r1'])
+def test_fixed_exposure_does_not_relax_legacy_gates(tmp_path,monkeypatch,flag):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
+    args,_,_=_fixed_exposure_fixture(tmp_path);args.pop('fixed_exposure_analysis')
+    if flag=='outer_without_optin':args['original_outer_f']['TQQQ']=.25
+    else:args['r1_fee_reserve_policy']=copy.deepcopy(R1_FEE_RESERVE_POLICY)
+    args['load_input_body']=lambda:pytest.fail('legacy forbidden flags read input')
+    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('legacy forbidden flags computed'))
+    with pytest.raises(ValueError,match='UNAVAILABLE_'):
+        caller.run_registered_r0_r3_batch(**args)
+
+
+class _Q18FakeTasks:
+    """Explicit fake TaskClient protocol; no HTTP implementation or environment."""
+    def __init__(self):
+        self.calls=[];self.records={};self.submit_lost=False;self.wait_timeout=False
+        self.change=None;self.payload={'locales':{
+            'zh-CN':dict.fromkeys(('question','basis','limits','suggestion'),'仅为人工研究样本，等待人工审阅。'),
+            'en':dict.fromkeys(('question','basis','limits','suggestion'),'Artificial research evidence; wait for human review.')}}
+
+    def submit(self,request,key):
+        self.calls.append(('POST',key));task_id='ARTIFICIAL-task-'+str(len(self.records))
+        self.records[task_id]={'id':task_id,'request':copy.deepcopy(request),'status':'completed',
+            'provider':'ARTIFICIAL','result_kind':'advisory','output':{'report':json.dumps(self.payload)},
+            'handle':{'model_verification':'provider_reported','model':request['model']}}
+        if self.submit_lost:raise TimeoutError('ARTIFICIAL_RESPONSE_LOST')
+        return {'id':task_id}
+
+    def wait(self,task_id,**kwargs):
+        self.calls.append(('GET',task_id))
+        if self.wait_timeout:raise TimeoutError('ARTIFICIAL_WAIT_UNKNOWN')
+        result=copy.deepcopy(self.records[task_id])
+        if self.change:self.change(result)
+        return result
+
+
+def _q18_client(tasks):
+    from quant_platform_kit.strategy_lifecycle.ai_provider import AiProviderConfig,AiServiceConfig,AiServiceClient
+    return AiServiceClient(AiServiceConfig.reliability(primary=
+        AiProviderConfig('ARTIFICIAL-summary','api','ARTIFICIAL-model','ARTIFICIAL-profile')),task_client=tasks)
+
+
+def _q18_report(result):
+    trial=result['trial'];names=('trial_id','domain','strategy_profile','run_id','source_revision','input_id',
+        'param_set_id','param_version','synthetic')
+    return {'trial':{**{n:trial[n] for n in names},'status':'SUCCEEDED'},'fingerprint':result['fingerprint'],
+        'input_identity_role':'canonical_body','qualifications':{n:result[n] for n in
+            ('status','financial','adoption','productionbuild','fullchain','PIT','OOS','promotion','live_ready','no_order')}}
+
+
+def _q18_case(tmp_path,monkeypatch):
+    from us_equity_strategies.research import rs04_netting_candidate as caller,bayesian_kelly as b4
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    args,body,prepared=_m1_registered_fixture(tmp_path)
+    monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepared)
+    moments=[];native=b4.b4_predictive_moments
+    def capture(state):
+        value=native(state);moments.append(value);return value
+    monkeypatch.setattr(b4,'b4_predictive_moments',capture)
+    baseline=caller.run_registered_r0_r3_batch(**args)
+    assert 'q18_summary' not in baseline
+    directory=tmp_path/'owned-summary';directory.mkdir()
+    tasks=_Q18FakeTasks();options={'report':_q18_report(baseline),'moments':moments[-1],
+        'checkpoint_dir':directory,'client':_q18_client(tasks),'repository':'ARTIFICIAL_RS04_ONLY'}
+    active=args|{'store':PerformanceStore(local_root=tmp_path/'active-journal')}
+    return caller,args,active,baseline,options,tasks
+
+
+@requires_security_netting
+def test_q18_summary_artificial_once_and_default_unchanged(tmp_path,monkeypatch):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    result=caller.run_registered_r0_r3_batch(**active,q18_summary=options)
+    assert result['q18_summary']['status']=='available'
+    assert {k:v for k,v in result.items() if k!='q18_summary'}==baseline
+    assert [x[0] for x in tasks.calls]==['POST','GET']
+    checkpoint=options['checkpoint_dir']/'rs04-q18-summary.json'
+    saved=json.loads(checkpoint.read_text())
+    assert saved['state']=='AVAILABLE' and saved['task_id'] in tasks.records
+    assert saved['report']==options['report'] and saved['binding']['input_identity_role']=='canonical_body'
+    assert 'moments' not in saved['report'] and 'actual_params' not in saved['report']['trial']
+    def forbidden(*a,**kw):pytest.fail('summary resume recomputed or reopened input')
+    monkeypatch.setattr(caller,'_r0_r3_compute',forbidden)
+    resumed=caller.run_registered_r0_r3_batch(**(active|{'load_input_body':forbidden}),q18_summary=options)
+    assert resumed['engineering'] is None and resumed['q18_summary']==result['q18_summary']
+    # A cached value still proves task association by GET; it never re-POSTs.
+    assert [x[0] for x in tasks.calls]==['POST','GET','GET']
+
+
+@requires_security_netting
+def test_q18_summary_explicit_none_is_original_default(tmp_path,monkeypatch):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    monkeypatch.setattr(caller,'_r0_r3_q18_summary',lambda *a,**k:pytest.fail('disabled hook entered'))
+    explicit=caller.run_registered_r0_r3_batch(**(args|{'store':PerformanceStore(local_root=tmp_path/'none-journal')}),q18_summary=None)
+    assert explicit==baseline and 'q18_summary' not in explicit and tasks.calls==[]
+    assert list(options['checkpoint_dir'].iterdir())==[]
+
+
+@requires_security_netting
+@pytest.mark.parametrize('case',['real','missing_report','missing_moments','engineering_none','no_b4_engineering',
+    'report_extra','role_drift','moment_prefix_drift','environment_client'])
+def test_q18_summary_missing_or_foreign_facts_never_submit(tmp_path,monkeypatch,case):
+    from dataclasses import replace
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    result=copy.deepcopy(baseline)
+    if case=='real':result['trial']['synthetic']=False
+    elif case=='missing_report':options['report']=None
+    elif case=='missing_moments':options['moments']=None
+    elif case=='engineering_none':result['engineering']=None
+    elif case=='no_b4_engineering':result['engineering'].update(model_decisions=[],checkpoint=None)
+    elif case=='report_extra':options['report']['unexpected']='not permitted'
+    elif case=='role_drift':options['report']['input_identity_role']='source_registration'
+    elif case=='moment_prefix_drift':options['moments']=replace(options['moments'],source_prefix_sha256='f'*64)
+    else:options['client']._task_client=None
+    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('unavailable summary computed'))
+    value=caller._r0_r3_q18_summary(result,args['store'],options)
+    assert value=={'status':'unavailable','text':'','provider':'','model':''}
+    assert tasks.calls==[] and list(options['checkpoint_dir'].iterdir())==[]
+
+
+def _q18_native_hashes(store):
+    import hashlib
+    return {str(p.relative_to(store.local_root)):hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in store.local_root.rglob('*.json')}
+
+
+@requires_security_netting
+def test_q18_summary_response_loss_unknown_never_resubmits(tmp_path,monkeypatch):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    before=_q18_native_hashes(args['store']);tasks.submit_lost=True
+    value=caller._r0_r3_q18_summary(baseline,args['store'],options)
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved=json.loads(path.read_text());raw=path.read_bytes()
+    assert value['status']=='unavailable' and saved['state']=='UNKNOWN' and saved['task_id'] is None
+    assert saved['request']['value']==next(iter(tasks.records.values()))['request']
+    assert [x[0] for x in tasks.calls]==['POST']
+    options['client']=_q18_client(tasks);tasks.submit_lost=False
+    resumed=baseline|{'engineering':None,'resumed_without_compute':True}
+    assert caller._r0_r3_q18_summary(resumed,args['store'],options)['status']=='unavailable'
+    assert path.read_bytes()==raw and [x[0] for x in tasks.calls]==['POST']
+    assert _q18_native_hashes(args['store'])==before
+
+
+@requires_security_netting
+@pytest.mark.parametrize('case',['initial_write_ack_lost','invalid_json','read_unknown','pending','ownership_conflict'])
+def test_q18_summary_ambiguous_local_checkpoint_never_reposts(tmp_path,monkeypatch,case):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';native=caller._rs04_q18_save
+    if case=='pending':path.with_name(path.name+'.pending').write_text('ARTIFICIAL_UNKNOWN_WRITE')
+    elif case=='initial_write_ack_lost':
+        def lost(*a,**kw):native(*a,**kw);raise OSError('ARTIFICIAL_ACK_UNKNOWN')
+        monkeypatch.setattr(caller,'_rs04_q18_save',lost)
+    elif case=='ownership_conflict':
+        def conflict(p,value,previous=None):
+            if previous is not None:p.write_text('ARTIFICIAL_FOREIGN_WRITE')
+            return native(p,value,previous)
+        monkeypatch.setattr(caller,'_rs04_q18_save',conflict)
+    else:
+        assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='available'
+        if case=='invalid_json':path.write_text('{ARTIFICIAL_CORRUPT')
+        else:monkeypatch.setattr(caller,'_rs04_q18_read',lambda *a:(_ for _ in ()).throw(PermissionError('ARTIFICIAL_READ_UNKNOWN')))
+    old_calls=list(tasks.calls)
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
+    assert tasks.calls==old_calls
+    monkeypatch.setattr(caller,'_rs04_q18_save',native)
+    if case in ('initial_write_ack_lost','ownership_conflict'):
+        old=path.read_bytes();options['client']=_q18_client(tasks)
+        assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
+        assert path.read_bytes()==old and tasks.calls==old_calls
+
+
+@requires_security_netting
+@pytest.mark.parametrize('pending',['timeout','running'])
+def test_q18_summary_known_id_rebuild_get_only_with_exact_request(tmp_path,monkeypatch,pending):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    before=_q18_native_hashes(args['store'])
+    if pending=='timeout':tasks.wait_timeout=True
+    else:tasks.change=lambda r:r.update(status='running')
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved=json.loads(path.read_text())
+    assert saved['state']=='KNOWN' and saved['task_id'] in tasks.records
+    assert saved['request']['value']==tasks.records[saved['task_id']]['request']
+    options['client']=_q18_client(tasks);tasks.wait_timeout=False;tasks.change=None
+    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('known id resume computed'))
+    value=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
+    assert value['status']=='available' and [x[0] for x in tasks.calls]==['POST','GET','GET']
+    assert _q18_native_hashes(args['store'])==before
+
+
+@requires_security_netting
+@pytest.mark.parametrize('case',['report','moments','route','module_pin','saved_request','backend_id'])
+def test_q18_summary_known_id_drift_never_submits_again(tmp_path,monkeypatch,case):
+    from dataclasses import replace
+    from quant_platform_kit.strategy_lifecycle.ai_provider import AiProviderConfig,AiServiceConfig,AiServiceClient
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    tasks.wait_timeout=True
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';tasks.wait_timeout=False
+    options['client']=_q18_client(tasks)
+    if case=='report':options['report']['trial']['run_id']='ARTIFICIAL_FOREIGN_RUN'
+    elif case=='moments':options['moments']=replace(options['moments'],mean_simple=(.1,.1))
+    elif case=='route':options['client']=AiServiceClient(AiServiceConfig.reliability(primary=
+        AiProviderConfig('ARTIFICIAL-summary','api','OTHER-model','ARTIFICIAL-profile')),task_client=tasks)
+    elif case in ('module_pin','saved_request'):
+        saved,raw=caller._rs04_q18_read(path)
+        if case=='module_pin':saved['binding']['module_sha256']['caller']='0'*64
+        else:saved['request']['value']['objective']='ARTIFICIAL_FOREIGN_REQUEST'
+        caller._rs04_q18_save(path,saved,raw)
+    else:tasks.change=lambda r:r.update(id='ARTIFICIAL_FOREIGN_TASK')
+    old=len(tasks.calls)
+    assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
+    assert [x[0] for x in tasks.calls].count('POST')==1
+    assert len(tasks.calls)==old+(1 if case=='backend_id' else 0)
+
+
+@requires_security_netting
+@pytest.mark.parametrize('case',['numeric','fullwidth','confidence','missing_locale','request_binding','api_model'])
+def test_q18_summary_strict_existing_output_contract(tmp_path,monkeypatch,case):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    before=_q18_native_hashes(args['store'])
+    if case=='numeric':tasks.payload['locales']['en']['basis']='Return is 123'
+    elif case=='fullwidth':tasks.payload['locales']['zh-CN']['basis']='结果为９'
+    elif case=='confidence':tasks.payload['confidence']='high'
+    elif case=='missing_locale':tasks.payload['locales'].pop('en')
+    elif case=='request_binding':tasks.change=lambda r:r['request'].update(objective='ARTIFICIAL_FOREIGN')
+    else:tasks.change=lambda r:r['handle'].update(model='ARTIFICIAL_FOREIGN')
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
+    assert _q18_native_hashes(args['store'])==before
+    old=list(tasks.calls)
+    assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
+    assert tasks.calls==old
+
+
+@requires_security_netting
+@pytest.mark.parametrize('case',['missing_task_id','missing_request','missing_execute','wrong_verification',
+    'numeric','confidence','missing_locale'])
+def test_q18_summary_cached_output_requires_task_and_strict_schema(tmp_path,monkeypatch,case):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='available'
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved,raw=caller._rs04_q18_read(path)
+    if case=='missing_task_id':saved['task_id']=None
+    elif case=='missing_request':saved['request']=None
+    elif case=='missing_execute':saved['execute']=None
+    elif case=='wrong_verification':saved['summary']['model_verification']='unavailable'
+    elif case=='numeric':saved['summary']['locales']['en']['limits']='Risk is 123'
+    elif case=='confidence':saved['summary']['confidence']='high'
+    else:saved['summary']['locales'].pop('en')
+    caller._rs04_q18_save(path,saved,raw);old=list(tasks.calls);preserved=path.read_bytes()
+    assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
+    assert tasks.calls==old and path.read_bytes()==preserved
+
+
+@requires_security_netting
+@pytest.mark.parametrize('boundary',['execute','request','task_id'])
+def test_q18_summary_persistence_ack_loss_stops_without_second_write_or_post(tmp_path,monkeypatch,boundary):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    native=caller._rs04_q18_save;writes=[]
+    def ack_lost(path,value,previous=None):
+        writes.append(value['state']);raw=native(path,value,previous)
+        hit=(boundary=='execute' and value['execute'] is not None and value['request'] is None
+            or boundary=='request' and value['request'] is not None and value['task_id'] is None
+            or boundary=='task_id' and value['task_id'] is not None)
+        if hit:raise OSError('ARTIFICIAL_WRITE_ACK_UNKNOWN')
+        return raw
+    monkeypatch.setattr(caller,'_rs04_q18_save',ack_lost)
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
+    assert len(writes)=={'execute':2,'request':3,'task_id':4}[boundary]
+    assert [x[0] for x in tasks.calls]==(['POST'] if boundary=='task_id' else [])
+    monkeypatch.setattr(caller,'_rs04_q18_save',native);options['client']=_q18_client(tasks)
+    value=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
+    assert value['status']==('available' if boundary=='task_id' else 'unavailable')
+    assert [x[0] for x in tasks.calls]==(['POST','GET'] if boundary=='task_id' else [])
+
+
+@requires_security_netting
+def test_q18_available_reentry_reads_task_and_preserves_checkpoint(tmp_path,monkeypatch):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    before=_q18_native_hashes(args['store'])
+    original=caller._r0_r3_q18_summary(baseline,args['store'],options)
+    assert original['status']=='available'
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';raw=path.read_bytes()
+    options['client']=_q18_client(tasks)
+    reentered=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
+    assert reentered==original and [x[0] for x in tasks.calls]==['POST','GET','GET']
+    assert path.read_bytes()==raw and _q18_native_hashes(args['store'])==before
+
+
+@requires_security_netting
+@pytest.mark.parametrize('drift',['task_id','request_objective','execute_prompt','request_key','timeout_bool',
+    'timeout_float','request_timeout_bool','schema_bool','execute_key','summary_body'])
+def test_q18_available_valid_hash_drift_refused_without_overwrite_or_post(tmp_path,monkeypatch,drift):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='available'
+    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved,raw=caller._rs04_q18_read(path)
+    if drift=='task_id':saved['task_id']='ARTIFICIAL_NEVER_SUBMITTED'
+    elif drift=='request_objective':saved['request']['value']['objective']='ARTIFICIAL_FOREIGN_REQUEST'
+    elif drift=='execute_prompt':saved['execute']['prompt']='ARTIFICIAL_FOREIGN_PROMPT'
+    elif drift=='request_key':saved['request']['idempotency_key']='ARTIFICIAL_FOREIGN_KEY'
+    elif drift=='timeout_bool':saved['execute']['timeout']=True
+    elif drift=='timeout_float':saved['execute']['timeout']=600.0
+    elif drift=='request_timeout_bool':saved['request']['value']['timeout_seconds']=True
+    elif drift=='schema_bool':saved['request']['value']['output_schema']['properties']['report']['minLength']=True
+    elif drift=='execute_key':saved['execute']['idempotency_key']='ARTIFICIAL_FOREIGN_SCOPE'
+    else:saved['summary']['locales']['en']['basis']='A different artificial cached explanation.'
+    preserved=caller._rs04_q18_save(path,saved,raw)
+    assert caller._rs04_q18_read(path)[0]['content_sha256']
+    old=len(tasks.calls);native=_q18_native_hashes(args['store'])
+    value=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
+    assert value['status']=='unavailable'
+    assert path.read_bytes()==preserved and _q18_native_hashes(args['store'])==native
+    assert [x[0] for x in tasks.calls].count('POST')==1
+    assert len(tasks.calls)==old+(1 if drift in ('task_id','summary_body') else 0)
+
+
+@requires_security_netting
+@pytest.mark.parametrize('directory',['same_root','non_sibling','symlink'])
+def test_q18_checkpoint_directory_must_be_distinct_existing_sibling(tmp_path,monkeypatch,directory):
+    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
+    if directory=='same_root':chosen=args['store'].local_root
+    elif directory=='non_sibling':chosen=tmp_path/'nested'/'checkpoint';chosen.mkdir(parents=True)
+    else:
+        chosen=tmp_path/'linked-checkpoint';chosen.symlink_to(options['checkpoint_dir'],target_is_directory=True)
+    before=_q18_native_hashes(args['store'])
+    value=caller._r0_r3_q18_summary(baseline,args['store'],options|{'checkpoint_dir':chosen})
+    assert value['status']=='unavailable' and tasks.calls==[]
+    assert not (chosen/'rs04-q18-summary.json').exists()
+    assert _q18_native_hashes(args['store'])==before
