@@ -1457,6 +1457,10 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
     from .portfolio_kelly_walk_forward import ledoit_wolf
     from .security_netting_runner import (DecisionSnapshot, RS04DecisionInput,
         RS04RetrospectiveResearchPolicy)
+    pit_rows = None
+    if 'pit_session_inputs' in params:
+        from .pit_session_inputs import validate_pit_session_inputs
+        pit_rows = validate_pit_session_inputs(body, params['pit_session_inputs'])
     from quant_platform_kit.research_stats.security_netting import SecurityNettingSpec, compose_security_targets
 
     prepared = _r0_r3_prepare_signal_inputs(body, params) if _prepared is None else _prepared
@@ -1469,6 +1473,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
             or not _profiles or set(_profiles) - set(_R0_R3_CORES)):
         raise ValueError('UNAVAILABLE_SENSITIVITY_PROFILE_SELECTION')
     def close(d: date) -> str:
+        if pit_rows is not None:
+            return pit_rows[d.isoformat()]['decision_cutoff']
         # An explicitly assumed model clock; never source historical available_at.
         return d.isoformat() + 'T23:00:00+00:00'
 
@@ -1501,7 +1507,9 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
             if j:
                 i = evaluate[j - 1]
                 stamp = datetime.fromisoformat(close(d)).astimezone(timezone.utc)
-                obs = B4Observation('r0-r3:' + d.isoformat(), 1, stamp, stamp, _R0_R3_CORES,
+                observed = stamp if pit_rows is None else datetime.fromisoformat(pit_rows[d.isoformat()]['event_at'])
+                available = stamp if pit_rows is None else datetime.fromisoformat(pit_rows[d.isoformat()]['persisted_at'])
+                obs = B4Observation('r0-r3:' + d.isoformat(), 1, observed, available, _R0_R3_CORES,
                     tuple(math.log1p(paths[k].gross_returns[i]) for k in _R0_R3_CORES))
                 state = update_b4(state, obs, decision_cutoff=stamp).state
             moments = b4_predictive_moments(state)
@@ -1513,6 +1521,8 @@ def _r0_r3_compute(body: Mapping[str, Any], params: Mapping[str, Any],
             b4_targets.append(target.targets)
             model_decisions.append({'session': d.isoformat(), 'n': state.n, 'status': target.status,
                 'targets': target.targets, 'source_prefix_sha256': moments.source_prefix_sha256})
+            if pit_rows is not None:
+                model_decisions[-1]['declared_pit_session'] = dict(pit_rows[d.isoformat()])
             if mechanism is not None:
                 model_decisions[-1].update(c=.25, caps=dict(mechanism['cap_by_profile']),
                     cap_source=mechanism['cap_source'], fractional_applied_once=target.fractional_applied_once)
@@ -2036,249 +2046,9 @@ def _fixed_exposure_saved_summary(summary, terminal, params, body_sha256, native
         return {'status':'UNAVAILABLE','reason':'FIXED_SUMMARY_MISSING_OR_INVALID_NO_RECOMPUTE'}
 
 
-def _rs04_q18_read(path):
-    import json
-
-    def unique(pairs):
-        value={}
-        for key,item in pairs:
-            if key in value:raise ValueError('Q18_DUPLICATE_KEY')
-            value[key]=item
-        return value
-
-    if path.is_symlink():raise ValueError('Q18_LINK')
-    raw=path.read_bytes();value=json.loads(raw,object_pairs_hook=unique)
-    if (type(value) is not dict or 'content_sha256' not in value
-            or value['content_sha256']!=_r0_r3_sha({k:v for k,v in value.items() if k!='content_sha256'})):
-        raise ValueError('Q18_CHECKPOINT_INVALID')
-    return value,raw
-
-
-def _rs04_q18_save(path,value,previous=None):
-    """One caller-owned checkpoint, durable before submit; no generic Store claim."""
-    import os
-
-    body={k:v for k,v in value.items() if k!='content_sha256'}
-    raw=_r0_r3_json(body|{'content_sha256':_r0_r3_sha(body)}).encode()
-    pending=path.with_name(path.name+'.pending')
-    if os.path.lexists(pending):raise ValueError('Q18_WRITE_UNKNOWN')
-    target=path if previous is None else pending
-    if previous is not None and path.read_bytes()!=previous:raise ValueError('Q18_CHECKPOINT_CONFLICT')
-    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-    with os.fdopen(fd,'wb') as handle:
-        handle.write(raw);handle.flush();os.fsync(handle.fileno())
-    if target.read_bytes()!=raw:raise ValueError('Q18_WRITE_UNKNOWN')
-    if previous is not None:
-        if path.read_bytes()!=previous:raise ValueError('Q18_CHECKPOINT_CONFLICT')
-        os.replace(pending,path)
-    directory=os.open(path.parent,os.O_RDONLY)
-    try:os.fsync(directory)
-    finally:os.close(directory)
-    if path.read_bytes()!=raw:raise ValueError('Q18_WRITE_UNKNOWN')
-    return raw
-
-
 def _r0_r3_q18_summary(result,store,options):
-    """Explicit synthetic metadata-only seam; research state is never an AI claim.
-
-    The caller keeps its existing single-writer exclusion and supplies an actual
-    B4 moment plus a preinjected client. No environment route or prediction is
-    created here. One checkpoint directory belongs to one immutable identity.
-    """
-    import json
-
-    absent={'status':'unavailable','text':'','provider':'','model':''}
-    try:
-        trial=result['trial']
-        if (type(options) is not dict or set(options)!={'report','moments','checkpoint_dir','client','repository'}
-                or trial['synthetic'] is not True or trial['status']!='succeeded'
-                or result['status']!='succeeded' or options['report'] is None or options['moments'] is None):
-            return absent
-        from dataclasses import asdict
-        from pathlib import Path
-        import hashlib
-        import os
-        import sys
-        from .bayesian_kelly import B4Moments,SIMPLE_RETURN_UNIT
-        from quant_platform_kit.strategy_lifecycle import ai_provider,research_summary
-        from quant_platform_kit.strategy_lifecycle.ai_provider import AiServiceClient
-
-        client=options['client'];moments=options['moments'];params=trial['actual_params']
-        if (type(client) is not AiServiceClient or client._task_client is None or client.config.primary is None
-                or type(moments) is not B4Moments or type(moments.n) is not int or moments.n<0
-                or moments.core_ids!=_R0_R3_CORES or moments.unit!=SIMPLE_RETURN_UNIT
-                or moments.status!=('PRIOR_ONLY' if moments.n==0 else 'AVAILABLE')
-                or type(moments.source_prefix_sha256) is not str or len(moments.source_prefix_sha256)!=64
-                or any(c not in '0123456789abcdef' for c in moments.source_prefix_sha256)
-                or type(options['repository']) is not str or not options['repository'].strip()
-                or store.local_root is None or store.cloud_bucket or store.cloud_prefix
-                or store.project_id is not None or store.client_factory is not None):
-            return absent
-        canonical=params['input_body_sha256']
-        role='canonical_body' if canonical is not None else 'source_registration'
-        registration=None if canonical is not None else _r0_r3_sha(params['input_source_registration'])
-        body=canonical if canonical is not None else result.get('derived_input_body_sha256')
-        if (type(body) is not str or len(body)!=64
-                or trial['input_id']!='sha256:'+(canonical if canonical is not None else registration)
-                or type(trial['param_version']) is not int or trial['param_version']<1
-                or result['fingerprint']!=_r0_r3_sha(params)
-                or trial['param_set_id']!='sha256:'+result['fingerprint']):return absent
-        fields=('trial_id','domain','strategy_profile','run_id','source_revision','input_id',
-            'param_set_id','param_version','synthetic')
-        qualifications=('status','financial','adoption','productionbuild','fullchain','PIT','OOS',
-            'promotion','live_ready','no_order')
-        report={'trial':{**{k:trial[k] for k in fields},'status':'SUCCEEDED'},
-            'fingerprint':result['fingerprint'],'input_identity_role':role,
-            'qualifications':{k:result[k] for k in qualifications}}
-        if (any(type(trial[k]) is not str or not trial[k] for k in fields if k not in ('param_version','synthetic'))
-                or result['financial']!='NOT_READY' or result['adoption']!='UNKNOWN'
-                or result['PIT']!='NOT_ATTESTED' or result['live_ready'] is not False or result['no_order'] is not True
-                or _r0_r3_json(options['report'])!=_r0_r3_json(report)):return absent
-        terminal=store.load_research_trial(trial['domain'],trial['strategy_profile'],trial['trial_id'])
-        if terminal is None or _r0_r3_json(terminal.to_dict())!=_r0_r3_json(trial):return absent
-        expected={row+':'+core for row in params.get('active_rows',R0_R3_ROWS) for core in _R0_R3_CORES}
-        if type(result['subresults']) is not dict or set(result['subresults'])!=expected:return absent
-        for cell,ledger in result['subresults'].items():
-            if (ledger['trial_id']!=trial['trial_id'] or ledger['run_id']!=trial['run_id']
-                    or ledger['input_id']!=trial['input_id'] or ledger['synthetic'] is not True
-                    or ledger['param_version']!=trial['param_version']
-                    or ledger['strategy_profile']!=trial['strategy_profile']+'__'+cell.replace(':','__')):
-                return absent
-        transport_module=sys.modules.get(type(client._task_client).__module__)
-        module_paths={'caller':Path(__file__),'summary':Path(research_summary.__file__),
-            'client':Path(ai_provider.__file__),'injected_task_client':Path(transport_module.__file__)}
-        binding={k:trial[k] for k in fields}
-        binding.update(input_identity_role=role,canonical_body_sha256=body,source_registration_sha256=registration,
-            economic_fingerprint=result['fingerprint'],report_sha256=_r0_r3_sha(report),
-            moments_sha256=_r0_r3_sha(asdict(moments)),repository=options['repository'],
-            route=asdict(client.config.primary),module_sha256={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in module_paths.items()})
-        directory=Path(options['checkpoint_dir'])
-        if (directory.is_symlink() or not directory.is_dir()
-                or directory.resolve()==Path(store.local_root).resolve()
-                or directory.resolve().parent!=Path(store.local_root).resolve().parent):return absent
-        path=directory/'rs04-q18-summary.json'
-        if os.path.lexists(path.with_name(path.name+'.pending')):return absent
-        ref={'n':moments.n,'status':moments.status,'source_prefix_sha256':moments.source_prefix_sha256,
-            'sha256':binding['moments_sha256']}
-
-        def accepted(value):
-            return (type(value) is dict and set(value)=={'status','provider','model_requested','model_verification','locales'}
-                and value['status']=='available' and type(value['provider']) is str and bool(value['provider'])
-                and value['model_requested']==client.config.primary.model
-                and value['model_verification']==('provider_reported' if client.config.primary.mode=='api' else 'unavailable')
-                and research_summary._locales({'locales':value['locales']}) is not None)
-
-        if os.path.lexists(path):
-            current,raw=_rs04_q18_read(path)
-            if (set(current)!={'schema','binding','report','moments_ref','state','execute','request','task_id','summary','content_sha256'}
-                    or current['schema']!='qsl.research.rs04.q18.synthetic_summary.v1'
-                    or _r0_r3_json(current['binding'])!=_r0_r3_json(binding)
-                    or _r0_r3_json(current['report'])!=_r0_r3_json(report)
-                    or _r0_r3_json(current['moments_ref'])!=_r0_r3_json(ref)):return absent
-            if (current['state'] not in ('KNOWN','AVAILABLE') or type(current['task_id']) is not str or not current['task_id']
-                    or type(current['execute']) is not dict or type(current['request']) is not dict
-                    or set(current['execute'])!={'prompt','timeout','idempotency_key'}
-                    or set(current['request'])!={'value','idempotency_key'}
-                    or type(current['request']['value']) is not dict
-                    or type(current['request']['idempotency_key']) is not str or not current['request']['idempotency_key']):return absent
-            execute=current['execute']
-            if (type(execute['prompt']) is not str or not execute['prompt']
-                    or type(execute['idempotency_key']) is not str or not execute['idempotency_key']
-                    or type(execute['timeout']) not in (int,float) or not math.isfinite(execute['timeout'])
-                    or not 1<=execute['timeout']<=3600):return absent
-            if current['state']=='AVAILABLE':
-                if not accepted(current['summary']):return absent
-            elif _r0_r3_json(current['summary'])!=_r0_r3_json(absent):return absent
-            fresh=False
-        else:
-            engineering=result['engineering']
-            if (type(engineering) is not dict or not engineering.get('model_decisions')
-                    or type(engineering.get('checkpoint')) is not dict
-                    or engineering['model_decisions'][-1]['n']!=moments.n
-                    or engineering['model_decisions'][-1]['source_prefix_sha256']!=moments.source_prefix_sha256
-                    or engineering['checkpoint']['prefix_sha256']!=moments.source_prefix_sha256):return absent
-            current={'schema':'qsl.research.rs04.q18.synthetic_summary.v1','binding':binding,'report':report,
-                'moments_ref':ref,'state':'UNKNOWN','execute':None,'request':None,'task_id':None,'summary':absent}
-            raw=_rs04_q18_save(path,current);current=json.loads(raw);fresh=True
-
-        write_unknown=False
-
-        def save(**changes):
-            nonlocal current,raw,write_unknown
-            try:
-                raw=_rs04_q18_save(path,current|changes,raw);current=json.loads(raw)
-            except Exception:
-                write_unknown=True
-                raise
-
-        class Tasks:
-            def submit(self,request,key):
-                if not fresh or current['task_id'] is not None or current['request'] is not None:
-                    raise ValueError('Q18_NO_RESUBMIT')
-                save(request={'value':request,'idempotency_key':key})
-                submitted=client._task_client.submit(request,key)
-                task_id=submitted['id']
-                if type(task_id) is not str or not task_id:raise ValueError('Q18_TASK_ID_INVALID')
-                save(task_id=task_id,state='KNOWN')
-                return submitted
-
-            def wait(self,task_id,**kwargs):
-                if current['task_id']!=task_id or current['request'] is None:raise ValueError('Q18_TASK_ID_DRIFT')
-                record=client._task_client.wait(task_id,**kwargs)
-                if (type(record) is not dict
-                        or _r0_r3_json(record.get('request'))!=_r0_r3_json(current['request']['value'])):
-                    raise ValueError('Q18_SAVED_REQUEST_DRIFT')
-                return record
-
-        service=AiServiceClient(client.config,task_client=Tasks())
-        observed=None
-
-        class Execute:
-            def execute(self,prompt,*,timeout,idempotency_key):
-                nonlocal observed
-                execute={'prompt':prompt,'timeout':timeout,'idempotency_key':idempotency_key}
-                if fresh:save(execute=execute)
-                else:
-                    if _r0_r3_json(current['execute'])!=_r0_r3_json(execute):raise ValueError('Q18_REQUEST_DRIFT')
-                    request=current['request']['value'];route=client.config.primary
-                    if (set(request)!={'mode','profile','model','objective','materials','output_schema','timeout_seconds'}
-                            or any(type(request[k]) is not str or request[k]!=getattr(route,k) for k in ('mode','profile','model'))
-                            or type(request['objective']) is not str or not request['objective'].endswith(prompt)
-                            or type(request['timeout_seconds']) is not int or request['timeout_seconds']!=math.ceil(timeout)
-                            or _r0_r3_json(request['materials'])!='[]'
-                            or _r0_r3_json(request['output_schema'])!=_r0_r3_json(ai_provider.REPORT_SCHEMA)):
-                        raise ValueError('Q18_REQUEST_DRIFT')
-                    # Validate the captured key with the pinned existing client's
-                    # digest formula; do not construct another prompt or request.
-                    encoded=json.dumps({'role':route.label,'request':request},sort_keys=True,allow_nan=False)
-                    key='lifecycle:'+hashlib.sha256((idempotency_key+'\n'+encoded).encode()).hexdigest()
-                    if current['request']['idempotency_key']!=key:raise ValueError('Q18_REQUEST_DRIFT')
-                observed=service.execute(prompt,timeout=timeout,idempotency_key=idempotency_key,
-                    resume_task_id=None if fresh else current['task_id'])
-                return observed
-
-        def validate_context(value):
-            if _r0_r3_json(value)!=_r0_r3_json(report):raise ValueError('Q18_REPORT_DRIFT')
-            return report
-
-        summarize=research_summary.make_summary_callback(revision=trial['source_revision'],repository=options['repository'],
-            local_facts={'scope':'ARTIFICIAL_METADATA_ONLY','no_order':True},validate_context=validate_context,client=Execute())
-        summary=summarize(report)
-        if write_unknown:return absent
-        if not fresh and current['state']=='AVAILABLE':
-            return summary if accepted(summary) and _r0_r3_json(summary)==_r0_r3_json(current['summary']) else absent
-        if accepted(summary):
-            save(state='AVAILABLE',summary=summary)
-            return summary
-        if not fresh:return absent
-        unknown=(observed is not None and type(observed.raw) is dict
-            and observed.raw.get('status')!='completed' and observed.raw.get('id')==current['task_id']
-            and type(current['task_id']) is str)
-        save(state='UNKNOWN' if current['task_id'] is None else 'KNOWN' if unknown else 'UNAVAILABLE',summary=absent)
-        return absent
-    except Exception:
-        # Ambiguous local I/O or task outcome never permits another submit.
-        return absent
+    """AI-5 shadow only: never evaluate a supplied client or create AI work."""
+    return {'status':'unavailable','text':'','provider':'','model':''}
 
 
 def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet_sha256: str,
@@ -2295,7 +2065,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
     r1_fee_reserve_policy: Mapping[str, Any] | None = None,
     turnover_evidence_context: Mapping[str, Any] | None = None,
     fixed_exposure_analysis: Mapping[str, Any] | None = None,
-    q18_summary: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    q18_summary: Mapping[str, Any] | None = None,
+    pit_session_inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Register one frozen R0-R3 batch before loading inputs or generating models.
 
     Explicit real retrospective and artificial admissions share the same native
@@ -2357,6 +2128,8 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
         'promotion': 'NONE', 'R4': 'OUT_OF_SCOPE', 'cost_identity': _R0_R3_COST,
         'ledger_role': 'ADDITIVE_AUDIT_OF_EIGHT_SEPARATE_BOOKS_NOT_JOINT_ALLOCATION',
         'cell_unit': 'DEPENDENT_SUBRESULT_NOT_TRIAL', 'no_order': True}
+    if pit_session_inputs is not None:
+        params['pit_session_inputs'] = json.loads(_r0_r3_json(pit_session_inputs))
     if core_only_source_binding is not None:
         params.update(core_only_source_binding=json.loads(_r0_r3_json(core_only_source_binding)),
             terminal_target_role='EXPLICIT_ZERO_MODEL_BOUNDARY_NOT_ACTUAL_STRATEGY_TERMINAL',
@@ -2410,6 +2183,10 @@ def run_registered_r0_r3_batch(*, projection: Mapping[str, Any], identity_packet
 
     def simulate(registered: dict[str, Any]) -> dict[str, Any]:
         nonlocal bound_turnover_context
+        if ('pit_session_inputs' in registered
+                and (not isinstance(registered['pit_session_inputs'], dict)
+                     or registered['pit_session_inputs'].get('source_revision') != source_revision)):
+            raise ValueError('PIT_SOURCE_REVISION_MISMATCH')
         if fixed_exposure_analysis is not None:
             if (_r0_r3_json(registered['fixed_exposure_analysis'])!=_r0_r3_json(_fixed_exposure_protocol())
                     or core_only_source_binding is None or r1_mechanism_policy is not None
@@ -2797,10 +2574,13 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
             run_id=None, param_version=None, research_identity={'batch_fingerprint': fingerprint,
                 'purpose': 'QQQ_PAIR_DEPENDENT_HYPOTHESES', 'trial_count': 1, 'dependent_cells': 6})
     # Unknown STARTED writes/readbacks stop here, before any source access.
+    from .trial_inventory import record_trial_event
+
     for label in labels:
         store.save_research_trial(records[label])
         if store.load_research_trial('us_equity', profile, records[label].trial_id) != records[label]:
             raise ValueError('RESEARCH_TRIAL_READBACK_INVALID')
+        record_trial_event(store, records[label], 'started')
     terminal_attempted = {label: False for label in labels}
     try:
         loaded = parse_registered_r0_r3_archive(load_source_root(), input_source_registration)
@@ -2833,6 +2613,7 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
                 store.save_research_trial(terminal)
                 if store.load_research_trial('us_equity', profile, terminal.trial_id) != terminal:
                     raise ValueError('RESEARCH_TRIAL_READBACK_INVALID')
+                record_trial_event(store, terminal, 'terminal')
                 records[label] = terminal
             status = ('STOPPED_CALENDAR_MISMATCH_NO_INTERSECTION' if not calendar_equal
                       else 'COMPLETED_NO_RELEVANT_DIFFERENCE_NO_LEDGER')
@@ -2851,6 +2632,7 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
                 store.save_research_trial(terminal)
                 if store.load_research_trial('us_equity', profile, terminal.trial_id) != terminal:
                     raise ValueError('RESEARCH_TRIAL_READBACK_INVALID')
+                record_trial_event(store, terminal, 'terminal')
                 records[label] = terminal
                 engineering[label] = output
                 executed += len(output['cells'])
@@ -2873,7 +2655,7 @@ def run_registered_qqq_pair_sensitivity(*, projection, identity_packet_sha256,
             'R1': 'PAUSED_UNAVAILABLE', 'no_order': True}
     except BaseException as exc:
         for label in labels:
-            state = (ResearchTrialStatus.ABORTED if isinstance(exc, (KeyboardInterrupt, SystemExit))
+            state = (ResearchTrialStatus.ABORTED if isinstance(exc, (KeyboardInterrupt, SystemExit, GeneratorExit))
                      else ResearchTrialStatus.REJECTED if isinstance(exc, ValueError)
                      else ResearchTrialStatus.FAILED)
             _record_trial_failure(store, records[label], state, 'qqq_pair_sensitivity_stopped',

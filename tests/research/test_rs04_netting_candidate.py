@@ -3763,317 +3763,38 @@ def test_fixed_exposure_does_not_relax_legacy_gates(tmp_path,monkeypatch,flag):
         caller.run_registered_r0_r3_batch(**args)
 
 
-class _Q18FakeTasks:
-    """Explicit fake TaskClient protocol; no HTTP implementation or environment."""
-    def __init__(self):
-        self.calls=[];self.records={};self.submit_lost=False;self.wait_timeout=False
-        self.change=None;self.payload={'locales':{
-            'zh-CN':dict.fromkeys(('question','basis','limits','suggestion'),'仅为人工研究样本，等待人工审阅。'),
-            'en':dict.fromkeys(('question','basis','limits','suggestion'),'Artificial research evidence; wait for human review.')}}
+@pytest.mark.parametrize('options',[None,{}, {'client':object()}, {'mode':'live'}])
+def test_q18_shadow_never_evaluates_client_store_or_options(options):
+    from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_q18_summary
 
-    def submit(self,request,key):
-        self.calls.append(('POST',key));task_id='ARTIFICIAL-task-'+str(len(self.records))
-        self.records[task_id]={'id':task_id,'request':copy.deepcopy(request),'status':'completed',
-            'provider':'ARTIFICIAL','result_kind':'advisory','output':{'report':json.dumps(self.payload)},
-            'handle':{'model_verification':'provider_reported','model':request['model']}}
-        if self.submit_lost:raise TimeoutError('ARTIFICIAL_RESPONSE_LOST')
-        return {'id':task_id}
+    class Forbidden:
+        def __getattribute__(self,name):
+            pytest.fail('shadow hook touched external capability: '+name)
 
-    def wait(self,task_id,**kwargs):
-        self.calls.append(('GET',task_id))
-        if self.wait_timeout:raise TimeoutError('ARTIFICIAL_WAIT_UNKNOWN')
-        result=copy.deepcopy(self.records[task_id])
-        if self.change:self.change(result)
-        return result
+    assert _r0_r3_q18_summary(Forbidden(),Forbidden(),options)=={
+        'status':'unavailable','text':'','provider':'','model':''}
 
 
-def _q18_client(tasks):
-    from quant_platform_kit.strategy_lifecycle.ai_provider import AiProviderConfig,AiServiceConfig,AiServiceClient
-    return AiServiceClient(AiServiceConfig.reliability(primary=
-        AiProviderConfig('ARTIFICIAL-summary','api','ARTIFICIAL-model','ARTIFICIAL-profile')),task_client=tasks)
+def test_q18_shadow_body_has_no_calls_imports_or_state_mutations():
+    import ast
+    import inspect
+    from us_equity_strategies.research.rs04_netting_candidate import _r0_r3_q18_summary
+
+    tree=ast.parse(inspect.getsource(_r0_r3_q18_summary))
+    assert not any(isinstance(node,(ast.Call,ast.Import,ast.ImportFrom,ast.Assign,ast.AugAssign))
+        for node in ast.walk(tree))
 
 
-def _q18_report(result):
-    trial=result['trial'];names=('trial_id','domain','strategy_profile','run_id','source_revision','input_id',
-        'param_set_id','param_version','synthetic')
-    return {'trial':{**{n:trial[n] for n in names},'status':'SUCCEEDED'},'fingerprint':result['fingerprint'],
-        'input_identity_role':'canonical_body','qualifications':{n:result[n] for n in
-            ('status','financial','adoption','productionbuild','fullchain','PIT','OOS','promotion','live_ready','no_order')}}
-
-
-def _q18_case(tmp_path,monkeypatch):
-    from us_equity_strategies.research import rs04_netting_candidate as caller,bayesian_kelly as b4
+@requires_security_netting
+def test_q18_shadow_preserves_registered_research_result(tmp_path,monkeypatch):
+    from us_equity_strategies.research import rs04_netting_candidate as caller
     from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
     args,body,prepared=_m1_registered_fixture(tmp_path)
     monkeypatch.setattr(caller,'_r0_r3_prepare_signal_inputs',prepared)
-    moments=[];native=b4.b4_predictive_moments
-    def capture(state):
-        value=native(state);moments.append(value);return value
-    monkeypatch.setattr(b4,'b4_predictive_moments',capture)
     baseline=caller.run_registered_r0_r3_batch(**args)
     assert 'q18_summary' not in baseline
-    directory=tmp_path/'owned-summary';directory.mkdir()
-    tasks=_Q18FakeTasks();options={'report':_q18_report(baseline),'moments':moments[-1],
-        'checkpoint_dir':directory,'client':_q18_client(tasks),'repository':'ARTIFICIAL_RS04_ONLY'}
-    active=args|{'store':PerformanceStore(local_root=tmp_path/'active-journal')}
-    return caller,args,active,baseline,options,tasks
-
-
-@requires_security_netting
-def test_q18_summary_artificial_once_and_default_unchanged(tmp_path,monkeypatch):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    result=caller.run_registered_r0_r3_batch(**active,q18_summary=options)
-    assert result['q18_summary']['status']=='available'
-    assert {k:v for k,v in result.items() if k!='q18_summary'}==baseline
-    assert [x[0] for x in tasks.calls]==['POST','GET']
-    checkpoint=options['checkpoint_dir']/'rs04-q18-summary.json'
-    saved=json.loads(checkpoint.read_text())
-    assert saved['state']=='AVAILABLE' and saved['task_id'] in tasks.records
-    assert saved['report']==options['report'] and saved['binding']['input_identity_role']=='canonical_body'
-    assert 'moments' not in saved['report'] and 'actual_params' not in saved['report']['trial']
-    def forbidden(*a,**kw):pytest.fail('summary resume recomputed or reopened input')
-    monkeypatch.setattr(caller,'_r0_r3_compute',forbidden)
-    resumed=caller.run_registered_r0_r3_batch(**(active|{'load_input_body':forbidden}),q18_summary=options)
-    assert resumed['engineering'] is None and resumed['q18_summary']==result['q18_summary']
-    # A cached value still proves task association by GET; it never re-POSTs.
-    assert [x[0] for x in tasks.calls]==['POST','GET','GET']
-
-
-@requires_security_netting
-def test_q18_summary_explicit_none_is_original_default(tmp_path,monkeypatch):
-    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    monkeypatch.setattr(caller,'_r0_r3_q18_summary',lambda *a,**k:pytest.fail('disabled hook entered'))
-    explicit=caller.run_registered_r0_r3_batch(**(args|{'store':PerformanceStore(local_root=tmp_path/'none-journal')}),q18_summary=None)
-    assert explicit==baseline and 'q18_summary' not in explicit and tasks.calls==[]
-    assert list(options['checkpoint_dir'].iterdir())==[]
-
-
-@requires_security_netting
-@pytest.mark.parametrize('case',['real','missing_report','missing_moments','engineering_none','no_b4_engineering',
-    'report_extra','role_drift','moment_prefix_drift','environment_client'])
-def test_q18_summary_missing_or_foreign_facts_never_submit(tmp_path,monkeypatch,case):
-    from dataclasses import replace
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    result=copy.deepcopy(baseline)
-    if case=='real':result['trial']['synthetic']=False
-    elif case=='missing_report':options['report']=None
-    elif case=='missing_moments':options['moments']=None
-    elif case=='engineering_none':result['engineering']=None
-    elif case=='no_b4_engineering':result['engineering'].update(model_decisions=[],checkpoint=None)
-    elif case=='report_extra':options['report']['unexpected']='not permitted'
-    elif case=='role_drift':options['report']['input_identity_role']='source_registration'
-    elif case=='moment_prefix_drift':options['moments']=replace(options['moments'],source_prefix_sha256='f'*64)
-    else:options['client']._task_client=None
-    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('unavailable summary computed'))
-    value=caller._r0_r3_q18_summary(result,args['store'],options)
-    assert value=={'status':'unavailable','text':'','provider':'','model':''}
-    assert tasks.calls==[] and list(options['checkpoint_dir'].iterdir())==[]
-
-
-def _q18_native_hashes(store):
-    import hashlib
-    return {str(p.relative_to(store.local_root)):hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in store.local_root.rglob('*.json')}
-
-
-@requires_security_netting
-def test_q18_summary_response_loss_unknown_never_resubmits(tmp_path,monkeypatch):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    before=_q18_native_hashes(args['store']);tasks.submit_lost=True
-    value=caller._r0_r3_q18_summary(baseline,args['store'],options)
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved=json.loads(path.read_text());raw=path.read_bytes()
-    assert value['status']=='unavailable' and saved['state']=='UNKNOWN' and saved['task_id'] is None
-    assert saved['request']['value']==next(iter(tasks.records.values()))['request']
-    assert [x[0] for x in tasks.calls]==['POST']
-    options['client']=_q18_client(tasks);tasks.submit_lost=False
-    resumed=baseline|{'engineering':None,'resumed_without_compute':True}
-    assert caller._r0_r3_q18_summary(resumed,args['store'],options)['status']=='unavailable'
-    assert path.read_bytes()==raw and [x[0] for x in tasks.calls]==['POST']
-    assert _q18_native_hashes(args['store'])==before
-
-
-@requires_security_netting
-@pytest.mark.parametrize('case',['initial_write_ack_lost','invalid_json','read_unknown','pending','ownership_conflict'])
-def test_q18_summary_ambiguous_local_checkpoint_never_reposts(tmp_path,monkeypatch,case):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';native=caller._rs04_q18_save
-    if case=='pending':path.with_name(path.name+'.pending').write_text('ARTIFICIAL_UNKNOWN_WRITE')
-    elif case=='initial_write_ack_lost':
-        def lost(*a,**kw):native(*a,**kw);raise OSError('ARTIFICIAL_ACK_UNKNOWN')
-        monkeypatch.setattr(caller,'_rs04_q18_save',lost)
-    elif case=='ownership_conflict':
-        def conflict(p,value,previous=None):
-            if previous is not None:p.write_text('ARTIFICIAL_FOREIGN_WRITE')
-            return native(p,value,previous)
-        monkeypatch.setattr(caller,'_rs04_q18_save',conflict)
-    else:
-        assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='available'
-        if case=='invalid_json':path.write_text('{ARTIFICIAL_CORRUPT')
-        else:monkeypatch.setattr(caller,'_rs04_q18_read',lambda *a:(_ for _ in ()).throw(PermissionError('ARTIFICIAL_READ_UNKNOWN')))
-    old_calls=list(tasks.calls)
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
-    assert tasks.calls==old_calls
-    monkeypatch.setattr(caller,'_rs04_q18_save',native)
-    if case in ('initial_write_ack_lost','ownership_conflict'):
-        old=path.read_bytes();options['client']=_q18_client(tasks)
-        assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
-        assert path.read_bytes()==old and tasks.calls==old_calls
-
-
-@requires_security_netting
-@pytest.mark.parametrize('pending',['timeout','running'])
-def test_q18_summary_known_id_rebuild_get_only_with_exact_request(tmp_path,monkeypatch,pending):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    before=_q18_native_hashes(args['store'])
-    if pending=='timeout':tasks.wait_timeout=True
-    else:tasks.change=lambda r:r.update(status='running')
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved=json.loads(path.read_text())
-    assert saved['state']=='KNOWN' and saved['task_id'] in tasks.records
-    assert saved['request']['value']==tasks.records[saved['task_id']]['request']
-    options['client']=_q18_client(tasks);tasks.wait_timeout=False;tasks.change=None
-    monkeypatch.setattr(caller,'_r0_r3_compute',lambda *a,**k:pytest.fail('known id resume computed'))
-    value=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
-    assert value['status']=='available' and [x[0] for x in tasks.calls]==['POST','GET','GET']
-    assert _q18_native_hashes(args['store'])==before
-
-
-@requires_security_netting
-@pytest.mark.parametrize('case',['report','moments','route','module_pin','saved_request','backend_id'])
-def test_q18_summary_known_id_drift_never_submits_again(tmp_path,monkeypatch,case):
-    from dataclasses import replace
-    from quant_platform_kit.strategy_lifecycle.ai_provider import AiProviderConfig,AiServiceConfig,AiServiceClient
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    tasks.wait_timeout=True
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';tasks.wait_timeout=False
-    options['client']=_q18_client(tasks)
-    if case=='report':options['report']['trial']['run_id']='ARTIFICIAL_FOREIGN_RUN'
-    elif case=='moments':options['moments']=replace(options['moments'],mean_simple=(.1,.1))
-    elif case=='route':options['client']=AiServiceClient(AiServiceConfig.reliability(primary=
-        AiProviderConfig('ARTIFICIAL-summary','api','OTHER-model','ARTIFICIAL-profile')),task_client=tasks)
-    elif case in ('module_pin','saved_request'):
-        saved,raw=caller._rs04_q18_read(path)
-        if case=='module_pin':saved['binding']['module_sha256']['caller']='0'*64
-        else:saved['request']['value']['objective']='ARTIFICIAL_FOREIGN_REQUEST'
-        caller._rs04_q18_save(path,saved,raw)
-    else:tasks.change=lambda r:r.update(id='ARTIFICIAL_FOREIGN_TASK')
-    old=len(tasks.calls)
-    assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
-    assert [x[0] for x in tasks.calls].count('POST')==1
-    assert len(tasks.calls)==old+(1 if case=='backend_id' else 0)
-
-
-@requires_security_netting
-@pytest.mark.parametrize('case',['numeric','fullwidth','confidence','missing_locale','request_binding','api_model'])
-def test_q18_summary_strict_existing_output_contract(tmp_path,monkeypatch,case):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    before=_q18_native_hashes(args['store'])
-    if case=='numeric':tasks.payload['locales']['en']['basis']='Return is 123'
-    elif case=='fullwidth':tasks.payload['locales']['zh-CN']['basis']='结果为９'
-    elif case=='confidence':tasks.payload['confidence']='high'
-    elif case=='missing_locale':tasks.payload['locales'].pop('en')
-    elif case=='request_binding':tasks.change=lambda r:r['request'].update(objective='ARTIFICIAL_FOREIGN')
-    else:tasks.change=lambda r:r['handle'].update(model='ARTIFICIAL_FOREIGN')
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
-    assert _q18_native_hashes(args['store'])==before
-    old=list(tasks.calls)
-    assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
-    assert tasks.calls==old
-
-
-@requires_security_netting
-@pytest.mark.parametrize('case',['missing_task_id','missing_request','missing_execute','wrong_verification',
-    'numeric','confidence','missing_locale'])
-def test_q18_summary_cached_output_requires_task_and_strict_schema(tmp_path,monkeypatch,case):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='available'
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved,raw=caller._rs04_q18_read(path)
-    if case=='missing_task_id':saved['task_id']=None
-    elif case=='missing_request':saved['request']=None
-    elif case=='missing_execute':saved['execute']=None
-    elif case=='wrong_verification':saved['summary']['model_verification']='unavailable'
-    elif case=='numeric':saved['summary']['locales']['en']['limits']='Risk is 123'
-    elif case=='confidence':saved['summary']['confidence']='high'
-    else:saved['summary']['locales'].pop('en')
-    caller._rs04_q18_save(path,saved,raw);old=list(tasks.calls);preserved=path.read_bytes()
-    assert caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)['status']=='unavailable'
-    assert tasks.calls==old and path.read_bytes()==preserved
-
-
-@requires_security_netting
-@pytest.mark.parametrize('boundary',['execute','request','task_id'])
-def test_q18_summary_persistence_ack_loss_stops_without_second_write_or_post(tmp_path,monkeypatch,boundary):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    native=caller._rs04_q18_save;writes=[]
-    def ack_lost(path,value,previous=None):
-        writes.append(value['state']);raw=native(path,value,previous)
-        hit=(boundary=='execute' and value['execute'] is not None and value['request'] is None
-            or boundary=='request' and value['request'] is not None and value['task_id'] is None
-            or boundary=='task_id' and value['task_id'] is not None)
-        if hit:raise OSError('ARTIFICIAL_WRITE_ACK_UNKNOWN')
-        return raw
-    monkeypatch.setattr(caller,'_rs04_q18_save',ack_lost)
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='unavailable'
-    assert len(writes)=={'execute':2,'request':3,'task_id':4}[boundary]
-    assert [x[0] for x in tasks.calls]==(['POST'] if boundary=='task_id' else [])
-    monkeypatch.setattr(caller,'_rs04_q18_save',native);options['client']=_q18_client(tasks)
-    value=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
-    assert value['status']==('available' if boundary=='task_id' else 'unavailable')
-    assert [x[0] for x in tasks.calls]==(['POST','GET'] if boundary=='task_id' else [])
-
-
-@requires_security_netting
-def test_q18_available_reentry_reads_task_and_preserves_checkpoint(tmp_path,monkeypatch):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    before=_q18_native_hashes(args['store'])
-    original=caller._r0_r3_q18_summary(baseline,args['store'],options)
-    assert original['status']=='available'
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';raw=path.read_bytes()
-    options['client']=_q18_client(tasks)
-    reentered=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
-    assert reentered==original and [x[0] for x in tasks.calls]==['POST','GET','GET']
-    assert path.read_bytes()==raw and _q18_native_hashes(args['store'])==before
-
-
-@requires_security_netting
-@pytest.mark.parametrize('drift',['task_id','request_objective','execute_prompt','request_key','timeout_bool',
-    'timeout_float','request_timeout_bool','schema_bool','execute_key','summary_body'])
-def test_q18_available_valid_hash_drift_refused_without_overwrite_or_post(tmp_path,monkeypatch,drift):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    assert caller._r0_r3_q18_summary(baseline,args['store'],options)['status']=='available'
-    path=options['checkpoint_dir']/'rs04-q18-summary.json';saved,raw=caller._rs04_q18_read(path)
-    if drift=='task_id':saved['task_id']='ARTIFICIAL_NEVER_SUBMITTED'
-    elif drift=='request_objective':saved['request']['value']['objective']='ARTIFICIAL_FOREIGN_REQUEST'
-    elif drift=='execute_prompt':saved['execute']['prompt']='ARTIFICIAL_FOREIGN_PROMPT'
-    elif drift=='request_key':saved['request']['idempotency_key']='ARTIFICIAL_FOREIGN_KEY'
-    elif drift=='timeout_bool':saved['execute']['timeout']=True
-    elif drift=='timeout_float':saved['execute']['timeout']=600.0
-    elif drift=='request_timeout_bool':saved['request']['value']['timeout_seconds']=True
-    elif drift=='schema_bool':saved['request']['value']['output_schema']['properties']['report']['minLength']=True
-    elif drift=='execute_key':saved['execute']['idempotency_key']='ARTIFICIAL_FOREIGN_SCOPE'
-    else:saved['summary']['locales']['en']['basis']='A different artificial cached explanation.'
-    preserved=caller._rs04_q18_save(path,saved,raw)
-    assert caller._rs04_q18_read(path)[0]['content_sha256']
-    old=len(tasks.calls);native=_q18_native_hashes(args['store'])
-    value=caller._r0_r3_q18_summary(baseline|{'engineering':None},args['store'],options)
-    assert value['status']=='unavailable'
-    assert path.read_bytes()==preserved and _q18_native_hashes(args['store'])==native
-    assert [x[0] for x in tasks.calls].count('POST')==1
-    assert len(tasks.calls)==old+(1 if drift in ('task_id','summary_body') else 0)
-
-
-@requires_security_netting
-@pytest.mark.parametrize('directory',['same_root','non_sibling','symlink'])
-def test_q18_checkpoint_directory_must_be_distinct_existing_sibling(tmp_path,monkeypatch,directory):
-    caller,args,active,baseline,options,tasks=_q18_case(tmp_path,monkeypatch)
-    if directory=='same_root':chosen=args['store'].local_root
-    elif directory=='non_sibling':chosen=tmp_path/'nested'/'checkpoint';chosen.mkdir(parents=True)
-    else:
-        chosen=tmp_path/'linked-checkpoint';chosen.symlink_to(options['checkpoint_dir'],target_is_directory=True)
-    before=_q18_native_hashes(args['store'])
-    value=caller._r0_r3_q18_summary(baseline,args['store'],options|{'checkpoint_dir':chosen})
-    assert value['status']=='unavailable' and tasks.calls==[]
-    assert not (chosen/'rs04-q18-summary.json').exists()
-    assert _q18_native_hashes(args['store'])==before
+    active=args|{'store':PerformanceStore(local_root=tmp_path/'shadow-journal')}
+    shadow=caller.run_registered_r0_r3_batch(**active,q18_summary={'client':object()})
+    assert shadow.pop('q18_summary')=={'status':'unavailable','text':'','provider':'','model':''}
+    assert shadow==baseline

@@ -11,6 +11,8 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 )
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
+from .trial_inventory import record_trial_event
+
 
 def _record_trial_failure(store: PerformanceStore, started: ResearchTrialRecord,
                           status: ResearchTrialStatus, reason: str,
@@ -26,6 +28,7 @@ def _record_trial_failure(store: PerformanceStore, started: ResearchTrialRecord,
         store.save_research_trial(terminal)
         if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != terminal:
             raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        record_trial_event(store, terminal, "terminal")
     except BaseException:
         error.add_note("research_terminal_write_failed")
 
@@ -52,6 +55,7 @@ def _journal_trial(
             return readback, None
         if readback != started:
             raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        record_trial_event(store, readback, "started")
         params = json.loads(frozen_params)
         if readback.actual_params != params:
             raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
@@ -71,8 +75,9 @@ def _journal_trial(
         if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id,
                                      run_id=result.run_id, param_version=result.param_version) != terminal:
             raise ValueError("RESEARCH_TRIAL_READBACK_INVALID")
+        record_trial_event(store, terminal, "terminal")
         return terminal, output
-    except (KeyboardInterrupt, SystemExit) as exc:
+    except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
         _record_trial_failure(store, started, ResearchTrialStatus.ABORTED, "trial_interrupted", exc,
                               terminal_attempted=terminal_attempted)
         raise

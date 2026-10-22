@@ -90,12 +90,12 @@ def test_missing_qpk_research_stats_is_uncomputable_not_zero(monkeypatch):
     assert report["promotion_eligible"] is False and report["size_zero_required"] is True
 
 
-def test_plumbing_passes_excess_returns_and_succeeded_trial_count(monkeypatch):
+def test_plumbing_passes_excess_returns_and_complete_trial_count(monkeypatch):
     fake = _FakeStats()
     _use(monkeypatch, fake)
     data = _dated()
     report = rs02.compute_trial_set_overfitting(
-        data, selected_trial_id="t2", recorded_trial_count=5,
+        data, selected_trial_id="t2", recorded_trial_count=4,
         annual_risk_free_rate=0.0252, pbo_splits=8, synthetic=True)
     rf = 0.0252 / 252
     returns, sharpes, n_eff = fake.calls["dsr"]

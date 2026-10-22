@@ -158,8 +158,9 @@ def test_nested_folds_stay_inside_outer_training_window(anchored, inner_splits):
         assert isinstance(fold.inner, tuple)
         assert len(fold.inner) == inner_splits
         a, b, outer_test_start, _ = fold.outer
-        width = max(1, (b - a) // (inner_splits + 1))
-        assert fold.inner[0][2] == b - inner_splits * width
+        available = b - a - (inner_splits - 1) * plan.embargo_sessions
+        width = max(1, available // (inner_splits + 1))
+        assert fold.inner[0][2] == b - inner_splits * width - (inner_splits - 1) * plan.embargo_sessions
         assert fold.inner[-1][3] == b
         for train_start, train_end, val_start, val_end in fold.inner:
             assert a == train_start < train_end < val_start < val_end <= b < outer_test_start
@@ -168,7 +169,7 @@ def test_nested_folds_stay_inside_outer_training_window(anchored, inner_splits):
             assert train_end - 1 + plan.label_horizon_sessions < val_start
             assert val_end - val_start == width
         for previous, current in itertools.pairwise(fold.inner):
-            assert previous[3] == current[2]
+            assert current[2] - previous[3] == plan.embargo_sessions
 
 
 def test_nested_folds_omit_insufficient_inner_training_windows():

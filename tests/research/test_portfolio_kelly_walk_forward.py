@@ -260,7 +260,7 @@ def test_prediction_scaling_cash_bridge_keeps_predictive_and_excess_proxies_dist
         assert excess_mean < 0 < mean
         assert excess_second != second  # shifting a raw moment changes it
         # Deterministic cash shifts the mean, not the covariance.
-        for c in (.25, .5):
+        for c in (.10, .25, .40):
             target = b4_fractional_target(moments, c=c, scope_cap={"TQQQ": 1.},
                                          cap_source=TRAINING)
             expected = float(Decimal(str(c)) * mean / second)

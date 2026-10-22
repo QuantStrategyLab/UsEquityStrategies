@@ -104,6 +104,8 @@ def compute_trial_set_overfitting(
     else:
         if dsr_fn is None:
             dsr = _unavailable()
+        elif recorded_trial_count != succeeded:
+            dsr = _metric(STATUS_UNCOMPUTABLE, None, "INCOMPLETE_TRIAL_RETURN_HISTORY")
         else:
             sharpes = {tid: _per_session_sharpe(xs) for tid, xs in excess.items()}
             undefined = sorted(tid for tid, s in sharpes.items() if s is None)
@@ -136,7 +138,7 @@ def compute_trial_set_overfitting(
             "rf": {"annual_simple_decimal": annual_risk_free_rate, "per_session": rf},
             "annual_rate_conversion": "DIVIDE_BY_252_NOT_COMPOUND_RATE_CONVERSION",
             "dsr": "QPK_RESEARCH_STATS_DEFLATED_SHARPE_PER_SESSION_DDOF1",
-            "dsr_trial_count": "SUCCEEDED_TRIALS_ONLY_NOT_SUCCEEDED_DISCLOSED_NOT_IMPUTED",
+            "dsr_trial_count": "ALL_RECORDED_ATTEMPTS_REQUIRED_MISSING_RETURNS_NOT_IMPUTED",
             "pbo": "QPK_RESEARCH_STATS_CSCV_PER_SESSION_SHARPE",
             "pbo_splits": pbo_splits,
             "session_alignment": "IDENTICAL_SESSION_SEQUENCE_REQUIRED_NO_INTERSECTION",

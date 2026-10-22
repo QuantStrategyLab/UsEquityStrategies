@@ -334,9 +334,12 @@ def b4_predictive_moments(state: B4State) -> B4Moments:
 def b4_fractional_target(moments: B4Moments, *, c: float = .25,
                          scope_cap: Mapping[str, float] | None = None,
                          cap_source: str | None = None, veto: bool = False) -> B4Target:
-    """Research proxy only. A caller-supplied cap reference is not attestation."""
+    """Research proxy for c=.10/.25/.40; apply c once before the scope cap.
+
+    A caller-supplied cap reference is not attestation or execution authority.
+    """
     fraction = _number(c)
-    if fraction not in (.25, .5) or type(veto) is not bool:
+    if fraction not in (.10, .25, .40) or type(veto) is not bool:
         raise B4Error("FRACTION_OR_VETO_INVALID")
     if type(moments) is not B4Moments or moments.unit != SIMPLE_RETURN_UNIT:
         raise B4Error("SIMPLE_RETURN_MOMENTS_REQUIRED")

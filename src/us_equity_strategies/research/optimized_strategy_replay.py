@@ -2890,11 +2890,13 @@ def _record_failed_trial(
     error: BaseException,
 ) -> None:
     """Best-effort terminal recording never replaces the triggering error."""
+    from .trial_inventory import record_trial_event
     try:
         terminal = _terminal(started, status, reason)
         store.save_research_trial(terminal)
         if store.load_research_trial(started.domain, started.strategy_profile, started.trial_id) != terminal:
             raise ValueError("research_terminal_readback_invalid")
+        record_trial_event(store, terminal, "terminal")
     except BaseException:
         # Only the best-effort recorder is protected; the caller rethrows the
         # original error, including cancellation, rather than a second signal.
@@ -2913,6 +2915,8 @@ def persist_optimized_strategy_trial(
     attempt. This is single-caller replay protection, not a worker claim lock.
     """
 
+    from .trial_inventory import record_trial_event
+
     if not isinstance(store, PerformanceStore):
         _fail("MISSING_FIELD:performance_store")
     started_record = _started_trial(request, trial_id)
@@ -2926,6 +2930,7 @@ def persist_optimized_strategy_trial(
         return readback
     stage = "replay"
     try:
+        record_trial_event(store, readback, "started")
         try:
             replay = replay_optimized_strategy(request)
         except OptimizedStrategyReplayError as exc:
@@ -2935,6 +2940,7 @@ def persist_optimized_strategy_trial(
             store.save_research_trial(terminal)
             if store.load_research_trial(started_record.domain, started_record.strategy_profile, trial_id) != terminal:
                 _fail("RESEARCH_TRIAL_READBACK_INVALID")
+            record_trial_event(store, terminal, "terminal")
             return terminal
         stage = "ledger"
         ledger = _research_ledger(replay, started_record)
@@ -2952,8 +2958,9 @@ def persist_optimized_strategy_trial(
         store.save_research_trial(terminal)
         if store.load_research_trial(started_record.domain, started_record.strategy_profile, trial_id) != terminal:
             _fail("RESEARCH_TRIAL_READBACK_INVALID")
+        record_trial_event(store, terminal, "terminal")
         return terminal
-    except (KeyboardInterrupt, SystemExit) as exc:
+    except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
         _record_failed_trial(store, started_record, ResearchTrialStatus.ABORTED, "trial_interrupted", exc)
         raise
     except Exception as exc:

@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "definition_version": {
+      "const": "r-risk-01.research.v2"
+    },
+    "status": {
+      "const": "RESEARCH_SCHEMA_APPROVED_NOT_ARMED"
+    },
+    "research_only": {
+      "const": true
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "levels": {
+      "const": [
+        "conservative",
+        "balanced",
+        "growth"
+      ]
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target_annual_volatility": {
+          "$ref": "#/$defs/parameter"
+        },
+        "max_drawdown_tolerance": {
+          "$ref": "#/$defs/parameter"
+        },
+        "daily_cvar95_loss_limit": {
+          "$ref": "#/$defs/parameter"
+        },
+        "two_session_cvar95_budget": {
+          "$ref": "#/$defs/parameter"
+        },
+        "kelly_fraction": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/parameter"
+            },
+            {
+              "properties": {
+                "hard_limits": {
+                  "const": {
+                    "type": "number",
+                    "enum": [
+                      0.1,
+                      0.25,
+                      0.4
+                    ],
+                    "minimum": 0.1,
+                    "maximum": 0.4
+                  }
+                },
+                "defaults_by_level": {
+                  "const": {
+                    "conservative": 0.1,
+                    "balanced": 0.25,
+                    "growth": 0.4
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "max_symbol_nominal_weight": {
+          "$ref": "#/$defs/parameter"
+        },
+        "max_leveraged_etf_nominal_weight": {
+          "$ref": "#/$defs/parameter"
+        },
+        "max_effective_risk_exposure": {
+          "$ref": "#/$defs/parameter"
+        },
+        "max_underlying_effective_exposure": {
+          "$ref": "#/$defs/parameter"
+        },
+        "max_gross_nominal_weight": {
+          "$ref": "#/$defs/parameter"
+        },
+        "cash_floor_ratio": {
+          "$ref": "#/$defs/parameter"
+        },
+        "m1_fee_reserve_ratio": {
+          "$ref": "#/$defs/parameter"
+        },
+        "strategy_selection_mode": {
+          "$ref": "#/$defs/parameter"
+        },
+        "strategy_ids": {
+          "$ref": "#/$defs/parameter"
+        },
+        "strategy_weight_mode": {
+          "$ref": "#/$defs/parameter"
+        },
+        "strategy_weights": {
+          "$ref": "#/$defs/parameter"
+        },
+        "rebalance_method": {
+          "$ref": "#/$defs/parameter"
+        },
+        "rebalance_absolute_band": {
+          "$ref": "#/$defs/parameter"
+        },
+        "rebalance_relative_band": {
+          "$ref": "#/$defs/parameter"
+        },
+        "breaker_daily_loss": {
+          "$ref": "#/$defs/parameter"
+        },
+        "breaker_drawdown": {
+          "$ref": "#/$defs/parameter"
+        },
+        "stop_loss_ratio": {
+          "$ref": "#/$defs/parameter"
+        },
+        "take_profit_ratio": {
+          "$ref": "#/$defs/parameter"
+        },
+        "trailing_stop_ratio": {
+          "$ref": "#/$defs/parameter"
+        },
+        "resume_observation_sessions": {
+          "$ref": "#/$defs/parameter"
+        },
+        "resume_daily_loss_fraction_of_trigger": {
+          "$ref": "#/$defs/parameter"
+        },
+        "resume_cvar_vol_fraction_of_limit": {
+          "$ref": "#/$defs/parameter"
+        },
+        "upgrade_cooldown_seconds": {
+          "$ref": "#/$defs/parameter"
+        },
+        "confirmation_ttl_seconds": {
+          "$ref": "#/$defs/parameter"
+        },
+        "benchmark": {
+          "$ref": "#/$defs/parameter"
+        }
+      },
+      "required": [
+        "target_annual_volatility",
+        "max_drawdown_tolerance",
+        "daily_cvar95_loss_limit",
+        "two_session_cvar95_budget",
+        "kelly_fraction",
+        "max_symbol_nominal_weight",
+        "max_leveraged_etf_nominal_weight",
+        "max_effective_risk_exposure",
+        "max_underlying_effective_exposure",
+        "max_gross_nominal_weight",
+        "cash_floor_ratio",
+        "m1_fee_reserve_ratio",
+        "strategy_selection_mode",
+        "strategy_ids",
+        "strategy_weight_mode",
+        "strategy_weights",
+        "rebalance_method",
+        "rebalance_absolute_band",
+        "rebalance_relative_band",
+        "breaker_daily_loss",
+        "breaker_drawdown",
+        "stop_loss_ratio",
+        "take_profit_ratio",
+        "trailing_stop_ratio",
+        "resume_observation_sessions",
+        "resume_daily_loss_fraction_of_trigger",
+        "resume_cvar_vol_fraction_of_limit",
+        "upgrade_cooldown_seconds",
+        "confirmation_ttl_seconds",
+        "benchmark"
+      ]
+    }
+  },
+  "required": [
+    "definition_version",
+    "status",
+    "research_only",
+    "execution_authorized",
+    "levels",
+    "parameters"
+  ],
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "defaults_by_level": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "conservative": {
+              "type": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array",
+                "null"
+              ]
+            },
+            "balanced": {
+              "type": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array",
+                "null"
+              ]
+            },
+            "growth": {
+              "type": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "conservative",
+            "balanced",
+            "growth"
+          ]
+        },
+        "hard_limits": {
+          "type": "object",
+          "minProperties": 1
+        },
+        "user_override_allowed": {
+          "type": "boolean"
+        },
+        "secondary_confirmation": {
+          "enum": [
+            "IF_RISK_INCREASING",
+            "ALWAYS",
+            "NEVER"
+          ]
+        },
+        "risk_increase_when": {
+          "enum": [
+            "INCREASE",
+            "DECREASE",
+            "NON_MONOTONE"
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "unit",
+        "defaults_by_level",
+        "hard_limits",
+        "user_override_allowed",
+        "secondary_confirmation",
+        "risk_increase_when",
+        "note"
+      ]
+    }
+  }
+}

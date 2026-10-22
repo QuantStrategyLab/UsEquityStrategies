@@ -1,0 +1,186 @@
+{
+  "schema_version": "r-risk-01.comparison-gaps.v1",
+  "status": "DESIGN_ONLY_NO_BACKTEST",
+  "research_only": true,
+  "execution_authorized": false,
+  "definition_sha256": "703550b4a2b7371ab7343afc201d0747831a98ce80be6a8525d3c8cd72d387a1",
+  "gap_definitions": {
+    "G01": "Kernel domain .10/.25/.40 accepted by R-RISK-02; R1/M1 still hardcode .25. No admitted end-to-end three-level consumer.",
+    "G02": "No admitted end-to-end consumer for combined nominal leverage, strategic cash, volatility, breaker and post-fee CVaR constraints.",
+    "G03": "No protocol-bound eligible CorePaths/scenarios/PIT/licence/window/frozen comparator provided; old R1 data is seen development.",
+    "G04": "Complete cumulative trial IDs, failed statuses and aligned successful net paths/Sharpe distribution unavailable; 48 is a historical lower bound only.",
+    "G05": "Default local QPK checkout has no research_stats module; shared environment and production pin unchanged.",
+    "G06": "c domain and schema approved 2026-10-22 21:07; account budget identity and Grok Bot schema review remain unbound. No real-trial activation."
+  },
+  "cells": [
+    {
+      "cell_id": "R-RISK-01:TQQQ:conservative",
+      "symbol": "TQQQ",
+      "level": "conservative",
+      "kelly_fraction_proposed": 0.1,
+      "status": "NOT_RUN_BLOCKED",
+      "evidence_classification": "DESIGN_ONLY",
+      "metric_status": "UNCOMPUTABLE",
+      "metrics": {
+        "g": null,
+        "delta_g_vs_frozen_reference": null,
+        "max_drawdown": null,
+        "daily_cvar95_loss": null,
+        "two_session_cvar95_loss": null,
+        "turnover_l1": null
+      },
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ],
+      "note": "No substitute c or rescaling performed."
+    },
+    {
+      "cell_id": "R-RISK-01:TQQQ:balanced",
+      "symbol": "TQQQ",
+      "level": "balanced",
+      "kelly_fraction_proposed": 0.25,
+      "status": "NOT_RUN_BLOCKED",
+      "evidence_classification": "DESIGN_ONLY",
+      "metric_status": "UNCOMPUTABLE",
+      "metrics": {
+        "g": null,
+        "delta_g_vs_frozen_reference": null,
+        "max_drawdown": null,
+        "daily_cvar95_loss": null,
+        "two_session_cvar95_loss": null,
+        "turnover_l1": null
+      },
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ],
+      "note": "balanced c is kernel-supported, but R1 still has no risk-level mapping consumer."
+    },
+    {
+      "cell_id": "R-RISK-01:TQQQ:growth",
+      "symbol": "TQQQ",
+      "level": "growth",
+      "kelly_fraction_proposed": 0.4,
+      "status": "NOT_RUN_BLOCKED",
+      "evidence_classification": "DESIGN_ONLY",
+      "metric_status": "UNCOMPUTABLE",
+      "metrics": {
+        "g": null,
+        "delta_g_vs_frozen_reference": null,
+        "max_drawdown": null,
+        "daily_cvar95_loss": null,
+        "two_session_cvar95_loss": null,
+        "turnover_l1": null
+      },
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ],
+      "note": "No substitute c or rescaling performed."
+    },
+    {
+      "cell_id": "R-RISK-01:SOXL:conservative",
+      "symbol": "SOXL",
+      "level": "conservative",
+      "kelly_fraction_proposed": 0.1,
+      "status": "NOT_RUN_BLOCKED",
+      "evidence_classification": "DESIGN_ONLY",
+      "metric_status": "UNCOMPUTABLE",
+      "metrics": {
+        "g": null,
+        "delta_g_vs_frozen_reference": null,
+        "max_drawdown": null,
+        "daily_cvar95_loss": null,
+        "two_session_cvar95_loss": null,
+        "turnover_l1": null
+      },
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ],
+      "note": "No substitute c or rescaling performed."
+    },
+    {
+      "cell_id": "R-RISK-01:SOXL:balanced",
+      "symbol": "SOXL",
+      "level": "balanced",
+      "kelly_fraction_proposed": 0.25,
+      "status": "NOT_RUN_BLOCKED",
+      "evidence_classification": "DESIGN_ONLY",
+      "metric_status": "UNCOMPUTABLE",
+      "metrics": {
+        "g": null,
+        "delta_g_vs_frozen_reference": null,
+        "max_drawdown": null,
+        "daily_cvar95_loss": null,
+        "two_session_cvar95_loss": null,
+        "turnover_l1": null
+      },
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ],
+      "note": "balanced c is kernel-supported, but R1 still has no risk-level mapping consumer."
+    },
+    {
+      "cell_id": "R-RISK-01:SOXL:growth",
+      "symbol": "SOXL",
+      "level": "growth",
+      "kelly_fraction_proposed": 0.4,
+      "status": "NOT_RUN_BLOCKED",
+      "evidence_classification": "DESIGN_ONLY",
+      "metric_status": "UNCOMPUTABLE",
+      "metrics": {
+        "g": null,
+        "delta_g_vs_frozen_reference": null,
+        "max_drawdown": null,
+        "daily_cvar95_loss": null,
+        "two_session_cvar95_loss": null,
+        "turnover_l1": null
+      },
+      "gap_codes": [
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G01"
+      ],
+      "note": "No substitute c or rescaling performed."
+    }
+  ],
+  "dsr": {
+    "status": "UNCOMPUTABLE",
+    "value": null,
+    "reason_codes": [
+      "G04",
+      "G05"
+    ],
+    "n_cumulative": null,
+    "n_effective": null
+  },
+  "real_trials_run": 0,
+  "synthetic_backtests_run": 0,
+  "financial_qualification": "NOT_READY"
+}
