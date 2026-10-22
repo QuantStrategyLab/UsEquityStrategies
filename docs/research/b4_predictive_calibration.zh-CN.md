@@ -132,11 +132,10 @@ result = score_b4_predictive_calibration(records, bins=10)
   - B4 矩错误、非正方差、NLL 溢出均返回 `UNCOMPUTABLE` 且不产生数字；
   - 公开输出 JSON 可序列化，且不含授权/订单字段。
 - Ruff 通过（仅有 `pyproject.toml` 顶层 linter 配置弃用警告）。
-- 未 commit、未 push、未运行 CI；未接真实数据。
+- 已随 PR #649 squash 合并到 main（`68ba57a4`）；CI run `39739109111` 的 5 个 job 全部通过，`research-stats-integration` 使用 overlay `dd17abb` 实际执行。未接真实数据。
 
 ## 尚未做
 
-1. 在 pinned QPK CI 中运行本切片（本模块本身不依赖 QPK `research_stats`，但仍需与仓库的 pinned 环境一起验证）。
-2. 在真实 SOXL/TQQQ 的预注册窗口上生成 B4 状态和实现观测，检查 `forecast_at`、`available_at`、watermark 的实际数据口径。
-3. 联合评分：双 core 的联合 NLL/CRPS、组合 PIT，以及 `Sigma` 估计不确定性下的校准；这些会改变当前“仅边际”的结论范围。
-4. 与 R5 成本感知 Kelly、RS-04 滚动前推的接口：本模块只评分预测分布，不直接产生仓位或复利结论。
+1. 在真实 SOXL/TQQQ 的预注册窗口上生成 B4 状态和实现观测，检查 `forecast_at`、`available_at`、watermark 的实际数据口径。
+2. 联合评分：双 core 的联合 NLL/CRPS、组合 PIT，以及 `Sigma` 估计不确定性下的校准；这些会改变当前“仅边际”的结论范围。
+3. 与 R5 成本感知 Kelly、RS-04 滚动前推的接口：本模块只评分预测分布，不直接产生仓位或复利结论。
