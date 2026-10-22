@@ -203,12 +203,19 @@ jobs:
             tests/research/test_rs04_netting_candidate.py \
             tests/research/test_rs04_mechanism_comparison.py \
             tests/research/test_r_data_foundation.py \
+            tests/research/test_r_data_04_pit_gaps.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
           root = ET.parse("security-netting-tests.xml").getroot()
           cases = list(root.iter("testcase"))
           foundation_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_foundation")]
+          gap_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_04_pit_gaps")]
+          for required in ("test_invalid_pit_stops_before_generator_fit_and_update",
+                           "test_rehashed_revision_conflicts_without_changing_saved_history",
+                           "test_each_asset_future_input_preserves_native_prefix",
+                           "test_non_usd_source_refused_before_input_read"):
+              assert any(c.attrib["name"].split("[")[0] == required for c in gap_cases), required
           for required in ("test_r1_first_seen_persisted_and_actual_cutoff_consumed",
                            "test_r1_future_bars_and_actions_cannot_change_earlier_native_decisions"):
               assert any(c.attrib["name"] == required for c in foundation_cases), required
