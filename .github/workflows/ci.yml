@@ -205,6 +205,7 @@ jobs:
             tests/research/test_r_data_foundation.py \
             tests/research/test_r_data_04_pit_gaps.py \
             tests/research/test_r_data_05_producer_integration.py \
+            tests/research/test_r_data_06_revision_calendar_fx.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
@@ -226,6 +227,17 @@ jobs:
                            "test_changed_producer_or_receipt_conflicts_before_replay_input",
                            "test_revised_bundle_needs_new_identity_and_later_declared_cutoff"):
               assert any(c.attrib["name"].split("[")[0] == required for c in producer_cases), required
+          revision_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_06_revision_calendar_fx")]
+          for required, count in {
+              "test_revision_candidates_are_explicit_and_conflicts_preserve_history": 9,
+              "test_action_specific_clocks_are_unconsumed_gap_counterexamples": 10,
+              "test_raw_fx_quotes_are_unconsumed_gap_counterexamples": 5,
+              "test_unknown_calendar_or_currency_refused_before_archive_read": 8,
+              "test_declared_holiday_gap_uses_next_listed_session_and_keeps_pending": 1,
+              "test_unlisted_or_skipped_session_rejected_without_state_change": 3,
+              "test_post_holiday_late_bundle_rejected_without_filling_pending": 2,
+          }.items():
+              assert sum(c.attrib["name"].split("[")[0] == required for c in revision_cases) >= count, required
           rs04_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_netting_candidate.RS04NettingCandidateTests")]
           assert len(rs04_cases) >= 13, "RS04 CorePath netting candidate tests were not fully collected"
           mechanism_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_mechanism_comparison.MechanismComparisonTests")]
