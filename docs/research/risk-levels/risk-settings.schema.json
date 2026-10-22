@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Risk setting request, design only; not execution authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "definition_version": {
+      "const": "r-risk-01.research.v2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "scope_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "mode": {
+      "enum": [
+        "simple",
+        "advanced"
+      ]
+    },
+    "level": {
+      "enum": [
+        "conservative",
+        "balanced",
+        "growth"
+      ]
+    },
+    "overrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target_annual_volatility": {
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 0.18,
+          "x-defaults-by-level": {
+            "conservative": 0.06,
+            "balanced": 0.1,
+            "growth": 0.15
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Ceiling; never increase exposure to reach it; 252 completed sessions required."
+        },
+        "max_drawdown_tolerance": {
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 0.2,
+          "x-defaults-by-level": {
+            "conservative": 0.08,
+            "balanced": 0.12,
+            "growth": 0.18
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": ""
+        },
+        "daily_cvar95_loss_limit": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 0.04,
+          "x-defaults-by-level": {
+            "conservative": 0.01,
+            "balanced": 0.02,
+            "growth": 0.035
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Daily net loss ES95; signed losses; monitoring only, no sqrt-time conversion."
+        },
+        "two_session_cvar95_budget": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 0.06,
+          "x-defaults-by-level": {
+            "conservative": 0.015,
+            "balanced": 0.03,
+            "growth": 0.05
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Existing PRE_NEXT_FILL_AT_T_PLUS_2 endpoint; not daily CVaR."
+        },
+        "kelly_fraction": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.4,
+          "x-defaults-by-level": {
+            "conservative": 0.1,
+            "balanced": 0.25,
+            "growth": 0.4
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Research kernel accepts exactly c=.10/.25/.40, applied once before cap; R1/M1 stay fixed at .25. No rescaling capped outputs; no trial or execution authority.",
+          "enum": [
+            0.1,
+            0.25,
+            0.4
+          ]
+        },
+        "max_symbol_nominal_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.4,
+          "x-defaults-by-level": {
+            "conservative": 0.15,
+            "balanced": 0.25,
+            "growth": 0.35
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": ""
+        },
+        "max_leveraged_etf_nominal_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.3,
+          "x-defaults-by-level": {
+            "conservative": 0.1,
+            "balanced": 0.2,
+            "growth": 0.3
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Aggregate across leveraged ETFs within one account."
+        },
+        "max_effective_risk_exposure": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1.0,
+          "x-defaults-by-level": {
+            "conservative": 0.5,
+            "balanced": 0.75,
+            "growth": 1.0
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": ""
+        },
+        "max_underlying_effective_exposure": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.7,
+          "x-defaults-by-level": {
+            "conservative": 0.3,
+            "balanced": 0.5,
+            "growth": 0.7
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": ""
+        },
+        "cash_floor_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.95,
+          "x-defaults-by-level": {
+            "conservative": 0.2,
+            "balanced": 0.1,
+            "growth": 0.05
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "DECREASE",
+          "description": "Post-fee strategic true-cash floor; M1 reserve is additional pre-fee. Existing account floor always wins."
+        },
+        "strategy_selection_mode": {
+          "type": "string",
+          "enum": [
+            "system_eligible",
+            "explicit"
+          ],
+          "x-defaults-by-level": {
+            "conservative": "system_eligible",
+            "balanced": "system_eligible",
+            "growth": "system_eligible"
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": "Explicit selection only from existing approved catalogue; selection cannot grant permission."
+        },
+        "strategy_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "maxLength": 120
+          },
+          "uniqueItems": true,
+          "maxItems": 20,
+          "x-defaults-by-level": {
+            "conservative": [],
+            "balanced": [],
+            "growth": []
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": "Empty with system_eligible means resolve existing eligible pool; not empty target or activate all."
+        },
+        "strategy_weight_mode": {
+          "type": "string",
+          "enum": [
+            "system_recommended",
+            "explicit"
+          ],
+          "x-defaults-by-level": {
+            "conservative": "system_recommended",
+            "balanced": "system_recommended",
+            "growth": "system_recommended"
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": ""
+        },
+        "strategy_weights": {
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": {
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "x-defaults-by-level": {
+            "conservative": {},
+            "balanced": {},
+            "growth": {}
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": "Explicit weights match strategy_ids, sum<=1; remainder true cash; never normalize to full investment."
+        },
+        "rebalance_method": {
+          "type": "string",
+          "enum": [
+            "band",
+            "daily",
+            "weekly"
+          ],
+          "x-defaults-by-level": {
+            "conservative": "band",
+            "balanced": "band",
+            "growth": "band"
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": "Forced reduction bypasses all schedules; no new partial-rebalance solver."
+        },
+        "rebalance_absolute_band": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.05,
+          "x-defaults-by-level": {
+            "conservative": 0.02,
+            "balanced": 0.03,
+            "growth": 0.04
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": ""
+        },
+        "rebalance_relative_band": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5,
+          "x-defaults-by-level": {
+            "conservative": 0.2,
+            "balanced": 0.25,
+            "growth": 0.3
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": ""
+        },
+        "breaker_daily_loss": {
+          "type": "number",
+          "minimum": 0.005,
+          "maximum": 0.04,
+          "x-defaults-by-level": {
+            "conservative": 0.02,
+            "balanced": 0.03,
+            "growth": 0.04
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": ""
+        },
+        "breaker_drawdown": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.18,
+          "x-defaults-by-level": {
+            "conservative": 0.06,
+            "balanced": 0.1,
+            "growth": 0.15
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Must be <= max_drawdown_tolerance; lowering is immediate policy tightening, not guaranteed fill."
+        },
+        "stop_loss_ratio": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.1,
+          "x-defaults-by-level": {
+            "conservative": 0.03,
+            "balanced": 0.05,
+            "growth": 0.07
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Fee-adjusted sleeve entry value; new trigger consumer currently UNBOUND; existing stricter stops preserved."
+        },
+        "take_profit_ratio": {
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 0.3,
+          "x-defaults-by-level": {
+            "conservative": 0.1,
+            "balanced": 0.15,
+            "growth": 0.2
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": "No monotone risk reduction claim."
+        },
+        "trailing_stop_ratio": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.1,
+          "x-defaults-by-level": {
+            "conservative": 0.04,
+            "balanced": 0.06,
+            "growth": 0.08
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Held-cycle high watermark; never reset by risk-level change."
+        },
+        "resume_observation_sessions": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 20,
+          "x-defaults-by-level": {
+            "conservative": 5,
+            "balanced": 5,
+            "growth": 5
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "DECREASE",
+          "description": "After remediation; high-watermark drawdown breach cannot be cleared by waiting."
+        },
+        "resume_daily_loss_fraction_of_trigger": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.5,
+          "x-defaults-by-level": {
+            "conservative": 0.5,
+            "balanced": 0.5,
+            "growth": 0.5
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "All five sessions must remain strictly below this times original daily trigger."
+        },
+        "resume_cvar_vol_fraction_of_limit": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.8,
+          "x-defaults-by-level": {
+            "conservative": 0.8,
+            "balanced": 0.8,
+            "growth": 0.8
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "IF_RISK_INCREASING",
+          "x-risk-increase-when": "INCREASE",
+          "description": "Resume only below this fraction of both monitor limits."
+        },
+        "benchmark": {
+          "type": "string",
+          "enum": [
+            "SPY_TOTAL_RETURN_USD",
+            "QQQM_TOTAL_RETURN_USD",
+            "SOXX_TOTAL_RETURN_USD",
+            "ZERO_USD_CASH"
+          ],
+          "x-defaults-by-level": {
+            "conservative": "SPY_TOTAL_RETURN_USD",
+            "balanced": "SPY_TOTAL_RETURN_USD",
+            "growth": "SPY_TOTAL_RETURN_USD"
+          },
+          "x-user-override-allowed": true,
+          "x-secondary-confirmation": "ALWAYS",
+          "x-risk-increase-when": "NON_MONOTONE",
+          "description": "Reporting benchmark only. Native NAV/high watermark, tail descriptor and model baseline cannot be changed by this field."
+        }
+      },
+      "required": []
+    },
+    "restore_system_recommendation": {
+      "type": "boolean"
+    },
+    "research_only": {
+      "const": true
+    },
+    "execution_authorized": {
+      "const": false
+    }
+  },
+  "required": [
+    "definition_version",
+    "request_id",
+    "scope_ref",
+    "mode",
+    "level",
+    "overrides",
+    "restore_system_recommendation",
+    "research_only",
+    "execution_authorized"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "restore_system_recommendation": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "overrides": {
+            "maxProperties": 0
+          }
+        }
+      }
+    }
+  ],
+  "$id": "urn:qsl:r-risk-01:risk-settings:research-v2"
+}
