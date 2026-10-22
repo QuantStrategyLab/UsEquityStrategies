@@ -11,6 +11,7 @@ from datetime import date, timedelta
 import pytest
 
 from us_equity_strategies.research import fractional_kelly_walk_forward as rs04
+from us_equity_strategies.research.fractional_kelly_walk_forward_plan import NestedWalkForwardFold
 
 
 def _qpk_stats():
@@ -83,8 +84,9 @@ def test_full_kelly_and_leverage_refused():
 
 
 def test_plan_is_purged_and_contiguous():
-    folds = PLAN.folds(400)
+    folds = rs04.WalkForwardPlan(120, 40, 2).folds(400)
     assert folds[0] == (0, 120, 122, 162)
+    assert folds == [(i, i + 120, i + 122, i + 162) for i in range(0, 240, 40)]
     for (a, b, c, d), (_, _, c2, _) in itertools.pairwise(folds):
         assert c - b == 2 and c2 == d
     assert all(d <= 400 for *_, d in folds)
@@ -92,6 +94,96 @@ def test_plan_is_purged_and_contiguous():
     assert all(f[0] == 0 for f in anchored)
     with pytest.raises(ValueError):
         rs04.WalkForwardPlan(120, 40, 0).folds(400)  # purge is mandatory
+
+
+def test_purge_must_cover_label_horizon():
+    with pytest.raises(ValueError, match="^WALK_FORWARD_PLAN_INVALID$"):
+        rs04.WalkForwardPlan(120, 40, 2, label_horizon_sessions=3).folds(400)
+    assert rs04.WalkForwardPlan(120, 40, 3, label_horizon_sessions=3).folds(400)
+
+
+@pytest.mark.parametrize("anchored", [False, True])
+@pytest.mark.parametrize("purge,horizon", [(1, 1), (3, 3), (5, 3)])
+def test_purge_prevents_training_label_overlap(anchored, purge, horizon):
+    plan = rs04.WalkForwardPlan(120, 40, purge, anchored, horizon)
+    folds = plan.folds(400)
+    assert folds
+    for _, train_end, test_start, _ in folds:
+        assert train_end - 1 + horizon < test_start
+
+
+@pytest.mark.parametrize("anchored", [False, True])
+@pytest.mark.parametrize("embargo", [0, 7])
+def test_embargo_gap_between_test_folds(anchored, embargo):
+    plan = rs04.WalkForwardPlan(120, 40, 2, anchored, embargo_sessions=embargo)
+    folds = plan.folds(400)
+    assert len(folds) > 1
+    for previous, current in itertools.pairwise(folds):
+        assert current[2] - previous[3] == embargo
+        assert current[1] - previous[1] == 40 + embargo
+        assert current[0] == (0 if anchored else current[1] - 120)
+
+
+@pytest.mark.parametrize("field", [
+    "train_sessions", "test_sessions", "purge_sessions",
+    "label_horizon_sessions", "embargo_sessions",
+])
+@pytest.mark.parametrize("value", [True, False, 1.5, "2", None])
+def test_plan_rejects_non_integer_sessions(field, value):
+    kwargs = {"train_sessions": 120, "test_sessions": 40, "purge_sessions": 2, field: value}
+    with pytest.raises(TypeError, match="^WALK_FORWARD_PLAN_INVALID$"):
+        rs04.WalkForwardPlan(**kwargs).folds(400)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("train_sessions", 1), ("test_sessions", 0), ("purge_sessions", 0),
+    ("label_horizon_sessions", 0), ("embargo_sessions", -1),
+])
+def test_plan_rejects_out_of_range_sessions(field, value):
+    kwargs = {"train_sessions": 120, "test_sessions": 40, "purge_sessions": 2, field: value}
+    with pytest.raises(ValueError, match="^WALK_FORWARD_PLAN_INVALID$"):
+        rs04.WalkForwardPlan(**kwargs).folds(400)
+
+
+@pytest.mark.parametrize("anchored", [False, True])
+@pytest.mark.parametrize("inner_splits", [1, 3, 7])
+def test_nested_folds_stay_inside_outer_training_window(anchored, inner_splits):
+    plan = rs04.WalkForwardPlan(120, 40, 3, anchored, 3, 7)
+    nested = plan.nested_folds(400, inner_splits=inner_splits)
+    assert nested
+    assert nested == plan.nested_folds(400, inner_splits=inner_splits)
+    assert [fold.outer for fold in nested] == plan.folds(400)
+    for fold in nested:
+        assert isinstance(fold, NestedWalkForwardFold)
+        assert isinstance(fold.inner, tuple)
+        assert len(fold.inner) == inner_splits
+        a, b, outer_test_start, _ = fold.outer
+        width = max(1, (b - a) // (inner_splits + 1))
+        assert fold.inner[0][2] == b - inner_splits * width
+        assert fold.inner[-1][3] == b
+        for train_start, train_end, val_start, val_end in fold.inner:
+            assert a == train_start < train_end < val_start < val_end <= b < outer_test_start
+            assert train_end - train_start >= 2
+            assert val_start - train_end == plan.purge_sessions
+            assert train_end - 1 + plan.label_horizon_sessions < val_start
+            assert val_end - val_start == width
+        for previous, current in itertools.pairwise(fold.inner):
+            assert previous[3] == current[2]
+
+
+def test_nested_folds_omit_insufficient_inner_training_windows():
+    plan = rs04.WalkForwardPlan(8, 2, 2)
+    assert plan.nested_folds(12)[0].inner == ((0, 2, 4, 6), (0, 4, 6, 8))
+    assert plan.nested_folds(12, inner_splits=10)[0].inner == (
+        (0, 2, 4, 5), (0, 3, 5, 6), (0, 4, 6, 7), (0, 5, 7, 8),
+    )
+    assert rs04.WalkForwardPlan(2, 2, 2).nested_folds(6)[0].inner == ()
+
+
+@pytest.mark.parametrize("inner_splits", [0, -1, True, False, 1.5, "3", None])
+def test_nested_folds_reject_invalid_inner_splits(inner_splits):
+    with pytest.raises(ValueError, match="^WALK_FORWARD_PLAN_INVALID$"):
+        PLAN.nested_folds(400, inner_splits=inner_splits)
 
 
 def test_fit_matches_hand_calculation_and_shrinks():
