@@ -1,0 +1,491 @@
+{
+  "activation_blockers": [
+    "trusted first_seen producer/code/build/clock/store not bound",
+    "new-data license/scope and approved private acquisition/storage environment not attested",
+    "versioned XNYS calendar, UTC decision cutoff and source-required warmup manifest not bound",
+    "exact prospective R0/R3 consumer and installed dependency build not admitted; existing synthetic/retrospective entrypoints are not prospective",
+    "actual risk limits/underlying factors and policy source not bound; no finance or adoption qualification",
+    "cumulative exact trial IDs and required DSR source incomplete (DSR stays UNCOMPUTABLE)",
+    "main-thread review and explicit separate ARM decision not performed"
+  ],
+  "authority": {
+    "audit_path": "/Users/lisiyi/Documents/Codex/2026-10-21/task-3/qsl_research_audit_20261021/REPORT.zh-CN.md",
+    "audit_section": "六 / M2",
+    "predecessor_path": "/Users/lisiyi/Documents/Codex/2026-10-18/task-5/research_design_batch2_20261020/m1_m2_audit_continuation_20261021/M2_R3_R0_PRIVATE_FUTURE_PROTOCOL_V1.json",
+    "predecessor_sha256": "a25512cdc50dc27a77ff7d729d9ca7a2edf548d5759a1eac7006079ec180eb88",
+    "relationship": "Additive repository protocol; retain predecessor bytes, scope, horizon and numerical rules; no R0/R1 proposal adoption.",
+    "user_ruling": "2026-10-22 19:39 Asia/Singapore; current task card"
+  },
+  "book_and_cost": {
+    "BOXX": "actual own held-security return once, trades charged; never treat as free cash",
+    "cash_return": 0,
+    "clock": "old positions bear next-fill return before that close netting; R3 HOLD retains quantities and earns own book returns; forced authorized reductions must not be throttled",
+    "fee": "5bps per side on actual native net security trades, BOXX included, charged exactly once; model assumption not broker calibrated cost",
+    "fee_formula": "fee_t = sum_s(0.0005 * abs(net_trade_value_s,t)); net per security within the same book only; cash debit exactly once including BOXX. fee_total/initial_NAV and sum_t(fee_t/NAV_pretrade_t) reported separately.",
+    "funding": "native true-cash funding and economic invariants unchanged; rejection retained, no borrow/principal/fee/cap change",
+    "gross": "diagnostic only; primary is net model wealth including fees",
+    "initial_each_book": "model NAV1=true cash1, zero securities and flows; same start time, no account holdings read",
+    "stress_cost_grid": "NONE in this protocol; fee misspecification is disclosed, not newly scanned",
+    "turnover_formula": "sum_t sum_s(abs(net_trade_value_s,t))/NAV_pretrade_t; two-way L1, no divide-by-two, no fee/bps reverse inference; risk-buy weight is a different diagnostic."
+  },
+  "data_admission": {
+    "PIT": "NOT_ATTESTED until actual trusted bindings/records independently establish the specified window; historical PIT remains NOT_ATTESTED regardless",
+    "current_producer_binding": "UNBOUND. Preparation is ready; real prospective acquisition/claims are not yet eligible. Bind existing source/forward caller, not a new service or runner.",
+    "first_seen": "actual trusted receipt producer, not caller declaration, mtime, assumed close or later retrospective reconstruction",
+    "first_seen_producer": {
+      "activation_rule": "All concrete fields, future rights and approved private environment must be bound before ARM; no caller timestamp, filesystem mtime or retrospective availability reconstruction accepted.",
+      "build_digest": null,
+      "clock_trust_evidence": null,
+      "durable_store_identity": null,
+      "owner": "existing source/forward producer owner; not a new collector",
+      "producer_id": null,
+      "source_code_sha256": null,
+      "status": "UNBOUND"
+    },
+    "fresh_rights": "existing attestation binds old13 objects only. Actual new data licence/scope and approved acquisition environment must be documented before ARM; no new subscription/spend permitted here",
+    "no_data_access_this_preparation": true,
+    "provider_candidate": "same existing Alpaca raw bars/corporate actions/SIP schema and original symbols only; candidate identity is not authorization to fetch",
+    "raw_private_only": true,
+    "revisions": "append-only originals/revisions with seen-at, decisions consume only version known by cutoff; preserve late/error data and conflicts, never overwrite into prior decisions",
+    "source_fields": [
+      "source/provider/dataset/feed/schema",
+      "symbol/exchange/currency/calendar",
+      "bar_start/bar_end or corporate-action effective time",
+      "actual_received_at and actual_first_seen_at UTC",
+      "durable persisted_at UTC",
+      "source version/revision/object hash",
+      "trusted first_seen producer identity/code/build",
+      "decision cutoff and exact input prefix hash",
+      "correction/late/duplicate linkage"
+    ],
+    "time_order": "bar_end/effective time and provider availability are separate from receipt. Require actual_received_at <= actual_first_seen_at <= persisted_at <= decision_cutoff where receipt/first_seen coincide if producer contract defines them identically. No data admitted before actual provider release; revisions consumed only after their own first_seen."
+  },
+  "existing_interfaces_and_specific_gaps": {
+    "minimal_future_seam": "after M1 writer release, root can choose one explicit real-source R0/R3-only prospective admission/row selection in existing consumer + same existing test. Preserve terminal mark/real clock semantics and default labels; exact future two-file cap must be separately accepted. No implementation authorized by this private protocol.",
+    "no_AI_or_dashboard_wait": true,
+    "retrospective": "run_registered_r0_r3_batch:1570-1805 currently admits ARTIFICIAL_FIXTURE or REAL_ARCHIVED_RAW_ACTIONS, core-only active R0/R2/R3, reserve alignment prefix63, assumed model clock and OOS SEEN. Cannot claim it already runs exactly prospective R0/R3.",
+    "reuse": "existing journals/local PerformanceStore, netter, B5 decisions, paired receipt/checkpoint, shared stats and first_seen admission contracts; no new runner/storage/framework",
+    "synthetic_forward": "rs04_netting_candidate.step_synthetic_r0_r3:214-276 explicitly requires ARTIFICIAL_FIXTURE and SYNTHETIC_ONLY context. Cannot pass real data by swapping labels or claiming fixture first_seen proves PIT."
+  },
+  "frozen_decision_rules": {
+    "cost_saving_persistence": "Report all four consecutive 63-session blocks, and full horizon, using fixed same endpoints; descriptive only, no four extra tests, no choosing best block or requiring four significant blocks. No repeated-confirmation claim from one year.",
+    "family_label": "Two separately reported dependent profiles; both must satisfy predeclared rule for a family strict-dominance description. No pooled capital/wealth, no winner selection.",
+    "fee_comparison": "strictly lower",
+    "maximum_CVaR95_loss_increase": 0.0,
+    "maximum_MDD_loss_increase": 0.0,
+    "maximum_growth_concession_log_per_session": 0.0,
+    "maximum_hard_violation_count": 0,
+    "minimum_fee_saving": 0.0,
+    "minimum_practical_growth_improvement_log_per_session": 0.0,
+    "minimum_turnover_saving": 0.0,
+    "origin": "Predecessor zero-concession strict-dominance rules preserved; CVaR sign/role made explicit without adding a positive loss budget. These research labels are not an approved live risk budget.",
+    "other_labels": [
+      "INFEASIBLE_OR_INVALID if any hard violation or incomplete paired path",
+      "EVIDENCE_INSUFFICIENT if interval/inputs unavailable or interval includes negative values",
+      "COST_SAVING_WITH_GROWTH_OR_TAIL_TRADEOFF if costs improve but frozen no-deterioration boundary fails",
+      "NO_COST_BENEFIT otherwise"
+    ],
+    "per_profile_label": "STRICT_DOMINANCE only with complete source/risk/accounting/PIT evidence, all 252 valid pairs, bootstrap ci_low >= 0, strictly lower total fees and turnover, MDD_R3 <= MDD_R0, CVaR95_loss_R3 <= CVaR95_loss_R0 and zero hard violations.",
+    "priority": "invalid/incomplete first; then report all signed effects, uncertainty and tradeoffs even when evidence insufficient",
+    "promotion": "NONE; keep R0 research reference; no window extension or favorable-day stopping",
+    "risk_budget_status": "EXACT_PROSPECTIVE_RISK_BINDING_UNBOUND_NOT_LIVE_APPROVAL",
+    "turnover_comparison": "strictly lower"
+  },
+  "frozen_utc": "2026-10-22T11:49:52.847991+00:00",
+  "interpretation_rule": {
+    "cost_benefit": "report whether R3 fees and two-way turnover are both strictly lower; minimum threshold0, magnitude always shown; counts alone do not establish causal fee benefit",
+    "growth_or_risk_tradeoff": "report signed delta netlog and MDD; zero deterioration is the predeclared strict-dominance tolerance for this research label, not an approved live budget",
+    "otherwise": "cost saving with growth/risk tradeoff, uncertainty, or infeasibility as observed; retain R0 as research reference; no extension until favorable",
+    "promotion": "NONE even if label met. Joint-correlation/CVaR consumers/post-fee cap/actual fees/production chain remain unclosed. Independent finance and actual adoption approvals separate",
+    "strict_dominance_label": "only if lower-bound interval for paired growth is >=0, both costs/turnover lower, net MDD not larger, and zero hard data/accounting/rejection violations; separately each profile; no claim of universal superiority"
+  },
+  "missing_failure_and_peeking": {
+    "complete_pair": "invalid/missing/rejected session cannot be deleted to make complete series. Publish incompleteness and no confirmatory result unless predeclared admissibility actually holds for full window",
+    "evaluation": "one fixed terminal analysis; operational provenance/safety health may be monitored without selecting returns/parameters",
+    "revisions_to_protocol": "new immutable version before its own genuinely future labels; all earlier attempts/repairs remain in trial history; no rewriting original question",
+    "stopping": "data trust/clock/rights/identity/funding/guard failure pauses affected evidence path, preserves first failure and hashes, no same-trial blind restart or dropping losing days"
+  },
+  "next_owner_and_gates": [
+    "Main thread reviews exact local protocol hash; no commit/push/tag here.",
+    "Existing source owner binds actual producer, rights, calendar, cutoff, warmup and approved private store before any prospective collection.",
+    "Any necessary consumer change is separately authorized after M1 writer release; no product implementation by this task.",
+    "Main thread explicitly arms exact future version/input/time/output only when all activation prerequisites hold; cumulative DSR source may remain missing only with DSR UNCOMPUTABLE."
+  ],
+  "one_question": "交易节流的成本与操作收益是否持续，且净增长/尾部代价是否在可接受边界内？只比较冻结的 R3 与 R0。",
+  "primary_endpoint": {
+    "configuration_origin": "20-session blocks/252-session horizon are explicit new research design assumptions, not optimized parameters or historical risk authorization. Two-profile intervals use conservative Bonferroni nominal97.5%; stationary bootstrap remains approximate with small-sample/regime limitations.",
+    "fixed_config": {
+      "confidence_each_profile": 0.975,
+      "mean_block_length": 20.0,
+      "n_resamples": 2000,
+      "seed": 20261021
+    },
+    "machine_definition": {
+      "d_t": "log(W_R3_t/W_R3_prev) - log(W_R0_t/W_R0_prev)",
+      "delta_g": "sum(d_t)/252",
+      "input": "paired finite net simple returns from own modeled wealth books, same 252 sessions and marks",
+      "n_required": 252,
+      "net_nav_must_be_positive": true,
+      "one_final_analysis": true,
+      "orientation": "positive favors R3",
+      "terminal_log_wealth_difference": "sum(d_t); not mean cumulative log wealth levels",
+      "unit": "natural_log_per_session"
+    },
+    "minimum_practical_growth_improvement": "0 natural-log mean per session for strict dominance label; no negative-growth concession selected from future results",
+    "multiplicity": "no aggregate joint-wealth estimate; two predeclared profile endpoints, every result reported; no selective winner; DSR/PBO not calculated without full required trial source",
+    "per_profile": "g[t]=log(1+r_R3_net[t])-log(1+r_R0_net[t]); report sum and mean in natural log units",
+    "uncertainty": "reuse kelly_disclosures.paired_stationary_bootstrap on exactly paired valid net-return sessions, never daily iid"
+  },
+  "protocol_id": "R3_VS_R0_CHALLENGER_20261022",
+  "qualifications": {
+    "actual_audit_model_identity": "UNVERIFIABLE",
+    "adoption": "UNKNOWN",
+    "financial": "NOT_READY",
+    "fullchain": "NOT_CLOSED",
+    "historical_OOS": "SEEN_DEVELOPMENT_NOT_INDEPENDENT",
+    "productionbuild": "UNKNOWN"
+  },
+  "registration": {
+    "arm_utc": null,
+    "armed": false,
+    "before_data": "Hash and freeze this version before any prospective collection/decision; ARM manifest must reference this exact file SHA-256.",
+    "canonical_json": "UTF-8, ensure_ascii=False, sort_keys=True, indent=2, LF and one terminal LF, allow_nan=False",
+    "collection_authorized": false,
+    "external_registry_write": false,
+    "immutability_rule": "Do not edit after hash publication for observation. Any economic/threshold/window change requires a distinct immutable successor before its own unseen data, preserving prior bytes and trial lineage.",
+    "kind": "local content preregistration; pending main-thread review, not trusted external timestamp or immutable storage attestation",
+    "sha256_scope": "all exact JSON file bytes; full SHA-256 recorded in companion Markdown and report, not embedded recursively in this JSON"
+  },
+  "schema": "qsl.research.r3_vs_r0.challenger_protocol.v1",
+  "scope": {
+    "band_abs_pre_fee_NAV_weight": 0.01,
+    "challengers": "R3_B5_BAND_ONLY",
+    "controls": "R0_ORIGINAL_FULL",
+    "dependent_books": 4,
+    "excluded": [
+      "R1",
+      "R2 half",
+      "new policy or market",
+      "parameter or window grid",
+      "post-hoc variant selection",
+      "AI/dashboard dependency",
+      "replay of historical six cells"
+    ],
+    "profiles": [
+      "TQQQ",
+      "SOXL"
+    ],
+    "row_count": 2,
+    "separate_accounts": "never pool capital or presume cross-broker transfer/diversification",
+    "trials": "one paired protocol; four dependent cells, no independent-4-trial claim"
+  },
+  "scope_now": {
+    "automations": 0,
+    "commit_push_tag": false,
+    "downloads": 0,
+    "product_paths": [],
+    "production": 0,
+    "raw_data_reads": 0,
+    "trial_starts": 0,
+    "writes": [
+      "docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.md",
+      "docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.json",
+      "/Users/lisiyi/codex-jobs/out/RESEARCH-M2-01.md"
+    ]
+  },
+  "secondary_endpoints": [
+    "actual modeled cash fees divided by initial NAV and fees per common pre-fill NAV separately",
+    "cumulative two-way turnover sum_s abs(net trade value)/pre-fill NAV",
+    "native nonzero trade-event count, HOLD count, mandatory-reduction count, no claim of broker-order savings",
+    "net MDD and recovery duration with right-censoring stated; pre-fee caps not post-fee certification",
+    "realized lower-tail net-return ES95 with finite-sample caveat, not prospective CVaR guarantee",
+    "time-weighted security/risk/BOXX/true-cash exposure",
+    "cash/guard/data/price/unavailable incidence and exact excluded/failed-session reasons",
+    "final pending decisions and security exposures"
+  ],
+  "secondary_metric_contract": {
+    "CVaR95": {
+      "formula": "positive loss ES95 = negative fractional-tail mean of worst 5% net simple returns; sort ascending, q=.05*n, sum first floor(q) plus fractional weight of next, divide by q",
+      "role": "realized diagnostic and strict no-deterioration check, not a forward risk guarantee",
+      "sign": "higher is worse; report also signed worst-tail return mean"
+    },
+    "DSR": {
+      "needed": [
+        "all selection attempts including failures, repairs and sensitivities with provenance",
+        "aligned net 1x excess return paths / per-trial sample counts and Sharpe definitions",
+        "ddof=1 Sharpe variance across relevant trials, skewness/kurtosis and missing-trial treatment",
+        "explicit dependency/effective-trial assumptions"
+      ],
+      "reason": "COMPLETE_CUMULATIVE_TRIAL_SOURCE_NOT_VERIFIED",
+      "rule": "Use existing stats interface only if complete inputs and real-data admission are supported; retain null plus reason otherwise. Never set synthetic=True to admit real data, treat missing failures as zero, or infer future profit probability.",
+      "status": "UNCOMPUTABLE",
+      "value": null
+    },
+    "MDD": {
+      "formula": "max_t(1-W_t/max_{u<=t} W_u), including W_0",
+      "recovery": "sessions to previous peak; right-censored at terminal horizon if not recovered",
+      "sign": "positive loss fraction; higher is worse"
+    },
+    "exposure": {
+      "missing_factor": "null / UNCOMPUTABLE, never zero; no confirmatory qualification without risk-boundary evidence",
+      "required": [
+        "time-weighted security weights",
+        "true cash",
+        "BOXX separately",
+        "effective/underlying exposure using source-attested factors",
+        "final holdings and pending decisions"
+      ]
+    },
+    "infeasibility": {
+      "denominator": "all 252 scheduled paired fill/valuation slots per profile; no deletion or clock restart",
+      "numerator": "scheduled decisions rejected by cash/funding/guard/price/data/admission with distinct reason counts",
+      "partial_path": "report observed failures and missing slots; never fabricate remaining NAV or returns"
+    },
+    "operations": {
+      "limitation": "modeled activity only; no claim of measured broker-order or human labor savings",
+      "required": [
+        "nonzero native net security trade events",
+        "HOLD events",
+        "mandatory reductions",
+        "failed or late inputs"
+      ]
+    }
+  },
+  "status": "CONTENT_FROZEN_LOCAL_PREREGISTRATION_NOT_ARMED_NOT_RUNNING",
+  "trial_accounting": {
+    "completeness": "INCOMPLETE_SOURCE_NOT_VERIFIED; do not reset to 1 or claim historical attempts absent",
+    "counting_rules": [
+      "Retain every attempted selection, failed/refused/unknown run and repaired candidate with exact lineage; never overwrite original terminal record.",
+      "Same trial resume is not an independent new trial; uncertain remote write/STARTED must not be retried blindly.",
+      "Profile/books/cost reporting blocks are dependent units; all are disclosed, not multiplied as independent trials.",
+      "Report raw attempted/failed/candidate counts separately from estimable effective-independent count; missing paths do not vanish from selection-bias disclosure.",
+      "No sensitivity/grid is run by this task. If a sensitivity is later used for selection, register selection status and include cumulative trial accounting."
+    ],
+    "historical_attempt_count": null,
+    "independent_effective_trial_count": null,
+    "journal_fields": [
+      "study_id",
+      "trial_id",
+      "parent_trial_id",
+      "candidate_id",
+      "code_digest",
+      "config_digest",
+      "input_manifest_digest",
+      "calendar_digest",
+      "cost_identity",
+      "registered_at",
+      "started_at",
+      "terminal_at",
+      "status",
+      "first_failure",
+      "reason_code",
+      "repair_or_sensitivity_kind",
+      "selection_used",
+      "dependence_group",
+      "result_digest",
+      "missing_return_reason"
+    ],
+    "known_history_index": [
+      {
+        "id": "HISTORICAL_SIX_CELLS",
+        "kind": "seen development R0/R2/R3 by TQQQ/SOXL",
+        "source": "audit M2 exact input and project reference; exact journal IDs not verified here",
+        "status": "descriptive only; dependent cells, not six independent trials"
+      },
+      {
+        "id": "HISTORICAL_R1_FEE_REJECTION",
+        "kind": "failed distinct R1 mechanism attempt",
+        "source": "audit M1; precise journal/terminal digest must be bound by existing owner",
+        "status": "retained out-of-scope history; no replacement by successful repair"
+      },
+      {
+        "id": "HISTORICAL_REPAIRS_AND_CANDIDATES",
+        "kind": "collection/caller repairs; R1 reserve and fixed-exposure follow-ups",
+        "source": "project reference dated 2026-10-22; exhaustive IDs/count unknown",
+        "status": "keep failed/unknown originals and version lineage; repaired economics are new candidate attempts, synthetic controls not financial trials"
+      },
+      {
+        "id": "HISTORICAL_QQQ_PAIR_SENSITIVITY",
+        "kind": "A_TWO_RECORDS vs B_ONE_EVENT_ASSUMPTION",
+        "source": "frozen rs04_netting_candidate.py _qqq_pair_projection / historical sensitivity interface",
+        "status": "source-ambiguity sensitivity recorded separately; correlated reruns not independent trials"
+      },
+      {
+        "id": "PRIOR_M2_PROTOCOL",
+        "kind": "prior preregistration preparation",
+        "source_sha256": "a25512cdc50dc27a77ff7d729d9ca7a2edf548d5759a1eac7006079ec180eb88",
+        "status": "NOT_ARMED_NOT_RUNNING; protocol artifact itself not an executed financial trial"
+      }
+    ],
+    "new_trials_started_this_task": 0,
+    "study_unit": "one registered R3-vs-R0 question; two profiles and four dependent books; not four independent trials"
+  },
+  "unseen_window": {
+    "arm_record": "one immutable ARM receipt after root acceptance, code/producer/source/rights/calendar readiness; exact UTC and hashes before first eligible decision. No ARM performed.",
+    "calendar": "XNYS/America_New_York; exact official-calendar artifact/revision and all session boundaries frozen at ARM, currently UNBOUND",
+    "choice": "future data only, no claimed unseen historical window",
+    "end": "primary ending value is common final-session mark-to-market of actual quantities/cash incl BOXX; no invented final zero-target or forced liquidation. Pending decisions not filled beyond horizon. Disclose remaining exposure; eventual liquidation cost unknown, not deducted hypothetically.",
+    "historical_seen": "2023–2026 already-seen windows, original 2021-12-01..2026-08-25 packet and all subsequently examined observations remain DEVELOPMENT_DIAGNOSTIC_ONLY; never relabel OOS.",
+    "length": "252 consecutive official XNYS fill/valuation sessions from first fill; fixed one evaluation, no significance-driven extension",
+    "overlapping_labels": "No fitted challenger or new train/test split is introduced. Any overlapping multi-session labels may not count as independent observations; preserve full time span isolation. A new estimator/label horizon requires a new preregistration before its own unseen data, never retune this protocol.",
+    "selection": "D0 is first official XNYS session whose open is strictly after ARM UTC. First fill is next XNYS session. D0 may not be moved after returns are known.",
+    "timing": "targets from actual admitted data after D close and before fixed decision cutoff; existing next-close fill convention. Cutoff chosen and frozen before any labels, actual first_seen<=persisted<=cutoff. If late/missing stop/mark unavailable, never backdate to model23:00.",
+    "timing_readiness": {
+      "calendar_artifact_sha256": null,
+      "decision_cutoff_utc": null,
+      "rule": "Bind exact cutoff, versioned calendar and minimum source-required warmup before any eligible future label. Do not select a later D0 after seeing returns.",
+      "status": "UNBOUND_BEFORE_ARM",
+      "warmup_manifest_sha256": null
+    },
+    "warmup": "only minimum warmup required by unchanged core source; past/seen data allowed solely for warmup, not counted OOS. No B4 covariance/prior fit and no forced new63 future-training wait for this R0/R3 question. Warmup inputs/hashes/rights must be frozen separately at ARM."
+  },
+  "version_binding": {
+    "M1_independence": "Do not enable new R1 reserve on R0/R3. Same old fee basis on both arms; cash infeasibility is retained. New cash policy would be a different candidate/version, not silent repair.",
+    "checkout_at_preparation": "eae5bcbd4397582b13d176d4833c02c23689b3df",
+    "comparison": "same frozen original no-plugin core definitions/source hashes; R0 versus R3 execution choice only",
+    "core_only_frozen_constants": {
+      "CORE_ONLY_CONFIG_SHA256": "651f8f342e42a5c94f0dcebb2a4381ced9fb127acf86c1be7dbabb8ea72bc8b1",
+      "CORE_ONLY_MAPPING_SHA256": "8bb756d55f24166f0e7ddd583eb389049f79a03176fa0eb8e82944570a59c9d5",
+      "CORE_ONLY_SOURCE_SHA256": {
+        "income_layer.py": "33fb7b447fcf31b97fce49e498ee57459632c474033267f04fe8e24cb18208b4",
+        "manifests/__init__.py": "8c22b5c7b2d1df95cdad7f3d90573523462fc8d38f69b8ddb8f9f49969f7db30",
+        "research/fractional_kelly_walk_forward.py": "7e5892d59fd9c1243a5433b4c87b616d0805ed14130d24d65850bbfc8734ec74",
+        "research/kelly_core_return_generator.py": "37ad7ebe19d4ad9d6ff8c77294a084e7cd703a34105fa8ce011f0bddf9b35671",
+        "strategies/soxl_soxx_trend_income.py": "9675f56e9ea0d4be36751b52ec22951ddc29e2546e305a1e5b1aab5c6d60baf4",
+        "strategies/tqqq_dual_drive_core.py": "1868f4298c1228b458b9b4b6904ff6bf3cf1dcacd46fcf4e469a6f968ee6f211",
+        "strategies/tqqq_growth_income.py": "90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42",
+        "volatility_delever_retention.py": "148743f0bea5285ec98aca19072c528cb4435c5b52cbc5271b4347ce4fa30aef"
+      }
+    },
+    "dependency_policy": "Economic reference pyproject.toml and uv.lock are pinned above as Git blobs; current checkout and CI-only QPK overlays are not substituted. Exact installed prospective consumer/dependency build remains UNBOUND; no dependency installed or altered.",
+    "economic_reference_main": "04fcb6099c8dea524a331435395e98b00ad21932",
+    "frozen_config": {
+      "R1_reserve_enabled": false,
+      "band_abs_pre_fee_NAV_weight": 0.01,
+      "cash_return": 0.0,
+      "challenger": "R3_B5_BAND_ONLY",
+      "challenger_mode": "BAND_HOLD",
+      "control": "R0_ORIGINAL_FULL",
+      "control_mode": "FULL",
+      "cost_cases": [
+        1.0
+      ],
+      "execution": "next_close",
+      "external_flows": 0.0,
+      "fee_bps_per_side": 5.0,
+      "initial_nav_per_book": 1.0,
+      "initial_security_value": 0.0,
+      "initial_true_cash_per_book": 1.0,
+      "new_risk_cap": null,
+      "no_plugin_core": true,
+      "original_outer_f": {
+        "SOXL": 1.0,
+        "TQQQ": 1.0
+      },
+      "profiles": [
+        "TQQQ",
+        "SOXL"
+      ]
+    },
+    "future_consumer_exact_hash": "UNBOUND_NOT_READY; real admission/producer must be bound before arming; changing economics requires new protocol version before future data",
+    "original_implementation_sources": [
+      {
+        "path": "src/us_equity_strategies/research/rs04_netting_candidate.py",
+        "sha256": "cf6e48bfafa8cf1281fe5751f8d228f07deab6e3eff6bd0e4bee1d03e4c748d7",
+        "symbols": [
+          {
+            "end": 276,
+            "line": 214,
+            "name": "step_synthetic_r0_r3"
+          },
+          {
+            "end": 1353,
+            "line": 1326,
+            "name": "_r0_r3_prepare_signal_inputs"
+          },
+          {
+            "end": 1502,
+            "line": 1356,
+            "name": "_r0_r3_compute"
+          },
+          {
+            "end": 1805,
+            "line": 1570,
+            "name": "run_registered_r0_r3_batch"
+          }
+        ]
+      },
+      {
+        "path": "src/us_equity_strategies/research/kelly_disclosures.py",
+        "sha256": "328543809b534f3e74fddc8ccc7da49585da9024356ab2b3c1f1a8312c851414",
+        "symbols": [
+          {
+            "end": 85,
+            "line": 55,
+            "name": "paired_stationary_bootstrap"
+          }
+        ]
+      }
+    ],
+    "risk_policy": "Retain exact source core trend/volatility rules and long-only non-financed book/cash guards. No new numeric risk limits and no certification of post-fee caps, underlying factors or joint CVaR. Actual risk boundary source/values must be independently bound before ARM; missing risk boundary prohibits confirmatory qualification.",
+    "tree": "c51ac84f5f575b8cc5e5b21a7607aab49fc74dc2",
+    "verified_git_blobs": [
+      {
+        "path": "src/us_equity_strategies/research/rs04_netting_candidate.py",
+        "sha256": "cf6e48bfafa8cf1281fe5751f8d228f07deab6e3eff6bd0e4bee1d03e4c748d7"
+      },
+      {
+        "path": "src/us_equity_strategies/research/partial_rebalance.py",
+        "sha256": "bc92284f74f5475746c75fcff725e722ae61133218eaa54972f86d88357e7601"
+      },
+      {
+        "path": "src/us_equity_strategies/research/security_netting_runner.py",
+        "sha256": "d3b79e67d45bca9ebcf67d4a1e8b54307a7c33fd8aa6b6788aa35c5aa8a01322"
+      },
+      {
+        "path": "src/us_equity_strategies/research/kelly_disclosures.py",
+        "sha256": "328543809b534f3e74fddc8ccc7da49585da9024356ab2b3c1f1a8312c851414"
+      },
+      {
+        "path": "pyproject.toml",
+        "sha256": "5d5f751bf9a91308686feb5474cb45b26e33bfb94d5b47430ec98fa3dd2ee763"
+      },
+      {
+        "path": "uv.lock",
+        "sha256": "1641f9560c9e6c010215b1a3bfeb2597ed2070cfd7506368674fa59e6e7a3dd8"
+      },
+      {
+        "path": "src/us_equity_strategies/manifests/__init__.py",
+        "sha256": "8c22b5c7b2d1df95cdad7f3d90573523462fc8d38f69b8ddb8f9f49969f7db30"
+      },
+      {
+        "path": "src/us_equity_strategies/research/kelly_core_return_generator.py",
+        "sha256": "37ad7ebe19d4ad9d6ff8c77294a084e7cd703a34105fa8ce011f0bddf9b35671"
+      },
+      {
+        "path": "src/us_equity_strategies/strategies/tqqq_growth_income.py",
+        "sha256": "90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42"
+      },
+      {
+        "path": "src/us_equity_strategies/strategies/tqqq_dual_drive_core.py",
+        "sha256": "1868f4298c1228b458b9b4b6904ff6bf3cf1dcacd46fcf4e469a6f968ee6f211"
+      },
+      {
+        "path": "src/us_equity_strategies/strategies/soxl_soxx_trend_income.py",
+        "sha256": "9675f56e9ea0d4be36751b52ec22951ddc29e2546e305a1e5b1aab5c6d60baf4"
+      },
+      {
+        "path": "src/us_equity_strategies/income_layer.py",
+        "sha256": "33fb7b447fcf31b97fce49e498ee57459632c474033267f04fe8e24cb18208b4"
+      },
+      {
+        "path": "src/us_equity_strategies/volatility_delever_retention.py",
+        "sha256": "148743f0bea5285ec98aca19072c528cb4435c5b52cbc5271b4347ce4fa30aef"
+      },
+      {
+        "path": "src/us_equity_strategies/research/fractional_kelly_walk_forward.py",
+        "sha256": "7e5892d59fd9c1243a5433b4c87b616d0805ed14130d24d65850bbfc8734ec74"
+      }
+    ]
+  }
+}
