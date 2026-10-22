@@ -1,0 +1,38 @@
+{
+  "reviewer_task": "/root/r_math_04_review",
+  "role": "non-author read-only reviewer",
+  "verdict": "PASS",
+  "initial_verdict": "FAIL_PENDING_FIX",
+  "finding_resolved": "All native (identity_key,kind) objects compare raw SHA256 and projected metadata across stores, including parent and ledger-only child ledgers.",
+  "checks": [
+    {
+      "command": "PYTHONPATH=src python3 -m pytest -q tests/research/test_trial_family_registry.py",
+      "exit_code": 0,
+      "result": "23 passed"
+    },
+    {
+      "command": "PYTHONPATH=src python3 -m us_equity_strategies.research.trial_family_registry --validate docs/research/trial_registry/r_math_04.json --verify-sources",
+      "exit_code": 0,
+      "result": "9 native identities, 18 ledgers match"
+    },
+    {
+      "command": "python3 -m ruff check src/us_equity_strategies/research/trial_family_registry.py tests/research/test_trial_family_registry.py",
+      "exit_code": 0,
+      "result": "PASS; existing config deprecation warning only"
+    }
+  ],
+  "reviewed_sha256": {
+    "src/us_equity_strategies/research/trial_family_registry.py": "4283b479dc7ad728db419d75e051ff7d87656e255f138326d37a26a8d69a3cc9",
+    "tests/research/test_trial_family_registry.py": "b81d2da68d8c34b39438b338192e8d7dae21733d29ee25bcd5a647f62c05d4e5",
+    "docs/research/trial_registry/README.md": "96b830f567abcc1074fdadba2dd6e2f659865fc329ca896010a73af210f1222e",
+    "docs/research/trial_registry/r_math_04.json": "8e58f27e9eaef1e7da2e46b540d92d12c5fdd52196eedf94ba707721df6b340d"
+  },
+  "scope": "Registration structure only. Does not certify complete cumulative family, K or DSR. No trial, return calculation, native mutation or external reviewer write.",
+  "skill": "/Users/lisiyi/.codex/skills/requesting-code-review/SKILL.md",
+  "eof_whitespace_followup": {
+    "verdict": "PASS continues to apply",
+    "exit_code": 0,
+    "result": "current test bytes + b\\n hash exactly equals originally reviewed hash",
+    "current_tests_sha256": "17d048bffc6c200679acb675225b09756c4871010037a265fbdb63e159cd0312"
+  }
+}
