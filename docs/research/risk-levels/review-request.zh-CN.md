@@ -1,5 +1,22 @@
 # Grok Bot 审阅记录（已复核：PASS_SCOPED）
 
+## R-RISK-03B 状态复核增补（2026-10-23 SGT）
+
+记录版本：`r-risk-03b.review.v1`。本次是既有证据与消费者绑定缺口的文档复核，未重新调用 Grok Bot；原 Grok 复核时间仍为 2026-10-22 21:47（UTC+8），原结论仍为 `PASS_SCOPED（设计/接口）`。
+
+- 核对基线：UES `c4279eef09c660dca6774a7a61a0fe6d7816a7a9`；GitHub 只读回查 PR #661 / #662 均已合并，merge 分别为 `a72ada054a7668a2342caa2e4a1802bb94028f21` / `3aa004b6b752430cab1cccb8fed234a58a1c5860`，均包含于本基线。原 R-RISK-03 执行报告“等待 CI/未合并”是当时快照，不是当前状态。R-RISK-01 设计由 #661 带入；不把原 #658 草稿称为已合并。
+- schema：`r-risk-01.research.v2`；状态精确值 `RESEARCH_SCHEMA_APPROVED_NOT_ARMED`。参数定义字节 SHA256 仍为 `703550b4a2b7371ab7343afc201d0747831a98ce80be6a8525d3c8cd72d387a1`。保守 `conservative` c=0.10、均衡 `balanced` c=0.25、进取 `growth` c=0.40；旧文案“稳健”仍对应同一 `balanced` id。默认值、硬区间、覆盖和确认规则均未修改。
+- 本次结论：复核记录及三档绑定要求已整理，**三档尚未验证**。六个原设计 cell 仍 `NOT_RUN_BLOCKED`，金融指标 null，`financial_qualification=NOT_READY`、`live_ready=false`、`execution_authorized=false`。本次新增 trial/回测/shadow 数为 0，未写权威 PerformanceStore。
+- 消费者：`b4_fractional_target` 接受三个离散 c；R1/M1 两处调用仍固定 .25。尚无本 schema 到三档全链路的已验收消费者。复用 [README §3](README.zh-CN.md#3-复用接口与调用边界) 中既有 B4、compose/netter、静态预算和两会话 CVaR，逐档绑定，不能缩放已封顶 .25 目标代替重算。
+- 联合 CVaR：内核已有 `DecisionBook / Action / ScenarioSet / TailPolicy / CostSpec / HardPolicy`，但现有 RS04 接线明确只接受 synthetic，且只支持 `DECISION_TIME_TARGET`，拒绝原政策的 fill/post-fee basis；不能从内核支持 `POST_FEE` 推断消费链已支持。联合情景生产者、相关性/配对、训练窗口、许可/PIT、真实政策来源、最终动作与费用后现金/上限仍未绑定。
+- G06 中 Grok 待审这一子项已由原 R-RISK-03 完成；账户预算身份/来源仍未绑定。README、VALIDATION、comparison-gaps 和 verification 中的旧待审文字保留为历史快照；当前复核状态以本记录为准，不改写旧检查产物。
+
+本次未覆盖：非 c 参数金融有效性、三档消费者实现/合成运行、真实来源及许可认证、账户与预算读取、联合情景估计或尾部覆盖验证、收益/DSR、P4/网站确认实现、产品 pin/部署/实盘采用。日监测的 252 会话窗不等于两会话情景训练窗；后者尚未冻结，不在本次补定。M2 的 R3/R0 冻结协议、源码与哈希不变，也不扩成三档研究协议。
+
+详细 C01–C08 消费者、D01–D08 数据和 J01–J08 联合 CVaR 绑定要求、六个 cell 状态及后继卡建议见本次 R-RISK-03B 交付报告与证据目录。这些编号仅用于文档交叉引用，不是新 trial 或派工卡。
+
+## 原 R-RISK-03 复核记录（保留）
+
 本目录包含 R-RISK-01 设计与 R-RISK-02 参数域扩展。用户于 2026-10-22 21:07 批准 c=.10/.25/.40 与 schema；当前版本为 `r-risk-01.research.v2`。Grok Bot 已于 **2026-10-22 21:47（Asia/Shanghai，UTC+8）** 完成复核，结论为 **PASS_SCOPED（设计/接口）**。本次 R-RISK-03 仅记录既有复核回执，不修改 schema 数值、研究内核、消费者、产品、执行或部署。
 
 ## 复核证据与范围
