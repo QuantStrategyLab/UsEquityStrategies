@@ -101,3 +101,25 @@ def run_lookahead_smoke(
     return LookaheadSmokeResult(
         status=status, baseline=baseline, mutated=mutated_signal, detail=detail
     )
+
+
+def assert_no_lookahead(signal_fn: Callable[[pd.Series], object], closes: pd.Series,
+                        *, cutoff: object, future_factor: float = 10.0) -> LookaheadSmokeResult:
+    """A strict synthetic smoke: leakage and vacuous/no-trigger cases fail."""
+    import math
+
+    if (isinstance(future_factor, bool) or not isinstance(future_factor, Real)
+            or not math.isfinite(future_factor) or future_factor <= 0 or future_factor == 1):
+        raise ValueError("LOOKAHEAD_SMOKE_MUTATION_INVALID")
+    result = run_lookahead_smoke(signal_fn, closes, cutoff=cutoff, future_factor=future_factor)
+    future = closes.loc[closes.index > pd.Timestamp(cutoff)]
+    mutated_future = future * future_factor
+    # Compare values exactly across dtypes; matching missing values are unchanged.
+    unchanged = future.isna() & mutated_future.isna()
+    present = future.notna() & mutated_future.notna()
+    unchanged.loc[present] = future.loc[present].eq(mutated_future.loc[present]).fillna(False)
+    if future.empty or unchanged.all():
+        raise AssertionError("LOOKAHEAD_SMOKE_NO_FUTURE_MUTATION")
+    if result.status != "NO_LEAKAGE":
+        raise AssertionError(result.status)
+    return result

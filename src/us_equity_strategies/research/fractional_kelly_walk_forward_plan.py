@@ -24,6 +24,8 @@ class WalkForwardPlan:
     embargo_sessions: int = 0
 
     def folds(self, n: int) -> list[tuple[int, int, int, int]]:
+        if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+            raise ValueError("WALK_FORWARD_SAMPLE_COUNT_INVALID")
         for name in ("train_sessions", "test_sessions", "purge_sessions",
                      "label_horizon_sessions", "embargo_sessions"):
             value = getattr(self, name)
@@ -53,10 +55,12 @@ class WalkForwardPlan:
         out = []
         for outer in self.folds(n):
             a, b, _, _ = outer
-            width = max(1, (b - a) // (inner_splits + 1))
+            available = b - a - (inner_splits - 1) * self.embargo_sessions
+            width = max(1, available // (inner_splits + 1))
             inner = []
             for i in range(inner_splits):
-                val_start = b - (inner_splits - i) * width
+                val_start = (b - (inner_splits - i) * width
+                             - (inner_splits - i - 1) * self.embargo_sessions)
                 val_end = val_start + width
                 train_end = val_start - self.purge_sessions
                 if train_end - a >= 2:
