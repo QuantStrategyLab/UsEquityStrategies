@@ -1,6 +1,6 @@
 # R-DATA-09：日历 B/U1 registry/selector 结构草稿
 
-2026-10-23（Asia/Singapore）。结构草稿已实现，非作者独立审查 PASS；正在按授权创建 draft PR（不合并、不部署）。仅人工 fixture，`PIT=NOT_ATTESTED`；真实日历、可信接收、许可及业务接入未验证。MKT-01、OWN-01、LIC-01～04 仍 NEED_USER，数据/PIT/回放第 1 行保持开放。
+2026-10-23（Asia/Singapore）。本卡完成：结构草稿已实现，非作者独立审查 PASS，已创建 [draft PR #672](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/672)。未合并、未部署。仅人工 fixture，`PIT=NOT_ATTESTED`；真实日历、可信接收、许可及业务接入未验证。MKT-01、OWN-01、LIC-01～04 仍 NEED_USER，数据/PIT/回放第 1 行保持开放。
 
 ## 实际范围与文件
 
@@ -69,4 +69,11 @@ R-DATA-08 的24项 B/U1 草案对应关系见 [test-matrix.md](R-DATA-09-evidenc
 - `verification-before-completion`：`/Users/lisiyi/.codex/skills/verification-before-completion/SKILL.md`
 - `test-driven-development`：`/Users/lisiyi/.codex/skills/test-driven-development/SKILL.md`
 
-Chrome：不适用。报告与证据将镜像至原目录指定 out/；中央清单只更新本卡一行，其他行保留。
+Chrome：不适用。报告与证据镜像至原目录指定 out/；中央清单已只更新 R-DATA-09 一行，其他行保留，见 `checklist-update.json`。
+
+## Draft PR 与发布证据
+
+- GitHub 账号与本地当前身份均为 Pigbibi；使用 GitHub connector 创建 draft，返回 `number=672`、`draft=true`、`merged=false`，见 [pr-created.json](R-DATA-09-evidence/pr-created.json)。connector 不返回 auto-merge 字段，故另用 `gh pr view` 做只读回读。
+- 首次草稿提交 `7045ef1ca80b85400b26c34e24f26f584df50756`；`git commit`、显式 `git push -u origin HEAD:refs/heads/codex/r-data-09-calendar-draft-20261023` 均退出0。后续提交只补本卡交付/回读证据，不改已审源码。
+- PR base 为 `main`；首次返回 base SHA 与实施基线相同。只创建 draft，不申请 auto-merge、不合并、不部署；本地验证不等于远端 CI 成功。回读时 CI 状态以 `pr-readback-*.json` 为准。
+- `git diff --check` 全范围发现原始 pytest 失败日志自带尾随空格，原始日志保留；源码/测试/报告的限定 `diff-check-code` 退出0。没有为清理证据而改写原始输出。
