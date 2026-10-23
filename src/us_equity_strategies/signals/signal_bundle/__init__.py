@@ -1,0 +1,1 @@
+"""Signal bundle contract package."""
