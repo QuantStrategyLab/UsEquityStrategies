@@ -1,0 +1,20 @@
+{
+  "cwd": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023",
+  "argv": [
+    "python3",
+    "-m",
+    "ruff",
+    "check",
+    "src/us_equity_strategies/research/calendar_contract.py",
+    "tests/research/test_calendar_contract.py",
+    "tests/research/test_r_data_08_calendar_t1_contract.py"
+  ],
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTHONPATH": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023/src"
+  },
+  "started": "2026-10-23T00:21:14.886606+00:00",
+  "finished": "2026-10-23T00:21:14.959086+00:00",
+  "exit_code": 0
+}

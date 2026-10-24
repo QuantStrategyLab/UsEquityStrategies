@@ -1,0 +1,11 @@
+{
+  "base": "aeb200a2ccf65c386f0f8c915a3f4e2748f43ea4",
+  "worktree": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023",
+  "read_only_inputs": {
+    "/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-08.md": "75a2bfbf61d92cdf88a6e312da98a9a998c162608598e7959d483614891dd8ec",
+    "/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-07.md": "5597720ab71cb34868f3830b59c1a1999f8e58cb26143d92f3e4ce88e4e7e5b6",
+    "/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-08-evidence/calendar-b-u1-cases.json": "e86f720734a5ee8b0d10f034de5b755877241063218dbfcfd5144ebc344d16bb",
+    "/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-08-evidence/calendar-contract-test-draft.md": "2150846d9aa9563bd33b90f789423176bf544d44f7308b9ffa5ccbc3689927f3"
+  },
+  "network_note": "No calendar/PDF/market data requests. GitHub fetch is a separate network operation."
+}
