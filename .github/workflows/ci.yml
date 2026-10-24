@@ -215,6 +215,8 @@ jobs:
             tests/research/test_portfolio_risk_state_io.py \
             tests/research/test_portfolio_event_journal.py \
             tests/research/test_portfolio_intraday_state_io.py \
+            tests/research/test_portfolio_state_snapshot.py \
+            tests/research/test_portfolio_settings_draft_io.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
@@ -275,10 +277,13 @@ jobs:
               "test_portfolio_settings_preview", "test_portfolio_risk_events_preview",
               "test_portfolio_risk_state_io",
               "test_portfolio_event_journal", "test_portfolio_intraday_state_io",
+              "test_portfolio_state_snapshot", "test_portfolio_settings_draft_io",
           )
           for module in preview_modules:
               assert any(module + "." in c.attrib["classname"] for c in cases), module
           assert any(c.attrib["name"] == "test_independent_process_intraday_restart_crashes_and_handoff_resume" for c in cases)
+          assert any(c.attrib["name"] == "test_independent_process_snapshot_restore_and_read_only_restart" for c in cases)
+          assert any(c.attrib["name"] == "test_independent_process_draft_readback_and_stale_checkpoint_have_no_side_effects" for c in cases)
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
           print("Synthetic ledger, compounding and RS06 reconciliation executed without skips or failures.")
           PY
