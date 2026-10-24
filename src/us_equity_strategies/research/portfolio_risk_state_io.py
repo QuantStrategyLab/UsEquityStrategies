@@ -17,7 +17,7 @@ from .auto_portfolio_account import digest,utc
 from .auto_portfolio_preview import _hash
 from .funded_portfolio_preview import _bound
 from .portfolio_risk_events_preview import (
-    _require, _tighten, _portfolio_id, preview_portfolio_risk_settings, validate_portfolio_event_state,
+    _require, _tighten, _portfolio_id, preview_portfolio_risk_settings, validate_portfolio_state_progress,
 )
 
 BINDING_VERSION = 'qsl.portfolio-event-state-binding.v1'
@@ -62,26 +62,8 @@ def _safe_chain(chain, identity):
     previous = None
     for item in chain:
         _require(item.identity == identity,'STATE_CHAIN_IDENTITY_MISMATCH')
-        state = item.state
-        validate_portfolio_event_state(state)
-        if state['breaker_open']:
-            _require(state['trigger_session'] <= item.effective_session,'STATE_TRIGGER_SESSION_INVALID')
-        if previous is not None:
-            old = previous.state
-            _require(not old['breaker_open'] or state['breaker_open'],'STATE_AUTOMATIC_BREAKER_CLEAR_FORBIDDEN')
-            _require(state['nav_peak'] >= old['nav_peak'],'STATE_HIGH_WATERMARK_REGRESSION')
-            if old['breaker_open']:
-                _require(state['original_daily_trigger'] == old['original_daily_trigger']
-                    and state['trigger_session'] == old['trigger_session'], 'STATE_LATCHED_TRIGGER_CHANGED')
-                _require(_tighten(old['latched_limits'],state['latched_limits']) == state['latched_limits'],
-                    'STATE_LATCHED_LIMIT_LOOSENED')
-            _require(set(old['sleeves']) <= set(state['sleeves']),'STATE_RETAINED_SLEEVE_MISSING')
-            for cycle,row in old['sleeves'].items():
-                new = state['sleeves'][cycle]
-                _require(new['entry'] == row['entry'] and new['strategy_id'] == row['strategy_id'],
-                    'STATE_ENTRY_BASIS_CHANGED')
-                _require(new['peak'] >= row['peak'] and new['stop_limit'] <= row['stop_limit']
-                    and new['trailing_limit'] <= row['trailing_limit'], 'STATE_SLEEVE_PROTECTION_LOOSENED')
+        validate_portfolio_state_progress(previous.state if previous is not None else None,
+            item.state,item.effective_session)
         previous = item
 
 
