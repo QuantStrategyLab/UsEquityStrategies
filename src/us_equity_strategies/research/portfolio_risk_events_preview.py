@@ -23,6 +23,7 @@ from quant_platform_kit.common.strategy_risk_state import (
 from .auto_portfolio_account import adapt_ibkr_account_input, digest, utc
 from .cvar_exposure_constraint import ExposureCap, HardPolicy
 from .funded_portfolio_preview import _bound
+from .portfolio_event_journal import validate_event_chain
 from .portfolio_settings_preview import (
     SUPPORTED, _direction, _validate_request, preview_portfolio_settings,
     portfolio_settings_capabilities,
@@ -105,6 +106,48 @@ def validate_portfolio_event_state(state):
             'EVENT_STATE_INVALID')
 
 
+def validate_portfolio_state_progress(previous, state, effective_session):
+    """Preserve the existing state protections across either storage contract."""
+    validate_portfolio_event_state(state)
+    if state['breaker_open']:
+        _require(state['trigger_session'] <= effective_session, 'STATE_TRIGGER_SESSION_INVALID')
+    if previous is None:
+        return
+    old = previous
+    _require(not old['breaker_open'] or state['breaker_open'], 'STATE_AUTOMATIC_BREAKER_CLEAR_FORBIDDEN')
+    _require(state['nav_peak'] >= old['nav_peak'], 'STATE_HIGH_WATERMARK_REGRESSION')
+    if old['breaker_open']:
+        _require(state['original_daily_trigger'] == old['original_daily_trigger']
+            and state['trigger_session'] == old['trigger_session'], 'STATE_LATCHED_TRIGGER_CHANGED')
+        _require(_tighten(old['latched_limits'],state['latched_limits']) == state['latched_limits'],
+            'STATE_LATCHED_LIMIT_LOOSENED')
+    _require(set(old['sleeves']) <= set(state['sleeves']), 'STATE_RETAINED_SLEEVE_MISSING')
+    for cycle,row in old['sleeves'].items():
+        new = state['sleeves'][cycle]
+        _require(new['entry'] == row['entry'] and new['strategy_id'] == row['strategy_id'],
+            'STATE_ENTRY_BASIS_CHANGED')
+        _require(new['peak'] >= row['peak'] and new['stop_limit'] <= row['stop_limit']
+            and new['trailing_limit'] <= row['trailing_limit'], 'STATE_SLEEVE_PROTECTION_LOOSENED')
+
+
+def validate_portfolio_intraday_state(previous, state, effective_session, kind):
+    """Retain the daily baseline while observations accumulate within a session."""
+    _require(type(state) is dict and set(state) == {'risk_state','session','session_start_nav',
+        'session_net_external_flow'}, 'EVENT_INTRADAY_STATE_INVALID')
+    _session(state['session'])
+    _require(state['session'] <= effective_session and (kind != 'EVENT' or state['session'] == effective_session),
+        'EVENT_INTRADAY_STATE_SESSION_INVALID')
+    _number(state['session_start_nav'],positive=True)
+    _require(type(state['session_net_external_flow']) in (int,float)
+        and math.isfinite(state['session_net_external_flow']), 'EVENT_FLOW_UNBOUND')
+    if previous is not None:
+        _require(state['session'] >= previous['session'], 'EVENT_INTRADAY_STATE_SESSION_INVALID')
+        if state['session'] == previous['session']:
+            _require(state['session_start_nav'] == previous['session_start_nav'], 'EVENT_INTRADAY_DAILY_BASELINE_CHANGED')
+    validate_portfolio_state_progress(previous['risk_state'] if previous is not None else None,
+        state['risk_state'],effective_session)
+
+
 def _state(context, policy, observations, contract, packet):
     wire = context['state_readback']
     _bound(wire, contract)
@@ -113,6 +156,24 @@ def _state(context, policy, observations, contract, packet):
         _portfolio_id(packet), digest(policy))
     _require(identity == expected, 'EVENT_STATE_IDENTITY_MISMATCH')
     _text(identity.candidate_id)
+    if wire.get('schema_version') == 'qsl.portfolio-journal-readback.v1':
+        chain = wire['chain']
+        validate_event_chain(chain)
+        _require(chain and wire['origin'] == 'VERIFIED_EVENT_JOURNAL', 'EVENT_STATE_READBACK_REQUIRED')
+        _require(all(x['identity'] == identity.to_dict() for x in chain), 'EVENT_STATE_IDENTITY_MISMATCH')
+        head = chain[-1]
+        _require(head['kind'] != 'MIGRATE_OUT', 'EVENT_JOURNAL_IDENTITY_RETIRED')
+        _require(wire['expected_head_sha256'] == head['record_sha256'], 'EVENT_STATE_HEAD_MISMATCH')
+        _require(head['effective_session'] <= observations['session']
+            and utc(head['observed_at']) <= utc(observations['valuation_at']), 'EVENT_STATE_OBSERVATION_NOT_ADVANCING')
+        previous = None
+        for item in chain:
+            validate_portfolio_intraday_state(previous,item['state'],item['effective_session'],item['kind'])
+            previous = item['state']
+        if head['state']['session'] == observations['session']:
+            _require(head['state']['session_start_nav'] == observations['session_start_nav'],
+                'EVENT_INTRADAY_DAILY_BASELINE_CHANGED')
+        return identity, head, deepcopy(head['state']['risk_state'])
     chain = [StrategyRiskStateTransition.from_dict(x) for x in wire['chain']]
     validate_strategy_risk_state_chain(chain)
     _require(all(x.identity == identity for x in chain), 'EVENT_STATE_IDENTITY_MISMATCH')
@@ -316,12 +377,16 @@ def evaluate_portfolio_risk_events(context, *, packet, overrides=None):
             original_daily_trigger=(previous['original_daily_trigger'] if previous['breaker_open'] else limits['breaker_daily_loss']) if latched else None,
             trigger_session=(previous['trigger_session'] if previous['breaker_open'] else obs['session']) if latched else None,
             latched_limits=limits if latched else None, nav_peak=obs['retained_nav_index_peak'], sleeves=retained)
-        transition = build_strategy_risk_state_transition(identity=identity,
-            effective_session=obs['session'], input_sha256=digest(dict(context=context, overrides=overrides or {})),
-            state=new_state, previous_transition=head)
+        transition = None
+        if not isinstance(head,dict):
+            transition = build_strategy_risk_state_transition(identity=identity,
+                effective_session=obs['session'], input_sha256=digest(dict(context=context, overrides=overrides or {})),
+                state=new_state, previous_transition=head).to_dict()
+        validate_portfolio_state_progress(previous,new_state,obs['session'])
         result.update(status='EVENTS_EVALUATED_SYNTHETIC', active_events=active, limits=limits,
             metrics=metrics, new_risk_prohibited=latched, engine_action=action.action,
-            health_axes=axes, recovery=recovery, transition=transition.to_dict())
+            health_axes=axes, recovery=recovery, transition=transition,
+            state_update=deepcopy(new_state), state_identity=identity.to_dict())
         if not verified:
             result['gaps'].append('EVENT_RECONCILIATION_OR_PENDING_UNVERIFIED')
         elif latched:
