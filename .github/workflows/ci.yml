@@ -172,7 +172,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+          python -m pip install -e . pytest jsonschema
           python -m pip install --force-reinstall \
             "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@${QPK_SECURITY_NETTING_SHA}"
           python -m pip check
@@ -206,6 +206,13 @@ jobs:
             tests/research/test_r_data_04_pit_gaps.py \
             tests/research/test_r_data_05_producer_integration.py \
             tests/research/test_r_data_06_revision_calendar_fx.py \
+            tests/research/test_capital_adaptive_risk.py \
+            tests/research/test_auto_portfolio_preview.py \
+            tests/research/test_funded_portfolio_preview.py \
+            tests/research/test_kelly_candidate_math.py \
+            tests/research/test_portfolio_settings_preview.py \
+            tests/research/test_portfolio_risk_events_preview.py \
+            tests/research/test_portfolio_risk_state_io.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
@@ -260,6 +267,14 @@ jobs:
                            "r2_followup_normal_recovery", "r2_followup_book_fields"):
               assert any(required in c.attrib["name"] for c in candidate_cases), required
           assert not any(list(c.iter(tag)) for c in candidate_cases for tag in ("skipped", "failure", "error"))
+          preview_modules = (
+              "test_capital_adaptive_risk", "test_auto_portfolio_preview",
+              "test_funded_portfolio_preview", "test_kelly_candidate_math",
+              "test_portfolio_settings_preview", "test_portfolio_risk_events_preview",
+              "test_portfolio_risk_state_io",
+          )
+          for module in preview_modules:
+              assert any(module + "." in c.attrib["classname"] for c in cases), module
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
           print("Synthetic ledger, compounding and RS06 reconciliation executed without skips or failures.")
           PY
