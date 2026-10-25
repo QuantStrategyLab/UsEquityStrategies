@@ -22,7 +22,7 @@ from quant_platform_kit.common.strategy_risk_state import (
 )
 from .auto_portfolio_account import adapt_ibkr_account_input, digest, utc
 from .cvar_exposure_constraint import ExposureCap, HardPolicy
-from .funded_portfolio_preview import _bound
+from .funded_portfolio_preview import _amount, _bound, _execution_rules, _order_fee
 from .portfolio_event_journal import validate_event_chain
 from .portfolio_settings_preview import (
     SUPPORTED, _direction, _validate_request, preview_portfolio_settings,
@@ -221,7 +221,23 @@ def _observations(context, packet, account, previous):
     securities = dict.fromkeys(packet['risk_inputs']['scenario_set'].symbols, 0.)
     fees = packet['execution_rules']['fees']
     _bound(fees, packet['account_contract'])
-    _require(fees['model'] == 'FIXED_NONNEGATIVE_BPS' and fees['unit'] == 'BPS_PER_SIDE'
+    order_model = fees['model'] == 'ORDER_COMPONENTS_V1'
+    liquidation = {}
+    if order_model:
+        # A single account sell per symbol pays its minimum once. This explicit
+        # valuation convention must not silently change into one order/sleeve.
+        _require(obs.get('liquidation_fee_allocation') == 'PRO_RATA_MARKET_VALUE_SINGLE_ACCOUNT_ORDER',
+            'EVENT_FEE_MODEL_UNBOUND')
+        values, gaps = _execution_rules(packet['execution_rules'],packet['account_contract'],packet['risk_inputs'])
+        _require(not gaps, 'EVENT_FEE_MODEL_UNBOUND')
+        for position in packet['facts']['broker_reported_positions']:
+            symbol = position['symbol']
+            quantity, value = _amount(position['quantity'],positive=True), _amount(position['market_value'],positive=True)
+            _require(symbol not in liquidation and quantity*values['mark_by_symbol'][symbol] == value,
+                'EVENT_LIQUIDATION_FEES_NOT_RECONCILED')
+            liquidation[symbol] = (value,_order_fee(values['order_terms'][symbol]['SELL'],quantity,value))
+    else:
+        _require(fees['model'] == 'FIXED_NONNEGATIVE_BPS' and fees['unit'] == 'BPS_PER_SIDE'
         and fees['all_costs_included'] is True and fees['minimum_fee_applies'] is False,
         'EVENT_FEE_MODEL_UNBOUND')
     for row in sleeves:
@@ -237,10 +253,14 @@ def _observations(context, packet, account, previous):
         fee_net = 0.
         for symbol,value in values.items():
             value = _number(value)
-            bps = float(fees['bps_by_symbol'][symbol])
-            _require(math.isfinite(bps) and 0 <= bps < 10000, 'EVENT_FEE_MODEL_UNBOUND')
             securities[symbol] += value
-            fee_net += value*(1.-bps/10000.)
+            if order_model:
+                market, fee = liquidation[symbol]
+                fee_net += float(Decimal(str(value))*(Decimal(1)-fee/market))
+            else:
+                bps = float(fees['bps_by_symbol'][symbol])
+                _require(math.isfinite(bps) and 0 <= bps < 10000, 'EVENT_FEE_MODEL_UNBOUND')
+                fee_net += value*(1.-bps/10000.)
         _require(math.isclose(sum(values.values()), mark, rel_tol=0., abs_tol=1e-9)
             and math.isclose(fee_net, net, rel_tol=0., abs_tol=1e-9), 'EVENT_LIQUIDATION_FEES_NOT_RECONCILED')
         old = previous['sleeves'].get(cycle)

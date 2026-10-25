@@ -142,6 +142,51 @@ def adapt_cash_evidence(facts, account_contract, cash_evidence):
     return result
 
 
+_ORDER_TERM_FIELDS = frozenset(('per_share','per_order','minimum_amount',
+    'maximum_notional_bps','extra_per_share','extra_notional_bps'))
+
+
+def _order_fee(terms, quantity, notional):
+    """One full-fill order estimate; cap commission before additive charges.
+
+    This is a declared artificial model, not an IBKR plan/routing attestation.
+    Zero quantity is no order, so it never incurs the per-order minimum.
+    """
+    if quantity == 0:
+        return Decimal(0)
+    base = max(_amount(terms['minimum_amount']),
+        _amount(terms['per_order']) + quantity*_amount(terms['per_share']))
+    if terms['maximum_notional_bps'] is not None:
+        base = min(base,notional*_amount(terms['maximum_notional_bps'])/Decimal(10000))
+    return base + quantity*_amount(terms['extra_per_share']) + notional*_amount(terms['extra_notional_bps'])/Decimal(10000)
+
+
+def _order_terms(rule, symbols):
+    allowed = set(('model','unit','all_costs_included','order_assumption','rounding',
+        'candidate_cost_role','terms_by_symbol')) | set(('synthetic','account_id','scope_ref',
+        'currency','source','source_version','observed_at','available_at','max_age_seconds','valid_from','valid_until'))
+    if (set(rule) != allowed or rule['unit'] != 'ACCOUNT_CURRENCY_PER_ORDER'
+            or rule['all_costs_included'] is not True
+            or rule['order_assumption'] != 'ONE_FULL_FILL_ORDER_PER_SYMBOL'
+            or rule['rounding'] != 'UNROUNDED_DECIMAL_ESTIMATE'
+            or rule['candidate_cost_role'] != 'REFERENCE_BPS_ONLY'):
+        raise ValueError('unsupported order cost contract')
+    by_symbol = rule['terms_by_symbol']
+    if not isinstance(by_symbol,Mapping) or set(by_symbol) != set(symbols):
+        raise ValueError('incomplete fee coverage')
+    result = {}
+    for symbol,sides in by_symbol.items():
+        if not isinstance(sides,Mapping) or set(sides) != {'BUY','SELL'}:
+            raise ValueError('explicit side terms required')
+        result[symbol] = {}
+        for side,terms in sides.items():
+            if not isinstance(terms,Mapping) or set(terms) != _ORDER_TERM_FIELDS:
+                raise ValueError('unsupported fee components')
+            result[symbol][side] = {key:None if key=='maximum_notional_bps' and value is None
+                else _amount(value) for key,value in terms.items()}
+    return result
+
+
 def _execution_rules(rules, contract, risk):
     gaps = []
     values = {}
@@ -152,7 +197,8 @@ def _execution_rules(rules, contract, risk):
         try:
             rule = rules.get(part)
             _bound(rule, contract)
-            fields = {'fees': ('bps_by_symbol',), 'quantity': ('step_by_symbol','minimum_buy_notional_by_symbol'),
+            order_model = part == 'fees' and rule.get('model') == 'ORDER_COMPONENTS_V1'
+            fields = {'fees': () if order_model else ('bps_by_symbol',), 'quantity': ('step_by_symbol','minimum_buy_notional_by_symbol'),
                       'prices': ('mark_by_symbol',)}[part]
             for field in fields:
                 raw = rule.get(field)
@@ -161,7 +207,9 @@ def _execution_rules(rules, contract, risk):
                 values[field] = {s: _amount(raw[s], positive=field in ('step_by_symbol','mark_by_symbol')) for s in symbols}
             if part == 'quantity' and rule.get('method') != 'FLOOR_TRADE_DELTA':
                 raise ValueError('unknown rounding rule')
-            if part == 'fees':
+            if order_model:
+                values['order_terms'] = _order_terms(rule,symbols)
+            elif part == 'fees':
                 if (rule.get('model') != 'FIXED_NONNEGATIVE_BPS' or rule.get('unit') != 'BPS_PER_SIDE'
                         or rule.get('minimum_fee_applies') is not False or rule.get('all_costs_included') is not True):
                     gaps.append('UNSUPPORTED_FEE_RULE')
@@ -191,6 +239,9 @@ def _quantity_projection(facts, contract, account, draft, rules, risk):
         aggregate_cvar=None, execution_authorized=False, financial_risk_certified=False)
     if gaps:
         return out
+    order_model = 'order_terms' in values
+    out.update(cost_evaluation='EXACT_ORDER_FEE_RECHECK' if order_model else 'FIXED_BPS',
+        nonlinear_cost_optimized=False, actual_commissions_included=False)
     symbols, scenario_set = risk['scenario_set'].symbols, risk['scenario_set']
     positions = {s:Decimal(0) for s in symbols}
     try:
@@ -214,6 +265,7 @@ def _quantity_projection(facts, contract, account, draft, rules, risk):
             target_values = {s:_amount(draft['security_target_weights'][s])*fill_nav for s in symbols}
             trades, final_values = [], {}
             gross_buy, gross_sell, total_fee = Decimal(0), Decimal(0), Decimal(0)
+            evaluation_bps = dict.fromkeys(symbols,0.)
             for symbol in symbols:
                 current = positions[symbol]*prices[symbol]
                 delta = target_values[symbol]-current
@@ -230,17 +282,26 @@ def _quantity_projection(facts, contract, account, draft, rules, risk):
                 notional = quantity*prices[symbol]
                 if buy and notional < values['minimum_buy_notional_by_symbol'][symbol]:
                     quantity = notional = Decimal(0)
-                fee = notional*values['bps_by_symbol'][symbol]/Decimal(10000)
+                fee = (_order_fee(values['order_terms'][symbol]['BUY' if buy else 'SELL'],quantity,notional)
+                    if order_model else notional*values['bps_by_symbol'][symbol]/Decimal(10000))
+                if quantity:
+                    evaluation_bps[symbol] = float(fee/notional*Decimal(10000))
                 total_fee += fee
                 gross_buy += notional if buy else Decimal(0)
                 gross_sell += notional if not buy else Decimal(0)
                 final_values[symbol] = current+(notional if buy else -notional)
                 if quantity:
                     trades.append(dict(symbol=symbol, side='BUY' if buy else 'SELL', quantity=float(quantity),
-                        notional=float(notional), fee_amount=float(fee), fill_price=float(prices[symbol])))
+                        notional=float(notional), fee_amount=float(fee), fill_price=float(prices[symbol]),
+                        fee_kind='ESTIMATE_NOT_ACTUAL_COMMISSION'))
             target = {s:float(final_values[s]/fill_nav) for s in symbols}
             one = replace(scenario_set, scenarios=(replace(scenario,probability=1.),))
-            evaluated = _evaluate(book,Action('TARGET_WEIGHTS',target),one,risk['bps_spec'],
+            # Rates are an exact algebraic representation of these already
+            # fixed scenario orders only. Never feed them into the convex
+            # candidate solver or infer a nonlinear optimum from this recheck.
+            evaluation_costs = (replace(risk['bps_spec'],bps_by_symbol=evaluation_bps,frozen_multiplier=1.)
+                if order_model else risk['bps_spec'])
+            evaluated = _evaluate(book,Action('TARGET_WEIGHTS',target),one,evaluation_costs,
                 risk['hard_policy'],draft['tail_budget_ratio'],risk.get('forced_target'))
             loss = evaluated.scenarios[0]
             # Tail budget belongs to the JOINT distribution, not the worst
