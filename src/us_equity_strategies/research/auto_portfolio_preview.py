@@ -59,7 +59,7 @@ def generate_joint_candidate(moments, *, c, scope_ref, currency, cutoff_utc, mat
     except (TypeError, ValueError):
         gaps.append("MOMENTS_TIME_INVALID")
     ids = moments.get("strategy_ids")
-    if (not isinstance(ids, list) or not 2 <= len(ids) <= 8
+    if (not isinstance(ids, list) or not 1 <= len(ids) <= 8
             or any(not isinstance(x, str) or not x for x in ids) or len(set(ids)) != len(ids)):
         gaps.append("STRATEGY_SET_UNSUPPORTED")
         return result

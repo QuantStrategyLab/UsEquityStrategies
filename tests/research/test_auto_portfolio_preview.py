@@ -164,6 +164,32 @@ class AccountAdapterTests(unittest.TestCase):
 
 
 class CandidateTests(unittest.TestCase):
+    def test_single_strategy_keeps_scalar_kelly_math_and_risk_cash_checks(self):
+        packet = packet_fixture()
+        packet['moments'].update(strategy_ids=['STRATEGY_A'], strategy_versions={'STRATEGY_A':'v1'},
+            eligible_strategies={'STRATEGY_A':'v1'}, mu_excess=[.04], covariance=[[.04]])
+        packet['composition'].update(strategy_versions={'STRATEGY_A':'v1'}, weights={'STRATEGY_A':{'A':1.}})
+        candidate = generate_joint_candidate(packet['moments'], c=.1, scope_ref='ARTIFICIAL_SCOPE',
+            currency='USD', cutoff_utc=packet['account_contract']['cutoff_utc'], math_contract=packet['math_contract'])
+        self.assertEqual(candidate['gaps'],[])
+        self.assertAlmostEqual(candidate['strategy_weights']['STRATEGY_A'], .1*.04/(.04+.04**2))
+        self.assertEqual(candidate['correlation'],[[1.]])
+        out = build_three_level_previews(**packet)
+        for preview in out['previews'].values():
+            self.assertEqual(preview['gaps'],[])
+            self.assertFalse(preview['draft_settings']['execution_authorized'])
+            self.assertEqual(set(preview['draft_settings']['strategy_weights']),{'STRATEGY_A'})
+        packet['risk_inputs']['account_policy'] = None
+        for preview in build_three_level_previews(**packet)['previews'].values():
+            self.assertIsNone(preview['draft_settings'])
+
+    def test_empty_strategy_set_is_still_rejected(self):
+        packet = packet_fixture()
+        packet['moments']['strategy_ids'] = []
+        candidate = generate_joint_candidate(packet['moments'], c=.1, scope_ref='ARTIFICIAL_SCOPE',
+            currency='USD', cutoff_utc=packet['account_contract']['cutoff_utc'], math_contract=packet['math_contract'])
+        self.assertIn('STRATEGY_SET_UNSUPPORTED',candidate['gaps'])
+
     def candidate(self,**changes):
         packet=packet_fixture();moments=packet['moments'];moments.update(changes)
         return generate_joint_candidate(moments,c=.25,scope_ref='ARTIFICIAL_SCOPE',currency='USD',cutoff_utc=packet['account_contract']['cutoff_utc'],math_contract=packet['math_contract'])
