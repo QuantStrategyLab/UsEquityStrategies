@@ -7,7 +7,7 @@ import unittest
 
 from test_auto_portfolio_preview import packet_fixture, ROOT
 from us_equity_strategies.research.funded_portfolio_preview import (
-    adapt_cash_evidence, build_three_level_funded_previews,
+    adapt_cash_evidence, build_three_level_funded_previews, _order_fee,
 )
 from us_equity_strategies.research.cvar_exposure_constraint import ExposureCap, JointScenario
 
@@ -33,6 +33,153 @@ def funded_fixture():
     rules = dict(fees=fees,quantity=quantity,prices=prices)
     packet['risk_inputs']['bps_spec']=replace(packet['risk_inputs']['bps_spec'],bps_by_symbol={'A':10.,'B':10.})
     return dict(**packet,cash_evidence=cash,execution_rules=rules)
+
+
+def order_cost_fixture():
+    args = funded_fixture()
+    terms = dict(per_share='0.0001', per_order='0.0002', minimum_amount='0.0005',
+        maximum_notional_bps='100', extra_per_share='0.00001', extra_notional_bps='.02')
+    args['execution_rules']['fees'] = dict(**header(), model='ORDER_COMPONENTS_V1',
+        unit='ACCOUNT_CURRENCY_PER_ORDER', all_costs_included=True,
+        order_assumption='ONE_FULL_FILL_ORDER_PER_SYMBOL', rounding='UNROUNDED_DECIMAL_ESTIMATE',
+        candidate_cost_role='REFERENCE_BPS_ONLY',
+        terms_by_symbol={s:{side:deepcopy(terms) for side in ('BUY','SELL')} for s in ('A','B')})
+    return args
+
+
+class OrderCostTests(unittest.TestCase):
+    def test_minimum_cap_extras_and_no_order_hand_math(self):
+        terms = order_cost_fixture()['execution_rules']['fees']['terms_by_symbol']['A']['BUY']
+        terms.update(per_share='.1',per_order='.2',minimum_amount='.5',
+            extra_per_share='.01',extra_notional_bps='2')
+        # max(.5, .2 + .1*2) capped at 1% of 20 = .2;
+        # third-party model components are outside that commission cap.
+        self.assertEqual(_order_fee(terms,Decimal('2'),Decimal('20')),Decimal('.224'))
+        self.assertEqual(_order_fee(terms,Decimal('20'),Decimal('2000')),Decimal('2.8'))
+        self.assertEqual(_order_fee(terms,Decimal('0'),Decimal('0')),Decimal('0'))
+
+    def test_fractional_quantity_exact_fee_enters_cash_and_risk_once(self):
+        args = order_cost_fixture()
+        args['execution_rules']['quantity']['step_by_symbol'] = {'A':'.3','B':'.3'}
+        result = build_three_level_funded_previews(**args)
+        for preview in result['previews'].values():
+            self.assertEqual(preview['status'],'READY_SYNTHETIC_FUNDED_PREVIEW',preview['gaps'])
+            quantity = preview['quantity_preview']
+            self.assertEqual(quantity['cost_evaluation'],'EXACT_ORDER_FEE_RECHECK')
+            self.assertFalse(quantity['nonlinear_cost_optimized'])
+            for row in quantity['scenarios']:
+                total = Decimal(0)
+                for trade in row['trades']:
+                    self.assertEqual(trade['fee_kind'],'ESTIMATE_NOT_ACTUAL_COMMISSION')
+                    terms = args['execution_rules']['fees']['terms_by_symbol'][trade['symbol']][trade['side']]
+                    fee = _order_fee(terms,Decimal(str(trade['quantity'])),Decimal(str(trade['notional'])))
+                    self.assertAlmostEqual(trade['fee_amount'],float(fee))
+                    total += fee
+                self.assertAlmostEqual(row['fee_amount'],float(total))
+                buys = sum(t['notional'] for t in row['trades'] if t['side']=='BUY')
+                self.assertAlmostEqual(row['gross_buy_plus_fees'],buys+float(total))
+                self.assertAlmostEqual(row['cash_after_fee_amount'],100-buys-float(total))
+                scenario = next(s for s in args['risk_inputs']['scenario_set'].scenarios if s.scenario_id==row['scenario_id'])
+                gross_return = sum(w*scenario.earn_returns[s] for s,w in row['rounded_security_weights'].items())
+                self.assertAlmostEqual(row['model_loss'],-gross_return+float(total)/100)
+
+    def test_same_fee_rejects_unfunded_and_excess_tail_loss(self):
+        for minimum in ('10','100'):
+            args = order_cost_fixture()
+            for sides in args['execution_rules']['fees']['terms_by_symbol'].values():
+                for terms in sides.values():
+                    terms.update(minimum_amount=minimum,maximum_notional_bps=None)
+            result = build_three_level_funded_previews(**args)
+            for p in result['previews'].values():
+                self.assertIsNone(p['draft_settings'])
+                self.assertIn('ROUNDED_TAIL_BUDGET',p['gaps'])
+                if minimum == '100':
+                    self.assertIn('ROUNDED_SETTLED_CASH_INSUFFICIENT_NO_SELL_BRIDGE',p['gaps'])
+
+    def test_no_trade_has_no_minimum_commission(self):
+        args = order_cost_fixture()
+        args['execution_rules']['quantity']['step_by_symbol'] = {'A':'100','B':'100'}
+        for p in build_three_level_funded_previews(**args)['previews'].values():
+            self.assertEqual(p['status'],'READY_SYNTHETIC_FUNDED_PREVIEW')
+            self.assertTrue(all(row['fee_amount']==0 and not row['trades'] for row in p['quantity_preview']['scenarios']))
+
+    def test_sell_side_terms_and_fill_drift_reconcile_to_same_fee(self):
+        args = order_cost_fixture()
+        args['facts']['cash'][0]['cash_balance']='80'
+        args['account_contract']['settled_cash']='80'
+        for row in args['cash_evidence']['account_values']: row['value']='80'
+        args['facts']['broker_reported_positions']=[dict(symbol='A',currency='USD',quantity='20',market_value='20')]
+        scenario_set = args['risk_inputs']['scenario_set']
+        args['risk_inputs']['scenario_set'] = replace(scenario_set,scenarios=tuple(
+            replace(s,fill_returns={'A':.1,'B':-.05}) for s in scenario_set.scenarios))
+        for sides in args['execution_rules']['fees']['terms_by_symbol'].values():
+            sides['SELL']['extra_per_share']='.00002'
+        seen_sell = False
+        for p in build_three_level_funded_previews(**args)['previews'].values():
+            quantity = p['quantity_preview']
+            self.assertIsNotNone(quantity,p['gaps'])
+            self.assertNotIn('ROUNDED_FEE_RECONCILIATION_FAILED',quantity['gaps'])
+            for row in quantity['scenarios']:
+                buys=sells=fees=0.
+                for trade in row['trades']:
+                    terms=args['execution_rules']['fees']['terms_by_symbol'][trade['symbol']][trade['side']]
+                    fee=_order_fee(terms,Decimal(str(trade['quantity'])),Decimal(str(trade['notional'])))
+                    self.assertAlmostEqual(trade['fee_amount'],float(fee))
+                    fees += float(fee)
+                    if trade['side']=='BUY': buys += trade['notional']
+                    else: sells += trade['notional']; seen_sell = True
+                self.assertAlmostEqual(row['cash_after_fee_amount'],80-buys+sells-fees)
+                earn=next(s.earn_returns for s in args['risk_inputs']['scenario_set'].scenarios if s.scenario_id==row['scenario_id'])
+                self.assertAlmostEqual(row['model_loss'],1-1.02*(1+sum(w*earn[s] for s,w in row['rounded_security_weights'].items()))+fees/100)
+        self.assertTrue(seen_sell)
+
+    def test_partial_fills_actual_fees_missing_side_and_unknown_clauses_are_not_guessed(self):
+        for change in ('partial','actual','side','missing','rebate','rounding','unknown'):
+            args = order_cost_fixture();fees = args['execution_rules']['fees']
+            if change=='partial': fees['order_assumption']='PARTIAL_FILLS'
+            elif change=='actual': fees['actual_commission']='0'
+            elif change=='side': fees['terms_by_symbol']['A'].pop('SELL')
+            elif change=='missing': fees['terms_by_symbol']['A']['BUY'].pop('per_share')
+            elif change=='rebate': fees['terms_by_symbol']['A']['BUY']['extra_per_share']='-.1'
+            elif change=='rounding': fees['rounding']='GUESS_CENTS'
+            else: fees['terms_by_symbol']['A']['BUY']['venue_fee']='0'
+            for p in build_three_level_funded_previews(**args)['previews'].values():
+                self.assertIsNone(p['draft_settings'])
+                self.assertIn('FEE_RULE_UNBOUND',p['gaps'])
+
+    def test_order_fee_preview_does_not_claim_event_liquidation_contract(self):
+        from test_portfolio_risk_events_preview import event_fixture, evaluate
+        from us_equity_strategies.research.auto_portfolio_account import digest
+        packet,context = event_fixture(held=True)
+        packet['execution_rules']['fees'] = order_cost_fixture()['execution_rules']['fees']
+        context['observations']['fee_evidence_sha256'] = digest(packet['execution_rules']['fees'])
+        result = evaluate(packet,context)
+        self.assertIn('EVENT_FEE_MODEL_UNBOUND',result['gaps'])
+
+    def test_explicit_single_account_liquidation_does_not_charge_minimum_per_sleeve(self):
+        from test_portfolio_risk_events_preview import event_fixture, evaluate
+        from us_equity_strategies.research.auto_portfolio_account import digest
+        packet,context = event_fixture(held=True)
+        fees = order_cost_fixture()['execution_rules']['fees']
+        for sides in fees['terms_by_symbol'].values():
+            for terms in sides.values():
+                terms.update(per_share='0',per_order='0',minimum_amount='.5',
+                    maximum_notional_bps=None,extra_per_share='0',extra_notional_bps='0')
+        packet['execution_rules']['fees'] = fees
+        obs = context['observations']
+        obs.update(fee_evidence_sha256=digest(fees),
+            liquidation_fee_allocation='PRO_RATA_MARKET_VALUE_SINGLE_ACCOUNT_ORDER')
+        sleeve = obs['sleeves'][0]
+        sleeve.update(fee_adjusted_entry_value=10.,market_value=10.,net_liquidation_value=9.75,
+            held_cycle_peak_net_value=9.75,security_market_values={'A':10.})
+        other = deepcopy(sleeve);other.update(held_cycle_id='cycle-A2')
+        obs['sleeves'].append(other)
+        result = evaluate(packet,context)
+        self.assertEqual(result['gaps'],[])
+        for metric in result['metrics']['sleeves']:
+            self.assertAlmostEqual(metric['loss_ratio'],.025)
+        obs['sleeves'][0]['net_liquidation_value']=9.5
+        self.assertIn('EVENT_LIQUIDATION_FEES_NOT_RECONCILED',evaluate(packet,context)['gaps'])
 
 
 class CashEvidenceTests(unittest.TestCase):
