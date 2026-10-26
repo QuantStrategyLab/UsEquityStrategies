@@ -1,0 +1,16 @@
+[1;33mwarning[0m[1m:[0m [1mThe top-level linter settings are deprecated in favour of their counterparts in the `lint` section. Please update the following options in `pyproject.toml`:
+  - 'ignore' -> 'lint.ignore'[0m
+[1m[91mE731 [0m[1mDo not assign a `lambda` expression, use a `def`[0m
+  [1m[94m-->[0m out/R-DATA-09-evidence/verify_scope.py:42:1
+   [1m[94m|[0m
+[1m[94m40 |[0m check = Path('/Users/lisiyi/codex-jobs/TASK_CHECKLIST.md').read_text()
+[1m[94m41 |[0m before = Path('/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-09-evidence/checklist-before.md').read_text()
+[1m[94m42 |[0m first = lambda text: next(row for row in text.splitlines() if row.startswith('| 1 数据/PIT/回放 |'))
+   [1m[94m|[0m [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m43 |[0m assert first(check) == first(before), 'Central first row changed during task; inspect external writer before concluding'
+[1m[94m44 |[0m result = {
+   [1m[94m|[0m
+[1m[96mhelp[0m: [1mRewrite `first` as a `def`[0m
+
+Found 1 error.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).

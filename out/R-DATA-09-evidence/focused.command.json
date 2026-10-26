@@ -1,0 +1,22 @@
+{
+  "cwd": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023",
+  "argv": [
+    "python3",
+    "out/R-DATA-09-evidence/no_socket.py",
+    "pytest",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "tests/research/test_calendar_contract.py",
+    "tests/research/test_r_data_08_calendar_t1_contract.py",
+    "--junitxml=out/R-DATA-09-evidence/focused.xml"
+  ],
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTHONPATH": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023/src"
+  },
+  "started": "2026-10-23T00:21:14.309055+00:00",
+  "finished": "2026-10-23T00:21:14.822306+00:00",
+  "exit_code": 0
+}
