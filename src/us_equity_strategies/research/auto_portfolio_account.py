@@ -78,7 +78,11 @@ def _adapt_ibkr_account_input(facts, contract, *, synthetic):
     try:
         age = (utc(contract.get("cutoff_utc")) - utc(facts.get("observed_at"))).total_seconds()
         limit = contract.get("max_age_seconds")
-        if isinstance(limit, bool) or not isinstance(limit, (int, float)) or not math.isfinite(limit) or not 0 <= age <= limit:
+        missing_readonly_limit = not synthetic and limit is None
+        if age < 0 or (not missing_readonly_limit and (
+            isinstance(limit, bool) or not isinstance(limit, (int, float))
+            or not math.isfinite(limit) or age > limit
+        )):
             raise ValueError("snapshot time")
     except (TypeError, ValueError, OverflowError):
         gaps.append("SNAPSHOT_TIME_INVALID")

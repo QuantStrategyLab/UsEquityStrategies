@@ -8,7 +8,7 @@
 
 新入口只核提交的输入。`source`绑定完整来源字节摘要、facts与contract摘要、来源引用及生产者版本，分别记录原观察时刻、实际收到时刻和已知的发布时间。哈希证明提交内容一致，不认证调用者声明的来源，也不证明资金完整性、风险政策或历史当时可知性。缺少发布时间保留null，不用收到时刻代替；收到时刻不得晚于本次判断截止时刻。重新读取旧报告不会刷新原观察时刻或延长既定时效。
 
-合格输入的状态为`READY_READONLY_INPUT`，仅表示该只读合同通过。缺失已结算现金、预留、完整义务、资金基准、身份或时点时保留具体缺项，`spendable_cash`与可用持仓权重为null；普通现金余额不会补成已结算现金。所有结果保持`account_policy_bound=false`、`financial_risk_certified=false`、`execution_authorized=false`和`settings_applied=false`。此入口没有模型调用、券商访问、状态初始化或设置写入，也不产生订单草稿。
+合格输入的状态为`READY_READONLY_INPUT`，仅表示该只读合同通过。缺失已结算现金、预留、完整义务、资金基准、身份或时点时保留具体缺项，`spendable_cash`与可用持仓权重为null；普通现金余额不会补成已结算现金。未绑定新鲜度上限时报告`READONLY_FRESHNESS_LIMIT_UNBOUND`，不将时间本身标为无效；时间格式错误、位于截止时刻之后或超过已绑定上限仍报告`SNAPSHOT_TIME_INVALID`。所有结果保持`account_policy_bound=false`、`financial_risk_certified=false`、`execution_authorized=false`和`settings_applied=false`。此入口没有模型调用、券商访问、状态初始化或设置写入，也不产生订单草稿。
 
 `scripts.inspect_readonly_account_input`消费已保留的单个运行报告与私有静态配置：
 
