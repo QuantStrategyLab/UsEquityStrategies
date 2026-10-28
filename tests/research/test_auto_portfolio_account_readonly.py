@@ -110,7 +110,27 @@ def test_missing_freshness_policy_is_reported_separately_from_staleness():
     value = packet()
     value[1]["max_age_seconds"] = None
     value[2]["contract_sha256"] = digest(value[1])
-    assert "READONLY_FRESHNESS_LIMIT_UNBOUND" in assess(value)["gaps"]
+    result = assess(value)
+    assert "READONLY_FRESHNESS_LIMIT_UNBOUND" in result["gaps"]
+    assert "SNAPSHOT_TIME_INVALID" not in result["gaps"]
+    assert result["status"] == "ACCOUNT_INPUT_GAPS"
+    assert result["spendable_cash"] is None
+
+
+@pytest.mark.parametrize("observed", ["invalid", "2000-01-04T12:02:00Z"])
+def test_missing_freshness_policy_does_not_hide_invalid_snapshot_time(observed):
+    value = packet()
+    value[0]["observed_at"] = observed
+    value[1]["max_age_seconds"] = None
+    value[2]["facts_sha256"] = digest(value[0])
+    value[2]["contract_sha256"] = digest(value[1])
+    assert {"READONLY_FRESHNESS_LIMIT_UNBOUND", "SNAPSHOT_TIME_INVALID"} <= set(assess(value)["gaps"])
+
+
+def test_artificial_adapter_still_rejects_missing_freshness_limit():
+    facts, contract = account_fixture()
+    contract["max_age_seconds"] = None
+    assert "SNAPSHOT_TIME_INVALID" in adapt_ibkr_account_input(facts, contract)["gaps"]
 
 
 @pytest.mark.parametrize("source", [None, [], "invalid"])
