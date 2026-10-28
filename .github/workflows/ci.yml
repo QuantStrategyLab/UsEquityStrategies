@@ -37,7 +37,7 @@ jobs:
 
           expected = {
               "quant-platform-kit": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1",
-              "quant-strategy-plugins": "3416da47580be1537183e378f3ca9efacc6f9b8c",
+              "quant-strategy-plugins": "839c1f14adb90be38dd136cf9faf9741e24fb4b4",
           }
           for name, sha in expected.items():
               provenance = json.loads(distribution(name).read_text("direct_url.json"))

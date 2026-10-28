@@ -27,7 +27,7 @@ def block_network(monkeypatch):
 
 def _case(monkeypatch, *, cost_bps=0, with_actions=True, same_day=False, unpaid=False,
           split_trade=0, initial_target=4500.0, sell_last=False, zero_rate=False,
-          with_split=True, sessions=5):
+          with_split=True, sessions=5, buy_on_dividend=False):
     warmup = pd.bdate_range(end="2024-12-26", periods=257)
     days = [day.date().isoformat() for day in warmup] + [
         "2024-12-27", "2024-12-30", "2024-12-31", "2025-01-02", "2025-01-03"]
@@ -60,6 +60,8 @@ def _case(monkeypatch, *, cost_bps=0, with_actions=True, same_day=False, unpaid=
             target = target * 2 + split_trade * 25
         if sell_last and signal_index == 260:
             target = 0.0
+        if buy_on_dividend and signal_index == 258:
+            target = 2400.0
         return {"signal_date": rows[signal_index]["date"], "guard_route": "no_action",
                 "applied_route": "no_action", "member_budget_ratio": 1.0,
                 "member_budget_usd": nav, "target_tqqq_ratio": target / nav,
@@ -223,13 +225,53 @@ def test_valid_simulator_split_plus_trade_is_explicit_qpk_gap(monkeypatch):
         _build(case)
 
 
-def test_zero_entitlement_and_zero_rate_are_explicit_qpk_gaps(monkeypatch):
+def test_zero_rate_remains_an_explicit_qpk_gap(monkeypatch):
     case = _case(monkeypatch, zero_rate=True)
     with pytest.raises(ValueError, match="QPK_ZERO_DIVIDEND_UNSUPPORTED"):
         _build(case)
-    case = _case(monkeypatch, initial_target=0, with_split=False)
-    assert all(row["shares"] == 0 for row in case[4])
+
+
+def test_zero_position_split_remains_an_explicit_qpk_gap(monkeypatch):
+    case = _case(monkeypatch, initial_target=0)
     with pytest.raises(ValueError, match="QPK_ZERO_ENTITLEMENT_UNSUPPORTED"):
+        _build(case)
+
+
+def test_unheld_dividend_has_no_financial_event_and_keeps_source_identity(monkeypatch):
+    case = _case(monkeypatch, initial_target=0, with_split=False)
+    original = deepcopy(case)
+    assert all(row["shares"] == 0 for row in case[4])
+    result, ledger = _build(case)
+    assert all(day.positions == () and day.events == () for day in ledger.days)
+    assert all(day.nav == day.cash == 10000 for day in ledger.days)
+    assert all(day.dividend_receivable == day.income_cashflow == 0 for day in ledger.days)
+    assert result.params["research_identity"] == _started(case).research_identity
+    assert case == original
+
+
+def test_buying_on_ex_date_does_not_create_prior_position_entitlement(monkeypatch):
+    case = _case(monkeypatch, initial_target=0, with_split=False, buy_on_dividend=True, cost_bps=20)
+    result, ledger = _build(case, _started(case, cost_bps=20))
+    ex = ledger.days[2]
+    assert ex.positions[0].quantity == 100
+    assert ex.trade_net_cashflow == -2400 and ex.fees == pytest.approx(4.8)
+    assert ex.events == () and ex.dividend_receivable == ex.income_cashflow == 0
+    assert result.total_return == ledger.total_return
+
+
+def test_zero_entitlement_cannot_hide_fabricated_dividend_accrual(monkeypatch):
+    case = _case(monkeypatch, initial_target=0, with_split=False)
+    case[4][2]["dividend_accrued_usd"] = 1.0
+    with pytest.raises(ValueError, match="DIVIDEND_ACCRUAL_MISMATCH"):
+        _build(case)
+
+
+@pytest.mark.parametrize("field", ["cash_usd", "receivable_usd"])
+def test_unheld_dividend_cannot_create_cash_or_receivables(monkeypatch, field):
+    case = _case(monkeypatch, initial_target=0, with_split=False)
+    case[4][2][field] += 1.0
+    case[4][2]["nav_close"] += 1.0
+    with pytest.raises(ValueError):
         _build(case)
 
 

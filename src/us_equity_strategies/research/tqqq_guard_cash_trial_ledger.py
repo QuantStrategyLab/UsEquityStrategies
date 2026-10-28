@@ -12,10 +12,12 @@ rows/actions/contract), actions_source_id, and external_cashflow_scope equal to
 closed_research_no_external_flows. A content-bound source event ID is derived
 from the original action record and its source array index, never a native ID.
 
-Pinned QPK cannot represent split-plus-trade sessions, zero-quantity actions,
+Pinned QPK cannot represent split-plus-trade sessions, zero-position splits,
 or zero-rate dividends. Those valid simulator paths fail explicitly, preserving
-source values. Strict QPK tolerance can also reject simulator-valid arithmetic;
-this adapter never rounds or repairs it. Calendar/PIT/license remain unqualified.
+source values. A dividend with no entitled position has no account event; its
+source action remains bound by the complete input digest. Strict QPK tolerance
+can also reject simulator-valid arithmetic; this adapter never rounds or repairs
+it. Calendar/PIT/license remain unqualified.
 """
 
 from __future__ import annotations
@@ -218,15 +220,17 @@ def build_guard_cash_trial_ledger(
         if dividend is not None:
             if dividend[2]["rate"] == 0:
                 raise ValueError("QPK_ZERO_DIVIDEND_UNSUPPORTED")
-            if entitlement <= 0:
-                raise ValueError("QPK_ZERO_ENTITLEMENT_UNSUPPORTED")
-            event = dividend[2]
-            accrued = entitlement * float(event["rate"])
-            accrual_id = event_id(dividend, "dividend_accrual")
-            events.append(ResearchLedgerEvent(accrual_id, "dividend_accrual", "TQQQ", per_share=event["rate"]))
-            pay = event["payable_date"]
-            pending.setdefault(pay, []).append((dividend, accrual_id, accrued))
-            pending_cash[pay] = pending_cash.get(pay, 0.0) + accrued
+            # Source actions exist independently of this account's holdings.
+            # No prior position means no accrual, receivable or later payment.
+            # The common accrued-amount and QPK cash checks still apply.
+            if entitlement > 0:
+                event = dividend[2]
+                accrued = entitlement * float(event["rate"])
+                accrual_id = event_id(dividend, "dividend_accrual")
+                events.append(ResearchLedgerEvent(accrual_id, "dividend_accrual", "TQQQ", per_share=event["rate"]))
+                pay = event["payable_date"]
+                pending.setdefault(pay, []).append((dividend, accrual_id, accrued))
+                pending_cash[pay] = pending_cash.get(pay, 0.0) + accrued
         _same(_number(row["dividend_accrued_usd"], minimum=0), accrued, "DIVIDEND_ACCRUAL_MISMATCH")
         # Exactly the simulator's pending-pay-date grouping and next-row settlement.
         income = sum(amount for pay, amount in pending_cash.items() if pay <= day)

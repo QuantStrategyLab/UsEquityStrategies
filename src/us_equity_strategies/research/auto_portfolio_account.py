@@ -2,6 +2,9 @@
 
 The caller supplies a frozen, source-bound cash/completeness contract. Cash
 balance is never inferred to mean settled or spendable cash. No broker I/O.
+The original adapter remains artificial-only. The separate read-only assessment
+accepts real-classified packets with caller-bound source hashes and receipt
+times; it does not authenticate the caller's source or admit model/execution use.
 """
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import math
+import re
 
 CASH_RULE = "SETTLED_MINUS_DISJOINT_RESERVATIONS_AND_OBLIGATIONS_NO_SELL_BRIDGE"
 
@@ -29,6 +33,10 @@ def digest(value):
 
 
 def adapt_ibkr_account_input(facts: Mapping, contract: Mapping) -> dict:
+    return _adapt_ibkr_account_input(facts, contract, synthetic=True)
+
+
+def _adapt_ibkr_account_input(facts, contract, *, synthetic):
     if not isinstance(facts,Mapping) or not isinstance(contract,Mapping):
         return dict(status="ACCOUNT_INPUT_GAPS",gaps=["ACCOUNT_WIRE_INVALID"],nav=None,
             cash_balance=None,spendable_cash=None,current_weights=None,protected_capital_basis=None,
@@ -62,8 +70,8 @@ def adapt_ibkr_account_input(facts: Mapping, contract: Mapping) -> dict:
     for name in ("scope_ref", "source", "source_version", "cash_rule_source", "capital_state_source"):
         if not isinstance(contract.get(name), str) or not contract[name].strip():
             gaps.append("MISSING_" + name.upper())
-    if contract.get("synthetic") is not True:
-        gaps.append("SYNTHETIC_ACCOUNT_REQUIRED")
+    if contract.get("synthetic") is not synthetic:
+        gaps.append("SYNTHETIC_ACCOUNT_REQUIRED" if synthetic else "REAL_ACCOUNT_INPUT_REQUIRED")
     currency = contract.get("currency")
     if facts.get("currency") != currency or currency != "USD":
         gaps.append("CURRENCY_MISMATCH")
@@ -149,5 +157,56 @@ def adapt_ibkr_account_input(facts: Mapping, contract: Mapping) -> dict:
         gaps.append("ACCOUNT_WIRE_INVALID")
     result["gaps"] = sorted(set(gaps))
     if not gaps:
-        result["status"] = "READY_ARTIFICIAL_INPUT"
+        result["status"] = "READY_ARTIFICIAL_INPUT" if synthetic else "READY_READONLY_INPUT"
+    return result
+
+
+def assess_ibkr_readonly_account_input(facts: Mapping, contract: Mapping, *, source: Mapping) -> dict:
+    """Assess supplied real inputs without changing the artificial preview API.
+
+    Hashes bind supplied facts/contract and identify their retained source bytes.
+    Source reference and producer revision are caller declarations, not proof of
+    authenticity, obligation completeness, policy approval or publication time.
+    A trusted private caller retains original bytes and the actual read receipt.
+    published_at stays None when unavailable; received_at is never backdated to
+    a historical cutoff. No model, order, state store or settings writer is used.
+    """
+    result = _adapt_ibkr_account_input(facts, contract, synthetic=False)
+    result.update(settings_applied=False, financial_risk_certified=False,
+                  historical_pit_attested=False, source_received_at=None,
+                  source_published_at=None, source_object_sha256=None,
+                  source_identity="CALLER_BOUND_HASHES_NOT_AUTHENTICATED")
+    gaps = result["gaps"]
+    if isinstance(contract, Mapping) and contract.get("max_age_seconds") is None:
+        gaps.append("READONLY_FRESHNESS_LIMIT_UNBOUND")
+    if not isinstance(source, Mapping):
+        gaps.append("READONLY_SOURCE_UNBOUND")
+    else:
+        if any(not isinstance(source.get(k), str) or not source[k].strip()
+               for k in ("source_ref", "source_revision")):
+            gaps.append("READONLY_SOURCE_UNBOUND")
+        hashes = ("source_object_sha256", "facts_sha256", "contract_sha256")
+        if any(not isinstance(source.get(k), str) or re.fullmatch(r"[0-9a-f]{64}", source[k]) is None
+               for k in hashes):
+            gaps.append("READONLY_SOURCE_UNBOUND")
+        try:
+            if source.get("facts_sha256") != digest(facts) or source.get("contract_sha256") != digest(contract):
+                gaps.append("READONLY_SOURCE_IDENTITY_MISMATCH")
+        except (TypeError, ValueError):
+            gaps.append("READONLY_SOURCE_IDENTITY_MISMATCH")
+        try:
+            observed, received, cutoff = utc(facts.get("observed_at")), utc(source.get("received_at")), utc(contract.get("cutoff_utc"))
+            if not observed <= received <= cutoff:
+                raise ValueError("source receipt outside cutoff")
+            published = source.get("published_at")
+            if published is not None and not observed <= utc(published) <= received:
+                raise ValueError("source publication outside receipt")
+            result.update(source_received_at=source["received_at"], source_published_at=published)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            gaps.append("READONLY_SOURCE_TIME_INVALID")
+        if "READONLY_SOURCE_UNBOUND" not in gaps and "READONLY_SOURCE_IDENTITY_MISMATCH" not in gaps:
+            result["source_object_sha256"] = source["source_object_sha256"]
+    result["gaps"] = sorted(set(gaps))
+    if gaps:
+        result.update(status="ACCOUNT_INPUT_GAPS", spendable_cash=None, current_weights=None)
     return result
