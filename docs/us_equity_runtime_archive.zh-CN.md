@@ -11,11 +11,11 @@ _更新日期：2026-06-28_
 
 | Profile | 归档状态 | 可复查证据 | CAGR | 最大回撤 | 备注 |
 | --- | --- | --- | ---: | ---: | --- |
-| `global_etf_rotation` | 已归档（阈值4复核版） | `/home/ubuntu/Projects/UsEquitySnapshotPipelines/data/output/global_etf_rotation_threshold4_2026-05-04/summary.csv`、`docs/us_equity_strategy_status.zh-CN.md`、`docs/us_equity_contract_gap_matrix.md`、`/home/ubuntu/Projects/UsEquitySnapshotPipelines/docs/operator_runbook.md` | 13.25% | -23.29% | 复核后确认阈值 4 版本可保留，优于 SPY 的回撤且 CAGR 略高于 SPY。 |
+| `global_etf_rotation` | 已归档（阈值4复核版） | `$PROJECTS_ROOT/UsEquitySnapshotPipelines/data/output/global_etf_rotation_threshold4_2026-05-04/summary.csv`、`docs/us_equity_strategy_status.zh-CN.md`、`docs/us_equity_contract_gap_matrix.md`、`$PROJECTS_ROOT/UsEquitySnapshotPipelines/docs/operator_runbook.md` | 13.25% | -23.29% | 复核后确认阈值 4 版本可保留，优于 SPY 的回撤且 CAGR 略高于 SPY。 |
 | `tqqq_growth_income` | 已归档 | `docs/us_equity_strategy_status.zh-CN.md` | 33.96% | -31.48% | 这是当前可直接复查的近似可执行证据。 |
-| `soxl_soxx_trend_income` | 已归档 | `/home/ubuntu/Projects/UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv`、`docs/us_equity_value_mode_input_contract.md`、`docs/us_equity_contract_gap_matrix.md` | 98.03% | -39.29% | 100k 初始权益、5 bps 成本下的日频回放已补上长期 summary；收入层在后半段开始参与。 |
-| `russell_1000_multi_factor_defensive` | 已归档 | `/home/ubuntu/Projects/UsEquitySnapshotPipelines/data/output/russell_1000_multi_factor_defensive_archive_2026-05-04/summary.csv`、`/home/ubuntu/Projects/UsEquitySnapshotPipelines/data/output/current_strategy_artifacts/russell_release_status_summary.json`、`/home/ubuntu/Projects/UsEquitySnapshotPipelines/docs/operator_runbook.md` | 16.64% | -27.62% | 已补上完整回测输出，现可与其他 runtime profile 做同口径比较。 |
-| `russell_top50_leader_rotation` | 已归档 | `/home/ubuntu/Projects/UsEquitySnapshotPipelines/data/output/mega_cap_leader_rotation_top50_concentration_variants/concentration_variant_summary.csv`、`/home/ubuntu/Projects/UsEquitySnapshotPipelines/data/output/russell_top50_leader_rotation_staging/release_status_summary.json` | 36.41% | -30.56% | 当前保留的无杠杆龙头轮动路线。 |
+| `soxl_soxx_trend_income` | 已归档 | `$PROJECTS_ROOT/UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv`、`docs/us_equity_value_mode_input_contract.md`、`docs/us_equity_contract_gap_matrix.md` | 98.03% | -39.29% | 100k 初始权益、5 bps 成本下的日频回放已补上长期 summary；收入层在后半段开始参与。 |
+| `russell_1000_multi_factor_defensive` | 已归档 | `$PROJECTS_ROOT/UsEquitySnapshotPipelines/data/output/russell_1000_multi_factor_defensive_archive_2026-05-04/summary.csv`、`$PROJECTS_ROOT/UsEquitySnapshotPipelines/data/output/current_strategy_artifacts/russell_release_status_summary.json`、`$PROJECTS_ROOT/UsEquitySnapshotPipelines/docs/operator_runbook.md` | 16.64% | -27.62% | 已补上完整回测输出，现可与其他 runtime profile 做同口径比较。 |
+| `russell_top50_leader_rotation` | 已归档 | `$PROJECTS_ROOT/UsEquitySnapshotPipelines/data/output/mega_cap_leader_rotation_top50_concentration_variants/concentration_variant_summary.csv`、`$PROJECTS_ROOT/UsEquitySnapshotPipelines/data/output/russell_top50_leader_rotation_staging/release_status_summary.json` | 36.41% | -30.56% | 当前保留的无杠杆龙头轮动路线。 |
 
 ## 研究保留但不再 live
 

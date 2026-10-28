@@ -21,10 +21,10 @@
 
 ## 复核证据与范围
 
-- Grok Bot 报告：`/Users/lisiyi/codex-jobs/out/R-RISK-SCHEMA-GROK-REVIEW.md`（即 `~/codex-jobs/out/R-RISK-SCHEMA-GROK-REVIEW.md`）。
+- Grok Bot 报告：`<codex-job-root>/out/R-RISK-SCHEMA-GROK-REVIEW.md`（即 `~/codex-jobs/out/R-RISK-SCHEMA-GROK-REVIEW.md`）。
 - 复核版本：[PR #661](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/661)，merge `a72ada05`（完整 SHA：`a72ada054a7668a2342caa2e4a1802bb94028f21`）。
 - `parameter_definition_sha256`：`703550b4a2b7371ab7343afc201d0747831a98ce80be6a8525d3c8cd72d387a1`。
-- 报告引用的技术证据：`/Users/lisiyi/codex-jobs/out/R-RISK-02.md`、`/Users/lisiyi/codex-jobs/out/R-RISK-02-independent-review.md` 的技术 PASS，以及本目录 `verify_design.py` 的 `PASS_SCOPED_DESIGN_AND_INTERFACE_CHECKS`。技术检查与 Grok Bot 复核均不等于金融验证。
+- 报告引用的技术证据：`<codex-job-root>/out/R-RISK-02.md`、`<codex-job-root>/out/R-RISK-02-independent-review.md` 的技术 PASS，以及本目录 `verify_design.py` 的 `PASS_SCOPED_DESIGN_AND_INTERFACE_CHECKS`。技术检查与 Grok Bot 复核均不等于金融验证。
 
 PASS 仅覆盖上述版本的设计与接口：**不含真实 trial、金融资格、实盘采用或执行授权，也不为其余 29 个非 c 参数的金融最优性背书**。这些参数仍是设计默认；后续调整须另批，不得根据已见收益选优。采纳结果、新增策略、加杠杆或提高风险仍须通过网站由用户确认。
 

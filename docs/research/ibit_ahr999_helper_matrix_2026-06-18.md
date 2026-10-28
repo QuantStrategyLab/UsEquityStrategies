@@ -21,7 +21,7 @@ This note records a bounded robustness matrix for the research-only
 Generated artifacts are local and not committed. The latest rerun with
 diagnostic fields is under:
 
-`/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics/`
+`$PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics/`
 
 The signal manifest still verifies the full exported CSV. Signal contract
 validation is scoped to the actual matrix window, 2018-04-25 through
@@ -34,7 +34,7 @@ The same BTC cycle CSV has also been re-exported through the current
 `MarketSignalSources` research handoff path. The current-format artifacts are
 local and not committed:
 
-`/home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/research_handoff_current/`
+`$PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/research_handoff_current/`
 
 Key hashes:
 
@@ -147,16 +147,16 @@ The matrix was generated with:
 
 ```bash
 python -m market_signal_sources.cli.export_btc_cycle_research_csv \
-  --input-csv /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/raw/btcusdt_1d_binance_2017-08-17_2026-06-18.csv \
-  --output-csv /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.csv \
-  --manifest-path /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.manifest.json \
+  --input-csv $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/raw/btcusdt_1d_binance_2017-08-17_2026-06-18.csv \
+  --output-csv $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.csv \
+  --manifest-path $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.manifest.json \
   --as-of 2026-06-18
 
 python -m us_equity_strategies.backtests.smart_dca_research_cli \
-  --signal-csv /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.csv \
-  --trade-csv /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/raw/btcusdt_1d_binance_2017-08-17_2026-06-18.csv \
-  --signal-manifest /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.manifest.json \
-  --output-dir /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics \
+  --signal-csv $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.csv \
+  --trade-csv $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/raw/btcusdt_1d_binance_2017-08-17_2026-06-18.csv \
+  --signal-manifest $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/signals/btc_cycle_indicators.manifest.json \
+  --output-dir $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics \
   --candidate-set ibit_btc_ahr999_helper_precomputed_variants \
   --signal-columns ahr999,ahr999_365d_percentile,ahr999_30d_slope \
   --trade-column close \
