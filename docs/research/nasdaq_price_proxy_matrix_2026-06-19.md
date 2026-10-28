@@ -7,7 +7,7 @@ export and the strategy research CLI `--price-manifest` validation path.
 ## Inputs
 
 Local artifact root:
-`/home/ubuntu/Projects/dca_research_runs/nasdaq_price_proxy_20260619`
+`$PROJECTS_ROOT/dca_research_runs/nasdaq_price_proxy_20260619`
 
 Raw source snapshots:
 

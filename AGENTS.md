@@ -38,6 +38,8 @@ The ignored module needs an isolated netting overlay and runs in its own CI job.
 Do not drop the `--ignore` flag without that overlay; a local pass on the rest is
 not mechanism acceptance.
 
+Organization documentation rules are checked by `python scripts/check_style.py`, which also runs in CI as the `Documentation check` job.
+
 ## Naming and documentation
 
 - Developer documentation is English by default; Chinese siblings use

@@ -24,9 +24,9 @@ Command:
 
 ```bash
 python -m us_equity_strategies.backtests.smart_dca_decision_summary_cli \
-  --matrix-dir /home/ubuntu/Projects/dca_research_runs/nasdaq_price_proxy_20260619/strategy/nasdaq_sp500_price_proxy_matrix \
-  --matrix-dir /home/ubuntu/Projects/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics \
-  --matrix-dir /home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics \
+  --matrix-dir $PROJECTS_ROOT/dca_research_runs/nasdaq_price_proxy_20260619/strategy/nasdaq_sp500_price_proxy_matrix \
+  --matrix-dir $PROJECTS_ROOT/dca_research_runs/ibit_helper_20260618/helper_matrix_diagnostics \
+  --matrix-dir $PROJECTS_ROOT/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics \
   --profile nasdaq_sp500_smart_dca \
   --profile ibit_smart_dca \
   --require-scenario-manifest \

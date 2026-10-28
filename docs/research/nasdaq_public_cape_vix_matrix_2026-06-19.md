@@ -13,9 +13,9 @@ source-chain validation run, not a production recommendation.
 - CAPE input: Yale/Shiller `ie_data.xls`, downloaded from
   `http://www.econ.yale.edu/~shiller/data/ie_data.xls`.
 - Run directory:
-  `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619`.
+  `$PROJECTS_ROOT/dca_research_runs/public_cape_vix_20260619`.
 - Latest diagnostic strategy output:
-  `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics`.
+  `$PROJECTS_ROOT/dca_research_runs/public_cape_vix_20260619/strategy/nasdaqcom_cape_vix_diagnostics`.
 
 The downloaded Yale/Shiller file only contained CAPE data through
 `2023-09-30`, so the strategy matrix was capped at `2023-09-29`. This means the
@@ -31,11 +31,11 @@ auditable.
 `MarketSignalSources` exported:
 
 - signal CSV:
-  `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/signals/us_equity_public_context.csv`
+  `$PROJECTS_ROOT/dca_research_runs/public_cape_vix_20260619/signals/us_equity_public_context.csv`
 - manifest:
-  `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/signals/us_equity_public_context.manifest.json`
+  `$PROJECTS_ROOT/dca_research_runs/public_cape_vix_20260619/signals/us_equity_public_context.manifest.json`
 - quality report:
-  `/home/ubuntu/Projects/dca_research_runs/public_cape_vix_20260619/signals/us_equity_public_context.quality.json`
+  `$PROJECTS_ROOT/dca_research_runs/public_cape_vix_20260619/signals/us_equity_public_context.quality.json`
 
 Validation passed for `research_export.v1` with
 `artifact_type=us_equity_context_research_csv` and
