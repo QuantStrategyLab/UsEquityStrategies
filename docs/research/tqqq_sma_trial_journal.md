@@ -30,6 +30,26 @@ Candidate windows, signals, next-open timing, fee rates, selection rules, Monte 
 
 The guard-cash caller now delegates to the same internal transaction helper. Its financial behavior and report fields retain their meaning, while its actual implementation hashes naturally change. Its source revision now fingerprints the caller and shared helper. Old stored identities are not forged, rewritten or relabeled as the new implementation.
 
+For the guard-cash ledger, a source dividend with zero prior-position entitlement
+creates no account accrual, receivable or payment. Buying on the ex-date does not
+create prior-position entitlement. The complete source action stays in the bound
+input; reported nonzero accrual or inconsistent cash still fails validation.
+Zero-position splits, split-plus-trade sessions and zero-rate dividends retain
+their explicit unsupported checks. This changes ledger representation only, not
+the simulator's decisions, fees, dates or wealth path.
+
+The research extra pins QSP `839c1f14adb90be38dd136cf9faf9741e24fb4b4`.
+This adopts its existing benchmark-observation freshness and component-identity
+checks. If the latest QQQ price is missing, the guard uses the actual last QQQ
+observation when checking age; the requested date cannot refresh that price.
+Both guard-on and guard-off comparisons retain this common input-quality
+requirement. Disabling the guard disables its allocation effect, not input
+validation. With a no-action signal both decisions match. The frozen soft route
+still passes both declared scalars to the core, and member exposure stays within
+the supplied budget with residual account cash retained. Candidate thresholds,
+core sizing and the synthetic-only execution boundary remain unchanged. New
+implementation hashes do not relabel results from the older QSP revision.
+
 ## Frozen evaluation semantics
 
 New attempts include `evaluation_contract` in the existing `study_config`, so the

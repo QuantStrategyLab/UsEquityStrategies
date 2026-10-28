@@ -1,6 +1,29 @@
 # 三档组合与风控状态离线预览
 
-本包提供可测试的配置草稿与状态保存接口。全部计算只接受人工输入，输出始终 `execution_authorized=false`、`settings_applied=false`。没有接入运行策略、账户服务、下单入口或配置发布器。合并代码不代表启用三档配置，也不能证明收益更好或真实账户风险合格。
+本包提供可测试的配置草稿与状态保存接口。三档计算和状态接口只接受人工输入，输出始终 `execution_authorized=false`、`settings_applied=false`。另有独立的真实账户输入只读核对入口，见下节；它不调用三档计算或状态接口。没有接入运行策略、账户服务、下单入口或配置发布器。合并代码不代表启用三档配置，也不能证明收益更好或真实账户风险合格。
+
+## 真实账户输入的只读核对
+
+`assess_ibkr_readonly_account_input(facts, contract, source=...)`复用原账户、币种、估值、资金及完整性检查，明确要求`synthetic=false`。原`adapt_ibkr_account_input`继续只接受人工输入；不通过改标记把真实报告送入人工三档预览。
+
+新入口只核提交的输入。`source`绑定完整来源字节摘要、facts与contract摘要、来源引用及生产者版本，分别记录原观察时刻、实际收到时刻和已知的发布时间。哈希证明提交内容一致，不认证调用者声明的来源，也不证明资金完整性、风险政策或历史当时可知性。缺少发布时间保留null，不用收到时刻代替；收到时刻不得晚于本次判断截止时刻。重新读取旧报告不会刷新原观察时刻或延长既定时效。
+
+合格输入的状态为`READY_READONLY_INPUT`，仅表示该只读合同通过。缺失已结算现金、预留、完整义务、资金基准、身份或时点时保留具体缺项，`spendable_cash`与可用持仓权重为null；普通现金余额不会补成已结算现金。所有结果保持`account_policy_bound=false`、`financial_risk_certified=false`、`execution_authorized=false`和`settings_applied=false`。此入口没有模型调用、券商访问、状态初始化或设置写入，也不产生订单草稿。
+
+`scripts.inspect_readonly_account_input`消费已保留的单个运行报告与私有静态配置：
+
+```bash
+PYTHONPATH=src python -m scripts.inspect_readonly_account_input \
+  --report /secure/review/report.json \
+  --config /secure/review/account-config.json \
+  --output /secure/review/readiness.json
+```
+
+此命令只在受保护Linux上使用，不发网络请求。输入为私有普通文件，输出目录权限700，输出文件以600权限只创建一次，存在即拒绝覆盖。stdout只给固定状态、缺项和输出摘要，完整核对结果留在私有文件；缺项退出码2，不算资金预览通过。
+
+静态配置包含`account_contract`、`report_binding`和`source_ref`。`report_binding`须明确匹配报告的`platform`、`strategy_profile`、`account_scope`及`runtime_revision`；不能从待核报告反填预期账户身份。`account_contract`沿用原字段合同，真实缺项可以为null并得到缺项报告，不代填资金或风险数值。配置中不能含旧`cutoff_utc`：调用程序在本次实际读取后建立新的核对截止时刻，保存原配置字节摘要和新的输入摘要。该新核对不是历史决策回放，也不能将其接收记录倒填给旧研究。
+
+真实三档的正向预览仍需合格的策略矩、联合情景、有效政策、费用/数量及账户状态来源；本次只读输入核对没有解除这些计算入口的人工限制。
 
 ## 输入与计算
 
