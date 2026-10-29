@@ -1,7 +1,7 @@
 # Smart DCA Decision Summary - 2026-06-19
 
 > **Historical evidence superseded (2026-09-29; flagged 2026-10-03).**
-> The three matrices below predate the [research mathematics corrections](smart_dca_math_corrections_20260929.md)
+> The three matrices below predate the [research mathematics corrections](smart-dca-math-corrections-20260929.md)
 > and have not been rerun. Pass rates, terminal-value comparisons, rank scores,
 > drawdown, money-weighted returns and smart-rule trades are invalid as evidence
 > for the current implementation. `Passed: true` and verified file hashes only

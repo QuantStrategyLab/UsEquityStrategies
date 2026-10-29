@@ -149,7 +149,7 @@ Additional Tier 1 helper candidates are available through
 cycle signal source to compare percentile-tier sizing and an expensive-zone
 skip guard. These are research-only variants and do not change the production
 equivalent candidate. The 2026-06-18 helper matrix is recorded in
-`docs/research/ibit_ahr999_helper_matrix_2026-06-18.md`.
+`docs/research/ibit-ahr999-helper-matrix-2026-06-18.md`.
 
 | Smart variant | Terminal | Vs fixed | Max DD | DD delta |
 | --- | ---: | ---: | ---: | ---: |

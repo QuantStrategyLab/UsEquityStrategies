@@ -1,6 +1,6 @@
 # Market Signal Bundle Artifact Contract
 
-[English overview](market_signal_bundle_artifact_contract.en.md) · [Research index](README.md)
+[English overview](market-signal-bundle-artifact-contract-overview.md) · [Research index](README.md)
 
 研究日期：2026-06-19。
 

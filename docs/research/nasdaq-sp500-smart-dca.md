@@ -151,7 +151,7 @@ rerun should export local FRED `NASDAQ100` and `SP500` snapshots through
 resulting `us_equity_price_proxy_research_csv` manifest, then use that exported
 `QQQ`/`SPY` CSV as the strategy research price input with `--price-manifest`.
 
-Follow-up: `docs/research/nasdaq_price_proxy_matrix_2026-06-19.md` records the
+Follow-up: `docs/research/nasdaq-price-proxy-matrix-2026-06-19.md` records the
 hash-pinned rerun. It used the new price proxy manifest path and a 99-scenario
 matrix through 2026-06-18. `nasdaq_sp500_price_no_skip` matched fixed DCA but
 had `0.00%` median terminal edge, so it failed the `1.00%` effect-size gate;
