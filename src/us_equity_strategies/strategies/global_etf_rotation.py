@@ -539,7 +539,9 @@ def compute_signals_from_feature_snapshot(
         if frame.empty:
             raise ValueError("no feature snapshot visible at decision cutoff")
         ordering = ["as_of", *(column for column in ("revised_at", "available_at", "received_at") if column in frame)]
-        frame = frame.sort_values(ordering, kind="stable").drop_duplicates(subset=["symbol"], keep="last")
+        frame = frame.sort_values(
+            ordering, kind="stable", key=lambda values: pd.to_datetime(values, utc=True)
+        ).drop_duplicates(subset=["symbol"], keep="last")
     safe_haven = str(safe_haven or SAFE_HAVEN).strip().upper()
     snapshot_ranking_symbols = frame.loc[frame["role"].eq("ranking_pool_etf"), "symbol"].dropna().astype(str).tolist()
     snapshot_canary_symbols = frame.loc[frame["role"].eq("canary_asset"), "symbol"].dropna().astype(str).tolist()
