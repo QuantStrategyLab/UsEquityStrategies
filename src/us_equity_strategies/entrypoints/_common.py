@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from us_equity_strategies.option_overlay_retirement import (
+    OPTION_OVERLAY_CONFIG_KEYS,
+    validate_retired_option_inputs,
+)
+
 import hashlib
 import json
 import logging
@@ -15,6 +20,7 @@ from quant_platform_kit.common.strategy_contracts import PositionTarget, Strateg
 from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor
 
 logger = logging.getLogger(__name__)
+from us_equity_strategies.income_budget import allocate_income_budget
 from us_equity_strategies.income_layer import (
     build_income_layer_plan,
     normalize_income_layer_allocations,
@@ -22,11 +28,7 @@ from us_equity_strategies.income_layer import (
 from us_equity_strategies.market_regime_control_contract import (
     resolve_market_regime_position_control_authorization,
 )
-from us_equity_strategies.option_overlay import (
-    OPTION_OVERLAY_CONFIG_KEYS as OPTION_OVERLAY_CONFIG_KEYS,
-    OPTION_OVERLAY_RECIPE_DETAILS as OPTION_OVERLAY_RECIPE_DETAILS,
-    build_option_overlay_diagnostics as build_option_overlay_diagnostics,
-)
+
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +175,35 @@ MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
 MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
 
 
+def validate_production_option_context(config: Mapping[str, object], ctx: StrategyContext) -> None:
+    """Reject retired configuration and explicitly supplied contract obligations."""
+    validate_retired_option_inputs(config)
+    metadata = getattr(ctx.portfolio, "metadata", {}) if ctx.portfolio is not None else {}
+    for source in (ctx.state, ctx.market_data, metadata):
+        if isinstance(source, Mapping):
+            validate_retired_option_inputs(
+                {}, option_order_intents=source.get("option_order_intents"),
+                option_positions=source.get("option_positions"),
+            )
+
+
+def build_option_overlay_diagnostics(
+    config: Mapping[str, object], ctx: StrategyContext,
+    *, base_diagnostics: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    validate_production_option_context(config, ctx)
+    if base_diagnostics is not None:
+        validate_retired_option_inputs(
+            {}, option_order_intents=base_diagnostics.get("option_order_intents"),
+            option_positions=base_diagnostics.get("option_positions"),
+        )
+    return {"option_overlay_enabled": False, "option_overlay_status": "retired"}
+
+
 def merge_runtime_config(manifest_default_config: Mapping[str, object], ctx: StrategyContext) -> dict[str, object]:
     config = dict(manifest_default_config)
     config.update(dict(ctx.runtime_config))
+    validate_production_option_context(config, ctx)
     return config
 
 
@@ -184,6 +212,7 @@ def pop_income_layer_config(config: dict[str, object]) -> dict[str, object]:
 
 
 def pop_option_overlay_config(config: dict[str, object]) -> dict[str, object]:
+    validate_retired_option_inputs(config)
     return {key: config.pop(key) for key in OPTION_OVERLAY_CONFIG_KEYS if key in config}
 
 
@@ -444,7 +473,7 @@ def apply_income_layer_to_weights(
     ctx: StrategyContext,
     excluded_symbols=(),
 ) -> tuple[dict[str, float] | None, dict[str, object]]:
-    if not weights:
+    if weights is None:
         return weights, {}
     if ctx.portfolio is None:
         return dict(weights), {"income_layer_applied": False, "income_layer_skip_reason": "missing_portfolio"}
@@ -459,7 +488,7 @@ def apply_income_layer_to_weights(
     )
     normalized_exclusions = {
         str(symbol or "").strip().upper()
-        for symbol in (*dict(weights).keys(), *tuple(excluded_symbols or ()))
+        for symbol in tuple(excluded_symbols or ())
     }
     allocations = normalize_income_layer_allocations(
         income_layer_config.get("income_layer_allocations"),
@@ -503,20 +532,16 @@ def apply_income_layer_to_weights(
             0.05,
         ),
     )
-    locked_ratio = min(1.0, plan.locked_value / total_equity)
-    core_scale = max(0.0, 1.0 - locked_ratio)
-    target_weights = {
-        str(symbol).strip().upper(): float(weight) * core_scale
-        for symbol, weight in dict(weights).items()
-        if str(symbol).strip().upper() not in plan.symbols
-    }
-    for symbol, target_value in plan.target_values.items():
-        target_weight = float(target_value) / total_equity
-        if abs(target_weight) > 1e-12:
-            target_weights[symbol] = target_weight
+    target_weights = allocate_income_budget(weights, plan, total_equity=total_equity)
+    core_before = sum(float(value) for symbol, value in weights.items()
+                      if str(symbol).strip().upper() not in plan.symbols)
+    core_after = sum(value for symbol, value in target_weights.items() if symbol not in plan.symbols)
+    core_scale = core_after / core_before if core_before > 0.0 else 1.0
 
     diagnostics = {
         "income_layer_applied": True,
+        "income_budget_contract": "minimum_targets_preserve_implicit_cash.v1",
+        "income_budget_funding": "existing_invested_targets",
         "income_layer_allocations": plan.allocations,
         "income_layer_symbols": plan.symbols,
         "income_layer_ratio": plan.ratio,

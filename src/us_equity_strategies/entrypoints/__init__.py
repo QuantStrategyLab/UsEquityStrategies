@@ -42,7 +42,7 @@ from us_equity_strategies.manifests import (
     tecl_xlk_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
-from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
+from ._common import build_option_overlay_diagnostics
 from us_equity_strategies.v7_soxl_profile import (
     SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
     V7_CONFIG_SHA256,
@@ -752,7 +752,7 @@ def build_tqqq_core_only_p2_v2_research_decision(
     later P2 v2 binding can pin this named public entrypoint without changing
     the frozen v1 candidate or claiming that an existing P3 replay uses it.
     """
-    config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
+    config = {**dict(tqqq_growth_income_manifest.default_config), **dict(ctx.runtime_config)}
     _validate_tqqq_core_only_research_runtime_config(config)
     return _build_tqqq_growth_income_decision(ctx)
 
@@ -1279,7 +1279,7 @@ def build_soxl_soxx_core_only_p2_v2_research_decision(
     a later P2 v2 binding may pin this named public entrypoint without
     changing or endorsing the legacy promotion candidate.
     """
-    config = merge_runtime_config(soxl_soxx_trend_income_manifest.default_config, ctx)
+    config = {**dict(soxl_soxx_trend_income_manifest.default_config), **dict(ctx.runtime_config)}
     _validate_soxl_soxx_core_only_research_runtime_config(config)
     return _build_soxl_soxx_trend_income_decision(ctx)
 

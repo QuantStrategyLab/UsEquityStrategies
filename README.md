@@ -8,6 +8,24 @@ UsEquityStrategies is the strategy-lib behind QuantStrategyLab's US equity tradi
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
 
+## Option retirement and income budget migration
+
+Production entrypoints no longer advertise or generate proprietary option
+overlays. Explicit legacy option recipes, budgets or known option obligations
+are rejected for migration; literal boolean `false` switches and empty recipes
+are the only accepted legacy no-op controls. Missing account evidence is not
+proof of no option holdings. Historical research replay remains separate. See
+[option overlay retirement](docs/option-overlay-retirement.md).
+
+Weight-based income allocation now funds per-symbol minimum targets from the
+existing invested target budget and preserves implicit cash. It does not
+rescale a 60% invested portfolio to 100%. Existing income holdings remain locked
+when disabled. An infeasible budget aborts the entire strategy decision before
+returning executable targets; this can also delay otherwise valid risk-reducing
+orders for that cycle. It does not guarantee those orders execute. Independent
+platform protections remain necessary. TQQQ/SOXL retain their existing amount
+plans and internal risk rules. See [income budget contract](docs/income-budget-contract.md).
+
 ## What this repository is
 
 UsEquityStrategies is the QuantStrategyLab US equity strategy package. It provides reusable strategy implementations and runtime metadata for QuantStrategyLab US equity platforms.
