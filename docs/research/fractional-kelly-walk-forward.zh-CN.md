@@ -3,7 +3,7 @@
 模块：`us_equity_strategies.research.fractional_kelly_walk_forward`
 测试：`tests/research/test_fractional_kelly_walk_forward.py`（只用合成收益）
 
-> 成本进入 sizing 的独立 R5 kernel 见 [cost_aware_fractional_kelly](cost_aware_fractional_kelly.zh-CN.md)，同窗口对照见 [cost_aware_walk_forward_comparator](cost_aware_walk_forward_comparator.zh-CN.md)。二者都未接入本评估器的输出/DSR 试验集；其合成结果不是本文件的 OOS 证据。
+> 成本进入 sizing 的独立 R5 kernel 见 [cost_aware_fractional_kelly](cost-aware-fractional-kelly.zh-CN.md)，同窗口对照见 [cost_aware_walk_forward_comparator](cost-aware-walk-forward-comparator.zh-CN.md)。二者都未接入本评估器的输出/DSR 试验集；其合成结果不是本文件的 OOS 证据。
 
 ## 做什么
 
@@ -31,7 +31,7 @@
 ## 硬边界
 
 - 不加杠杆、不做空：`0 ≤ f ≤ 1`。
-- 默认 `synthetic=True`。真实数据只允许白名单 {SOXL, TQQQ}，且须提供与 [预注册](fractional_kelly_preregistration.zh-CN.md) 完全一致的 `RealDataAuthorization`（预注册 id + 数据清单）；其他一律 `REAL_DATA_REQUIRES_APPROVAL`，预注册数据源未确认时 `PREREGISTRATION_PENDING_DATA_CONFIRMATION`。
+- 默认 `synthetic=True`。真实数据只允许白名单 {SOXL, TQQQ}，且须提供与 [预注册](fractional-kelly-preregistration.zh-CN.md) 完全一致的 `RealDataAuthorization`（预注册 id + 数据清单）；其他一律 `REAL_DATA_REQUIRES_APPROVAL`，预注册数据源未确认时 `PREREGISTRATION_PENDING_DATA_CONFIRMATION`。
 - 结果只能作为 `kelly_ready` **上限备注**（`kelly_cap_note.usage = MAY_ONLY_LOWER_OR_CAP_NEVER_RAISE_EXISTING_BUDGET`），`budget_effect = NONE`；不提高任何预算，不授权晋级/纸面/影子/实盘，报告恒为 `live_ready=false`、`no_order=true`、`DEVELOPMENT_ONLY`。
 - 已安装 QPK 无 `research_stats` 时整体 `UNCOMPUTABLE`（`QPK_RESEARCH_STATS_UNAVAILABLE`），不输出任何数字。
 - 运行时入口/策略不导入本模块（`tests/test_research_import_boundary.py`）。
@@ -58,7 +58,7 @@
   - 旧 `turnover` 保持 close 成交后移到下一 earning session 的合同；最后 close 已成交但没有下一会话时，旧费用路径会漏掉该笔费用。新增 `CorePath.close_fill_turnover` 只供显式测量：记录真实 close 的单边证券成交额/pre-fill NAV，包含末次成交，`window` 同会话切片。
   - 显式调用 `path.measure_close_fill_costs(cost_model)` 并注入 QPK `research_stats.execution_models.CostModel` 才生成 at-fill 净收益。close 成本在当日毛收益后扣，金额为 `fill_turnover × (1 + gross_return) × 每边费率`，相对当日起始 NAV，仅转换一次。尚未加载该接口的旧 QPK pin 会明确报 `QPK_EXECUTION_MODELS_REQUIRED`；本变更不改 pin。
   - 该测量是 `no_weight_feedback` 的独立 NAV 费用 overlay，费用不反馈到原毛仓位、策略决策或参考权益；不是多资产自融资净仓位、外层现金/证券净额模型，也不代表完整 A2 适用性或新研究冻结。默认生成器的毛收益、旧换手、私有 runner、路径摘要和历史报告不消费该诊断，不改写旧结果。没有下一会话的末日新信号不虚构成交；原已排到末日 close 的成交正常计费。
-  - 内层残余现金、内层 BOXX、外层现金腿、A2 零收益现金，以及 legacy turnover、close-fill turnover、外层交易额，是三套并列角色，不能相加，也不等于实盘等价。私有 runner 仍只消费 `gross_returns` 与后移的 `turnover`。角色、推荐参数和合成反例见[B1/B2 决策合同](b1_b2_freeze_decision_contract.zh-CN.md)的 RS-04 准备节。
+  - 内层残余现金、内层 BOXX、外层现金腿、A2 零收益现金，以及 legacy turnover、close-fill turnover、外层交易额，是三套并列角色，不能相加，也不等于实盘等价。私有 runner 仍只消费 `gross_returns` 与后移的 `turnover`。角色、推荐参数和合成反例见[B1/B2 决策合同](b1-b2-freeze-decision-contract.zh-CN.md)的 RS-04 准备节。
   - 预热完成后，任何策略失败一律报错，不静默跳过。
 - `research/kelly_private_runner.py`：只能在批准的私有数据环境运行（检测到 `CI`/`GITHUB_ACTIONS` 拒绝）。
   - 校验归档 `manifest.json` 的 SHA-256 与预注册一致，逐页核对 SHA-256 和字节数。

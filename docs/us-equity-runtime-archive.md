@@ -1,6 +1,6 @@
 # US equity runtime archive
 
-[简体中文](us_equity_runtime_archive.zh-CN.md)
+[简体中文](us-equity-runtime-archive.zh-CN.md)
 
 _Last updated: 2026-06-28_
 
@@ -12,9 +12,9 @@ without long-window summaries as fully archived.
 
 | Profile | Archive status | Reviewable evidence | CAGR | Max drawdown | Notes |
 | --- | --- | --- | ---: | ---: | --- |
-| `global_etf_rotation` | archived (threshold-4 recheck) | `UsEquitySnapshotPipelines/data/output/global_etf_rotation_threshold4_2026-05-04/summary.csv`, `docs/us_equity_strategy_status.md`, `docs/us_equity_contract_gap_matrix.md`, `UsEquitySnapshotPipelines/docs/operator_runbook.md` | 13.25% | -23.29% | Threshold-4 version retained after recheck; better drawdown than SPY with slightly higher CAGR. |
-| `tqqq_growth_income` | archived | `docs/us_equity_strategy_status.md` | 33.96% | -31.48% | Best directly reviewable executable evidence currently available. |
-| `soxl_soxx_trend_income` | archived | `UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv`, `docs/us_equity_value_mode_input_contract.md`, `docs/us_equity_contract_gap_matrix.md` | 98.03% | -39.29% | Daily replay with 100k initial equity and 5 bps cost; income sleeve joins later in sample. |
+| `global_etf_rotation` | archived (threshold-4 recheck) | `UsEquitySnapshotPipelines/data/output/global_etf_rotation_threshold4_2026-05-04/summary.csv`, `docs/us-equity-strategy-status.md`, `docs/us-equity-contract-gap-matrix.md`, `UsEquitySnapshotPipelines/docs/operator_runbook.md` | 13.25% | -23.29% | Threshold-4 version retained after recheck; better drawdown than SPY with slightly higher CAGR. |
+| `tqqq_growth_income` | archived | `docs/us-equity-strategy-status.md` | 33.96% | -31.48% | Best directly reviewable executable evidence currently available. |
+| `soxl_soxx_trend_income` | archived | `UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv`, `docs/us-equity-value-mode-input-contract.md`, `docs/us-equity-contract-gap-matrix.md` | 98.03% | -39.29% | Daily replay with 100k initial equity and 5 bps cost; income sleeve joins later in sample. |
 | `russell_1000_multi_factor_defensive` | archived | `UsEquitySnapshotPipelines/data/output/russell_1000_multi_factor_defensive_archive_2026-05-04/summary.csv`, release status artifacts, operator runbook | 16.64% | -27.62% | Full backtest output available for like-for-like comparison. |
 | `russell_top50_leader_rotation` | archived | concentration variant summary, release status artifacts | 36.41% | -30.56% | Current retained unlevered leader-rotation line. |
 

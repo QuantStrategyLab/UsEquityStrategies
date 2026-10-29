@@ -200,4 +200,4 @@ surface and a fixed DCA fallback.
 The concrete bootstrap plan for the future `MarketSignalSources` repository,
 including crypto live-pool indicator families observed from the existing crypto
 pipeline, is tracked in
-`docs/research/market_signal_sources_bootstrap_plan.md`.
+`docs/research/market-signal-sources-bootstrap-plan.md`.

@@ -14,7 +14,7 @@ P3 as verified.
 - lifecycle stage: `P3`
 - status: `DEFERRED`
 - authority: research only; `no_order=true`
-- source notes: `docs/research/nasdaq_sp500_smart_dca.md`
+- source notes: `docs/research/nasdaq-sp500-smart-dca.md`
 - follow-up matrix: `docs/research/nasdaq_sp500_price_proxy_matrix_2026-06-19.md`
 
 ## Required artifacts before registration

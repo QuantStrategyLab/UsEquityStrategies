@@ -77,7 +77,7 @@ def _approved_subset_fixture():
     }
     source = {
         "repository": "QuantStrategyLab/UsEquityStrategies",
-        "contract_path": "docs/research/b1_b2_freeze_decision_contract.zh-CN.md",
+        "contract_path": "docs/research/b1-b2-freeze-decision-contract.zh-CN.md",
         "contract_blob": "3cd71037ea463e4921324d5996995fcc73eb2e8e",
         "approval_date": "2026-10-14", "decisions": ("D03", "D04", "D06", "D07"),
         "scope": "RS-04 SOXL/TQQQ research core",

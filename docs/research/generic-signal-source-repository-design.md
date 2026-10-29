@@ -290,7 +290,7 @@ bundle 或供应商密钥写进日志。
 这不是 vendor adapter，也不拥有密钥、缓存或 artifact 发布职责；这些仍属于后续
 `MarketSignalSources` / pipeline 环境。
 更细的 artifact 字段、manifest 校验门槛和平台注入顺序记录在
-`docs/research/market_signal_bundle_artifact_contract.md`。
+`docs/research/market-signal-bundle-artifact-contract.md`。
 
 本仓库也提供一个最小命令行审计入口，平台或人工验收可以在注入策略前先校验 manifest
 和 bundle hash，并输出非敏感审计字段：
@@ -313,7 +313,7 @@ coverage 和本地契约一致性；这保持运行时无 `MarketSignalSources` 
 或不完整的 registry 文件。
 
 后续独立仓库的 Phase 1 模块划分、crypto 侧可复用指标目录、artifact families 和验证门槛，
-记录在 `docs/research/market_signal_sources_bootstrap_plan.md`。
+记录在 `docs/research/market-signal-sources-bootstrap-plan.md`。
 
 ### 扩展路线
 
@@ -356,7 +356,7 @@ Phase 3：多 provider 与 SnapshotPipelines 复用
 
 本次研究文档只新增：
 
-- `docs/research/generic_signal_source_repository_design.md`
+- `docs/research/generic-signal-source-repository-design.md`
 
 后续真正实现时，建议分仓库小步推进。
 

@@ -63,7 +63,7 @@ rewrites or backfills old evidence; use a new namespace for a new attempt.
 This adopts the reporting discipline of the fixed
 [QPK evaluation standard](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/4cbb0bbdffc35994be4b21cbacdcd4c771abe883/docs/strategy_promotion_risk_standard.zh-CN.md)
 within this synthetic-only caller under `STRAT-02`. The
-[UES portfolio boundary](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/fa3f6b3737983d2c3c700a6fb57f63dcb6179bfd/docs/research/portfolio_risk_budget_contract.md)
+[UES portfolio boundary](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/fa3f6b3737983d2c3c700a6fb57f63dcb6179bfd/docs/research/portfolio-risk-budget-contract.md)
 still governs distinct Markowitz/Kelly/log-growth research; this adds no allocator.
 
 The declaration describes actual `core._window_metrics`,

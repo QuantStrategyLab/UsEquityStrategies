@@ -39,7 +39,7 @@
 3. **合并后的运行配置**：每个策略档（`soxl_soxx_trend_income`、`tqqq_growth_income`）最终传给策略的 `merged_runtime_config`，至少包括 `trend_ma_window`、RSI 与波动率参数、插件开关、收入层参数。
 4. **信号输入来源**：最近 N 次运行（建议 ≥20 个交易日）每次实际走的分支（外部信号包 / yfinance / IBKR ADJUSTED_LAST）、返回的历史根数、首尾日期。
 5. **指标快照**：同样这些运行的 SOXX `rsi14`、`rsi14_dynamic_threshold`、`ma_trend`、`realized_volatility_dynamic_threshold`，SOXL `ma_trend`，以及 TQQQ 的 QQQ MA200、MA20 斜率、回撤反弹值，用来逐日对比研究回放。
-6. **目标与成交**：同期的目标权重、实际下单和成交（数量、价格、费用），用于校准换手和成本，也是证券级净交易账本（见 `kelly_security_level_ledger_design.zh-CN.md`）的验证数据。
+6. **目标与成交**：同期的目标权重、实际下单和成交（数量、价格、费用），用于校准换手和成本，也是证券级净交易账本（见 `kelly-security-level-ledger-design.zh-CN.md`）的验证数据。
 7. **插件挂载**：`SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON` 和 IBKR 对应项，以及 market_regime_control 当日信号是否授权仓位（shadow 还是生效）。
 
 拿到 1–3 后，研究可以把回放代码固定到实盘实际版本、复算 `config_sha256`；拿到 4–5 后可以做逐日指标对账；拿到 6 后才能校准成本模型。在这之前，所有研究结果都只是 `DEVELOPMENT_ONLY`。

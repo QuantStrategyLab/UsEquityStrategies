@@ -1,6 +1,6 @@
 # 指数 LEAPS 增长增强层研究设计
 
-[English](index_leaps_growth_overlay.md)
+[English](index-leaps-growth-overlay.md)
 
 _更新日期：2026-06-23_
 

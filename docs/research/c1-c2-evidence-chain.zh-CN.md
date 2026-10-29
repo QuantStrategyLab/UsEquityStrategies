@@ -109,7 +109,7 @@
 | 项 | 当前结论 |
 |---|---|
 | C3 离线积木 | 已达标（见上节） |
-| 数据合同 | **v2 唯一新入口**：见 `docs/research/batch_a_v2_contracts.zh-CN.md` |
+| 数据合同 | **v2 唯一新入口**：见 `docs/research/batch-a-v2-contracts.zh-CN.md` |
 | 当前 capital_path 真实研究案例 | **PARKED**：v2 snapshot 已在获准 GCS 前缀锁定；早期 R1 已完成物化及原始固定预算比较，但没有组合再平衡成本比较。当前仅缺可信组合费率、计费口径和调仓日程；这些输入明确后，另需一次云端比较授权 |
 | Consumer | `research/c3_batch_a_existing_member_baseline.evaluate_batch_a_existing_member_baselines` |
 | 物化 | `batch_a_dataset` / `batch_a_member_pack` / `scripts/run_batch_a_from_gcs.py` |

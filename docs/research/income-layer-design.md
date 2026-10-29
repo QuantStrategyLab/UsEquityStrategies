@@ -1,6 +1,6 @@
 # Income Layer Design Conclusions
 
-[简体中文](income_layer_design.zh-CN.md)
+[简体中文](income-layer-design.zh-CN.md)
 
 _Updated: 2026-06-04_
 

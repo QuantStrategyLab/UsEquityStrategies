@@ -4,11 +4,11 @@
 
 排序保持为：**B1/B2 可靠对照与候选、holdout 隔离及累计 trial ledger 冻结 → 独立 B4 合成研究 → E1 独立晋级审查**。B1/B2 当前仍未冻结；允许先准备本草案，不据此提前实施或运行 B4。未来产物固定 `DEVELOPMENT_ONLY`、`live_ready=False`、`no_order=True`、`budget_effect=NONE`，只可作为封顶或降低既有预算的研究备注；不交易、不提高预算、不启用候选或访问真实研究数据。
 
-当前本地进度（不改变本草案的 `NOT_FROZEN` 状态）：独立 worktree 已有 `us_equity_strategies.research.bayesian_kelly` 的合成实现，以及 [B4 预测校准评分器](b4_predictive_calibration.zh-CN.md)。评分器只检验给定固定 `Sigma` 的预测分布，不验证 `Sigma`/训练身份是否诚实，也未接真实数据或作为 B4 冻结/晋级依据。下文“尚未创建”“未运行”等语句保留为草案编写时的历史状态。
+当前本地进度（不改变本草案的 `NOT_FROZEN` 状态）：独立 worktree 已有 `us_equity_strategies.research.bayesian_kelly` 的合成实现，以及 [B4 预测校准评分器](b4-predictive-calibration.zh-CN.md)。评分器只检验给定固定 `Sigma` 的预测分布，不验证 `Sigma`/训练身份是否诚实，也未接真实数据或作为 B4 冻结/晋级依据。下文“尚未创建”“未运行”等语句保留为草案编写时的历史状态。
 
 ## 依据与许可边界
 
-- UES 阅读基线为 `26e77dad6e5d5d54a15c6d9fadd94d46b94c3a0f`：[RS-04 预注册](fractional_kelly_preregistration.zh-CN.md)、[评估器说明](fractional_kelly_walk_forward.zh-CN.md)、[RS-06 组合预注册](portfolio_kelly_preregistration.zh-CN.md)和[累计账本](kelly_trial_ledger.json)。这些是历史版本和授权记录，不能充当当前运行状态或 B4 许可。
+- UES 阅读基线为 `26e77dad6e5d5d54a15c6d9fadd94d46b94c3a0f`：[RS-04 预注册](fractional-kelly-preregistration.zh-CN.md)、[评估器说明](fractional-kelly-walk-forward.zh-CN.md)、[RS-06 组合预注册](portfolio-kelly-preregistration.zh-CN.md)和[累计账本](kelly_trial_ledger.json)。这些是历史版本和授权记录，不能充当当前运行状态或 B4 许可。
 - RS-04 的冻结候选、变体、数据窗口、manifest 和私有运行许可不转授给 B4。旧 `no_plugin_core` 也不等于完整实盘插件一致性；无法复现的插件、实际配置覆盖及部署版本仍需独立核实。已见历史仍为 development，不能改名成为 untouched holdout。
 - 跨库依据为 QPK `f8d8b4045276ce9e0c491eefd8506c544c19575b` 的 [B1/B2 草案](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/b1_b2_preregistration_proposal.zh-CN.md)、[A2 成交与成本](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/research_execution_models_v1.zh-CN.md)、[A3 指标语义](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/window_metrics_semantics.zh-CN.md)、[B3 净收益报告](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/unified_net_report.zh-CN.md)和 [Kelly 单位合同](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/kelly_contract_v2.zh-CN.md)。这些版本提供测量依据，不自动成为 B4 运行依赖。
 - 原 B1/B2 文档不包含 B4 的范围约束保持原文；B4 由本独立任务准备。这里不修改旧批准、参数、账本、生产 pin、配置、候选状态或 B5，也不做自动候选扫描。
@@ -19,7 +19,7 @@
 
 上述26e77/f8历史依据保留，不冒称当前安装。当前文档批次读取UES `0e66469c95a72c6248eae3ea474223d9ff6e1df5`，QPK测量参考为 `b23511cbb28b72743e35512ef4b3c73f1cd43c23`。UES#590仅为既有历史CLI的默认关闭B3消费者，四项周期outcome不是B4后验；其独立研究overlay不代表任何B4模型已安装/执行，缺gross/trials仍为不可计算。
 
-原PDFp9–10要求A2/A3先于B1/B2冻结计算；“B1/B2可靠对照 → B4 → E1”是当前#588后续批准的执行安排，不写成原文已明确的完整依赖。当前可先完善[三组事实与B1/B2决策](b1_b2_freeze_decision_contract.zh-CN.md)及[CVaR→B1约束](cvar_exposure_constraint_decision_contract.zh-CN.md)的DRAFT；不调整既定顺序或自动扩入B5。
+原PDFp9–10要求A2/A3先于B1/B2冻结计算；“B1/B2可靠对照 → B4 → E1”是当前#588后续批准的执行安排，不写成原文已明确的完整依赖。当前可先完善[三组事实与B1/B2决策](b1-b2-freeze-decision-contract.zh-CN.md)及[CVaR→B1约束](cvar-exposure-constraint-decision-contract.zh-CN.md)的DRAFT；不调整既定顺序或自动扩入B5。
 
 ## B4原式的变量、状态与决策合同补充
 
@@ -87,7 +87,7 @@ f_uncertain   = m_t / (sigma_t² + tau_t²)
 
 FROZEN模型的合成验收设计至少为：独立手算后验及三个量；正m下tau增大不提高目标与tau=0的合法退化；同模型/有序数据/窗口/权重下明确的batch与incremental关系；未来信息与迟到修订扰动；重复/重启/写入未知；缺数/非有限/零方差/不收敛；一次fractional与原cap/veto优先；同会话净成本/terminal-fill/B3报告对照。带遗忘/窗口/自适应超参不假设天然batch等价。具体fixture/seed/容差/收集命令仍未冻结，**这些设计均未执行**。
 
-外部事实收敛为与[B1/B2合同](b1_b2_freeze_decision_contract.zh-CN.md)相同三组：scope+source许可/PIT+原cap/尾部预算；真实untouchedholdout内容/隔离/未查看；完整累计journal及独立owner/reviewer。B4还需本表具体模型/参数决定；收到三组事实不自动选模型，数学原式与工程CI不替代研究edge或E1。
+外部事实收敛为与[B1/B2合同](b1-b2-freeze-decision-contract.zh-CN.md)相同三组：scope+source许可/PIT+原cap/尾部预算；真实untouchedholdout内容/隔离/未查看；完整累计journal及独立owner/reviewer。B4还需本表具体模型/参数决定；收到三组事实不自动选模型，数学原式与工程CI不替代研究edge或E1。
 
 ## 研究问题与未决定项
 
@@ -134,7 +134,7 @@ B4 必须先绑定 B1/B2 的可靠对照版本及完整测量合同；不把尚�
 
 沿用已审查的 A2 语义：completed-close 信号不能声称在同一收盘前成交；`same_close` 仅是显式假设，`next_close` / `next_open` 的选择及是否做敏感性比较仍未冻结。不 forward-fill 成交价，记录 terminal 未成交；实际 terminal fill 的费用计在真实成交时点，不因移动到区间外而遗漏。
 
-成本按 pre-fill NAV 的证券交易名义额逐边收取，开盘费前 / 收盘费后顺序按 A2 合同；不在已有净收益上重复扣成本。当前 [UES A2 adapter](a2_execution_model_adapter.zh-CN.md) 只支持单证券与零收益现金、合成或一致复权的 OHLC；它不是 raw 公司行动、多证券、真实 BOXX 或完整插件回放。需要未实现能力时先解决适配合同，否则停放。成本是否反馈目标状态亦须绑定，不能将独立 gross-weight overlay 冒充自融资净仓位模型。
+成本按 pre-fill NAV 的证券交易名义额逐边收取，开盘费前 / 收盘费后顺序按 A2 合同；不在已有净收益上重复扣成本。当前 [UES A2 adapter](a2-execution-model-adapter.zh-CN.md) 只支持单证券与零收益现金、合成或一致复权的 OHLC；它不是 raw 公司行动、多证券、真实 BOXX 或完整插件回放。需要未实现能力时先解决适配合同，否则停放。成本是否反馈目标状态亦须绑定，不能将独立 gross-weight overlay 冒充自融资净仓位模型。
 
 报告复用 A3/B3：同频率、未年化净 Sharpe `ddof=1`，净每期 log growth、PSR、累计 trial DSR、MinTRL、fractional-tail CVaR95、含初始 NAV 的最大回撤和同路径 gross / net 成本拖累。日级胜率不冒充逐笔胜率；已有窗口指标默认 `ddof=0` 不改。缺失统计证据或不可计算时保留 `None` 及原因，不能用 0 表示通过；不同仓位路径的增长差不是成本 drag。
 

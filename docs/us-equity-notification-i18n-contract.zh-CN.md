@@ -1,6 +1,6 @@
 # 美股策略通知、i18n 与日志契约
 
-[English](us_equity_notification_i18n_contract.md)
+[English](us-equity-notification-i18n-contract.md)
 
 _更新日期：2026-05-29_
 

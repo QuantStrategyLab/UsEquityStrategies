@@ -1,6 +1,6 @@
 # Signal-source repository design — English overview
 
-[完整中文设计](generic_signal_source_repository_design.md) · [Research index](README.md)
+[完整中文设计](generic-signal-source-repository-design.md) · [Research index](README.md)
 
 Scope: design recorded on 2026-06-19. Proposed repository names and migration phases describe that design, not current service or deployment status. The complete Chinese document retains the schemas, examples, tests and migration details.
 
@@ -8,7 +8,7 @@ Scope: design recorded on 2026-06-19. Proposed repository names and migration ph
 
 `MarketSignalSources` is an upstream artifact producer: provider adapters, raw caches, normalization, transforms, provenance and freshness belong there. Strategy packages retain pure strategy logic, catalogs, manifests and runtime adapters. Snapshot pipelines retain point-in-time evidence, promotion gates and production manifests. Platforms retain broker accounts, scheduling, artifact loading, dry-run/live controls, orders and notifications.
 
-The IBIT MVP uses `StrategyContext.market_data["derived_indicators"]`, with `BTC-USD` as the canonical symbol. `BTCUSDT` and `BTC` remain consumer aliases. Other existing canonical input names are unchanged. The JSON schemas are `market_signal_bundle.v1`, `market_signal_manifest.v1` and `market_signal_index.v1`; see the [artifact contract overview](market_signal_bundle_artifact_contract.en.md) and [complete contract](market_signal_bundle_artifact_contract.md).
+The IBIT MVP uses `StrategyContext.market_data["derived_indicators"]`, with `BTC-USD` as the canonical symbol. `BTCUSDT` and `BTC` remain consumer aliases. Other existing canonical input names are unchanged. The JSON schemas are `market_signal_bundle.v1`, `market_signal_manifest.v1` and `market_signal_index.v1`; see the [artifact contract overview](market_signal_bundle_artifact_contract.en.md) and [complete contract](market-signal-bundle-artifact-contract.md).
 
 ## Validation, security and migration
 

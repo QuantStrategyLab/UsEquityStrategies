@@ -7,7 +7,7 @@
 
 RS-04 只在路径结束后用 `cost_stress_recompute` 扣成本；Kelly 目标本身没有交易成本，因此高换手策略可能被高估。R5 把单边成本放进目标决策，先形成一个可独立验证的 kernel，再考虑接回 walk-forward。
 
-同窗口滚动前推对照已落为独立模块 [cost_aware_walk_forward_comparator](cost_aware_walk_forward_comparator.zh-CN.md)：同一折、同一 fit、同一测试窗口，比较固定分数 Kelly 与成本感知带的净增长、回撤、CVaR 和换手。
+同窗口滚动前推对照已落为独立模块 [cost_aware_walk_forward_comparator](cost-aware-walk-forward-comparator.zh-CN.md)：同一折、同一 fit、同一测试窗口，比较固定分数 Kelly 与成本感知带的净增长、回撤、CVaR 和换手。
 
 ## 公式
 

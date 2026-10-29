@@ -16,7 +16,7 @@ MR 与趋势风险仓互斥，只有 RANGE、RSI2<10 新开；RSI2>60、5 sessio
 
 ## B1/B2 与证券账本
 
-冻结合约 [`52e7c70`](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/52e7c7062a9b2fa367d2e27cce1756efa8180e54/docs/research/b1_b2_freeze_decision_contract.zh-CN.md) 不修改。B3 先改变信号目标；B1 绝对名义预算 `min(原scope cap,.25*f*,.20/年化EWMA预测波动)` 与 B3 已有总目标取较低值，只消费一次 Kelly，不再把原现金cap乘一次，B2 原阶梯只消费一次：回撤≤10%为1，≤20%为.5，>20%为0。EWMA λ=.94，前63日样本方差初始化，之后零均值递推；预热/无效预测暴露0，仅用 t-1。
+冻结合约 [`52e7c70`](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/52e7c7062a9b2fa367d2e27cce1756efa8180e54/docs/research/b1-b2-freeze-decision-contract.zh-CN.md) 不修改。B3 先改变信号目标；B1 绝对名义预算 `min(原scope cap,.25*f*,.20/年化EWMA预测波动)` 与 B3 已有总目标取较低值，只消费一次 Kelly，不再把原现金cap乘一次，B2 原阶梯只消费一次：回撤≤10%为1，≤20%为.5，>20%为0。EWMA λ=.94，前63日样本方差初始化，之后零均值递推；预热/无效预测暴露0，仅用 t-1。
 
 SOXL 总名义≤.97、SOXL≤.679、现金≥.03、有效≤2.328；TQQQ 总名义≤.98、原回撤预算.20。20%回撤预算不是跳空下的硬保证。BOXX 及其他 ETF 计入总名义、买卖两腿计费。
 
@@ -50,7 +50,7 @@ owner 核心验收：B3 CAGR 至少保留正 baseline 的90%，且 MDD/盈利回
 
 `research/rs04_b3_live.py` 直接调用现有 SOXL / TQQQ 的 `build_rebalance_plan`，不覆盖或关闭收入层、市场状态控制、波动率保留比例或危机防御。SOXL 沿用 manifest 的 SOXX MA140 三档参数；TQQQ 沿用原函数的 QQQ MA200、回调、波动率与状态规则。各分支消费各自前一收盘净权益、现金、真实股数与历史上下文，收入层随各自净权益变化。信号和上下文只来自已完成的 t-1；t-close 成交和净成本由同一账本处理。baseline 超过原 cap 时拒绝，不静默裁切成另一条基线。收入证券的正目标缺行情时拒绝；零目标不要求虚构行情。
 
-适配器实现不等于有效实盘绑定。参数来源名为 `us_equity_strategies.manifests.*_manifest.default_config`，较新的证据来源为 `docs/research/rs08_live_research_parity_report.zh-CN.md` 第 1–4、6 节。RS-08 已确认策略行为等价、MA140 一致；本轮也核对两条策略文件与记录的实盘 UES `4a394388` 完全相同，并绑定完整源码摘要。不能继续把已解决的代码版本差异列为阻塞。平台合并配置及哈希生成口径仍未归档，所以 `effective_config_verified=false`。RS-08 记载 2026-10-11 未配置外部 MARKET_SIGNAL，但没有完整历史上下文归档；不能把当前缺少环境变量推广成整段历史的无信号证明。本轮不读取或修改券商、Secret、生产配置；输入文件不能自行证明其有效性。
+适配器实现不等于有效实盘绑定。参数来源名为 `us_equity_strategies.manifests.*_manifest.default_config`，较新的证据来源为 `docs/research/rs08-live-research-parity-report.zh-CN.md` 第 1–4、6 节。RS-08 已确认策略行为等价、MA140 一致；本轮也核对两条策略文件与记录的实盘 UES `4a394388` 完全相同，并绑定完整源码摘要。不能继续把已解决的代码版本差异列为阻塞。平台合并配置及哈希生成口径仍未归档，所以 `effective_config_verified=false`。RS-08 记载 2026-10-11 未配置外部 MARKET_SIGNAL，但没有完整历史上下文归档；不能把当前缺少环境变量推广成整段历史的无信号证明。本轮不读取或修改券商、Secret、生产配置；输入文件不能自行证明其有效性。
 
 同输入规则比对入口 `compare_recorded_decisions` 接收原决策的完整历史、账户快照和目标，只输出比对数量与不匹配数量。没有录制实盘记录时为 UNAVAILABLE，不能把 synthetic 同函数比对报成 recorded-live parity。日线研究时钟与文档记载的 15:45 实盘时钟仍有差别；owner 指定的日线研究不声称复现分时成交。
 

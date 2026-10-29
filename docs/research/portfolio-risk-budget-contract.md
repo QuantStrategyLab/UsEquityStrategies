@@ -48,7 +48,7 @@ Markowitz、fractional Kelly 与经验 log-growth 放在同一个组合分析范
 | 固定权重协方差诊断 | 本文下节的 `attribute_fixed_weight_return_risk` 已计算样本方差、相关和贡献；权重由 caller 给定，函数没有求解 Markowitz 最优权重 |
 | Markowitz 均值—方差 | 在本组合研究路径中尚未实现或验收 μ/Σ 到最优权重的求解与稳健估计；不能用已有协方差诊断宣称这一步已完成 |
 | fractional Kelly | QPK [Kelly 契约](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/kelly_contract_v2.zh-CN.md) 已区分二元风险份额与资金暴露，并限制样本、回撤与预算；这是 research-only helper，不等于相关资产联合优化或交易消费者已启用 |
-| 经验 log-growth | [R8](first_compounding_20260925/r8_joint_allocation_status.md) 已用配对历史情景的可执行费用后账户终值选择有限 B0–B3 动作；这是一步经验增长目标，历史结果为 development，后续 promotion adapter 仅 synthetic 验收，不证明长期最优或未触碰 OOS |
+| 经验 log-growth | [R8](first_compounding_20260925/r8-joint-allocation-status.md) 已用配对历史情景的可执行费用后账户终值选择有限 B0–B3 动作；这是一步经验增长目标，历史结果为 development，后续 promotion adapter 仅 synthetic 验收，不证明长期最优或未触碰 OOS |
 
 后续方法比较复用既有组合账本和候选证据，不另建共账户 allocator。先冻结
 共同日期、可知截止、币种、现金收益、资金流/起点状态、费用及执行合同，

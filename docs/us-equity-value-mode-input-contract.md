@@ -23,7 +23,7 @@ strategy-facing canonical inputs:
 
 - `tqqq_growth_income` uses `benchmark_history` + `portfolio_snapshot`
 - `soxl_soxx_trend_income` uses `derived_indicators` + `portfolio_snapshot`
-- `nasdaq_sp500_smart_dca` uses `market_history` + `portfolio_snapshot` (smart mode: `prefetched_market_history` and/or `technical_indicator_snapshot`; see `nasdaq_sp500_smart_dca_input_contract.md`)
+- `nasdaq_sp500_smart_dca` uses `market_history` + `portfolio_snapshot` (smart mode: `prefetched_market_history` and/or `technical_indicator_snapshot`; see `nasdaq-sp500-smart-dca-input-contract.md`)
 - `ibit_smart_dca` uses `derived_indicators` + `portfolio_snapshot`
 
 This document records the fixed value-mode input contract and the current
@@ -59,7 +59,7 @@ Shared rules for both profiles:
 - strategy diagnostics should expose structured notification context; platform
   repos may still render their own dashboard / Telegram text
 - notification, i18n, and audit-log payload shape is defined in
-  [`us_equity_notification_i18n_contract.md`](./us_equity_notification_i18n_contract.md)
+  [`us-equity-notification-i18n-contract.md`](./us-equity-notification-i18n-contract.md)
 - daily value-mode profiles should also expose explicit execution-timing
   metadata through diagnostics / execution annotations rather than relying on
   scheduler prose alone:
