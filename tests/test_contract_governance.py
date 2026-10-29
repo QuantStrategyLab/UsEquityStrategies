@@ -161,11 +161,20 @@ class ContractGovernanceTests(unittest.TestCase):
             with self.subTest(platform_id=platform_id):
                 self.assertEqual(frozenset(adapters), supported_profiles)
 
-    def test_base_runtime_adapter_specs_cover_all_strategy_profiles(self) -> None:
+    def test_base_adapters_cover_selectable_and_retained_historical_profiles(self) -> None:
+        selectable = frozenset(get_runtime_enabled_profiles())
+        historical = frozenset({"global_etf_rotation"})
+        self.assertTrue(selectable.isdisjoint(historical))
         self.assertEqual(
             frozenset(BASE_RUNTIME_ADAPTERS),
-            frozenset(get_runtime_enabled_profiles()),
+            selectable | historical,
         )
+        for profile in ("global_etf_rotation", "global_macro_etf_rotation", "global_etf_confidence_vol_gate"):
+            with self.subTest(profile=profile):
+                self.assertEqual(
+                    get_platform_runtime_adapter(profile, platform_id=IBKR_PLATFORM),
+                    get_platform_runtime_adapter("global_etf_rotation", platform_id=IBKR_PLATFORM),
+                )
 
     def test_feature_snapshot_profiles_declare_snapshot_contract_metadata(self) -> None:
         for profile, definition in get_strategy_definitions().items():

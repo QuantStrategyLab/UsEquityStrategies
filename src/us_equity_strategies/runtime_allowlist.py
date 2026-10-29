@@ -6,7 +6,6 @@ policy, evidence and broker gates remain separate.
 
 RUNTIME_SELECTABLE_ALLOWLIST_V1 = frozenset(
     {
-        "global_etf_rotation",
         "tqqq_growth_income",
         "soxl_soxx_trend_income",
         "russell_top50_leader_rotation",
