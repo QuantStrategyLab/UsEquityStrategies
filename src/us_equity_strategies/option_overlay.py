@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from copy import deepcopy
 from datetime import date, datetime, timezone
 
 from quant_platform_kit.common.strategy_contracts import StrategyContext
@@ -101,45 +100,13 @@ OPTION_OVERLAY_RESEARCH_CANDIDATES = {
 }
 
 
-OPTION_OVERLAY_DEFAULT_CONFIGS = {
-    "global_etf_rotation": {
-        "option_overlay_enabled": True,
-        "option_growth_overlay_enabled": True,
-        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-        "option_growth_overlay_start_usd": 500000.0,
-        "option_growth_overlay_nav_budget_ratio": 0.015,
-        "option_income_overlay_enabled": False,
-    },
-    "tqqq_growth_income": {
-        "option_overlay_enabled": True,
-        "option_growth_overlay_enabled": True,
-        "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
-        "option_growth_overlay_start_usd": 250000.0,
-        "option_growth_overlay_nav_budget_ratio": 0.03,
-        "option_income_overlay_enabled": False,
-    },
-    "soxl_soxx_trend_income": {
-        "option_overlay_enabled": True,
-        "option_growth_overlay_enabled": False,
-        "option_income_overlay_enabled": True,
-        "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
-        "option_income_overlay_start_usd": 150000.0,
-        "option_income_overlay_nav_risk_ratio": 0.01,
-    },
-    "russell_top50_leader_rotation": {
-        "option_overlay_enabled": True,
-        "option_growth_overlay_enabled": True,
-        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-        "option_growth_overlay_start_usd": 300000.0,
-        "option_growth_overlay_nav_budget_ratio": 0.015,
-        "option_income_overlay_enabled": False,
-    },
-}
+# Historical recipes below remain available to explicitly scoped research.
+# Production profiles no longer advertise option-overlay defaults.
+OPTION_OVERLAY_DEFAULT_CONFIGS: dict[str, dict[str, object]] = {}
 
 
 def option_overlay_default_config(profile: str) -> dict[str, object]:
-    normalized = str(profile or "").strip().lower()
-    return deepcopy(OPTION_OVERLAY_DEFAULT_CONFIGS.get(normalized, {}))
+    return {}
 
 
 def _recipe_live_allowed(recipe: str) -> tuple[bool, str, str]:

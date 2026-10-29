@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
-from us_equity_strategies.income_layer_defaults import INCOME_LAYER_DEFAULT_CONFIGS
 from us_equity_strategies.income_layer import (
+    IncomeBudgetError,
+    allocate_income_budget,
     build_income_layer_plan,
     get_income_layer_ratio,
     normalize_income_layer_allocations,
     resolve_income_layer_ratio,
 )
+from us_equity_strategies.income_layer_defaults import INCOME_LAYER_DEFAULT_CONFIGS
 
 
 class IncomeLayerTest(unittest.TestCase):
@@ -161,3 +164,86 @@ class IncomeLayerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class IncomeBudgetTests(unittest.TestCase):
+    def test_preserves_cash_and_merges_overlap(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={}, allocations={"SGOV": 1.0},
+            income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+            income_layer_core_stress_drawdown_ratio=0.4,
+            income_layer_income_stress_drawdown_ratio=0.1,
+            income_layer_base_drawdown_budget_ratio=0.37,
+            income_layer_min_drawdown_budget_ratio=0.37,
+            income_layer_drawdown_budget_decay_per_double=0.0,
+        )
+        self.assertAlmostEqual(plan.locked_value, 10.0)
+        result = allocate_income_budget({"SPY": 0.3, "SGOV": 0.3}, plan, total_equity=100.0)
+        self.assertAlmostEqual(result["SPY"], 0.3)
+        self.assertAlmostEqual(result["SGOV"], 0.3)
+        self.assertAlmostEqual(sum(result.values()), 0.6)
+
+    def test_disabled_preserves_existing_holdings_and_cash(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={"SGOV": 10.0}, allocations={"SGOV": 1.0},
+            income_layer_enabled=False, income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+        )
+        result = allocate_income_budget({"SPY": 0.6}, plan, total_equity=100.0)
+        self.assertAlmostEqual(result["SPY"], 0.5)
+        self.assertAlmostEqual(result["SGOV"], 0.1)
+        self.assertAlmostEqual(sum(result.values()), 0.6)
+
+    def test_insufficient_core_budget_fails_without_target(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={"SGOV": 70.0}, allocations={"SGOV": 1.0},
+            income_layer_enabled=False, income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+        )
+        with self.assertRaises(IncomeBudgetError):
+            allocate_income_budget({"SPY": 0.6}, plan, total_equity=100.0)
+
+    def test_invalid_inputs_do_not_produce_zero_targets(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={}, allocations={"SGOV": 1.0},
+            income_layer_enabled=False, income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+        )
+        for weights in ({"SPY": float("nan")}, {"SPY": -0.1}, {"SPY": True}, {"SPY": 1.1}):
+            with self.subTest(weights=weights), self.assertRaises(IncomeBudgetError):
+                allocate_income_budget(weights, plan, total_equity=100.0)
+        with self.assertRaises(IncomeBudgetError):
+            allocate_income_budget({"SPY": 0.6}, replace(plan, target_values=None), total_equity=100.0)
+        with self.assertRaises(IncomeBudgetError):
+            allocate_income_budget({"SPY": 0.6}, plan, total_equity=0.0)
+
+    def test_empty_income_leaves_core_and_cash_unchanged(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={}, allocations={},
+            income_layer_enabled=False, income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+        )
+        self.assertEqual(allocate_income_budget({"SPY": 0.6}, plan, total_equity=100.0), {"SPY": 0.6})
+
+    def test_disabled_overlap_never_double_counts_existing_income(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={"SGOV": 30.0}, allocations={"SGOV": 1.0},
+            income_layer_enabled=False, income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+        )
+        result = allocate_income_budget({"SPY": 0.3, "SGOV": 0.3}, plan, total_equity=100.0)
+        self.assertAlmostEqual(result["SPY"], 0.3)
+        self.assertAlmostEqual(result["SGOV"], 0.3)
+
+    def test_income_excess_funds_another_income_minimum(self):
+
+        plan = build_income_layer_plan(
+            total_equity_usd=100.0, market_values={"SGOV": 30.0}, allocations={"SGOV": 1.0},
+            income_layer_enabled=False, income_layer_start_usd=50.0, income_layer_max_ratio=0.5,
+        )
+        plan = replace(plan, target_values={"SGOV": 10.0, "SCHD": 20.0})
+        result = allocate_income_budget({"SPY": 0.05, "SGOV": 0.55}, plan, total_equity=100.0)
+        self.assertAlmostEqual(result["SPY"], 0.0)
+        self.assertAlmostEqual(result["SGOV"], 0.4)
+        self.assertAlmostEqual(result["SCHD"], 0.2)
+        self.assertAlmostEqual(sum(result.values()), 0.6)

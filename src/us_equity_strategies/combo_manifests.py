@@ -46,11 +46,6 @@ _INCOME_LAYER_DEFAULT_CONFIG: dict[str, object] = {
 }
 
 _OPTION_OVERLAY_DEFAULT_CONFIG: dict[str, object] = {
-    "option_overlay_enabled": True,
-    "option_growth_overlay_enabled": True,
-    "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-    "option_growth_overlay_start_usd": 500000.0,
-    "option_growth_overlay_nav_budget_ratio": 0.015,
 }
 
 _US_CORE_COMBO_DEFAULT_CONFIG: dict[str, object] = {

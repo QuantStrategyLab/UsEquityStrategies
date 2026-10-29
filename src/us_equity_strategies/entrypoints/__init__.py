@@ -42,7 +42,7 @@ from us_equity_strategies.manifests import (
     tecl_xlk_trend_income_manifest,
     tqqq_growth_income_manifest,
 )
-from us_equity_strategies.option_overlay import build_option_overlay_diagnostics
+from ._common import build_option_overlay_diagnostics
 from us_equity_strategies.v7_soxl_profile import (
     SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,
     V7_CONFIG_SHA256,

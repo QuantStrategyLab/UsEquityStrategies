@@ -30,38 +30,27 @@ class OptionOverlayArchitectureTest(unittest.TestCase):
             self.assertEqual(candidate["status"], "research")
             self.assertIs(candidate["promotion_evidence"], False)
 
-    def test_default_option_overlay_configs_are_enabled_but_scoped(self) -> None:
-        self.assertEqual(
-            set(OPTION_OVERLAY_DEFAULT_CONFIGS),
-            {
-                "global_etf_rotation",
-                "tqqq_growth_income",
-                "soxl_soxx_trend_income",
-                "russell_top50_leader_rotation",
-            },
-        )
-        tqqq = option_overlay_default_config("tqqq_growth_income")
-        self.assertIs(tqqq["option_overlay_enabled"], True)
-        self.assertIs(tqqq["option_growth_overlay_enabled"], True)
-        self.assertEqual(tqqq["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
-
-        cloned = option_overlay_default_config("tqqq_growth_income")
-        cloned["option_growth_overlay_nav_budget_ratio"] = 0.01
-        self.assertEqual(
-            option_overlay_default_config("tqqq_growth_income")["option_growth_overlay_nav_budget_ratio"],
-            0.03,
-        )
-        self.assertEqual(option_overlay_default_config("nasdaq_sp500_smart_dca"), {})
+    def test_retired_option_overlay_has_no_production_defaults(self) -> None:
+        self.assertEqual(OPTION_OVERLAY_DEFAULT_CONFIGS, {})
+        for profile in ("tqqq_growth_income", "soxl_soxx_trend_income",
+                        "russell_top50_leader_rotation", "nasdaq_sp500_smart_dca", "ibit_smart_dca"):
+            self.assertEqual(option_overlay_default_config(profile), {})
 
     def test_option_overlay_module_has_no_income_layer_dependency(self) -> None:
         source = (REPO_ROOT / "src/us_equity_strategies/option_overlay.py").read_text(encoding="utf-8")
         self.assertNotIn("income_layer", source)
 
-    def test_entrypoint_common_reexports_option_overlay_contract_by_import(self) -> None:
-        source = (REPO_ROOT / "src/us_equity_strategies/entrypoints/_common.py").read_text(encoding="utf-8")
-        self.assertIn("from us_equity_strategies.option_overlay import", source)
-        self.assertIn("OPTION_OVERLAY_CONFIG_KEYS", source)
-        self.assertIn("build_option_overlay_diagnostics", source)
+    def test_production_import_does_not_load_research_option_selector(self) -> None:
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; import us_equity_strategies.entrypoints._common as common; "
+             "assert callable(common.validate_retired_option_inputs); "
+             "assert 'us_equity_strategies.option_overlay' not in sys.modules"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_master_option_overlay_switch_disables_all_option_intents(self) -> None:
         snapshot = SimpleNamespace(total_equity=2_000_000.0, positions=(), metadata={})
@@ -101,11 +90,17 @@ class OptionOverlayArchitectureTest(unittest.TestCase):
         self.assertEqual(diagnostics["option_growth_overlay_skip_reason"], "option_overlay_disabled")
         self.assertNotIn("option_order_intents", diagnostics)
 
-    def test_research_recipe_blocks_live_intents_even_when_default_enabled(self) -> None:
+    def test_research_recipe_blocks_live_intents_with_historical_config(self) -> None:
         snapshot = SimpleNamespace(total_equity=2_000_000.0, positions=(), metadata={})
 
         diagnostics = build_option_overlay_diagnostics(
-            option_overlay_default_config("global_etf_rotation"),
+            {
+                "option_overlay_enabled": True,
+                "option_growth_overlay_enabled": True,
+                "option_growth_overlay_recipe": "spy_leaps_growth_v1",
+                "option_growth_overlay_start_usd": 500000.0,
+                "option_growth_overlay_nav_budget_ratio": 0.015,
+            },
             StrategyContext(
                 as_of="2026-04-06",
                 portfolio=snapshot,

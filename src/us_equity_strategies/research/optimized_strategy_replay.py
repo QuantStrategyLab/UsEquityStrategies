@@ -93,7 +93,8 @@ _EXTRA_CONFIG = frozenset(
     {"signal_effective_after_trading_days", "translator", "signal_text_fn",
      "option_overlay_enabled", "option_growth_overlay_enabled", "option_growth_overlay_recipe",
      "option_growth_overlay_start_usd", "option_growth_overlay_nav_budget_ratio",
-     "option_income_overlay_enabled", "option_income_overlay_recipe"}
+     "option_income_overlay_enabled", "option_income_overlay_recipe",
+     "option_income_overlay_start_usd", "option_income_overlay_nav_risk_ratio"}
 )
 _MIN_TQQQ_BARS = 200
 _DEFAULT_CALLABLES = {
