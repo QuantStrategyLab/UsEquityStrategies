@@ -10,7 +10,7 @@ from quant_platform_kit.common.strategy_contracts import StrategyContext
 
 from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged
 from us_equity_strategies.combo_plugin_pipeline import apply_income_layer
-from us_equity_strategies.income_layer import IncomeBudgetError
+from us_equity_strategies.income_budget import IncomeBudgetError
 
 
 def _income_config(**allocations: float) -> dict[str, object]:

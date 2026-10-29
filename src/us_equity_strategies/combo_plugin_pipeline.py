@@ -12,8 +12,8 @@ from collections.abc import Mapping, MutableMapping
 
 from us_equity_strategies.option_overlay_retirement import validate_retired_option_inputs
 
+from us_equity_strategies.income_budget import allocate_income_budget
 from us_equity_strategies.income_layer import (
-    allocate_income_budget,
     build_income_layer_plan,
     normalize_income_layer_allocations,
 )

@@ -1062,6 +1062,10 @@ def _replay_optimized_strategy(
         allow_research_market_regime=allow_research_market_regime,
         allow_research_options=allow_research_options,
     )
+    # Keep original validated research config for option accounting and identity.
+    # Only non-option inputs enter the production core decision builder.
+    decision_runtime_config = {key: deepcopy(value) for key, value in config.items()
+                               if not str(key).startswith("option_")}
     execution = _execution(request.execution)
     if config["signal_effective_after_trading_days"] != execution.signal_effective_after_trading_days:
         _fail("TIMING_MISMATCH")
@@ -1753,7 +1757,7 @@ def _replay_optimized_strategy(
                     session, cash, quantities, closes, snapshot_metadata, dividend_receivable,
                     sum(mark.valuation for mark in option_marks),
                 ),
-                runtime_config=deepcopy(config),
+                runtime_config=deepcopy(decision_runtime_config),
             )
             if allow_research_market_regime:
                 context = _research_only_market_regime_context(context)

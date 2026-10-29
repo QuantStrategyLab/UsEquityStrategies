@@ -20,8 +20,8 @@ from quant_platform_kit.common.strategy_contracts import PositionTarget, Strateg
 from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor
 
 logger = logging.getLogger(__name__)
+from us_equity_strategies.income_budget import allocate_income_budget
 from us_equity_strategies.income_layer import (
-    allocate_income_budget,
     build_income_layer_plan,
     normalize_income_layer_allocations,
 )

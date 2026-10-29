@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from us_equity_strategies.income_budget import IncomeBudgetError, allocate_income_budget
+
 import unittest
 from dataclasses import replace
 
 from us_equity_strategies.income_layer import (
-    IncomeBudgetError,
-    allocate_income_budget,
     build_income_layer_plan,
     get_income_layer_ratio,
     normalize_income_layer_allocations,

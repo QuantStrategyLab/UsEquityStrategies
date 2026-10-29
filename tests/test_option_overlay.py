@@ -47,7 +47,7 @@ class OptionOverlayArchitectureTest(unittest.TestCase):
             [sys.executable, "-c",
              "import sys; import us_equity_strategies.entrypoints._common as common; "
              "assert callable(common.validate_retired_option_inputs); "
-             "assert 'us_equity_strategies.option_overlay' not in sys.modules"],
+             "assert 'us_equity_strategies.research.option_overlay_replay' not in sys.modules"],
             capture_output=True, text=True, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
