@@ -1,6 +1,6 @@
 # 通用数据源/信号源仓库设计
 
-[English overview](generic_signal_source_repository_design.en.md) · [Research index](README.md)
+[English overview](generic-signal-source-repository-design-overview.md) · [Research index](README.md)
 
 研究日期：2026-06-19。
 

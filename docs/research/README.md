@@ -4,12 +4,12 @@
 
 ## Signal input contracts
 
-- [Signal-source repository design: English overview](generic_signal_source_repository_design.en.md) · [complete Chinese design](generic-signal-source-repository-design.md). Dated design and ownership boundaries; not a deployment record.
-- [Market Signal Bundle: English overview](market_signal_bundle_artifact_contract.en.md) · [complete contract and CLI examples](market-signal-bundle-artifact-contract.md). Consumer validation and runtime/research handoff rules.
+- [Signal-source repository design: English overview](generic-signal-source-repository-design-overview.md) · [complete Chinese design](generic-signal-source-repository-design.md). Dated design and ownership boundaries; not a deployment record.
+- [Market Signal Bundle: English overview](market-signal-bundle-artifact-contract-overview.md) · [complete contract and CLI examples](market-signal-bundle-artifact-contract.md). Consumer validation and runtime/research handoff rules.
 
 ## Research plans
 
-- [Smart DCA: English overview](smart_dca_indicator_research_plan.en.md) · [complete research plan](smart-dca-indicator-research-plan.md). Baselines, candidate rules, evidence and promotion review remain separate from live enablement.
+- [Smart DCA: English overview](smart-dca-indicator-research-plan-overview.md) · [complete research plan](smart-dca-indicator-research-plan.md). Baselines, candidate rules, evidence and promotion review remain separate from live enablement.
 - [Index LEAPS overlay](index-leaps-growth-overlay.md) ([中文](index-leaps-growth-overlay.zh-CN.md)). Research-only; real option-chain validation remains required before live intent.
 
 ## Historical runtime reference

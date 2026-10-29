@@ -29,7 +29,7 @@
 - 由回撤差进入评分的 `max_drawdown_delta_pct_points`、`rank_score`、`passed_promotion_gate`、`failure_reasons`，以及含 drawdown 的 performance diagnosis
 - 智能规则的成交 `multiplier`、`buy_value`、`regime`，以及因此变化的终值、deployment 和相对固定定投的比较
 
-`docs/research/smart_dca_decision_summary_2026-06-19.md` 记录的三组矩阵结论属于这批历史输出，其中包括 pass rate、终值差、rank score 和 drawdown diagnosis。本次没有重跑这些矩阵。
+`docs/research/smart-dca-decision-summary-2026-06-19.md` 记录的三组矩阵结论属于这批历史输出，其中包括 pass rate、终值差、rank score 和 drawdown diagnosis。本次没有重跑这些矩阵。
 
 ## 复算输入与收益口径标记（2026-10-03）
 
