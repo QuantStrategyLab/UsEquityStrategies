@@ -4,7 +4,7 @@ This document is the authoring template for **new** US equity strategy profiles 
 
 It is aligned with:
 
-- `QuantPlatformKit/docs/us_equity_cross_platform_strategy_spec.md`
+- `QuantPlatformKit/docs/us-equity-cross-platform-strategy-spec.md`
 - `QuantPlatformKit/docs/strategy_contract_migration.md`
 
 Use this document when you add a new profile or migrate an existing profile toward the cross-platform end state.
