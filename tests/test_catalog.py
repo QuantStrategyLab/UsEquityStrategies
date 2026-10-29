@@ -507,7 +507,6 @@ class CatalogTest(unittest.TestCase):
             runtime_enabled,
             frozenset(
                 {
-                    GLOBAL_ETF_ROTATION_PROFILE,
                     TQQQ_GROWTH_INCOME_PROFILE,
                     SOXL_SOXX_TREND_INCOME_PROFILE,
                     RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
