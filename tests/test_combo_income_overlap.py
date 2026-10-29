@@ -1,4 +1,4 @@
-"""PI-01: overlapping core/income symbols must add target weights, not overwrite."""
+"""One income budget preserves implicit cash and counts overlapping targets once."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from quant_platform_kit.common.strategy_contracts import StrategyContext
 
 from us_equity_strategies.combo_entrypoints import evaluate_us_equity_combo_leveraged
 from us_equity_strategies.combo_plugin_pipeline import apply_income_layer
+from us_equity_strategies.income_budget import IncomeBudgetError
 
 
 def _income_config(**allocations: float) -> dict[str, object]:
@@ -31,9 +32,8 @@ class ComboIncomeOverlapTests(unittest.TestCase):
         )
         ratio = float(diagnostics["income_layer_ratio"])
         self.assertGreater(ratio, 0.0)
-        scaled_core = 0.5 * (1.0 - ratio)
-        self.assertAlmostEqual(weights["SPY"], scaled_core)
-        self.assertAlmostEqual(weights["SGOV"], scaled_core + ratio)
+        self.assertAlmostEqual(weights["SPY"], 0.5)
+        self.assertAlmostEqual(weights["SGOV"], 0.5)
         self.assertAlmostEqual(sum(weights.values()), 1.0)
 
     def test_no_overlap_keeps_scaled_core_plus_income(self) -> None:
@@ -49,16 +49,11 @@ class ComboIncomeOverlapTests(unittest.TestCase):
         self.assertAlmostEqual(weights["SGOV"], ratio)
         self.assertAlmostEqual(sum(weights.values()), 1.0)
 
-    def test_all_cash_core_only_receives_income(self) -> None:
+    def test_all_cash_core_does_not_silently_spend_cash(self) -> None:
         weights: dict[str, float] = {}
-        diagnostics = apply_income_layer(
-            weights,
-            1_000_000.0,
-            _income_config(SGOV=0.5, SCHD=0.5),
-        )
-        ratio = float(diagnostics["income_layer_ratio"])
-        self.assertAlmostEqual(weights["SGOV"] + weights["SCHD"], ratio)
-        self.assertAlmostEqual(sum(weights.values()), ratio)
+        with self.assertRaisesRegex(IncomeBudgetError, "INSUFFICIENT"):
+            apply_income_layer(weights, 1_000_000.0, _income_config(SGOV=0.5, SCHD=0.5))
+        self.assertEqual(weights, {})
 
     def test_empty_core_with_disabled_income_unchanged(self) -> None:
         weights = {"SPY": 1.0}
@@ -96,9 +91,9 @@ class ComboIncomeOverlapTests(unittest.TestCase):
 
         by_symbol = {p.symbol: float(p.target_weight) for p in decision.positions}
         ratio = float(decision.diagnostics["income_layer_diagnostics"]["income_layer_ratio"])
-        scaled_core = 0.5 * (1.0 - ratio)
-        self.assertAlmostEqual(by_symbol["SPY"], scaled_core)
-        self.assertAlmostEqual(by_symbol["SGOV"], scaled_core + ratio)
+        self.assertGreater(ratio, 0.0)
+        self.assertAlmostEqual(by_symbol["SPY"], 0.5)
+        self.assertAlmostEqual(by_symbol["SGOV"], 0.5)
         self.assertAlmostEqual(sum(by_symbol.values()), 1.0)
 
 

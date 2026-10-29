@@ -20,7 +20,6 @@ from quant_platform_kit.common.strategies import (
 
 from .ai_extensions import build_default_ai_extension_config
 from .income_layer_defaults import income_layer_default_config
-from .option_overlay import option_overlay_default_config
 from .runtime_allowlist import get_runtime_selectable_profiles
 from .strategies.nasdaq_sp500_smart_dca import QNDX_NEW_BUYS_VARIANT
 from .v7_soxl_profile import (
@@ -131,7 +130,6 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "confidence_volatility_window": 126,
         "confidence_volatility_max_ratio": 1.3,
         **income_layer_default_config(GLOBAL_ETF_ROTATION_PROFILE),
-        **option_overlay_default_config(GLOBAL_ETF_ROTATION_PROFILE),
         "market_regime_control_enabled": True,
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": False,
@@ -145,7 +143,6 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "rebalance_threshold_ratio": 0.01,
         "execution_cash_reserve_ratio": 0.0,
         **income_layer_default_config(TQQQ_GROWTH_INCOME_PROFILE),
-        **option_overlay_default_config(TQQQ_GROWTH_INCOME_PROFILE),
         "attack_allocation_mode": "fixed_qqq_tqqq_pullback",
         "dual_drive_qqq_weight": 0.45,
         "dual_drive_tqqq_weight": 0.45,
@@ -186,7 +183,6 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "min_trade_floor": 100.0,
         "rebalance_threshold_ratio": 0.01,
         **income_layer_default_config(SOXL_SOXX_TREND_INCOME_PROFILE),
-        **option_overlay_default_config(SOXL_SOXX_TREND_INCOME_PROFILE),
         "trend_entry_buffer": 0.08,
         "trend_mid_buffer": 0.06,
         "trend_exit_buffer": 0.02,
@@ -290,7 +286,6 @@ STRATEGY_DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "runtime_execution_window_trading_days": 3,
         "execution_cash_reserve_ratio": 0.0,
         **income_layer_default_config(RUSSELL_TOP50_LEADER_ROTATION_PROFILE),
-        **option_overlay_default_config(RUSSELL_TOP50_LEADER_ROTATION_PROFILE),
         "market_regime_control_enabled": True,
         "market_regime_control_apply_risk_reduced": False,
         "market_regime_control_apply_risk_off": False,

@@ -280,29 +280,13 @@ class CatalogTest(unittest.TestCase):
             "shadow_candidate",
         )
 
-    def test_option_overlay_defaults_are_enabled_but_live_gated(self):
-        live_option_profiles = (
-            GLOBAL_ETF_ROTATION_PROFILE,
-            TQQQ_GROWTH_INCOME_PROFILE,
-            SOXL_SOXX_TREND_INCOME_PROFILE,
-            RUSSELL_TOP50_LEADER_ROTATION_PROFILE,
-        )
-        self.assertEqual(set(OPTION_OVERLAY_DEFAULT_CONFIGS), set(live_option_profiles))
-        for profile in live_option_profiles:
-            with self.subTest(profile=profile):
-                config = get_strategy_definition(profile).default_config
-                self.assertTrue(OPTION_OVERLAY_CONFIG_KEYS & set(config))
-                self.assertIs(config["option_overlay_enabled"], True)
-                if config.get("option_growth_overlay_enabled"):
-                    recipe = config["option_growth_overlay_recipe"]
-                    self.assertEqual(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["status"], "research")
-                    self.assertIs(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["promotion_evidence"], False)
-                if config.get("option_income_overlay_enabled"):
-                    recipe = config["option_income_overlay_recipe"]
-                    self.assertEqual(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["status"], "research")
-                    self.assertIs(OPTION_OVERLAY_RESEARCH_CANDIDATES[recipe]["promotion_evidence"], False)
-
-        for profile in (NASDAQ_SP500_SMART_DCA_PROFILE, IBIT_SMART_DCA_PROFILE):
+    def test_option_overlay_defaults_are_retired_but_research_recipes_preserved(self):
+        self.assertEqual(OPTION_OVERLAY_DEFAULT_CONFIGS, {})
+        for profile in (
+            TQQQ_GROWTH_INCOME_PROFILE, SOXL_SOXX_TREND_INCOME_PROFILE,
+            RUSSELL_TOP50_LEADER_ROTATION_PROFILE, NASDAQ_SP500_SMART_DCA_PROFILE,
+            IBIT_SMART_DCA_PROFILE,
+        ):
             with self.subTest(profile=profile):
                 config = get_strategy_definition(profile).default_config
                 self.assertFalse(OPTION_OVERLAY_CONFIG_KEYS & set(config))
