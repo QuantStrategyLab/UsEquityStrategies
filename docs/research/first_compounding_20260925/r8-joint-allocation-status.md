@@ -93,7 +93,7 @@ v2 三会话短窗通过，私有摘要 SHA-256 `55cd5ccaa2b7e6a6eeae6e359bb7f14
 
 当前 R8 `analyze` 返回 `(summary, ledgers)`、`run` 返回自定义 `COMPLETE` 字典；R9 延伸/资本入口同样只生成研究摘要和账本，尚无 `BacktestOrchestrator.run_promotion` 或 evidence validator 接入。最小适配是在既有编排器下提供 `PromotionBacktestRunner` 的 `run_purged_fold` / `run_locked_oos`，由真实冻结输入重算并返回 `BacktestResult`；不能包装旧 development 摘要为真实 fold。`runner_kind="real"` 是接口要求，标签本身不证明数据或执行真实。所需风险指标、benchmark、成本压力和 artifact 仍须从实际输出生成，现有自定义 summary 不足以闭合证据包。
 
-正式晋级按实际锁定的 `QuantPlatformKit/docs/strategy_promotion_risk_standard.zh-CN.md` 及 validator：本轮已从 QPK `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62` 的 Git blob 核对 `BacktestOrchestrator.run_promotion`、`validate_evidence_package` dispatcher 和 v2/v3 校验源码，不只按临时目录名称推定版本。晋级 purged walk-forward 至少三个有序 folds、正数 purge/embargo，以及锁定、独立且未参与选参的至少 12 个日历月 OOS。具体 folds、purge/embargo 和 OOS 起止尚未冻结；须按真实标签跨度与信息边界确定，不把 60 情景预热直接当作 purge 参数。开发重算不因这些晋级前置而一律停止，但不能改标晋级。
+正式晋级按实际锁定的 `QuantPlatformKit/docs/strategy-promotion-risk-standard.zh-CN.md` 及 validator：本轮已从 QPK `62bcd5f6d5e236c315a7383ddf7b35e2aac30b62` 的 Git blob 核对 `BacktestOrchestrator.run_promotion`、`validate_evidence_package` dispatcher 和 v2/v3 校验源码，不只按临时目录名称推定版本。晋级 purged walk-forward 至少三个有序 folds、正数 purge/embargo，以及锁定、独立且未参与选参的至少 12 个日历月 OOS。具体 folds、purge/embargo 和 OOS 起止尚未冻结；须按真实标签跨度与信息边界确定，不把 60 情景预热直接当作 purge 参数。开发重算不因这些晋级前置而一律停止，但不能改标晋级。
 
 ### 判定与最小执行顺序
 
