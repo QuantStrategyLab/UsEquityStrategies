@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest pytest-cov ruff==0.15.22
+          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest pytest-cov jsonschema ruff==0.15.22
           python -m pip check
 
       - name: Verify research dependency commits
@@ -36,8 +36,8 @@ jobs:
           from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerEvent
 
           expected = {
-              "quant-platform-kit": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1",
-              "quant-strategy-plugins": "839c1f14adb90be38dd136cf9faf9741e24fb4b4",
+              "quant-platform-kit": "3d2e2e5a79317e118bc3fec5f0b8491d034a1e20",
+              "quant-strategy-plugins": "88483c8f786d3fc3bed865fe7a420996fb487c79",
           }
           for name, sha in expected.items():
               provenance = json.loads(distribution(name).read_text("direct_url.json"))

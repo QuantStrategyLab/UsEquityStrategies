@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from datetime import date
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -163,6 +167,7 @@ MARKET_REGIME_CONTROL_CONFIG_KEYS = {
     "market_regime_control_risk_reduced_scalar",
     "market_regime_control_risk_off_scalar",
     "market_regime_control_safe_haven",
+    "market_regime_control_expected",
 }
 MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
 MARKET_REGIME_POSITION_ROUTES = frozenset({"risk_reduced", "risk_off"})
@@ -275,6 +280,20 @@ def _clamped_ratio(value: object, *, default: float, upper: float) -> float:
     return max(0.0, min(float(upper), _as_float(value, default=default)))
 
 
+
+def _regime_scalar(value: object, *, default: float) -> tuple[float, bool]:
+    if value is None:
+        return default, True
+    if isinstance(value, bool):
+        return 0.0, False
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0, False
+    if not math.isfinite(result) or not 0.0 <= result <= 1.0:
+        return 0.0, False
+    return result, True
+
 def _iter_mapping_payloads(value: object, *, _depth: int = 0):
     if _depth > 4:
         return
@@ -360,6 +379,7 @@ def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, 
             blocked = suggested_action == "blocked"
             return {
                 "found": True,
+                "source_payload": payload,
                 "schema_version": str(payload.get("schema_version") or "").strip(),
                 "active": route in MARKET_REGIME_POSITION_ROUTES and not blocked and position_control_authorized,
                 "route": route,
@@ -368,7 +388,8 @@ def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, 
                 "position_control_allowed": position_control_allowed,
                 "position_control_authorized": position_control_authorized,
                 "consumption_evidence_status": evidence_status,
-                "risk_budget_scalar": _clamped_ratio(position_control.get("risk_budget_scalar"), default=1.0, upper=1.0),
+                "risk_budget_scalar": _regime_scalar(position_control.get("risk_budget_scalar"), default=1.0)[0],
+                "risk_budget_scalar_valid": _regime_scalar(position_control.get("risk_budget_scalar"), default=1.0)[1],
                 "leverage_scalar": _clamped_ratio(position_control.get("leverage_scalar"), default=1.0, upper=1.0),
                 "risk_asset_scalar": _clamped_ratio(position_control.get("risk_asset_scalar"), default=1.0, upper=1.0),
                 "crisis_defense_required": _as_bool(position_control.get("crisis_defense_required"), default=False),
@@ -506,6 +527,28 @@ def apply_income_layer_to_weights(
     return target_weights, diagnostics
 
 
+
+def _regime_binding_valid(context: Mapping[str, object], binding: object, as_of: object) -> bool:
+    """Compare an independently configured binding with the exact V1 signal."""
+    if not isinstance(binding, Mapping) or not isinstance(context.get("source_payload"), Mapping):
+        return False
+    payload = context["source_payload"]
+    try:
+        day = date.fromisoformat(str(as_of)[:10])
+        cutoff = date.fromisoformat(binding["as_of"])
+        expires = date.fromisoformat(binding["valid_until"])
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return False
+    return (
+        binding.get("plugin") == MARKET_REGIME_CONTROL_PROFILE
+        and binding.get("schema_version") == "market_regime_control.v1"
+        and context.get("schema_version") == binding["schema_version"]
+        and payload.get("as_of") == binding["as_of"]
+        and cutoff <= day <= expires
+        and binding.get("payload_sha256") == hashlib.sha256(encoded).hexdigest()
+    )
+
 def apply_market_regime_control_to_weights(
     weights,
     *,
@@ -519,6 +562,9 @@ def apply_market_regime_control_to_weights(
 
     enabled = _as_bool(market_regime_control_config.get("market_regime_control_enabled"), default=False)
     context = resolve_market_regime_control_context(ctx) if enabled else _market_regime_control_not_found()
+    if enabled and not _regime_binding_valid(context, market_regime_control_config.get("market_regime_control_expected"), ctx.as_of):
+        return None, {"market_regime_control_active": False, "market_regime_control_applied": False,
+                      "market_regime_control_binding_valid": False}
     route = str(context.get("route") or "").strip().lower()
     apply_risk_reduced = _as_bool(
         market_regime_control_config.get("market_regime_control_apply_risk_reduced"),
@@ -531,20 +577,21 @@ def apply_market_regime_control_to_weights(
     route_allowed = (route == "risk_reduced" and apply_risk_reduced) or (route == "risk_off" and apply_risk_off)
     active = bool(enabled and context.get("active") and route_allowed)
     safe_haven_symbol = str(market_regime_control_config.get("market_regime_control_safe_haven") or safe_haven or "").strip().upper()
-    if route == "risk_off":
-        scalar = _clamped_ratio(
-            market_regime_control_config.get("market_regime_control_risk_off_scalar"),
-            default=float(context.get("risk_budget_scalar") or 0.0),
-            upper=1.0,
+    scalar = 1.0
+    scalar_valid = True
+    if route in {"risk_off", "risk_reduced"}:
+        key = f"market_regime_control_{route}_scalar"
+        scalar, scalar_valid = _regime_scalar(
+            market_regime_control_config.get(key), default=float(context["risk_budget_scalar"])
         )
-    elif route == "risk_reduced":
-        scalar = _clamped_ratio(
-            market_regime_control_config.get("market_regime_control_risk_reduced_scalar"),
-            default=float(context.get("risk_budget_scalar") or 1.0),
-            upper=1.0,
-        )
-    else:
-        scalar = 1.0
+        scalar_valid = scalar_valid and bool(context.get("risk_budget_scalar_valid", True))
+    # Invalid inputs make the decision non-actionable, rather than manufacture a liquidation.
+    if active and not scalar_valid:
+        return None, {
+            "market_regime_control_active": True,
+            "market_regime_control_applied": False,
+            "market_regime_control_scalar_valid": False,
+        }
 
     target_weights = {str(symbol).strip().upper(): float(weight) for symbol, weight in dict(weights).items()}
     excluded = {str(symbol or "").strip().upper() for symbol in (*tuple(excluded_symbols or ()), *INCOME_SYMBOLS)}
@@ -575,6 +622,7 @@ def apply_market_regime_control_to_weights(
         "market_regime_control_position_control_authorized": context.get("position_control_authorized"),
         "market_regime_control_consumption_evidence_status": context.get("consumption_evidence_status"),
         "market_regime_control_risk_scalar": scalar,
+        "market_regime_control_scalar_valid": scalar_valid,
         "market_regime_control_removed_weight": removed_weight,
         "market_regime_control_safe_haven": safe_haven_symbol,
         "market_regime_control_risk_symbols": risk_symbols,

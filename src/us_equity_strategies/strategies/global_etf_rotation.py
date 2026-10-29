@@ -519,6 +519,27 @@ def compute_signals_from_feature_snapshot(
 ):
     del sma_period, confidence_volatility_window
     frame = _to_feature_frame(feature_snapshot)
+    if as_of_date is not None:
+        cutoff = pd.Timestamp(as_of_date)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.tz_localize("UTC")
+        else:
+            cutoff = cutoff.tz_convert("UTC")
+        event_dates = pd.to_datetime(frame["as_of"], errors="coerce", utc=True)
+        if event_dates.isna().any():
+            raise ValueError("invalid feature snapshot as_of")
+        visible = event_dates <= cutoff
+        for column in ("available_at", "received_at", "revised_at"):
+            if column in frame:
+                timestamps = pd.to_datetime(frame[column], errors="coerce", utc=True)
+                if timestamps.isna().any():
+                    raise ValueError(f"invalid feature snapshot {column}")
+                visible &= timestamps <= cutoff
+        frame = frame.loc[visible].copy()
+        if frame.empty:
+            raise ValueError("no feature snapshot visible at decision cutoff")
+        ordering = ["as_of", *(column for column in ("revised_at", "available_at", "received_at") if column in frame)]
+        frame = frame.sort_values(ordering, kind="stable").drop_duplicates(subset=["symbol"], keep="last")
     safe_haven = str(safe_haven or SAFE_HAVEN).strip().upper()
     snapshot_ranking_symbols = frame.loc[frame["role"].eq("ranking_pool_etf"), "symbol"].dropna().astype(str).tolist()
     snapshot_canary_symbols = frame.loc[frame["role"].eq("canary_asset"), "symbol"].dropna().astype(str).tolist()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from ._common import _observe
 from dataclasses import replace
 from datetime import date
@@ -288,11 +289,46 @@ def _build_tqqq_benchmark_text(notification_context: Mapping[str, object] | None
     )
 
 
+
+def _qqq_observer_receipt(ctx: StrategyContext, binding: object) -> dict[str, object]:
+    """Consume an explicitly bound observation for diagnostics only."""
+    if binding is None:
+        return {}
+    if not isinstance(binding, Mapping):
+        return {"qqq_observer_status": "invalid_binding"}
+    expected_digest = binding.get("payload_sha256")
+    if not isinstance(expected_digest, str) or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None:
+        return {"qqq_observer_status": "unavailable_or_invalid"}
+    try:
+        from quant_strategy_plugins.plugin_signal_envelope_v2 import validate_signal_for_consumer
+        signal = validate_signal_for_consumer(
+            ctx.artifacts.get("qqq_price_regime_observer"),
+            expected_plugin_id="qqq_price_regime_observer",
+            expected_producer=binding["producer"],
+            expected_input=binding["input"],
+            expected_payload_sha256=expected_digest,
+            decision_date=str(ctx.as_of)[:10],
+        )
+    except (ImportError, KeyError, TypeError, ValueError):
+        return {"qqq_observer_status": "unavailable_or_invalid"}
+    return {
+        "qqq_observer_status": "consumed_read_only",
+        "qqq_observer_receipt": {
+            "plugin_id": signal["plugin_id"],
+            "payload_sha256": signal["payload_sha256"],
+            "producer_revision": signal["producer"]["revision"],
+            "input_root_sha256": signal["input"]["input_root_sha256"],
+            "decision_date": str(ctx.as_of)[:10],
+        },
+        "qqq_observer_facts": signal["payload"],
+    }
+
 def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifest) -> StrategyDecision:
     config = merge_runtime_config(manifest.default_config, ctx)
     income_layer_config = pop_income_layer_config(config)
     option_overlay_config = pop_option_overlay_config(config)
     market_regime_control_config = pop_market_regime_control_config(config)
+    observer_binding = config.pop("qqq_observer_expected_binding", None)
     config["ranking_pool"] = list(config.get("ranking_pool", ()))
     config["canary_assets"] = list(config.get("canary_assets", ()))
     config.pop("signal_effective_after_trading_days", None)
@@ -314,6 +350,7 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         ctx=ctx,
         excluded_symbols=(config.get("safe_haven"),),
     )
+    pre_regime_weights = weights
     weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
         weights,
         market_regime_control_config=market_regime_control_config,
@@ -321,11 +358,14 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
         safe_haven=str(config.get("safe_haven", "BIL")),
         excluded_symbols=(config.get("safe_haven"),),
     )
+    if weights is None and is_emergency:
+        weights = pre_regime_weights
     notification_context = _merge_notification_contexts(
         None,
         market_regime_control_diagnostics.get("market_regime_control_notification_context"),
     )
     diagnostics = {
+        **_qqq_observer_receipt(ctx, observer_binding),
         "signal_source": legacy_global_etf_rotation.SIGNAL_SOURCE,
         "snapshot_contract_version": legacy_global_etf_rotation.SNAPSHOT_CONTRACT_VERSION,
         "signal_description": signal_desc,
@@ -361,6 +401,8 @@ def _evaluate_global_etf_rotation_with_manifest(ctx: StrategyContext, *, manifes
     _attach_notification_context(diagnostics, notification_context)
     _attach_execution_timing(diagnostics, ctx)
     risk_flags = ("emergency",) if is_emergency else ()
+    if weights is None:
+        risk_flags += ("no_execute",)
     decision = StrategyDecision(
         positions=weights_to_positions(weights, safe_haven=str(config.get("safe_haven", "BIL"))),
         risk_flags=risk_flags,
@@ -1842,6 +1884,7 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
             config.get("broad_benchmark_symbol"),
         ),
     )
+    pre_regime_weights = weights
     weights, market_regime_control_diagnostics = apply_market_regime_control_to_weights(
         weights,
         market_regime_control_config=market_regime_control_config,
@@ -1853,6 +1896,8 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
             config.get("broad_benchmark_symbol"),
         ),
     )
+    if weights is None and is_emergency:
+        weights = pre_regime_weights
     rendered_signal_desc, rendered_status_desc, notification_context = _render_notification_displays(
         signal_desc,
         status_desc,
