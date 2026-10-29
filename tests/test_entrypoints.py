@@ -992,7 +992,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                     cash_balance=100_000.0,
                     positions=(),
                 ),
-                runtime_config={"leader_rotation_profile_variant": "top4_baseline"},
+                runtime_config={"leader_rotation_profile_variant": "top4_baseline", "market_regime_control_enabled": False},
             )
         )
 
@@ -1015,7 +1015,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                     cash_balance=100_000.0,
                     positions=(),
                 ),
-                runtime_config={"leader_rotation_shadow_variants": True},
+                runtime_config={"leader_rotation_shadow_variants": True, "market_regime_control_enabled": False},
             )
         )
 
@@ -1053,6 +1053,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         decision = mega.evaluate(
             StrategyContext(
                 as_of="2026-04-01",
+                runtime_config={"market_regime_control_enabled": False},
                 market_data={"feature_snapshot": _mega_snapshot()},
                 portfolio=PortfolioSnapshot(
                     as_of="2026-04-01",

@@ -36,8 +36,8 @@ jobs:
           from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerEvent
 
           expected = {
-              "quant-platform-kit": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1",
-              "quant-strategy-plugins": "839c1f14adb90be38dd136cf9faf9741e24fb4b4",
+              "quant-platform-kit": "8a3c39c2ed964bdf15abf30e6a3b7ef62ef24cfc",
+              "quant-strategy-plugins": "88483c8f786d3fc3bed865fe7a420996fb487c79",
           }
           for name, sha in expected.items():
               provenance = json.loads(distribution(name).read_text("direct_url.json"))
