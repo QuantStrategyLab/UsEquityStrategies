@@ -21,6 +21,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check lockfile consistency
+        run: uv lock --check
+
       - name: Install dependencies
         run: |
           set -euo pipefail
@@ -36,7 +42,7 @@ jobs:
           from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerEvent
 
           expected = {
-              "quant-platform-kit": "3d2e2e5a79317e118bc3fec5f0b8491d034a1e20",
+              "quant-platform-kit": "52adab68d6109cf93941ae21a39914cfa37e00e3",
               "quant-strategy-plugins": "88483c8f786d3fc3bed865fe7a420996fb487c79",
           }
           for name, sha in expected.items():
