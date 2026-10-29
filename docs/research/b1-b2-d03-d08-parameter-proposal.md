@@ -1,7 +1,7 @@
 # B1/B2 D03–D08 parameter proposal (PROPOSED, pending owner approval)
 
 Status: **PROPOSED / NOT_FROZEN / DEVELOPMENT_ONLY**. Nothing here fills the D-item fields in
-`b1_b2_freeze_decision_contract.zh-CN.md`; those stay `UNSPECIFIED` / `NOT_ATTESTED` until the owner
+`b1-b2-freeze-decision-contract.zh-CN.md`; those stay `UNSPECIFIED` / `NOT_ATTESTED` until the owner
 approves them. `live_ready=False`, `no_order=True`, `budget_effect=NONE`. Values come from the freeze
 contract, the original audit guidance (quarter Kelly by default, never above 0.5, and budgets may only
 be lowered or capped) and common literature conventions. None are fitted to real data.

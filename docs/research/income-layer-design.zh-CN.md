@@ -1,6 +1,6 @@
 # 收入层设计研究结论
 
-[English](income_layer_design.md)
+[English](income-layer-design.md)
 
 _更新日期：2026-06-04_
 

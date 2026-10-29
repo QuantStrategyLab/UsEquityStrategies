@@ -1,6 +1,6 @@
 # CVaR尾部预算与B1上限决策合同草案
 
-状态：**DRAFT / NOT_FROZEN / REPORT_ONLY**。原审计p6要求“CVaR95从报告升级为约束，按尾部损失预算倒推仓位上限”，位置是B3报告与B1上限。本文件定义可审查输入、适用条件和拒绝边界，不实现约束、不选择预算/阈值、不发出仓位或执行权限。见[B1/B2决策合同](b1_b2_freeze_decision_contract.zh-CN.md)、[B4独立草案](bayesian_kelly_preregistration_proposal.zh-CN.md)，追踪[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)及[QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)。B5不进入此范围。
+状态：**DRAFT / NOT_FROZEN / REPORT_ONLY**。原审计p6要求“CVaR95从报告升级为约束，按尾部损失预算倒推仓位上限”，位置是B3报告与B1上限。本文件定义可审查输入、适用条件和拒绝边界，不实现约束、不选择预算/阈值、不发出仓位或执行权限。见[B1/B2决策合同](b1-b2-freeze-decision-contract.zh-CN.md)、[B4独立草案](bayesian-kelly-preregistration-proposal.zh-CN.md)，追踪[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)及[QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)。B5不进入此范围。
 
 ## 原文、现状与不变边界
 

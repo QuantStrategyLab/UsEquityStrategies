@@ -194,10 +194,10 @@ provider 和两个消费仓库稳定后，再抽象 provider registry。
 
 当前 `UsEquityStrategies` 内只需要保持：
 
-- `docs/research/generic_signal_source_repository_design.md`
-- `docs/research/market_signal_bundle_artifact_contract.md`
-- `docs/research/cross_market_signal_source_layer.md`
-- `docs/research/market_signal_sources_bootstrap_plan.md`
+- `docs/research/generic-signal-source-repository-design.md`
+- `docs/research/market-signal-bundle-artifact-contract.md`
+- `docs/research/cross-market-signal-source-layer.md`
+- `docs/research/market-signal-sources-bootstrap-plan.md`
 - `src/us_equity_strategies/signals/signal_bundle_contract.py`
 - `src/us_equity_strategies/signals/signal_bundle_cli.py`
 

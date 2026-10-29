@@ -1,6 +1,6 @@
 # 离线复利研究：成交、指标与输入冻结规范
 
-状态：规范已选定；候选、参数、真实输入及运行批准仍 `NOT_FROZEN / NOT_ATTESTED`。仅研究，不产生订单或修改生产配置。对应 #575、#588、QuantPlatformKit#659；沿用 [B1/B2 决定合同](b1_b2_freeze_decision_contract.zh-CN.md) 和 [B4 预注册](bayesian_kelly_preregistration_proposal.zh-CN.md)，不重写旧试验身份。
+状态：规范已选定；候选、参数、真实输入及运行批准仍 `NOT_FROZEN / NOT_ATTESTED`。仅研究，不产生订单或修改生产配置。对应 #575、#588、QuantPlatformKit#659；沿用 [B1/B2 决定合同](b1-b2-freeze-decision-contract.zh-CN.md) 和 [B4 预注册](bayesian-kelly-preregistration-proposal.zh-CN.md)，不重写旧试验身份。
 
 ## 成交时点
 

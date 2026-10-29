@@ -1,6 +1,6 @@
 # B1/B2 冻结决策合同草案
 
-状态：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。本文件把已有提案变成可逐项评审的决策单，并记录 D03–D08 的 owner 批准参数；没有批准试验、取得私有数据、写入台账或改变实盘风险门。追踪 [QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659) 和 [UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588)。B4另见[独立草案](bayesian_kelly_preregistration_proposal.zh-CN.md)，尾部约束另见[CVaR决策合同](cvar_exposure_constraint_decision_contract.zh-CN.md)；B5不进入本批。
+状态：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。本文件把已有提案变成可逐项评审的决策单，并记录 D03–D08 的 owner 批准参数；没有批准试验、取得私有数据、写入台账或改变实盘风险门。追踪 [QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659) 和 [UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588)。B4另见[独立草案](bayesian-kelly-preregistration-proposal.zh-CN.md)，尾部约束另见[CVaR决策合同](cvar-exposure-constraint-decision-contract.zh-CN.md)；B5不进入本批。
 
 ## 原文与已有工程的边界
 
@@ -20,9 +20,9 @@
 |---|---|---|
 |[RS-04 core生成器](../../src/us_equity_strategies/research/kelly_core_return_generator.py)：`generate_soxl_core_path` / `generate_tqqq_core_path`、`CorePath`|有序sessions、gross returns、旧turnover、逐资产returns/weights；raw bars加公司行动；显式`close_fill_turnover`及`measure_close_fill_costs(CostModel)`|首个核查路径已选；多资产核心非完整插件/live parity。旧turnover仍后移到下一earning session；新入口按真实close计费并包含末次fill，仅为`no_weight_feedback` NAV overlay。不能将其当完整现金/费用反馈/净额结算模拟；仍须绑定variant、现金与公司行动、内外费用及实际runner采用，旧RS结果不回写|
 |[A2 `replay_targets`](../../src/us_equity_strategies/research/execution_model_adapter.py)|调用方冻结的完成收盘目标、单证券、零收益现金、合成或一致复权open/close；同sessions的gross/net及真实fill turnover|不生成信号；不支持raw公司行动、BOXX现金、多证券漂移或完整插件。费用为独立NAV overlay、不反馈gross目标权重，不能当自融资净仓位模型|
-|[Batch A历史报告CLI](../../scripts/run_c3_batch_a_existing_member_baseline.py)、[v2合同](batch_a_v2_contracts.zh-CN.md)|已有typed SMA200控制成员、来源重绑定、净ledger及#590可选十二项report-only诊断|不是RS-04完整核心路径；`ASSUMED_ZERO_USD_CASH`、来源已见development，许可/PIT/OOS未独立成立。同路径gross/完整trial缺失时cost drag/DSR明确不可计算|
+|[Batch A历史报告CLI](../../scripts/run_c3_batch_a_existing_member_baseline.py)、[v2合同](batch-a-v2-contracts.zh-CN.md)|已有typed SMA200控制成员、来源重绑定、净ledger及#590可选十二项report-only诊断|不是RS-04完整核心路径；`ASSUMED_ZERO_USD_CASH`、来源已见development，许可/PIT/OOS未独立成立。同路径gross/完整trial缺失时cost drag/DSR明确不可计算|
 
-旧[RS-04冻结预注册](fractional_kelly_preregistration.zh-CN.md)的252/63/5、5/10/15bps、`next_close`、BOXX、变体许可与历史manifest只提供对照来源，不转授给新B1/B2。不得根据旧默认或报告例子代填新scope的cap、数据或窗口。
+旧[RS-04冻结预注册](fractional-kelly-preregistration.zh-CN.md)的252/63/5、5/10/15bps、`next_close`、BOXX、变体许可与历史manifest只提供对照来源，不转授给新B1/B2。不得根据旧默认或报告例子代填新scope的cap、数据或窗口。
 
 ## 决策记录与状态
 
@@ -175,7 +175,7 @@ PYTHONPATH=src python -m pytest -q tests/research/test_b1_b2_rs04_synthetic_acce
 |`cost_stress_recompute(gross, traded, ...)`|`442b729dcc4be5100bc2cba5b67850ad676bfbc0`|只收汇总交易额，不能把外层 `f` 与内层证券权重轧成一笔净交易|
 |`build_unified_net_report`|`b6b51d5c32594c47cc1b3ebc0c1ed226e9db887f`|缺 gross 时 cost drag 为 UNCOMPUTABLE，缺 trials 时 DSR 为 UNCOMPUTABLE；没有 RS-04 角色参数，caller-supplied digest 不是账本证明|
 
-`docs/research/kelly_security_level_ledger_design.zh-CN.md` 仍是设计。在 QPK 提供并经准入的证券级净交易接口之前，RS-04 的现金/费用角色保持上表的并列差分，研究在这一缺口上停在 `QPK_INTERFACE_ABSENT`，不把三列 turnover 相加。
+`docs/research/kelly-security-level-ledger-design.zh-CN.md` 仍是设计。在 QPK 提供并经准入的证券级净交易接口之前，RS-04 的现金/费用角色保持上表的并列差分，研究在这一缺口上停在 `QPK_INTERFACE_ABSENT`，不把三列 turnover 相加。
 
 
 ## 离线比较的共同上限（2026-10-16）

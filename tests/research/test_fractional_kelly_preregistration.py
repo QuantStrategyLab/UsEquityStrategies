@@ -24,7 +24,7 @@ def _has_stats():
 
 requires_qpk_stats = pytest.mark.skipif(not _has_stats() and not REQUIRE_QPK_STATS,
                                         reason="installed QPK lacks research_stats")
-DOC = Path(__file__).resolve().parents[2] / "docs/research/fractional_kelly_preregistration.zh-CN.md"
+DOC = Path(__file__).resolve().parents[2] / "docs/research/fractional-kelly-preregistration.zh-CN.md"
 
 
 @pytest.fixture(autouse=True)

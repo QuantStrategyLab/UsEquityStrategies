@@ -1,6 +1,6 @@
 # Market Signal Bundle contract — English overview
 
-[完整契约与示例](market_signal_bundle_artifact_contract.md) · [Research index](README.md)
+[完整契约与示例](market-signal-bundle-artifact-contract.md) · [Research index](README.md)
 
 This overview preserves the consumer boundary of the contract recorded on 2026-06-19. The complete linked document remains the reference for every field, CLI flag, schema and extraction helper; no interface is changed here.
 

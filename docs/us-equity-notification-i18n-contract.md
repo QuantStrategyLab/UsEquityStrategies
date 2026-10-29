@@ -1,6 +1,6 @@
 # US Equity Notification, i18n, and Log Contract
 
-[简体中文](us_equity_notification_i18n_contract.zh-CN.md)
+[简体中文](us-equity-notification-i18n-contract.zh-CN.md)
 
 _Updated: 2026-05-29_
 

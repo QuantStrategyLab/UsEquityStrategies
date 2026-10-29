@@ -1,6 +1,6 @@
 # Index LEAPS growth overlay research design
 
-[简体中文](index_leaps_growth_overlay.zh-CN.md)
+[简体中文](index-leaps-growth-overlay.zh-CN.md)
 
 _Last updated: 2026-06-23_
 
@@ -20,7 +20,7 @@ upside with premium at risk and behave like a capped re-leverage sleeve.
 
 ## Related artifacts
 
-- Full Chinese design note: [index_leaps_growth_overlay.zh-CN.md](index_leaps_growth_overlay.zh-CN.md)
+- Full Chinese design note: [index-leaps-growth-overlay.zh-CN.md](index-leaps-growth-overlay.zh-CN.md)
 - Proxy backtest module and CLI outputs: [UsEquitySnapshotPipelines/docs/index-leaps-growth-overlay-research.md](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/541a59686b17a4ab8f75319673b4712aa99be929/docs/index-leaps-growth-overlay-research.md)
 
 ## Status

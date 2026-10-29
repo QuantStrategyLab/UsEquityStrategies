@@ -14,27 +14,27 @@ INCOME_LAYER_LIVE_VALIDATION_EVIDENCE: dict[str, dict[str, object]] = {
     GLOBAL_ETF_ROTATION_PROFILE: {
         "status": "live",
         "evidence_status": "validated",
-        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "research_doc": "docs/research/income-layer-design.zh-CN.md",
         "summary": "Defensive ETF rotation income sleeve calibrated with drawdown-budget defaults.",
     },
     TQQQ_GROWTH_INCOME_PROFILE: {
         "status": "live",
         "evidence_status": "validated",
-        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "research_doc": "docs/research/income-layer-design.zh-CN.md",
         "artifact": "UsEquitySnapshotPipelines/data/output/levered_income_layer_candidate_compare_2026-05-26/",
         "summary": "TQQQ income sleeve selected from backtested drawdown-budget candidates.",
     },
     SOXL_SOXX_TREND_INCOME_PROFILE: {
         "status": "live",
         "evidence_status": "validated",
-        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "research_doc": "docs/research/income-layer-design.zh-CN.md",
         "artifact": "UsEquitySnapshotPipelines/data/output/soxl_soxx_trend_income_archive_2026-05-04/summary.csv",
         "summary": "SOXL/SOXX income sleeve validated by archived replay and later drawdown-budget calibration.",
     },
     RUSSELL_TOP50_LEADER_ROTATION_PROFILE: {
         "status": "live",
         "evidence_status": "validated",
-        "research_doc": "docs/research/income_layer_design.zh-CN.md",
+        "research_doc": "docs/research/income-layer-design.zh-CN.md",
         "summary": "Leader-rotation income sleeve uses the same validated drawdown-budget curve.",
     },
 }

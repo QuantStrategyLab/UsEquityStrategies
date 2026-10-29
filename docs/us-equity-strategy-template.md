@@ -45,8 +45,8 @@ tests/
   test_<profile>_feature_snapshot.py    # when feature_snapshot is part of the contract
 
 docs/
-  us_equity_strategy_template.md
-  us_equity_portability_checklist.md
+  us-equity-strategy-template.md
+  us-equity-portability-checklist.md
 ```
 
 For a **greenfield** profile, `strategies/<profile>.py` should be pure strategy logic over normalized inputs.

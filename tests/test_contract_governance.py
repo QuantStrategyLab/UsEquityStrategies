@@ -49,7 +49,7 @@ LEGACY_PROFILE_KEYS = (
 )
 LEGACY_PROFILE_KEY_ALLOWED_PATHS = frozenset(
     {
-        "docs/us_equity_portability_checklist.md",
+        "docs/us-equity-portability-checklist.md",
         "tests/test_catalog.py",
         "tests/test_contract_governance.py",
     }

@@ -97,15 +97,15 @@ python -m pytest -q
 
 ## 延伸文档
 
-- [`docs/tqqq_ai_extensions.md`](docs/tqqq_ai_extensions.md)
-- [`docs/us_equity_contract_gap_matrix.md`](docs/us_equity_contract_gap_matrix.md)
-- [`docs/us_equity_notification_i18n_contract.md`](docs/us_equity_notification_i18n_contract.md)
-- [`docs/us_equity_notification_i18n_contract.zh-CN.md`](docs/us_equity_notification_i18n_contract.zh-CN.md)
-- [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
-- [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)（[English](docs/us_equity_runtime_archive.md)）
-- [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)（[English](docs/us_equity_strategy_status.md)）
-- [`docs/research/ibit_smart_dca.md`](docs/research/ibit_smart_dca.md)
-- [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
+- [`docs/tqqq-ai-extensions.md`](docs/tqqq-ai-extensions.md)
+- [`docs/us-equity-contract-gap-matrix.md`](docs/us-equity-contract-gap-matrix.md)
+- [`docs/us-equity-notification-i18n-contract.md`](docs/us-equity-notification-i18n-contract.md)
+- [`docs/us-equity-notification-i18n-contract.zh-CN.md`](docs/us-equity-notification-i18n-contract.zh-CN.md)
+- [`docs/us-equity-portability-checklist.md`](docs/us-equity-portability-checklist.md)
+- [`docs/us-equity-runtime-archive.zh-CN.md`](docs/us-equity-runtime-archive.zh-CN.md)（[English](docs/us-equity-runtime-archive.md)）
+- [`docs/us-equity-strategy-status.zh-CN.md`](docs/us-equity-strategy-status.zh-CN.md)（[English](docs/us-equity-strategy-status.md)）
+- [`docs/research/ibit-smart-dca.md`](docs/research/ibit-smart-dca.md)
+- [`docs/us-equity-strategy-template.md`](docs/us-equity-strategy-template.md)
 
 ## 安全和贡献说明
 
