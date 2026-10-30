@@ -1,7 +1,5 @@
 # US equity contract gap matrix
 
-_Updated: 2026-06-04_
-
 This document tracks the current shared US equity strategy contract across
 `UsEquityStrategies`, `QuantPlatformKit`, and the platform runtimes.
 
@@ -12,19 +10,23 @@ entries in this matrix.
 
 ## Current Runtime Scope
 
-The current runtime-enabled US equity profiles are:
-
-- `global_etf_rotation`
+The current runtime-selectable US equity profiles are defined by
+[`runtime_allowlist.py`](../src/us_equity_strategies/runtime_allowlist.py):
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_top50_leader_rotation`
 - `nasdaq_sp500_smart_dca`
 - `ibit_smart_dca`
 
-`global_etf_confidence_vol_gate` is a legacy alias that resolves to `global_etf_rotation` and does not appear as a separate runtime-enabled row.
+`global_etf_rotation` remains available for historical research and compatibility,
+but is excluded from the runtime-selectable allowlist. Its legacy aliases,
+including `global_etf_confidence_vol_gate`, do not restore selection eligibility.
+Catalog lifecycle metadata and retained entrypoints describe implementation
+history; they do not override the explicit allowlist.
 
-These profiles are designed against the shared contract and are portable across
-the current US equity platform IDs:
+The strategy implementations use a shared contract with adapters for these US
+equity platform IDs. Adapter coverage does not establish account selection,
+release qualification, or order authority:
 
 - `ibkr`
 - `schwab`
@@ -102,7 +104,7 @@ New US equity profiles should use only these canonical `required_inputs`:
 
 | Profile | `target_mode` | `required_inputs` | Adapter coverage | Runtime status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `global_etf_rotation` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Quarterly top-2 ETF rotation with daily canary defense. |
+| `global_etf_rotation` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | historical compatibility; not runtime-selectable | Retained quarterly ETF rotation and daily canary implementation. |
 | `tqqq_growth_income` | `value` | `benchmark_history`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Direct QQQ/TQQQ growth-income profile with explicit portfolio input. |
 | `soxl_soxx_trend_income` | `value` | `derived_indicators`, `portfolio_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Semiconductor trend profile using canonical derived indicators. |
 | `russell_top50_leader_rotation` | `weight` | `feature_snapshot` | `ibkr`, `schwab`, `longbridge`, `firstrade`, `paper_signal` | runtime-enabled | Retained Russell Top50 leader-rotation path. |
@@ -112,9 +114,10 @@ New US equity profiles should use only these canonical `required_inputs`:
 ## Current Conclusions
 
 - The runtime-enabled US equity set is intentionally small and shared.
-- Platform registries should derive rollout candidates from
-  `get_runtime_enabled_profiles()` rather than carrying local research-only
-  overrides.
+- Platform registries should derive selection candidates from
+  `get_runtime_enabled_profiles()`, which returns the explicit selectable
+  allowlist. Platform policy, required inputs, release bindings, and account
+  risk checks remain separate conditions.
 - A new US equity profile must ship catalog metadata, a manifest, an entrypoint,
   a runtime adapter, and platform input support before it is considered
   runtime-enabled.
