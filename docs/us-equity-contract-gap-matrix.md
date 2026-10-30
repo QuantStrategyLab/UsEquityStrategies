@@ -5,7 +5,8 @@ _Updated: 2026-06-04_
 This document tracks the current shared US equity strategy contract across
 `UsEquityStrategies`, `QuantPlatformKit`, and the platform runtimes.
 
-It records runtime portability only. Research candidates that compare worse
+It records runtime portability and research contract distinctions needed for
+reproducibility. Research candidates that compare worse
 than a runtime-enabled peer are not kept as deployable or replayable profile
 entries in this matrix.
 
@@ -37,6 +38,32 @@ broker authentication and API risk are owned by `FirstradePlatform`.
 
 `paper_signal` is brokerless and publishes signal notifications only. The
 strategy contract is still shared; broker execution remains platform-specific.
+
+## Research CVaR definition and frozen source
+
+The fractional-Kelly research evaluator reports `cvar_95_daily` as the mean
+of the lowest `ceil(0.05 * n)` signed per-session returns. QPK's unified net
+report instead integrates exactly the lowest 5% empirical probability mass,
+using fractional weight for a boundary observation. Both are discrete-tail
+conventions; they can differ and should not be combined or compared under the
+same name without stating the convention. For 30 returns with the two lowest
+equal to -0.30 and -0.10, the UES value is -0.20, while the QPK convention
+gives (-0.30 - 0.05) / 1.5 = -0.2333 (approximately).
+
+The historical protocol `docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.json`
+binds `research/fractional_kelly_walk_forward.py` to SHA-256
+`7e5892d59fd9c1243a5433b4c87b616d0805ed14130d24d65850bbfc8734ec74`.
+The single-strategy v1 private runner uses that evaluator; portfolio v1 uses
+its path metrics, and the single-strategy and portfolio v2 evaluators also
+consume those metrics. The v2 contract requires zero-embargo comparator parity
+with v1 and does not inherit v1 real-data authorization.
+
+A candidate change to the frozen evaluator was withdrawn after its source
+binding failed. Any future adoption of a different tail convention needs a
+separately versioned research implementation and an appropriate protocol and
+consumer migration; it must not alter the historical binding or imply new
+authorization. Existing research evidence, including the B5 rejection, remains
+unchanged.
 
 ## Removed Research Profile Exposure
 
