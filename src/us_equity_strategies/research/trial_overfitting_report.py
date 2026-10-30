@@ -27,6 +27,7 @@ import importlib
 import math
 from collections.abc import Mapping, Sequence
 from datetime import date
+from numbers import Complex, Number, Real
 from pathlib import Path
 from typing import Any
 
@@ -92,9 +93,36 @@ def compute_trial_set_overfitting(
         raise ValueError("RECORDED_TRIAL_COUNT_INVALID")
 
     rf = annual_risk_free_rate / PERIODS_PER_YEAR
-    sessions = {tid: tuple(d for d, _ in rows) for tid, rows in dated_returns_by_trial.items()}
+    sessions = {}
+    excess = {}
+    for tid, rows in dated_returns_by_trial.items():
+        dates = []
+        values = []
+        try:
+            row_iterator = iter(rows)
+        except TypeError:
+            raise ValueError("TRIAL_RETURN_INPUT_INVALID") from None
+        for row in row_iterator:
+            try:
+                day, value = row
+            except (TypeError, ValueError):
+                raise ValueError("TRIAL_RETURN_INPUT_INVALID") from None
+            if type(day) is not date or (dates and day <= dates[-1]):
+                raise ValueError("TRIAL_RETURN_INPUT_INVALID")
+            if (isinstance(value, bool) or not isinstance(value, Number)
+                    or (isinstance(value, Complex) and not isinstance(value, Real))):
+                raise ValueError("TRIAL_RETURN_INPUT_INVALID")
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("TRIAL_RETURN_INPUT_INVALID") from None
+            if not math.isfinite(numeric) or not math.isfinite(numeric - rf):
+                raise ValueError("TRIAL_RETURN_INPUT_INVALID")
+            dates.append(day)
+            values.append(numeric - rf)
+        sessions[tid] = tuple(dates)
+        excess[tid] = values
     aligned = len(set(sessions.values())) == 1
-    excess = {tid: [float(r) - rf for _, r in rows] for tid, rows in dated_returns_by_trial.items()}
 
     dsr_fn = _qpk_function("deflated_sharpe_ratio")
     pbo_fn = _qpk_function("probability_of_backtest_overfitting")
@@ -214,3 +242,4 @@ def report_journaled_tqqq_trial_set_overfitting(
         "scope": "JOURNALED_SYNTHETIC_TRIAL_SET_NOT_SELECTION_OR_QUALIFICATION",
     })
     return report
+
