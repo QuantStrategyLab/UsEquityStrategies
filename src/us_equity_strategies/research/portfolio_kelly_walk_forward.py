@@ -52,7 +52,7 @@ from us_equity_strategies.research.portfolio_kelly_preregistration import (
     authorize_portfolio_real_data,
 )
 
-EVALUATOR_VERSION = "portfolio_kelly_walk_forward_v1"
+EVALUATOR_VERSION = "portfolio_kelly_walk_forward_v1_cvar_exact_mass"
 STATUS_COMPUTED = rs04.STATUS_COMPUTED
 STATUS_UNCOMPUTABLE = rs04.STATUS_UNCOMPUTABLE
 STATUS_PARKED = rs04.STATUS_PARKED

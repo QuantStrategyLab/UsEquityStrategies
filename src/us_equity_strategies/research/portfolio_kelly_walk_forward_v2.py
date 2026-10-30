@@ -36,7 +36,7 @@ from us_equity_strategies.research.portfolio_kelly_walk_forward import (
 )
 from us_equity_strategies.research.walk_forward_v2_support import coverage_disclosure, versioned_report_context
 
-EVALUATOR_VERSION = "portfolio_kelly_walk_forward_v2"
+EVALUATOR_VERSION = "portfolio_kelly_walk_forward_v2_cvar_exact_mass"
 
 
 def evaluate_portfolio_kelly_walk_forward(

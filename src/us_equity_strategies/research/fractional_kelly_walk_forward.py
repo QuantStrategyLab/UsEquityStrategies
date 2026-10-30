@@ -67,7 +67,7 @@ from us_equity_strategies.research.fractional_kelly_walk_forward_plan import (
     WalkForwardPlan,
 )
 
-EVALUATOR_VERSION = "fractional_kelly_walk_forward_v1"
+EVALUATOR_VERSION = "fractional_kelly_walk_forward_v1_cvar_exact_mass"
 STATUS_COMPUTED = "COMPUTED"
 STATUS_UNCOMPUTABLE = "UNCOMPUTABLE"
 STATUS_PARKED = "PARKED"
@@ -152,6 +152,12 @@ def _scaled_path(fractions: Sequence[float], strategy: Sequence[float], cash: Se
 
 
 def _path_metrics(returns: Sequence[float]) -> dict:
+    """Compute path metrics; cvar_95_daily is the worst 5% empirical mass.
+
+    The boundary observation receives fractional weight when the tail mass is
+    not an integer number of observations. It is a signed per-session return;
+    a negative value denotes a loss.
+    """
     n = len(returns)
     if n == 0 or any(r <= -1.0 for r in returns):
         return {"status": STATUS_UNCOMPUTABLE, "reason_code": "EMPTY_OR_RUINED_PATH"}
@@ -162,9 +168,13 @@ def _path_metrics(returns: Sequence[float]) -> dict:
         equity *= 1.0 + r
         peak = max(peak, equity)
         mdd = min(mdd, equity / peak - 1.0)
-    worst = sorted(returns)[: max(1, math.ceil(0.05 * n))]
+    tail_mass = 0.05 * n
+    full = math.floor(tail_mass)
+    boundary = tail_mass - full
+    ordered = sorted(returns)
+    tail_sum = math.fsum(ordered[:full]) + (boundary * ordered[full] if boundary else 0.0)
     return {"status": STATUS_COMPUTED, "reason_code": None, "observations": n,
-            "cvar_95_daily": math.fsum(worst) / len(worst),
+            "cvar_95_daily": tail_sum / tail_mass,
             "log_growth_per_session": total_log / n,
             "total_return": math.expm1(total_log),
             "cagr": math.expm1(total_log * PERIODS_PER_YEAR / n),
