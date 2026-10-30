@@ -70,7 +70,7 @@ These profiles depend on artifacts produced by `UsEquitySnapshotPipelines` befor
 
 | Profile | Name | Notes |
 | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | runtime-enabled feature-snapshot ETF rotation with daily canary defense and BIL safe haven. |
+| `global_etf_rotation` | Global ETF Rotation | retained for historical research and compatibility; excluded from the runtime-selectable allowlist. |
 | `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | runtime-enabled feature-snapshot Russell Top50 leader rotation. |
 
 ### Research-only candidates
