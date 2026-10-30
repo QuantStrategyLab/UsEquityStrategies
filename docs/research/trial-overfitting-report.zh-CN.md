@@ -7,7 +7,8 @@
 
 ## 规则
 
-- 必须传入研究的**全部**试验 id（含失败/拒绝/中止）。非成功试验没有收益路径，只计数并披露，不插补；DSR 的有效试验数 = 成功试验数（试验相关性未估计，已在 `evaluation_contract` 写明）。
+- 必须传入研究的**全部**试验 id（含失败/拒绝/中止）。非成功试验没有收益路径，只计数并披露，不插补；统计器可用但记录数大于成功数时，DSR 为 `UNCOMPUTABLE`（`INCOMPLETE_TRIAL_RETURN_HISTORY`），PBO 仍使用成功试验的收益路径。当全部记录均成功且 DSR 可计算时，有效试验数等于成功试验数；试验相关性未估计。
+- 每条收益路径的日期必须为 `date` 且严格递增、不得重复；收益必须为非布尔的有限数值。畸形输入以 `TRIAL_RETURN_INPUT_INVALID` 拒绝，在调用统计器之前检查；有效的空或短路径仍按原有统计器和不足样本规则处理，不填零。
 - 各试验必须在**完全相同的交易日序列**上比较。默认不对齐时 DSR/PBO 为 `UNCOMPUTABLE`（`TRIAL_SESSIONS_NOT_ALIGNED`）；调用方可显式给 `start_session`/`end_session`，边界不在某个账本里则报 `RESEARCH_WINDOW_INVALID`，不做静默取交集。
 - 任一试验 Sharpe 无定义 → DSR `UNCOMPUTABLE`（`TRIAL_SHARPE_UNDEFINED`）。
 - 已安装的 QPK 没有 `research_stats`（或缺 PBO）时，相应指标为 `UNCOMPUTABLE`（`QPK_RESEARCH_STATS_UNAVAILABLE`），不会填 0，也不在 UES 内另写一套替代算法。
@@ -21,3 +22,4 @@ UES 的 QPK pin（`f6f2079`）**不变**。`f6f2079..442b729` 之间还包含执
 - 独立的 `research-stats-integration` job 仅在该 job 内重新安装 QPK `442b729`（QPK 无运行依赖，依赖解析照常开启，不用 `--no-deps`），并要求真实 DSR/PBO 路径测试不得跳过。
 
 运行时 `entrypoints/`、`strategies/` 及 runtime 模块不 import 任何 research 代码，由 `tests/test_research_import_boundary.py`（AST + 子进程）强制。
+

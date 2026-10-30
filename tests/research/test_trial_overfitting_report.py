@@ -1,5 +1,6 @@
 """RS-02: DSR/PBO trial-set report. Artificial bars and temporary stores only."""
 from datetime import date, timedelta
+from decimal import Decimal
 import hashlib
 import importlib
 import math
@@ -140,6 +141,50 @@ def test_input_contract_errors(kwargs, error):
         rs02.compute_trial_set_overfitting(_dated(), **params)
 
 
+class _FloatConvertibleComplex(complex):
+    def __float__(self):
+        return self.real
+
+
+@pytest.mark.parametrize("rows", [
+    [(date(2024, 1, 2), 0.1), (date(2024, 1, 1), 0.2)],
+    [(date(2024, 1, 1), 0.1), (date(2024, 1, 1), 0.2)],
+    [("2024-01-01", 0.1)],
+    [(date(2024, 1, 1), True)],
+    [(date(2024, 1, 1), float("nan"))],
+    [(date(2024, 1, 1), float("inf"))],
+    [(date(2024, 1, 1), "0.1")],
+    [(date(2024, 1, 1), _FloatConvertibleComplex(0.1, 2.0))],
+    None,
+])
+def test_malformed_series_never_reaches_statistics(monkeypatch, rows):
+    fake = _FakeStats()
+    _use(monkeypatch, fake)
+    with pytest.raises(ValueError, match="^TRIAL_RETURN_INPUT_INVALID$"):
+        rs02.compute_trial_set_overfitting(
+            {"a": rows, "b": rows}, selected_trial_id="a", recorded_trial_count=2,
+            annual_risk_free_rate=0.0, synthetic=True)
+    assert fake.calls == {}
+
+
+def test_decimal_returns_and_empty_samples_remain_supported(monkeypatch):
+    fake = _FakeStats()
+    _use(monkeypatch, fake)
+    data = {"a": [(date(2024, 1, 1), Decimal("0.01")),
+                  (date(2024, 1, 2), Decimal("0.02"))],
+            "b": [(date(2024, 1, 1), Decimal("0.02")),
+                  (date(2024, 1, 2), Decimal("0.01"))]}
+    report = rs02.compute_trial_set_overfitting(
+        data, selected_trial_id="a", recorded_trial_count=2, annual_risk_free_rate=0.0, synthetic=True)
+    assert report["metrics"] == {"dsr": 0.4, "pbo": 0.6}
+    _use(monkeypatch, None)
+    empty = rs02.compute_trial_set_overfitting(
+        {"a": [], "b": []}, selected_trial_id="a", recorded_trial_count=2,
+        annual_risk_free_rate=0.0, synthetic=True)
+    assert empty["metrics"] == {"dsr": None, "pbo": None}
+    assert empty["metric_status"] == {"dsr": "UNCOMPUTABLE", "pbo": "UNCOMPUTABLE"}
+
+
 @requires_qpk_stats
 def test_real_qpk_research_stats_values_match_direct_calls():
     stats = _qpk_stats()
@@ -262,3 +307,4 @@ def test_adapter_with_real_qpk_research_stats(source, tmp_path):
             assert 0.0 <= report["metrics"][metric] <= 1.0
         else:
             assert report["metrics"][metric] is None and report["metric_reason"][metric]
+
