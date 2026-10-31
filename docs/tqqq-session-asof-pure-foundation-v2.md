@@ -25,6 +25,17 @@ The entrypoint accepts `StrategyContext.state["tqqq_daily_state"]` with a QPK id
 
 A custom configuration using partial volatility retention with an exit threshold below the entry threshold requires migrated, continuous daily-state evidence. Without it risk-asset targets are capped at observed holdings, rather than inferring the hysteresis latch from holdings. Ordinary legacy configurations with equal thresholds or zero retention retain their existing behavior until enrolled in the daily-state contract. Explicitly enrolled operation with unavailable state is reduction-only. Bootstrap is an explicit platform-authorized genesis operation, not an inference from an empty or failed read. State persistence does not itself establish execution authority or prove that stale broker orders have been canceled.
 
+The ordinary entrypoint ignores caller-supplied execution-fence booleans. A
+separate conditional planning adapter accepts only a live session-owned QPK
+journal handle bound to the current strategy head, intent, session and input
+identity. It returns a non-executable candidate, not an order authorization.
+The platform must run the central risk gate and reserve and dispatch each
+concrete order through a fresh joint journal session. The adapter snapshots and
+hashes the decision context, excluding only the separately journal-bound daily
+state, and verifies that digest against the journal and handle. Unsupported
+opaque context values fail closed. The platform must revalidate the same input
+identity at submission. A digest does not authenticate its source or prove a fill.
+
 ## Production decision replay boundary
 
 `research.production_decision_replay` evaluates frozen TQQQ and SOXL snapshots with their production decision builders and the QPK explicit-clock offline risk gate. It recomputes config and input hashes, checks the selected loaded strategy source files, and requires a dated portfolio snapshot. TQQQ benchmark observations are ordered and bounded by session and availability time; SOXL indicators carry an availability timestamp. The trace records actual target values and an offline gate record, with execution, promotion and live readiness disabled. Appending later observations cannot alter an earlier decision.

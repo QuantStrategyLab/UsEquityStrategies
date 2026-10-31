@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      QPK_STRATEGY_RELIABILITY_SHA: 4f687c62ee82559c701e1aabe87c2edc767f0242
+      QPK_STRATEGY_RELIABILITY_SHA: 152aaaf374230e24ec86edcd03e4c46e78422240
       REQUIRE_QSL_STRATEGY_INTEGRATION: "1"
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
     steps:
@@ -48,6 +48,8 @@ jobs:
             tests/test_signal_bundle_contract.py \
             tests/test_tqqq_dual_drive_core.py \
             tests/test_tqqq_daily_state.py \
+            tests/test_conditional_tqqq_candidate.py \
+            tests/test_prelisting_sequential_research.py \
             tests/test_decision_observation.py \
             tests/test_production_decision_replay.py \
             tests/test_production_economic_replay.py \

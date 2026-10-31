@@ -24,7 +24,7 @@ def test_daily_state_explicit_bootstrap_confirm_and_stale_intent():
     root = propose(first, "2026-06-19", True, False)
     assert root["status"] == "proposed" and not root["risk_increase_allowed"]
     confirmed = request(bootstrap=False, previous_transition=root["transition"], fresh_intent=intent, execution_fence_confirmed=True)
-    assert propose(confirmed, "2026-06-19", True, False)["risk_increase_allowed"]
+    assert not propose(confirmed, "2026-06-19", True, False)["risk_increase_allowed"]
     assert not propose(confirmed, "2026-06-19", False, True)["risk_increase_allowed"]
     next_req = request(bootstrap=False, previous_transition=root["transition"],
                        expected_previous_session="2026-06-19", input_sha256="c" * 64, fresh_intent=intent)
@@ -65,9 +65,9 @@ def test_entrypoint_proposal_confirmation_and_unavailable_reduction():
     assert targets["TQQQ"] <= 8000 and targets["QQQM"] <= 10000
     root = proposed.diagnostics["tqqq_daily_state_transition"]
     confirmed = decision(request(bootstrap=False, previous_transition=root, fresh_intent=intent, execution_fence_confirmed=True))
-    assert confirmed.diagnostics["tqqq_daily_state_risk_increase_allowed"] is True
+    assert confirmed.diagnostics["tqqq_daily_state_risk_increase_allowed"] is False
     targets = {p.symbol: p.target_value for p in confirmed.positions}
-    assert targets["TQQQ"] > 8000
+    assert targets["TQQQ"] <= 8000
     unavailable = decision({"status": "unavailable"})
     targets = {p.symbol: p.target_value for p in unavailable.positions}
     assert targets["TQQQ"] <= 8000 and targets["QQQM"] <= 10000

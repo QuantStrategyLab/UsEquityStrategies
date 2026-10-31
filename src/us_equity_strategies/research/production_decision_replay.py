@@ -33,7 +33,7 @@ _BUILDERS = {
 _REQUIRED_SOURCE_FILES = (
     "entrypoints/__init__.py", "entrypoints/_common.py", "strategies/tqqq_growth_income.py",
     "strategies/tqqq_dual_drive_core.py", "strategies/soxl_soxx_trend_income.py",
-    "tqqq_daily_state.py", "market_regime_control_contract.py", "volatility_delever_retention.py",
+    "tqqq_daily_state.py", "research_simulation_marker.py", "market_regime_control_contract.py", "volatility_delever_retention.py",
     "strategies/tqqq_growth_income_live_v2.py", "strategies/tqqq_dual_drive_live_v2.py",
     "strategies/soxl_soxx_trend_income_live_v2.py",
 )
@@ -195,7 +195,11 @@ def replay_production_decision(
                               runtime_config=dict(request.config), state=dict(payload.get("state") or {}),
                               capabilities=capabilities,
                               artifacts=dict(payload.get("artifacts") or {}))
-        decision = _BUILDERS[request.profile](ctx)
+        if request.profile == "tqqq_growth_income" and request.evidence_kind == "synthetic_fixture":
+            from us_equity_strategies.entrypoints import _RESEARCH_SIMULATED_FENCE
+            decision = _BUILDERS[request.profile](ctx, _research_simulated_fence=_RESEARCH_SIMULATED_FENCE)
+        else:
+            decision = _BUILDERS[request.profile](ctx)
         portfolio_diag = extract_portfolio_risk_diagnostics(portfolio)
         risk_input = enrich_decision_risk_diagnostics(decision,
             unrealized_pnl_pct=portfolio_diag.get("unrealized_pnl_pct"),

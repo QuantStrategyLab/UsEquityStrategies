@@ -12,6 +12,7 @@ from quant_platform_kit.common.strategy_risk_state import (
 )
 
 _SCHEMA = "tqqq_daily_state.v1"
+from us_equity_strategies.research_simulation_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
 
 
 def prepare_tqqq_daily_state(request, session):
@@ -81,7 +82,7 @@ def _validate_state(state, session):
         raise ValueError("invalid intent invalidation")
 
 
-def finish_tqqq_daily_state(prepared, request, *, alpha_active, volatility_latch):
+def finish_tqqq_daily_state(prepared, request, *, alpha_active, volatility_latch, _research_simulated_fence=None):
     """Propose a transition; only a confirmed current head can permit an intent."""
     status = prepared["status"]
     if status == "unavailable":
@@ -96,6 +97,7 @@ def finish_tqqq_daily_state(prepared, request, *, alpha_active, volatility_latch
         allowed = bool(prior["alpha_trend_active"] and prior["pending_intent"] is not None
                        and intent == prior["pending_intent"] and alpha_active
                        and not prior["volatility_latch_active"] and not volatility_latch
+                       and _research_simulated_fence is _RESEARCH_SIMULATED_FENCE
                        and request.get("execution_fence_confirmed") is True)
         return {"status": status, "transition": prepared["previous"].to_dict(),
                 "risk_increase_allowed": allowed}

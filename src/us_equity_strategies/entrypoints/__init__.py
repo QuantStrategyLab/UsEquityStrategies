@@ -429,8 +429,11 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
+from us_equity_strategies.research_simulation_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
+
+
 def _build_tqqq_growth_income_decision(
-    ctx: StrategyContext, *, research_session_successor: date | None = None,
+    ctx: StrategyContext, *, research_session_successor: date | None = None, _research_simulated_fence=None,
 ) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
@@ -447,6 +450,12 @@ def _build_tqqq_growth_income_decision(
     from us_equity_strategies.tqqq_daily_state import prepare_tqqq_daily_state, finish_tqqq_daily_state
 
     daily_request = ctx.state.get("tqqq_daily_state")
+    if isinstance(daily_request, Mapping):
+        daily_request = dict(daily_request)
+        daily_request["execution_fence_confirmed"] = (
+            _research_simulated_fence is _RESEARCH_SIMULATED_FENCE
+            and daily_request.get("execution_fence_confirmed") is True
+        )
     prepared = prepare_tqqq_daily_state(daily_request, ctx.as_of)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "benchmark_history"),
@@ -472,6 +481,7 @@ def _build_tqqq_growth_income_decision(
             prepared, daily_request,
             alpha_active=plan["daily_alpha_trend_active"],
             volatility_latch=plan["daily_volatility_latch_active"],
+            _research_simulated_fence=_research_simulated_fence,
         )
         if not daily_result["risk_increase_allowed"]:
             values = dict(plan["target_values"])
