@@ -733,7 +733,7 @@ wheels = [
 [[package]]
 name = "quant-platform-kit"
 version = "1.0.0"
-source = { git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=152aaaf374230e24ec86edcd03e4c46e78422240#152aaaf374230e24ec86edcd03e4c46e78422240" }
+source = { git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=52adab68d6109cf93941ae21a39914cfa37e00e3#52adab68d6109cf93941ae21a39914cfa37e00e3" }
 
 [[package]]
 name = "quant-strategy-plugins"
@@ -823,7 +823,7 @@ research = [
 requires-dist = [
     { name = "pandas", specifier = ">=2.0" },
     { name = "pytz", specifier = ">=2024.1" },
-    { name = "quant-platform-kit", git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=152aaaf374230e24ec86edcd03e4c46e78422240" },
+    { name = "quant-platform-kit", git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=52adab68d6109cf93941ae21a39914cfa37e00e3" },
     { name = "quant-strategy-plugins", marker = "extra == 'research'", git = "https://github.com/QuantStrategyLab/QuantStrategyPlugins.git?rev=88483c8f786d3fc3bed865fe7a420996fb487c79" },
 ]
 provides-extras = ["research"]
