@@ -146,3 +146,22 @@ def test_authorized_controls_remain_compatible_with_tecl_and_ibit():
     denied = {**ibit_payload, "strategy_runtime_metadata_non_authoritative": True}
     result = _resolve_ibit_zscore_exit_context(SimpleNamespace(metadata={}), explicit_context=denied, **kwargs)
     assert not result["position_control_authorized"]
+
+
+def test_soxl_missing_volatility_only_allows_zero_usd_strategy_exposure():
+    import pytest
+    from us_equity_strategies.strategies.soxl_soxx_trend_income_live_v2 import build_rebalance_plan
+    indicators = {"soxl": {"price": 80.0, "ma_trend": 75.0}, "soxx": {"price": 80.0, "ma_trend": 75.0}}
+    account = {"available_cash": 0.0, "market_values": {}, "quantities": {}, "sellable_quantities": {},
+               "total_strategy_equity": 0.0, "zero_usd_strategy_snapshot": True, "metadata": {}}
+    kwargs = dict(trend_ma_window=200, translator=lambda key, **kw: key, cash_reserve_ratio=.02,
+                  min_trade_ratio=.01, min_trade_floor=0.0, rebalance_threshold_ratio=.01,
+                  income_layer_start_usd=1000000.0, income_layer_max_ratio=.6,
+                  blend_gate_volatility_delever_enabled=True)
+    empty = build_rebalance_plan(indicators, account, **kwargs)
+    assert all(value == 0 for value in empty["targets"].values())
+    for changed in ({"total_strategy_equity": 1000.0, "available_cash": 1000.0},
+                    {"market_values": {"SOXL": 100.0}, "quantities": {"SOXL": 1.0}},
+                    {"sellable_quantities": {"SOXL": 1.0}}):
+        with pytest.raises(ValueError, match="requires a finite realized volatility"):
+            build_rebalance_plan(indicators, {**account, **changed}, **kwargs)

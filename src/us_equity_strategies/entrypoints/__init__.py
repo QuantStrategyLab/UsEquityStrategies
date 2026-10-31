@@ -747,7 +747,7 @@ def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecisio
         ctx=ctx,
         max_single_weight=0.20,
     )
-    if ctx.capabilities.get("decision_consumption_receipt") is not None:
+    if ctx is not None and ctx.capabilities.get("decision_consumption_receipt") is not None:
         from us_equity_strategies.decision_observation import attach_optional_decision_receipt
         post = attach_optional_decision_receipt(ctx, pre, post, profile="tqqq_growth_income")
     return post
@@ -988,7 +988,7 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
     quantities = {symbol: 0.0 for symbol in strategy_symbols}
     sellable_quantities = {symbol: 0.0 for symbol in strategy_symbols}
     metadata = getattr(portfolio, "metadata", {}) or {}
-    raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else {}
+    raw_sellable_quantities = (metadata.get("sellable_quantities") or {}) if isinstance(metadata, Mapping) else {}
     for position in getattr(portfolio, "positions", ()):
         if position.symbol not in market_values:
             continue
@@ -1001,12 +1001,29 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
             else quantity
         )
     raw_cash = resolve_raw_cash_from_snapshot(portfolio)
+    currency_cash = metadata.get("cash_by_currency", {}) if isinstance(metadata, Mapping) else None
+    zero_usd_strategy_snapshot = (
+        getattr(portfolio, "total_equity", None) == 0.0
+        and getattr(portfolio, "buying_power", None) == 0.0
+        and getattr(portfolio, "cash_balance", None) == 0.0
+        and isinstance(metadata, Mapping)
+        and all(key not in metadata or metadata[key] == 0.0
+                for key in ("market_currency_cash", "cash_available_for_trading", "cash_balance"))
+        and isinstance(currency_cash, Mapping)
+        and all(str(currency).upper() != "USD" or amount == 0.0
+                for currency, amount in currency_cash.items())
+        and all(position.quantity == 0.0 and position.market_value == 0.0
+                for position in getattr(portfolio, "positions", ()))
+        and isinstance(raw_sellable_quantities, Mapping)
+        and all(value == 0.0 for value in raw_sellable_quantities.values())
+    )
     return {
         "available_cash": raw_cash,
         "market_values": market_values,
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": compute_strategy_total_equity(market_values, raw_cash),
+        "zero_usd_strategy_snapshot": zero_usd_strategy_snapshot,
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
@@ -1504,7 +1521,7 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
             enforce_value_target_exposure=True,
             **({"observer": observer} if observer is not None else {}),
         )
-        if ctx.capabilities.get("decision_consumption_receipt") is not None:
+        if ctx is not None and ctx.capabilities.get("decision_consumption_receipt") is not None:
             from us_equity_strategies.decision_observation import attach_optional_decision_receipt
             decision = attach_optional_decision_receipt(ctx, pre, decision, profile="soxl_soxx_trend_income")
         record_strategy_decision(

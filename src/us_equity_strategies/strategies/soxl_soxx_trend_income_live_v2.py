@@ -733,7 +733,14 @@ def build_rebalance_plan(
         active_soxx_ratio=target_active_soxx_ratio,
         defensive_soxx_ratio=target_defensive_soxx_ratio,
     )
-    if use_volatility_delever and selected_soxl_ratio > 0.0 and volatility_delever_metric is None:
+    zero_usd_strategy_exposure = (
+        account_state.get("zero_usd_strategy_snapshot") is True
+        and total_strategy_equity == 0.0 and available_cash == 0.0
+        and all(value == 0.0 for value in market_values.values())
+        and all(value == 0.0 for value in quantities.values())
+        and all(value == 0.0 for value in sellable_quantities.values())
+    )
+    if use_volatility_delever and volatility_delever_metric is None and not zero_usd_strategy_exposure:
         raise ValueError("enabled volatility delever requires a finite realized volatility metric")
     volatility_delever_triggered = (
         use_volatility_delever

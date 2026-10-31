@@ -53,6 +53,10 @@ jobs:
             tests/test_production_economic_replay.py \
             tests/test_range_rsi2_study.py \
             tests/test_range_rsi2_forward.py \
+            tests/test_catalog.py::CatalogTest::test_known_profile_resolves \
+            tests/test_optimized_strategy_replay.py::test_explicit_session_research_parameter_does_not_enter_runtime_config_or_compute \
+            tests/test_portfolio_dashboard.py::PortfolioDashboardTests::test_semiconductor_entrypoint_attaches_strategy_cash_and_holdings_dashboard \
+            tests/test_portfolio_dashboard.py::PortfolioDashboardTests::test_semiconductor_missing_volatility_rejects_inconsistent_or_funded_snapshots \
             tests/research/test_r2_cv_leakage_v2.py::test_m2_source_binding_matches_original_frozen_bytes \
             --junitxml=strategy-reliability-tests.xml
           python - <<'PY'
