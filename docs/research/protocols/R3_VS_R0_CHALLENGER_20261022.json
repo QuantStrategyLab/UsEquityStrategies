@@ -9,9 +9,9 @@
     "main-thread review and explicit separate ARM decision not performed"
   ],
   "authority": {
-    "audit_path": "/Users/lisiyi/Documents/Codex/2026-10-21/task-3/qsl_research_audit_20261021/REPORT.zh-CN.md",
+    "audit_path": "<workspace>/Documents/Codex/2026-10-21/task-3/qsl_research_audit_20261021/REPORT.zh-CN.md",
     "audit_section": "六 / M2",
-    "predecessor_path": "/Users/lisiyi/Documents/Codex/2026-10-18/task-5/research_design_batch2_20261020/m1_m2_audit_continuation_20261021/M2_R3_R0_PRIVATE_FUTURE_PROTOCOL_V1.json",
+    "predecessor_path": "<workspace>/Documents/Codex/2026-10-18/task-5/research_design_batch2_20261020/m1_m2_audit_continuation_20261021/M2_R3_R0_PRIVATE_FUTURE_PROTOCOL_V1.json",
     "predecessor_sha256": "a25512cdc50dc27a77ff7d729d9ca7a2edf548d5759a1eac7006079ec180eb88",
     "relationship": "Additive repository protocol; retain predecessor bytes, scope, horizon and numerical rules; no R0/R1 proposal adoption.",
     "user_ruling": "2026-10-22 19:39 Asia/Singapore; current task card"
@@ -190,7 +190,7 @@
     "writes": [
       "docs/research/protocols/r3-vs-r0-challenger-20261022.md",
       "docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.json",
-      "/Users/lisiyi/codex-jobs/out/RESEARCH-M2-01.md"
+      "<workspace>/codex-jobs/out/RESEARCH-M2-01.md"
     ]
   },
   "secondary_endpoints": [
