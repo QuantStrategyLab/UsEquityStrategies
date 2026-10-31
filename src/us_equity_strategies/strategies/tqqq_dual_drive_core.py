@@ -38,6 +38,8 @@ class DualDriveCoreInput:
     taco_rebound_context_active: bool
     retention_mode: str | None
     retention_ratio: float
+    prior_alpha_active: bool | None = None
+    prior_volatility_latch: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,12 @@ class DualDriveCoreDecision:
     volatility_removed_value: float
     volatility_retained_ratio: float | None
     volatility_redirected_ratio: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class DualDriveStatefulDecision(DualDriveCoreDecision):
+    alpha_trend_active: bool
+    volatility_latch_active: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +137,7 @@ def decide_tqqq_preplugin_risk_on(
 def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecision:
     current_risk_active = value.current_tqqq_quantity > 0 or value.current_unlevered_quantity > 0
     preplugin = decide_tqqq_preplugin_risk_on(
-        prior_risk_active=current_risk_active,
+        prior_risk_active=(current_risk_active if value.prior_alpha_active is None else value.prior_alpha_active),
         qqq_price=value.qqq_price,
         ma200=value.ma200,
         latest_ma20=value.latest_ma20,
@@ -232,6 +240,15 @@ def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecisio
         and value.current_tqqq_quantity <= 0
         and value.current_unlevered_quantity > 0
     )
+    prior_latch = currently_volatility_delevered if value.prior_volatility_latch is None else value.prior_volatility_latch
+    if not value.volatility_enabled:
+        latch = False
+    elif value.volatility_metric is None:
+        latch = prior_latch
+    elif prior_latch:
+        latch = value.volatility_metric >= value.volatility_exit_threshold
+    else:
+        latch = value.volatility_metric >= value.volatility_entry_threshold
     volatility_entry_triggered = (
         value.volatility_enabled
         and target_tqqq_value > 0.0
@@ -241,7 +258,7 @@ def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecisio
     volatility_hysteresis_triggered = (
         value.volatility_enabled
         and target_tqqq_value > 0.0
-        and currently_volatility_delevered
+        and prior_latch
         and value.volatility_metric is not None
         and value.volatility_metric >= value.volatility_exit_threshold
     )
@@ -283,7 +300,7 @@ def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecisio
         target_unlevered_value += volatility_removed_value
         target_tqqq_value = retained_value
 
-    return DualDriveCoreDecision(
+    result = dict(
         state=state,
         above_ma200=above_ma200,
         slope_ok=slope_ok,
@@ -310,3 +327,7 @@ def decide_tqqq_dual_drive(value: DualDriveCoreInput, /) -> DualDriveCoreDecisio
         volatility_retained_ratio=volatility_retained_ratio,
         volatility_redirected_ratio=volatility_redirected_ratio,
     )
+    if value.prior_alpha_active is not None or value.prior_volatility_latch is not None:
+        return DualDriveStatefulDecision(**result, alpha_trend_active=preplugin.trend_risk_active,
+                                         volatility_latch_active=bool(latch))
+    return DualDriveCoreDecision(**result)

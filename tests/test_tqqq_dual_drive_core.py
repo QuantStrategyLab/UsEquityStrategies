@@ -188,3 +188,51 @@ class TqqqDualDriveCoreTests(unittest.TestCase):
 
         decide.assert_called_once()
         self.assertEqual(plan["notification_context"]["signal"]["state"], "entry")
+
+
+def test_explicit_volatility_latch_survives_partial_retention_and_absent_holdings():
+    from us_equity_strategies.strategies.tqqq_dual_drive_core import decide_tqqq_dual_drive
+
+    prior = False
+    for metric, expected in ((0.30, True), (0.25, True), (0.19, False)):
+        decision = decide_tqqq_dual_drive(_input(
+            volatility_enabled=True, volatility_metric=metric,
+            volatility_entry_threshold=0.28, volatility_exit_threshold=0.20,
+            retention_mode="fixed", retention_ratio=0.5,
+            current_tqqq_quantity=20, current_unlevered_quantity=30,
+            prior_volatility_latch=prior,
+        ))
+        assert decision.volatility_latch_active is expected
+        assert decision.volatility_applied is expected
+        prior = decision.volatility_latch_active
+    decision = decide_tqqq_dual_drive(_input(
+        volatility_enabled=True, volatility_metric=0.25, volatility_entry_threshold=0.28,
+        volatility_exit_threshold=0.20, prior_volatility_latch=True,
+        current_tqqq_quantity=0, current_unlevered_quantity=0,
+    ))
+    assert decision.volatility_latch_active is True
+
+
+def test_partial_retention_with_distinct_exit_requires_state_for_restoration():
+    from unittest.mock import patch
+    from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan
+    history = [{"close": 100.0 + i * 0.5} for i in range(260)]
+    snapshot = SimpleNamespace(positions=[SimpleNamespace(symbol="TQQQ", market_value=22000.0, quantity=20),
+        SimpleNamespace(symbol="QQQM", market_value=50000.0, quantity=30)],
+        total_equity=100000.0, buying_power=0.0, metadata={})
+    with patch("us_equity_strategies.strategies.tqqq_growth_income._resolve_volatility_delever_thresholds") as resolve:
+        resolve.return_value = {"mode": "fixed", "entry_threshold": .28, "exit_threshold": .20,
+            "dynamic_threshold": None, "dynamic_sample_count": 0, "dynamic_lookback": 252,
+            "dynamic_percentile": .9, "dynamic_min_periods": 126, "dynamic_floor": .24,
+            "dynamic_cap": .36, "metric": .25}
+        plan = build_rebalance_plan(history, snapshot, signal_text_fn=str, translator=lambda key, **kwargs: key,
+            cash_reserve_ratio=.02, rebalance_threshold_ratio=.01, income_layer_enabled=False,
+            dual_drive_volatility_delever_retention_mode="fixed", dual_drive_volatility_delever_retention_ratio=.5)
+        assert plan["daily_state_continuity_required"] is True
+        assert plan["target_values"]["TQQQ"] <= 22000.0
+        backed = build_rebalance_plan(history, snapshot, signal_text_fn=str, translator=lambda key, **kwargs: key,
+            cash_reserve_ratio=.02, rebalance_threshold_ratio=.01, income_layer_enabled=False,
+            dual_drive_volatility_delever_retention_mode="fixed", dual_drive_volatility_delever_retention_ratio=.5,
+            daily_state_prior={"alpha_trend_active": True, "volatility_latch_active": True})
+        assert backed["daily_volatility_latch_active"] is True
+        assert backed["target_values"]["TQQQ"] == 22500.0

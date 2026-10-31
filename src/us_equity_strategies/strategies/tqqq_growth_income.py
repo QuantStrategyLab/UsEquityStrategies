@@ -17,6 +17,8 @@ from us_equity_strategies.income_layer import (
     normalize_income_layer_allocations,
 )
 from us_equity_strategies.market_regime_control_contract import (
+    iter_authoritative_legacy_payloads,
+    iter_payloads_with_authority,
     resolve_market_regime_position_control_authorization,
 )
 from us_equity_strategies.strategies.tqqq_dual_drive_core import (
@@ -133,11 +135,11 @@ def _route_from_payload(payload: Mapping) -> str:
 
 
 def _is_taco_rebound_context_active(metadata: Mapping) -> bool:
-    if _as_bool(metadata.get("taco_rebound_context_active"), default=False):
-        return True
-    if _as_bool(metadata.get("taco_fake_crisis_active"), default=False):
-        return True
-    for payload in _iter_mapping_payloads(metadata):
+    for payload in iter_authoritative_legacy_payloads(metadata):
+        if _as_bool(payload.get("taco_rebound_context_active"), default=False):
+            return True
+        if _as_bool(payload.get("taco_fake_crisis_active"), default=False):
+            return True
         route = _route_from_payload(payload)
         plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
         rebound_context_active = _as_bool(payload.get("rebound_context_active"), default=False)
@@ -153,10 +155,9 @@ def _is_taco_rebound_context_active(metadata: Mapping) -> bool:
 
 
 def _is_true_crisis_active(metadata: Mapping) -> bool:
-    for key in ("true_crisis_active", "crisis_response_true_crisis_active"):
-        if _as_bool(metadata.get(key), default=False):
+    for payload in iter_authoritative_legacy_payloads(metadata):
+        if _as_bool(payload.get("crisis_response_true_crisis_active"), default=False):
             return True
-    for payload in _iter_mapping_payloads(metadata):
         if _route_from_payload(payload) == TRUE_CRISIS_ROUTE:
             return True
         if _as_bool(payload.get("true_crisis_active"), default=False):
@@ -172,7 +173,7 @@ def _clamped_ratio_or_default(value, *, default: float) -> float:
 
 
 def _resolve_macro_risk_governor_context(metadata: Mapping) -> dict[str, object]:
-    for payload in _iter_mapping_payloads(metadata):
+    for payload in iter_authoritative_legacy_payloads(metadata):
         plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
         if plugin != MACRO_RISK_GOVERNOR_PROFILE:
             continue
@@ -273,13 +274,13 @@ def _build_signal_reason(
 
 
 def _resolve_market_regime_control_context(metadata: Mapping) -> dict[str, object]:
-    for payload in _iter_mapping_payloads(metadata):
+    for payload, inherited_authority in iter_payloads_with_authority(metadata):
         plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
         if plugin != MARKET_REGIME_CONTROL_PROFILE:
             continue
         authorization = resolve_market_regime_position_control_authorization(payload)
-        position_control_allowed = bool(authorization["position_control_allowed"])
-        position_control_authorized = bool(authorization["position_control_authorized"])
+        position_control_allowed = bool(authorization["position_control_allowed"]) and inherited_authority
+        position_control_authorized = bool(authorization["position_control_authorized"]) and inherited_authority
         evidence_status = str(authorization["consumption_evidence_status"])
         position_control = payload.get("position_control")
         if not isinstance(position_control, Mapping):
@@ -433,7 +434,7 @@ def _resolve_volatility_delever_thresholds(
     returns = pd.to_numeric(close, errors="coerce").pct_change(fill_method=None)
     realized_volatility = returns.rolling(int(volatility_window), min_periods=int(volatility_window)).std() * np.sqrt(252)
     metric = realized_volatility.iloc[-1]
-    metric_value = None if pd.isna(metric) else float(metric)
+    metric_value = _as_float_or_none(metric)
 
     dynamic_threshold = None
     dynamic_sample_count = 0
@@ -552,6 +553,7 @@ def build_rebalance_plan(
     dual_drive_macro_risk_governor_enabled=True,
     dual_drive_crisis_defense_enabled=True,
     market_regime_control_enabled=True,
+    daily_state_prior=None,
 ):
     df_qqq = normalize_history_frame(qqq_history, label="benchmark_history")
     qqq_p = df_qqq["close"].iloc[-1]
@@ -595,6 +597,10 @@ def build_rebalance_plan(
     snapshot_metadata = getattr(snapshot, "metadata", {}) or {}
     if not isinstance(snapshot_metadata, Mapping):
         snapshot_metadata = {}
+    if not (isinstance(daily_state_prior, Mapping)
+            and type(daily_state_prior.get("alpha_trend_active")) is bool
+            and type(daily_state_prior.get("volatility_latch_active")) is bool):
+        daily_state_prior = None
 
     layer_start = (
         0.0
@@ -728,6 +734,8 @@ def build_rebalance_plan(
             taco_rebound_context_active=taco_rebound_context_active,
             retention_mode=retention_decision.get("mode"),
             retention_ratio=float(retention_decision.get("retention_ratio") or 0.0),
+            prior_alpha_active=(daily_state_prior.get("alpha_trend_active") if isinstance(daily_state_prior, Mapping) else quantities.get("TQQQ", 0) > 0 or quantities.get(unlevered_symbol, 0) > 0),
+            prior_volatility_latch=(daily_state_prior.get("volatility_latch_active") if isinstance(daily_state_prior, Mapping) else quantities.get("TQQQ", 0) <= 0 and quantities.get(unlevered_symbol, 0) > 0),
         )
     )
     above_ma200 = core_decision.above_ma200
@@ -737,6 +745,24 @@ def build_rebalance_plan(
     target_tqqq_val = core_decision.target_tqqq_value
     target_unlevered_val = core_decision.target_unlevered_value
     target_boxx_val = core_decision.target_boxx_value
+    continuity_required = (
+        volatility_delever_enabled
+        and float(retention_decision.get("retention_ratio") or 0.0) > 0.0
+        and volatility_delever_exit_threshold < volatility_delever_threshold
+        and not isinstance(daily_state_prior, Mapping)
+    )
+    if continuity_required:
+        capped = min(target_tqqq_val, max(0.0, market_values["TQQQ"]))
+        target_boxx_val += target_tqqq_val - capped
+        target_tqqq_val = capped
+        capped = min(target_unlevered_val, max(0.0, market_values[unlevered_symbol]))
+        target_boxx_val += target_unlevered_val - capped
+        target_unlevered_val = capped
+        target_income_values = dict(target_income_values)
+        for symbol, target in target_income_values.items():
+            capped = min(float(target), max(0.0, market_values[symbol]))
+            target_boxx_val += float(target) - capped
+            target_income_values[symbol] = capped
     icon = core_decision.state
     macro_risk_governor_applied = core_decision.macro_applied
     macro_risk_governor_removed_value = core_decision.macro_removed_value
@@ -944,6 +970,9 @@ def build_rebalance_plan(
     account_hash = snapshot_metadata.get("account_hash") if isinstance(snapshot_metadata, Mapping) else None
 
     return {
+        "daily_alpha_trend_active": core_decision.alpha_trend_active,
+        "daily_volatility_latch_active": core_decision.volatility_latch_active,
+        "daily_state_continuity_required": continuity_required,
         "strategy_symbols": strategy_symbols,
         # Execution metadata consumed by downstream platform repos.
         "sell_order_symbols": sell_order_symbols,
