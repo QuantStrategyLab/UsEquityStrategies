@@ -12,7 +12,7 @@ from quant_platform_kit.common.strategy_risk_state import (
 )
 
 _SCHEMA = "tqqq_daily_state.v1"
-from us_equity_strategies.research_simulation_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
+from us_equity_strategies._decision_candidate_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
 
 
 def prepare_tqqq_daily_state(request, session):

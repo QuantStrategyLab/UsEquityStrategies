@@ -75,7 +75,7 @@ def build_tqqq_conditional_candidate(ctx, *, journal_session, planning_handle):
     )
     from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateTransition
     from us_equity_strategies.entrypoints import _build_tqqq_growth_income_decision
-    from us_equity_strategies.research_simulation_marker import RESEARCH_SIMULATED_FENCE
+    from us_equity_strategies._decision_candidate_marker import RESEARCH_SIMULATED_FENCE
 
     if type(journal_session) is not AccountSubmissionSession or type(planning_handle) is not ConditionalPlanningHandle:
         raise ValueError("JOURNAL_PLANNING_HANDLE_REQUIRED")

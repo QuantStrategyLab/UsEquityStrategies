@@ -101,10 +101,24 @@ The diagnostic treats a month as completed only after a session in the next
 month appears in the input; this convention does not certify exchange-calendar
 completeness. Alternatively a caller may supply a bound, full-year session
 calendar; all observed dates must match its expected sessions through the cutoff,
-and a month can then be included after its last listed session. Calendar
-identity and session-list hashes are recorded, but caller-supplied calendar
-identity is not independent exchange certification or publication proof. The
-two timing modes are distinct revisions and their outputs must be retained.
+and a month can then be included after its last listed session. In calendar
+mode, `assumed_available_at` is the first listed session strictly after that
+month's last session. It comes from the bound calendar, independently of later
+return rows, so extending or truncating the return paths cannot change an earlier
+month's availability date. A missing successor session rejects the diagnostic
+with `CALENDAR_NEXT_SESSION_REQUIRED`; it never substitutes the outcome date.
+
+`through` is a date-only retrospective cutoff that assumes the specified
+session has ended. It does not establish an intraday decision time. A month-end
+cutoff may include the completed outcome while recording its assumed
+availability in the next session; this does not make the posterior available
+for a decision at the earlier cutoff. The next-session date is a conservative
+research convention, not an authenticated publication or delivery timestamp.
+Calendar identity and session-list hashes are recorded, but caller-supplied
+calendar identity is not independent exchange certification or publication
+proof. The two timing modes are distinct revisions and their outputs must be
+retained. Results generated before the successor-session correction remain
+separate historical research artifacts.
 It verifies the two expected path SHA-256 values supplied by the
 caller, but their independent registration and source authenticity are separate
 requirements. To reproduce a pair, run:

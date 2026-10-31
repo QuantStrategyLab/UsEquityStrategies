@@ -429,7 +429,7 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
-from us_equity_strategies.research_simulation_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
+from us_equity_strategies._decision_candidate_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
 
 
 def _build_tqqq_growth_income_decision(

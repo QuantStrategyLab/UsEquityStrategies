@@ -32,8 +32,10 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
     """Evaluate matching frozen paths without resetting positions at year start.
 
     Observation availability is an assumed retrospective convention, never
-    evidence of historical publication. Months mature only when a later month
-    exists in both paths before the requested cutoff.
+    evidence of historical publication. Without a bound calendar, a month
+    matures only when a later month appears in both paths before the cutoff.
+    Calendar mode uses its last monthly session and a fixed successor session;
+    the date-only cutoff assumes that the requested session has ended.
     """
     if type(through) is not date or through.year != 2026:
         raise ValueError("2026_CUTOFF_REQUIRED")
@@ -52,6 +54,8 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
     calendar_binding = None
     if calendar is None:
         matured = keys[:-1]
+        availability = {key: months[keys[index + 1]][0][0]
+                        for index, key in enumerate(matured)}
     else:
         expected = [date.fromisoformat(day) for day in calendar["sessions"]]
         if (expected != sorted(set(expected)) or not expected or
@@ -68,6 +72,10 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
         for day in expected:
             last_by_month[(day.year, day.month)] = day
         matured = [key for key in keys if key in last_by_month and last_by_month[key] <= through]
+        successor = dict(zip(expected, expected[1:]))
+        if any(last_by_month[key] not in successor for key in matured):
+            raise ValueError("CALENDAR_NEXT_SESSION_REQUIRED")
+        availability = {key: successor[last_by_month[key]] for key in matured}
         completeness = "MATCHED_SELECTED_CALENDAR_SOURCE_NOT_EXCHANGE_ATTESTED"
         calendar_binding = {"source": calendar["source"], "source_sha256": calendar["source_sha256"],
                             "sessions_sha256": hashlib.sha256(json.dumps(calendar["sessions"],
@@ -81,7 +89,7 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
     posterior = []
     total = 0.0
     n = 0
-    for index, key in enumerate(matured):
+    for key in matured:
         if key[0] != 2026:
             continue
         n += 1
@@ -89,8 +97,7 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
         total += monthly
         posterior.append({"month": f"{key[0]:04d}-{key[1]:02d}",
                           "outcome_end": months[key][-1][0].isoformat(),
-                          "assumed_available_at": (months[keys[index + 1]][0][0].isoformat()
-                              if index + 1 < len(keys) else months[key][-1][0].isoformat()),
+                          "assumed_available_at": availability[key].isoformat(),
                           "paired_log_difference": monthly,
                           "posterior_mean": total / (n + 1),
                           "posterior_std": math.sqrt(variance / (n + 1)),

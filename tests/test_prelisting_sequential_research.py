@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 import math
 import hashlib
 import json
@@ -106,6 +106,84 @@ def test_calendar_matched_month_end_and_missing_pair_session(tmp_path):
     paths(sessions[1:])
     with pytest.raises(ValueError, match="CALENDAR_SESSION_MISMATCH"):
         evaluate()
+
+
+def _paired_calendar_fixture(tmp_path):
+    """Synthetic weekday sessions; no exchange-calendar assertion."""
+    baseline = tmp_path / "baseline.csv"
+    candidate = tmp_path / "candidate.csv"
+    sessions = []
+    day = date(2025, 1, 1)
+    while day <= date(2026, 12, 31):
+        if day.weekday() < 5:
+            sessions.append(day)
+        day += timedelta(days=1)
+    observed = [day for day in sessions if day <= date(2026, 10, 30)]
+    baseline.write_text("date,return\n" + "".join(f"{day},0\n" for day in observed))
+    candidate.write_text("date,return\n" + "".join(
+        f"{day},{.001 * (index % 7 - 3)}\n" for index, day in enumerate(observed)))
+    calendar = {"coverage_start": "2025-01-01", "coverage_end": "2026-12-31",
+                "source": "synthetic-weekday-calendar", "source_sha256": "a" * 64,
+                "sessions": [day.isoformat() for day in sessions]}
+
+    def evaluate(through, declared_calendar=calendar):
+        return evaluate_pair(baseline, candidate, through=through, calendar=declared_calendar,
+            expected_baseline_sha256=hashlib.sha256(baseline.read_bytes()).hexdigest(),
+            expected_candidate_sha256=hashlib.sha256(candidate.read_bytes()).hexdigest())
+
+    return baseline, candidate, calendar, evaluate
+
+
+def test_calendar_availability_is_fixed_across_cutoff_and_path_extensions(tmp_path):
+    baseline, candidate, _, evaluate = _paired_calendar_fixture(tmp_path)
+    before_month_end = evaluate(date(2026, 7, 30))
+    prefix = evaluate(date(2026, 7, 31))
+    extended = evaluate(date(2026, 10, 30))
+    assert len(before_month_end["posterior"]) == 6
+    assert prefix["posterior"] == extended["posterior"][:7]
+    assert prefix["posterior"][-1]["outcome_end"] == "2026-07-31"
+    assert prefix["posterior"][-1]["assumed_available_at"] == "2026-08-03"
+    assert extended["posterior"][-1]["assumed_available_at"] == "2026-11-02"
+    assert extended["executable"] is False and extended["promotion_eligible"] is False
+
+    original_paths = [path.read_text() for path in (baseline, candidate)]
+    for path, original in zip((baseline, candidate), original_paths, strict=True):
+        path.write_text("\n".join(line for line in original.splitlines()
+                        if line.startswith("date,") or line.split(",")[0] <= "2026-07-31") + "\n")
+    assert evaluate(date(2026, 7, 31))["posterior"] == prefix["posterior"]
+    for path, original in zip((baseline, candidate), original_paths, strict=True):
+        path.write_text(original)
+    assert evaluate(date(2026, 10, 30))["posterior"][:7] == prefix["posterior"]
+
+
+def test_calendar_availability_prefix_ignores_future_return_changes(tmp_path):
+    _, candidate, _, evaluate = _paired_calendar_fixture(tmp_path)
+    prefix = evaluate(date(2026, 7, 31))["posterior"]
+    candidate.write_text("\n".join(
+        line if line.startswith("date,") or line.split(",")[0] <= "2026-07-31"
+        else line.split(",")[0] + ",0.2"
+        for line in candidate.read_text().splitlines()) + "\n")
+    assert evaluate(date(2026, 7, 31))["posterior"] == prefix
+    assert evaluate(date(2026, 10, 30))["posterior"][:7] == prefix
+
+
+def test_calendar_without_a_successor_session_refuses_availability(tmp_path):
+    _, _, calendar, evaluate = _paired_calendar_fixture(tmp_path)
+    incomplete = {**calendar, "sessions": [day for day in calendar["sessions"]
+                                          if day <= "2026-10-30"]}
+    with pytest.raises(ValueError, match="CALENDAR_NEXT_SESSION_REQUIRED"):
+        evaluate(date(2026, 10, 30), incomplete)
+
+
+def test_unbound_calendar_mode_waits_for_an_observed_later_month(tmp_path):
+    _, _, _, evaluate = _paired_calendar_fixture(tmp_path)
+    july = evaluate(date(2026, 7, 31), None)
+    august = evaluate(date(2026, 8, 3), None)
+    assert [row["month"] for row in july["posterior"]] == [f"2026-{month:02d}" for month in range(1, 7)]
+    assert august["posterior"][:6] == july["posterior"]
+    assert august["posterior"][-1]["month"] == "2026-07"
+    assert august["posterior"][-1]["assumed_available_at"] == "2026-08-03"
+    assert august["month_completeness"] == "UNVERIFIED_CALENDAR_COVERAGE"
 
 
 def test_floating_rate_is_prior_session_and_accrues_calendar_days():
