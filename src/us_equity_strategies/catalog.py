@@ -508,12 +508,12 @@ STRATEGY_DEFINITIONS: dict[str, StrategyDefinition] = {
     TQQQ_GROWTH_INCOME_PROFILE: _build_strategy_definition(
         TQQQ_GROWTH_INCOME_PROFILE,
         component_name="allocation",
-        module_path="us_equity_strategies.strategies.tqqq_growth_income",
+        module_path="us_equity_strategies.strategies.tqqq_growth_income_live_v2",
     ),
     SOXL_SOXX_TREND_INCOME_PROFILE: _build_strategy_definition(
         SOXL_SOXX_TREND_INCOME_PROFILE,
         component_name="allocation",
-        module_path="us_equity_strategies.strategies.soxl_soxx_trend_income",
+        module_path="us_equity_strategies.strategies.soxl_soxx_trend_income_live_v2",
     ),
     SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE: _build_strategy_definition(
         SOXL_SOXX_CORE_ONLY_P2_V7_PROFILE,

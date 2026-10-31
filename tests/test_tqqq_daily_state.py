@@ -136,7 +136,7 @@ def test_confirmed_latch_without_fence_still_applies_partial_reduction():
         runtime_config={"income_layer_enabled": False, "dual_drive_volatility_delever_retention_mode": "fixed",
                         "dual_drive_volatility_delever_retention_ratio": .5},
         state={"tqqq_daily_state": request(bootstrap=False, previous_transition=root)})
-    with patch("us_equity_strategies.strategies.tqqq_growth_income._resolve_volatility_delever_thresholds") as resolve:
+    with patch("us_equity_strategies.strategies.tqqq_growth_income_live_v2._resolve_volatility_delever_thresholds") as resolve:
         resolve.return_value = {"mode": "fixed", "entry_threshold": .28, "exit_threshold": .20,
             "dynamic_threshold": None, "dynamic_sample_count": 0, "dynamic_lookback": 252,
             "dynamic_percentile": .9, "dynamic_min_periods": 126, "dynamic_floor": .24,

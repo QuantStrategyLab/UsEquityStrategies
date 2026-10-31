@@ -70,7 +70,8 @@ def test_forward_evidence_requires_trusted_prospective_fresh_identity():
     registration, observation = evidence()
     now = datetime(2026, 11, 2, 22, tzinfo=timezone.utc)
     assert validate_forward_observation(registration, observation, now=now)["status"] == "BLOCKED"
-    verify = lambda kind, item: True
+    def verify(kind, item):
+        return True
     accepted = validate_forward_observation(registration, observation, now=now, verifier=verify)
     assert accepted["status"] == "OBSERVED_RESEARCH_ONLY" and accepted["promotion_status"] == "NOT_QUALIFIED"
     for changes in ({"available_at": "2026-11-02T19:00:00Z"}, {"config_sha256": "e"*64},
@@ -85,7 +86,8 @@ def test_forward_evidence_requires_trusted_prospective_fresh_identity():
 def test_qpk_forward_receipt_requires_valid_frozen_policy_and_chain():
     registration, observation = evidence()
     now = datetime(2026, 11, 2, 22, tzinfo=timezone.utc)
-    verify = lambda kind, item: True
+    def verify(kind, item):
+        return True
     first = build_research_forward_receipt(registration, observation, policy=policy(), observation_index=1,
                                            previous_receipt=None, now=now, verifier=verify)
     assert first["status"] == "OBSERVED_RESEARCH_ONLY" and first["receipt"]["observation_index"] == 1

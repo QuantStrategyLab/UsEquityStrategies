@@ -1,4 +1,4 @@
-from us_equity_strategies.strategies.tqqq_growth_income import (
+from us_equity_strategies.strategies.tqqq_growth_income_live_v2 import (
     _is_taco_rebound_context_active,
     _is_true_crisis_active,
     _resolve_macro_risk_governor_context,
@@ -70,7 +70,7 @@ def test_null_required_volatility_rejected():
 
 
 def test_soxl_legacy_shadow_crisis_is_not_authoritative():
-    from us_equity_strategies.strategies.soxl_soxx_trend_income import (
+    from us_equity_strategies.strategies.soxl_soxx_trend_income_live_v2 import (
         _resolve_legacy_crisis_response_context,
     )
     payload = {"plugin": "crisis_response_shadow", "canonical_route": "true_crisis",

@@ -34,6 +34,8 @@ _REQUIRED_SOURCE_FILES = (
     "entrypoints/__init__.py", "entrypoints/_common.py", "strategies/tqqq_growth_income.py",
     "strategies/tqqq_dual_drive_core.py", "strategies/soxl_soxx_trend_income.py",
     "tqqq_daily_state.py", "market_regime_control_contract.py", "volatility_delever_retention.py",
+    "strategies/tqqq_growth_income_live_v2.py", "strategies/tqqq_dual_drive_live_v2.py",
+    "strategies/soxl_soxx_trend_income_live_v2.py",
 )
 _SOURCE_ROOT = Path(__file__).resolve().parents[1]
 

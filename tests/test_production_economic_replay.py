@@ -264,7 +264,7 @@ def test_carried_partial_retention_latch_across_sessions():
             "dynamic_threshold": None, "dynamic_sample_count": 0, "dynamic_lookback": 252,
             "dynamic_percentile": .9, "dynamic_min_periods": 126, "dynamic_floor": .24,
             "dynamic_cap": .36, "metric": .30 if close.iloc[-1] == 229.5 else .25}
-    with patch("us_equity_strategies.strategies.tqqq_growth_income._resolve_volatility_delever_thresholds", thresholds):
+    with patch("us_equity_strategies.strategies.tqqq_growth_income_live_v2._resolve_volatility_delever_thresholds", thresholds):
         result = replay_synthetic_production_ledger(replace(base, decisions=tuple(decisions)))
     first, second = [row["decision_trace"]["offline_risk_decision"]["diagnostics"] for row in result["rows"][:2]]
     assert first["tqqq_daily_state_transition"]["state"]["volatility_latch_active"] is True

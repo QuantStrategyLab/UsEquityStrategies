@@ -136,8 +136,8 @@ def load_pair(symbol: str, config: dict, input_paths: dict[str, Path]) -> PriceP
     frame = frame.loc[frame.symbol.isin(info["trade_symbols"])].copy()
     if frame.duplicated(["symbol","as_of"]).any():
         raise ValueError("DUPLICATE_INPUT")
-    for field in fields:
-        frame[field] = pd.to_numeric(frame[field], errors="raise")
+    for price_field in fields:
+        frame[price_field] = pd.to_numeric(frame[price_field], errors="raise")
     if not np.isfinite(frame[fields]).all().all():
         raise ValueError("NONFINITE_INPUT")
     if (frame[["open","high","low","close"]] <= 0).any().any() or (frame.volume < 0).any():

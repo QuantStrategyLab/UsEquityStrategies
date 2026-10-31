@@ -12,8 +12,6 @@ from us_equity_strategies.income_layer import (
     normalize_income_layer_allocations,
 )
 from us_equity_strategies.market_regime_control_contract import (
-    iter_authoritative_legacy_payloads,
-    iter_payloads_with_authority,
     resolve_market_regime_position_control_authorization,
 )
 from us_equity_strategies.volatility_delever_retention import (
@@ -259,13 +257,13 @@ def _observe(observer, key, value):
 def _resolve_market_regime_control_context(metadata: Mapping, *, observer=None) -> dict[str, object]:
     _observe(observer, "primary", "ENTERED")
     try:
-        for payload, inherited_authority in iter_payloads_with_authority(metadata):
+        for payload in _iter_mapping_payloads(metadata):
             plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
             if plugin != MARKET_REGIME_CONTROL_PROFILE:
                 continue
             authorization = resolve_market_regime_position_control_authorization(payload)
-            position_control_allowed = bool(authorization["position_control_allowed"]) and inherited_authority
-            position_control_authorized = bool(authorization["position_control_authorized"]) and inherited_authority
+            position_control_allowed = bool(authorization["position_control_allowed"])
+            position_control_authorized = bool(authorization["position_control_authorized"])
             evidence_status = str(authorization["consumption_evidence_status"])
             position_control = payload.get("position_control")
             if not isinstance(position_control, Mapping):
@@ -338,7 +336,7 @@ def _resolve_market_regime_control_context(metadata: Mapping, *, observer=None) 
 def _resolve_legacy_crisis_response_context(metadata: Mapping, *, observer=None) -> dict[str, object]:
     _observe(observer, "legacy", "ENTERED")
     try:
-        for payload in iter_authoritative_legacy_payloads(metadata):
+        for payload in _iter_mapping_payloads(metadata):
             plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
             if plugin != LEGACY_CRISIS_RESPONSE_PROFILE:
                 continue
@@ -653,7 +651,7 @@ def build_rebalance_plan(
             f"realized_volatility_{volatility_delever_window}",
         )
     )
-    if volatility_delever_metric is None and not use_volatility_delever:
+    if volatility_delever_metric is None:
         volatility_delever_metric = _as_float_or_none(
             _indicator_value(indicators, volatility_delever_symbol, "realized_volatility")
         )
@@ -733,8 +731,6 @@ def build_rebalance_plan(
         active_soxx_ratio=target_active_soxx_ratio,
         defensive_soxx_ratio=target_defensive_soxx_ratio,
     )
-    if use_volatility_delever and selected_soxl_ratio > 0.0 and volatility_delever_metric is None:
-        raise ValueError("enabled volatility delever requires a finite realized volatility metric")
     volatility_delever_triggered = (
         use_volatility_delever
         and selected_soxl_ratio > 0.0

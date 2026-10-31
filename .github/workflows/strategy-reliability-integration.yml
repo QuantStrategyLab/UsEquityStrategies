@@ -53,6 +53,7 @@ jobs:
             tests/test_production_economic_replay.py \
             tests/test_range_rsi2_study.py \
             tests/test_range_rsi2_forward.py \
+            tests/research/test_r2_cv_leakage_v2.py::test_m2_source_binding_matches_original_frozen_bytes \
             --junitxml=strategy-reliability-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET

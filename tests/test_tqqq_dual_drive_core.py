@@ -6,7 +6,10 @@ from unittest.mock import patch
 
 
 def _input(**overrides):
-    from us_equity_strategies.strategies.tqqq_dual_drive_core import DualDriveCoreInput
+    if "prior_volatility_latch" in overrides or "prior_alpha_active" in overrides:
+        from us_equity_strategies.strategies.tqqq_dual_drive_live_v2 import DualDriveCoreInput
+    else:
+        from us_equity_strategies.strategies.tqqq_dual_drive_core import DualDriveCoreInput
 
     values = {
         "qqq_price": 101.0,
@@ -191,7 +194,7 @@ class TqqqDualDriveCoreTests(unittest.TestCase):
 
 
 def test_explicit_volatility_latch_survives_partial_retention_and_absent_holdings():
-    from us_equity_strategies.strategies.tqqq_dual_drive_core import decide_tqqq_dual_drive
+    from us_equity_strategies.strategies.tqqq_dual_drive_live_v2 import decide_tqqq_dual_drive
 
     prior = False
     for metric, expected in ((0.30, True), (0.25, True), (0.19, False)):
@@ -215,12 +218,12 @@ def test_explicit_volatility_latch_survives_partial_retention_and_absent_holding
 
 def test_partial_retention_with_distinct_exit_requires_state_for_restoration():
     from unittest.mock import patch
-    from us_equity_strategies.strategies.tqqq_growth_income import build_rebalance_plan
+    from us_equity_strategies.strategies.tqqq_growth_income_live_v2 import build_rebalance_plan
     history = [{"close": 100.0 + i * 0.5} for i in range(260)]
     snapshot = SimpleNamespace(positions=[SimpleNamespace(symbol="TQQQ", market_value=22000.0, quantity=20),
         SimpleNamespace(symbol="QQQM", market_value=50000.0, quantity=30)],
         total_equity=100000.0, buying_power=0.0, metadata={})
-    with patch("us_equity_strategies.strategies.tqqq_growth_income._resolve_volatility_delever_thresholds") as resolve:
+    with patch("us_equity_strategies.strategies.tqqq_growth_income_live_v2._resolve_volatility_delever_thresholds") as resolve:
         resolve.return_value = {"mode": "fixed", "entry_threshold": .28, "exit_threshold": .20,
             "dynamic_threshold": None, "dynamic_sample_count": 0, "dynamic_lookback": 252,
             "dynamic_percentile": .9, "dynamic_min_periods": 126, "dynamic_floor": .24,
