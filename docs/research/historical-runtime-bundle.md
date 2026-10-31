@@ -275,6 +275,178 @@ present. No-run/no-order fixtures can pass bookkeeping while proving none of
 these scenarios. Synthetic supplemental scenarios test mechanisms and do not
 become observations of the user's account.
 
+## GCS discovery and selection before export
+
+An object listing is a source-discovery result, not an assembled historical
+bundle. Keep a supplied discovery summary outside Git and record who observed it,
+the observation clock, whether the complete report and object bytes were read,
+and which facts remain operator-reported. Object counts include every retained
+mode and do not count production trades. Dates parsed from object names do not
+establish session coverage or input availability.
+
+The offline `historical_gcs_intake` module accepts such a summary and proposes
+prefix-level selection and calendar-date gap intervals. It has no GCS client,
+download, export, upload, execution or deployment operation. All corresponding
+authority flags remain false, including when the input contains an affirmative
+authorization flag. A valid plan remains `BLOCKED`; an invalid input is `FAIL`.
+Explicit owner confirmation is needed before a separate export or upload action.
+
+### Runtime selectors and account isolation
+
+Under the supplied runtime bucket, the initial candidate prefixes are:
+
+| Platform | Profile | Relative prefix |
+| --- | --- | --- |
+| `charles_schwab` | `tqqq_growth_income` | `execution-reports/charles_schwab/tqqq_growth_income/` |
+| `charles_schwab` | `soxl_soxx_trend_income` | `execution-reports/charles_schwab/soxl_soxx_trend_income/` |
+| `interactive_brokers` | `tqqq_growth_income` | `execution-reports/interactive_brokers/tqqq_growth_income/` |
+| `interactive_brokers` | `soxl_soxx_trend_income` | `execution-reports/interactive_brokers/soxl_soxx_trend_income/` |
+| `longbridge` | `tqqq_growth_income` | `execution-reports/longbridge/tqqq_growth_income/` |
+| `longbridge` | `soxl_soxx_trend_income` | `execution-reports/longbridge/soxl_soxx_trend_income/` |
+
+These prefixes select candidate reports, not approved export contents. Runtime
+report producers can add an account-scope path component before a month and run
+identifier. That component may be a logical account group rather than a physical
+broker account. Never infer shared-account identity from a common path segment.
+Retain raw object names only in a protected local inventory; they can contain
+account identifiers. A producer schema must be inspected for each historical
+version and platform before normalization, including platforms not present in
+the currently reviewed source checkout.
+
+Partition candidates by platform, explicit execution environment, server,
+physical-account alias and lifecycle identity. Keep execution environment
+(`live`, broker `paper`, `dry_run`, or unknown) separate from record purpose
+(strategy cycle, reconciliation, diagnostic, maintenance, not-run, synthetic,
+or unknown). Preserve shadow/validation labels as additional evidence rather
+than interpreting them as broker-account identity. `dry_run=false` alone does
+not distinguish a live account from a broker Paper account; a legacy
+`execution_mode=paper` can also label a dry run. Require consistent target,
+control and account-domain evidence; conflicts remain unresolved. Do not merge
+the same alias from different brokers, environments, servers or lifecycles.
+For each independently supported physical account domain, the two profiles must
+have a documented binding before shared-account acceptance. The bucket's
+associated project does not replace a report's runtime project or service.
+
+Use the other prefixes only for referenced objects or an explicitly reviewed,
+unambiguous join:
+
+| Prefix | Select for a candidate run | Required evidence roles |
+| --- | --- | --- |
+| `strategy-artifacts/` | The exact artifact versions referenced by the run or release. | Source revision, configuration, dependency/image identity, input manifest and payload digests. |
+| `strategy-lifecycle/` | Linked state, risk and lifecycle records effective at that run. | Prior/next state identities, risk facts, enrollment and transition evidence. |
+| `platform_handoffs/` | Referenced handoff index, immutable payload and consumption receipt. | Producer, profile, source event, publication/availability clocks, permission and consumer association. |
+| `runtime_daily/` | Same account domain and session, with original source references. | Daily coverage and reconciliation; a projection is not an independent fill source. |
+| `decision-data-projections/` | Projection linked to the actual decision/input version. | Input/output association and projection lineage; no missing state may be reconstructed from current defaults. |
+| `tqqq-p1-p3/`, `soxl-p1-p3/` | Only explicitly referenced research or validation objects. | Research context, separately classified; their prefix does not attest production deployment. |
+
+Select the requested run interval, required indicator warmup, an observed opening
+account state, and any earlier pending-order lifecycle needed by that opening
+state. Follow selected orders through their required subsequent observations.
+Record material outside the requested interval as supporting evidence; it does
+not silently widen the period claimed by the result. Keep unresolved joins and
+missing sessions in a discrepancy list instead of discarding them.
+
+### Inventory, field mapping and redaction
+
+For each proposed object, the protected inventory should retain bucket and full
+object name, generation and metageneration as strings, size, content type,
+creation/update clocks, provider checksums when supplied, and the exact selected
+generation. After an authorized read, add the original byte SHA-256 and schema
+version. An ETag, provider checksum, object timestamp or self-declared `verified`
+flag is not historical publication or broker authenticity evidence.
+Field semantics are defined by the [Cloud Storage Objects API](https://docs.cloud.google.com/storage/docs/json_api/v1/objects)
+and [object metadata reference](https://docs.cloud.google.com/storage/docs/metadata).
+
+The shareable inventory uses a stable object alias and a safe prefix template,
+not a raw URI or basename. It retains generation, byte size, sanitized byte
+SHA-256, record count, source role, normalization version and missing-field
+declarations. Keep the private alias-to-original mapping and keyed pseudonym
+secret outside the submitted bundle. Treat object names, nested URIs, exception
+messages, request/response bodies and logs as redaction surfaces, not only
+explicit account-number fields.
+
+The normalizer must select these roles for every run; they are target contract
+fields, not an assertion that every existing report contains them:
+
+| Target | Select and preserve | Missing or conflicting evidence |
+| --- | --- | --- |
+| `release-manifests.json` | Effective release interval; strategy/platform/QPK revisions; source hashes; actual resolved configuration and digest; image and dependency-lock identity. | A current default or container tag cannot replace a missing historical version. |
+| `sessions.json` | Calendar identity, open/close clocks, run index and explicit no-run reasons. | A filename date or absence of a report cannot assert no run. |
+| `runs.jsonl` | Stable run and profile IDs; account domain; decision clock; frozen input and output; availability observations; state, plugin and intent references. | Missing state, unmatched plugin receipt or non-unique association stays blocked. |
+| `order-events.jsonl` | Intent/attempt/order/execution IDs; status transitions; side, symbol, quantity, prices, fees, cumulative and remaining quantity; event and observation clocks. | An accepted order or aggregate order count is not a fill. A timeout is not a rejection. |
+| `account-events.jsonl` | External cash flows, settlement, fees and supported corporate actions with original references and event clocks. | Never infer an observed empty ledger from a missing or pruned field. |
+| `account-snapshots.jsonl` | Actual opening/closing observations, cash, settled cash, positions, strategy ownership, reservations, receivables and covered event sequence. | A reconciliation summary without those observations is incomplete. |
+| `source-evidence.json` | Sanitized source payload and hash, source kind, observed and historically available clocks, stable associations. | Export/GCS-update time cannot replace unknown historical availability. |
+
+Use exact producer references first. A compound join requires independently
+established account domain, mode, profile, run/decision identity, source version
+and compatible clocks. Matching a date or choosing the nearest timestamp is not
+sufficient. Some runtime report serializers omit empty nested values; absence
+must not become a zero order count, empty position set, or observed no-trade day.
+Retain a no-run source record with its source identity; do not invent a business
+`run_id` for it merely to fill this bundle's run table.
+
+Preserve numeric types required by the original strategy input, decimal ledger
+precision, quantities, amounts, timezones and actual timestamp precision. Remove
+credentials, authorization headers, cookies, private keys, personal contact
+details, raw account identifiers and signed-URL parameters. Stable keyed aliases
+must include the independently established account domain and remain one-to-one
+across related sources and across the two profiles within that domain. Do not
+include the strategy profile in an account alias: the two profiles must retain
+the same alias when they actually share that account. Do not globally merge
+broker order IDs that merely have
+the same textual value. Recompute sanitized payload and file digests and retain
+a transformation version; do not present the original digest as the digest of
+changed bytes. Perform a local redaction review before proposing an export.
+
+### Market data cutoff and incomplete inception coverage
+
+Select each requested ticker's directory beneath the supplied market input
+prefix, together with its actual `raw`, `adjusted`, and `corporate_actions`
+objects, source manifest and session calendar. Their exact object names must
+come from an inventory; the planner does not invent component filenames. Preserve
+raw OHLCV and adjusted values separately, with declared bases and precision.
+Corporate actions require type, factor or per-share amount, currency, provider
+event clock and the known ex/effective/pay/available clocks; absent clocks stay
+unknown. Metadata indicating that all three components exist does not establish
+their coverage, completeness, provenance, permitted use, or historical availability.
+
+The externally supplied discovery summary declares the last available session.
+If it is `2026-08-25`, a requested period ending `2026-10-30` retains an unresolved
+calendar-date interval from `2026-08-26` through `2026-10-30`. The planner reports
+date intervals, not invented counts of exchange sessions. Apply the same check
+to the full required input interval, including warmup. Earlier gaps and unknown
+first sessions remain distinct from this trailing gap.
+
+For example, an operator-reported `2016-01-04` start does not cover earlier
+requested SCHD or DGRO history. A report that SGOV, SPYI or QQQI lacks one or two
+inception sessions does not identify the exact dates or prove that later rows are
+complete. Resolve those questions against exact raw files and a retained exchange
+calendar. Do not invent missing rows, substitute another ETF, forward-fill prices,
+manufacture zero returns, or silently shorten the requested period.
+
+An explicitly requested shorter research window ending at the reported cutoff
+can be planned separately. It is not completion of the original longer request,
+and it still lacks point-in-time and source-authentication acceptance until
+those facts are established. If lawful later data are obtained after separate
+authorization, retain a distinct frozen source version, test adjustment and
+corporate-action consistency over an overlap, and record the join. Never
+overwrite prior frozen inputs or treat a later download as an original decision
+input. Account-ledger checks may proceed on their own supported evidence while
+market-dependent decision/economic checks remain blocked.
+
+The planner reads a local discovery summary only:
+
+```bash
+PYTHONPATH=src python -m us_equity_strategies.research.historical_gcs_intake /path/to/discovery-summary.json --first-session 2026-04-09 --last-session 2026-10-30 --output /path/to/new-intake-plan.json
+```
+
+The generated plan is supporting material outside the strict nine-file bundle.
+It does not change the existing checker, perform source normalization, export
+object bodies, or discharge its historical acceptance findings. A real adapter
+requires approved, sanitized source records and tests against each observed
+historical schema.
+
 ## Commands
 
 Run from a checkout of this repository with its supported Python environment:
