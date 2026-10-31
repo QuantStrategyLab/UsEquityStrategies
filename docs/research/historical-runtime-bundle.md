@@ -174,6 +174,61 @@ all component observations were timely.
 run. Missing or non-observed order evidence blocks coverage. Every listed intent
 must have exactly one reservation event in the global account journal.
 
+## Strategy-state continuity observations
+
+`historical_state_continuity.check_state_continuity(sidecar)` checks separately
+captured state observations. It is an independent offline research interface;
+the bundle checker does not invoke it and retains
+`CROSS_RUN_STRATEGY_STATE_CONTINUITY_UNVERIFIED`.
+
+The sidecar schema is `qsl.historical_state_continuity.v1`. Its required top-level
+fields are `evidence_kind`, `account_domain`, `profile`, `record_kind`, `release`,
+`identity`, `sessions`, `boundary`, `run_index`, and `runs`. The account domain
+binds platform, explicit execution environment, server, lifecycle identifier and
+account alias. The strategy identity additionally binds the existing QPK
+strategy profile, logical account scope, candidate and configuration digest.
+Neither a logical scope nor a shared bucket proves physical account identity.
+
+The declared run index names every run, its predecessor, session, final decision
+clock and ordered evaluation identifiers. Each evaluation retains separately
+hashed original input, original decision diagnostics, and head observations
+before and after evaluation. Observation envelopes bind the account domain,
+profile, record kind, release, process instance, run, evaluation, role and both
+availability and observation clocks. The left boundary needs its own observed
+predecessor head; the final evaluation needs an observed matching head afterward.
+
+The supported wire contracts are TQQQ's `tqqq_daily_state.v1` and QPK's
+`strategy_risk_state_transition.v1`. The input is the original
+`state.tqqq_daily_state`; the decision must retain
+`diagnostics.tqqq_daily_state_status` and
+`diagnostics.tqqq_daily_state_transition`. The abbreviated decision replay trace
+does not contain these diagnostics. SOXL has no supported state adapter here and
+returns `STATE_ADAPTER_UNAVAILABLE`; an empty object is not an accepted substitute.
+
+Within-run proposal, persistence and confirmed reevaluation remain separate
+observations. The next evaluation's consumed predecessor must agree with the
+previous observed head, including across a process restart. Same-session
+confirmation must preserve the exact transition and input digest. Missing runs,
+evaluations, boundaries or observations block local conformance; observed
+contradictory identities, ordering, digests or state fields fail it. Declared
+release or schema migrations remain blocked; a candidate or configuration change
+within the same declared release fails the identity binding. The validator does
+not recompute market-derived alpha or volatility-latch decisions.
+
+The daily binding's `input_sha256` is a separate producer value, not the digest
+of an enclosing input that itself contains that value. Its construction and
+historical source identity remain unverified. A declared complete run index and
+self-consistent observation hashes do not prove that omitted runs never occurred
+or that a head was durably stored.
+
+`conformance_status` describes only the supplied records and can be `PASS`,
+`BLOCKED`, or `FAIL`. Overall `status` remains `BLOCKED` or `FAIL`;
+`historical_parity_established`, `execution_authorized`, `executable`, and
+`production_ready` remain false. The module performs no file, store, broker or
+network access and does not modify its input. The synthetic construction in
+[`test_historical_state_continuity.py`](../../tests/test_historical_state_continuity.py)
+illustrates the observation contract without representing actual runtime data.
+
 ## Global journal and order lifecycle
 
 Both event files share one consecutive `sequence`, starting at 1. Do not number
