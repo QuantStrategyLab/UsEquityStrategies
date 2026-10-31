@@ -2,7 +2,7 @@
 
 The B3 and SOXL de-risk qualification workflows share the non-secret repository
 variable `RS04_INPUT_ROOT`. Configure it after verifying the approved cloud
-location. Its generic default is `gs://research-inputs/research/v2/input/`;
+location. Its generic default is `gs://<bucket>/research/v2/input/`;
 this example bucket is not provisioned or discovered by these workflows.
 
 The value must be an exact `gs://<bucket>/research/v2/input/` root, including the
@@ -15,8 +15,8 @@ credentials, resources or acquisition calls are required by this configuration.
 For example, with synthetic names only:
 
 ```text
-RS04_INPUT_ROOT=gs://synthetic-study-inputs/research/v2/input/
-archive_prefix=gs://synthetic-study-inputs/research/v2/input/fixture-rs04
+RS04_INPUT_ROOT=gs://<bucket>/research/v2/input/
+archive_prefix=gs://<bucket>/research/v2/input/fixture-rs04
 ```
 
 An absent or empty variable uses the generic default. Malformed roots, traversal,
