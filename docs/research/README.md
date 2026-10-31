@@ -47,6 +47,7 @@ model, change historical results, or authorize adoption. See the
 
 ## Historical runtime reference
 
+- [Historical runtime bundle](historical-runtime-bundle.md). Sanitized export fields, immutable inputs, offline decision comparisons, order-level cash reconciliation and shared-account acceptance boundaries.
 - [US equity runtime archive](../us-equity-runtime-archive.md) ([中文](../us-equity-runtime-archive.zh-CN.md)). Retains the profile/evidence snapshot dated 2026-06-28. Its performance rows and runtime labels are historical context, not a current deployment or live-eligibility readback.
 
 The English overviews summarize the linked complete documents; they do not replace their field definitions, examples, risk controls or data-license requirements. Research notes do not authorize trading. See the repository [license](../../LICENSE).
