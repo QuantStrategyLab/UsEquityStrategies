@@ -25,6 +25,7 @@ def test_template_exercises_accounting_without_claiming_historical_acceptance(tm
     assert result["historical_parity_established"] is False
     assert result["production_ready"] is False
     assert "DECISION_TO_ORDER_SIZING_AND_RISK_LINK_UNVERIFIED" in _codes(result)
+    assert "CROSS_RUN_STRATEGY_STATE_CONTINUITY_UNVERIFIED" in _codes(result)
 
 
 def _edit(root: Path, role: str, change):
@@ -92,6 +93,15 @@ def test_missing_file_is_blocked_not_observed_empty(tmp_path):
     result = check_bundle(tmp_path)
     assert result["status"] == "BLOCKED"
     assert "REQUIRED_BUNDLE_FILE_MISSING" in _codes(result)
+
+
+def test_release_source_hashes_requires_an_object(tmp_path):
+    _, data = template_records()
+    data["releases"][0]["source_hashes"] = ["0" * 64]
+    _write(tmp_path, data)
+    result = check_bundle(tmp_path, decision_replay=False)
+    assert result["status"] == "FAIL"
+    assert "SOURCE_HASHES_OBJECT_REQUIRED" in _codes(result)
 
 
 def test_freeze_never_overwrites_frozen_manifest(tmp_path):

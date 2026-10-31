@@ -40,6 +40,13 @@ adapter. The machine-readable finding
 decision calculation and reconciled supplied fills do not jointly establish
 complete decision-to-broker parity.
 
+Each daily calculation uses the independently supplied `input.state` for that
+run. The current trace contains no strategy-state transition output, and this
+adapter does not reconstruct or carry state between runs. The finding
+`CROSS_RUN_STRATEGY_STATE_CONTINUITY_UNVERIFIED` remains blocked even when every
+daily golden comparison matches. Such matches do not verify cross-run retention,
+income, crisis, or pending-intent state continuity.
+
 The existing production decision replay adapter also keeps its own `BLOCKED`
 result. A matching computed trace does not override that result. The checker
 does not supply a verifier that blindly returns `True`, import code named by a

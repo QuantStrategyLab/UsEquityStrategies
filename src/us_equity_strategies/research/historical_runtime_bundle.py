@@ -285,6 +285,8 @@ def _coverage(manifest, data, report):
             if row.get("source_evidence_id") not in source:
                 _finding(report, "coverage", "SOURCE_RECORD_MISSING", record=f"{role}:{index}")
     for release in releases.values():
+        if type(release["source_hashes"]) is not dict:
+            raise BundleError("SOURCE_HASHES_OBJECT_REQUIRED")
         if (not re.fullmatch(r"[0-9a-f]{40}", release["source_revision"])
                 or not release["source_hashes"]):
             raise BundleError("RELEASE_SOURCE_IDENTITY_MISSING", blocked=True)
@@ -350,6 +352,7 @@ def _coverage(manifest, data, report):
     _finding(report, "provenance", "SOURCE_AUTHENTICATION_NOT_ESTABLISHED")
     _finding(report, "provenance", "CALENDAR_COMPLETENESS_NOT_INDEPENDENTLY_ATTESTED")
     _finding(report, "provenance", "DECISION_TO_ORDER_SIZING_AND_RISK_LINK_UNVERIFIED")
+    _finding(report, "provenance", "CROSS_RUN_STRATEGY_STATE_CONTINUITY_UNVERIFIED")
     if manifest["evidence_kind"] == "synthetic_fixture":
         _finding(report, "provenance", "SYNTHETIC_FIXTURE_IS_NOT_HISTORICAL_EVIDENCE")
     return runs, releases
