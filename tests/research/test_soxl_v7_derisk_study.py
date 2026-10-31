@@ -31,7 +31,7 @@ def test_plugin_union_includes_off_deprecated_noop_options_and_unknown_custom():
 
 
 def test_missing_archive_or_supplied_locator_never_claim_replay_pass_or_shadow():
-    for locator in ("", "gs://synthetic-research-inputs/research/v2/input/fixture-rs04"):
+    for locator in ("", "gs://research-inputs/research/v2/input/fixture-rs04"):
         r = qualification_report(cloud=True, archive_prefix=locator)
         assert r["status"] == "PARKED" and r["real_bars_read"] == 0
         assert r["real_replay_executed"] is False
@@ -57,7 +57,7 @@ def test_configured_root_is_shared_with_b3_without_qualifying_an_archive(monkeyp
     assert result["baseline_binding"]["effective_config_verified"] is False
     assert "HISTORICAL_PLUGIN_CONTEXT_BINDINGS_UNAVAILABLE" in result["blockers"]
     with pytest.raises(ValueError, match="ARCHIVE_PREFIX_REJECTED"):
-        qualification_report(cloud=True, archive_prefix="gs://synthetic-research-inputs/research/v2/input/fixture-rs04")
+        qualification_report(cloud=True, archive_prefix="gs://research-inputs/research/v2/input/fixture-rs04")
     with pytest.raises(ValueError, match="ARCHIVE_PREFIX_REJECTED"):
         qualification_report(cloud=True, archive_prefix=root+"fixture/../other")
 
