@@ -35,7 +35,7 @@ def test_batch_a_v2_cloud_materialization_workflow_is_manual_default_branch_read
     assert "packages: write" not in workflow
 
     assert (
-        "^gs://synthetic-research-evidence/research/v2/input/"
+        "^gs://qsl-research-evidence-831478360303/research/v2/input/"
         "[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"
     ) in workflow
     assert "GCS_INPUT_PREFIX_REJECTED" in workflow
