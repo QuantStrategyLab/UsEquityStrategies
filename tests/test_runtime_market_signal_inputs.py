@@ -106,7 +106,7 @@ def test_extract_consumer_market_signal_inputs_uses_last_valid_on_failure(monkey
             return tmp_path / "index.json", {"source_uri": reference, "materialized_count": 3}
         raise RuntimeError("signal source unavailable")
 
-    def fake_extract(path, *, consumer, as_of=None):
+    def fake_extract(path, *, consumer, as_of=None, reference_time=None):
         return {
             "derived_indicators": {
                 "BTC-USD": {
@@ -132,6 +132,13 @@ def test_extract_consumer_market_signal_inputs_uses_last_valid_on_failure(monkey
         fake_extract,
     )
 
+    monkeypatch.setattr(runtime_inputs, "signal_platform_handoff_audit_summary_from_index",
+        lambda *args, **kwargs: {"signal_bundle_manifest_path": "manifest.json",
+                                 "signal_bundle_manifest_sha256": "a" * 64})
+    monkeypatch.setattr(runtime_inputs, "signal_bundle_consumer_audit_summary_from_manifest",
+        lambda *args, **kwargs: {"as_of": "2026-06-19", "generated_at": "2026-06-19T18:00:00+00:00",
+                                 "bundle_id": "bundle"})
+
     first_inputs, first_metadata = runtime_inputs.extract_consumer_market_signal_inputs_from_reference(
         "gs://signals/platform_handoffs/index.json",
         reference_type="platform_handoff_index",
@@ -139,14 +146,16 @@ def test_extract_consumer_market_signal_inputs_uses_last_valid_on_failure(monkey
         cache_dir=tmp_path / "cache",
         as_of="2026-06-19",
         fallback_mode="last_valid",
+        decision_time=datetime(2026, 6, 20, 15, tzinfo=timezone.utc),
     )
     fallback_inputs, fallback_metadata = runtime_inputs.extract_consumer_market_signal_inputs_from_reference(
         "gs://signals/platform_handoffs/index.json",
         reference_type="platform_handoff_index",
         consumer="us_equity:ibit_smart_dca",
         cache_dir=tmp_path / "cache",
-        as_of="2026-06-20",
+        as_of="2026-06-22",
         fallback_mode="last_valid",
+        decision_time=datetime(2026, 6, 22, 15, tzinfo=timezone.utc),
     )
 
     assert first_inputs["derived_indicators"]["BTC-USD"]["ahr999"] == 0.8
@@ -222,6 +231,8 @@ def test_resolve_external_market_signal_inputs_uses_handoff_index(monkeypatch, t
         client_factory=None,
         fallback_mode=None,
         fallback_max_stale_days=None,
+        decision_time=None,
+        cache_namespace=None,
     ):
         calls["extract"] = (
             reference,
@@ -274,3 +285,20 @@ def test_resolve_external_market_signal_inputs_uses_handoff_index(monkeypatch, t
         "last_valid",
         5,
     )
+
+
+def test_resolver_forwards_only_explicit_clock_and_namespace(monkeypatch, tmp_path):
+    calls = []
+    def extract(reference, **kwargs):
+        calls.append(kwargs)
+        return {}, {}
+    monkeypatch.setattr(runtime_inputs, "extract_consumer_market_signal_inputs_from_reference", extract)
+    settings = type("Settings", (), {"market_signal_handoff_index_uri": "index",
+        "market_signal_cache_dir": str(tmp_path)})()
+    common = dict(strategy_profile="soxl_soxx_trend_income", available_inputs={"derived_indicators"},
+                  runtime_settings=settings, logger=lambda message: None)
+    runtime_inputs.resolve_external_market_signal_inputs(**common)
+    assert "decision_time" not in calls[-1] and "cache_namespace" not in calls[-1]
+    clock = datetime(2026, 6, 19, tzinfo=timezone.utc)
+    runtime_inputs.resolve_external_market_signal_inputs(**common, decision_time=clock, cache_namespace="replay")
+    assert calls[-1]["decision_time"] == clock and calls[-1]["cache_namespace"] == "replay"

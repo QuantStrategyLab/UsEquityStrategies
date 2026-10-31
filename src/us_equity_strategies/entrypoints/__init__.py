@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 import re
 from ._common import _observe
 from dataclasses import replace
@@ -58,8 +59,8 @@ from us_equity_strategies.strategies import (
     ibit_smart_dca as ibit_smart_dca_strategy,
     mega_cap_leader_rotation as mega_cap_leader_rotation_strategy,
     nasdaq_sp500_smart_dca as nasdaq_sp500_smart_dca_strategy,
-    tqqq_growth_income as tqqq_growth_income_strategy,
-    soxl_soxx_trend_income as soxl_soxx_trend_income_strategy,
+    tqqq_growth_income_live_v2 as tqqq_growth_income_strategy,
+    soxl_soxx_trend_income_live_v2 as soxl_soxx_trend_income_strategy,
     tecl_xlk_trend_income as tecl_xlk_trend_income_strategy,
     us_equity_combo as us_equity_combo_strategy,
     us_equity_combo_core as us_equity_combo_core_strategy,
@@ -428,8 +429,11 @@ legacy_global_etf_rotation.compute_signals.__doc__ = (
 ).strip()
 
 
+from us_equity_strategies._decision_candidate_marker import RESEARCH_SIMULATED_FENCE as _RESEARCH_SIMULATED_FENCE
+
+
 def _build_tqqq_growth_income_decision(
-    ctx: StrategyContext, *, research_session_successor: date | None = None,
+    ctx: StrategyContext, *, research_session_successor: date | None = None, _research_simulated_fence=None,
 ) -> StrategyDecision:
     config = merge_runtime_config(tqqq_growth_income_manifest.default_config, ctx)
     option_overlay_config = pop_option_overlay_config(config)
@@ -443,13 +447,55 @@ def _build_tqqq_growth_income_decision(
     apply_reserved_cash_policy_to_ratio_config(config, reserved_cash_policy)
     translator = config.pop("translator", default_translator)
     signal_text_fn = config.pop("signal_text_fn", default_signal_text_fn)
+    from us_equity_strategies.tqqq_daily_state import prepare_tqqq_daily_state, finish_tqqq_daily_state
+
+    daily_request = ctx.state.get("tqqq_daily_state")
+    if isinstance(daily_request, Mapping):
+        daily_request = dict(daily_request)
+        daily_request["execution_fence_confirmed"] = (
+            _research_simulated_fence is _RESEARCH_SIMULATED_FENCE
+            and daily_request.get("execution_fence_confirmed") is True
+        )
+    prepared = prepare_tqqq_daily_state(daily_request, ctx.as_of)
     plan = tqqq_growth_income_strategy.build_rebalance_plan(
         require_market_data(ctx, "benchmark_history"),
         require_portfolio(ctx),
         signal_text_fn=signal_text_fn,
         translator=translator,
+        daily_state_prior=({"alpha_trend_active": False, "volatility_latch_active": False}
+                           if prepared["status"] == "bootstrap" else prepared.get("prior")),
         **config,
     )
+    if daily_request is not None:
+        benchmark = plan.get("notification_context", {}).get("benchmark", {})
+        valid_alpha = all(
+            isinstance(value, (int, float)) and math.isfinite(value)
+            for value in (plan.get("qqq_p"), plan.get("ma200"))
+        )
+        if config.get("dual_drive_require_ma20_slope", True):
+            slope = benchmark.get("ma20_slope")
+            valid_alpha = valid_alpha and isinstance(slope, (int, float)) and math.isfinite(slope)
+        if not valid_alpha or (plan.get("dual_drive_volatility_delever_enabled") and plan.get("dual_drive_volatility_delever_metric") is None):
+            prepared = {"status": "unavailable"}
+        daily_result = finish_tqqq_daily_state(
+            prepared, daily_request,
+            alpha_active=plan["daily_alpha_trend_active"],
+            volatility_latch=plan["daily_volatility_latch_active"],
+            _research_simulated_fence=_research_simulated_fence,
+        )
+        if not daily_result["risk_increase_allowed"]:
+            values = dict(plan["target_values"])
+            for symbol in tuple(values):
+                if symbol == "BOXX":
+                    continue
+                target = float(values.get(symbol, 0.0))
+                held = max(0.0, float(plan["market_values"].get(symbol, 0.0)))
+                capped = min(target, held)
+                values[symbol] = capped
+                values["BOXX"] = float(values.get("BOXX", 0.0)) + target - capped
+            plan["target_values"] = values
+    else:
+        daily_result = {"status": "unconfigured", "transition": None, "risk_increase_allowed": False}
     account_size_diagnostics = _account_size_diagnostics(tqqq_growth_income_manifest.profile, ctx)
     notification_context = dict(plan.get("notification_context") or {})
     signal_context = notification_context.get("signal")
@@ -484,6 +530,9 @@ def _build_tqqq_growth_income_decision(
         base_diagnostics={"notification_context": notification_context},
     )
     diagnostics = {
+        "tqqq_daily_state_status": daily_result["status"],
+        "tqqq_daily_state_transition": daily_result["transition"],
+        "tqqq_daily_state_risk_increase_allowed": daily_result["risk_increase_allowed"],
         "signal_display": signal_display,
         "dashboard": dashboard_text or plan["dashboard"],
         "threshold": plan["threshold"],
@@ -564,6 +613,8 @@ def _build_tqqq_growth_income_decision(
         "dual_drive_volatility_delever_removed_value": plan.get("dual_drive_volatility_delever_removed_value"),
         "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
         "market_regime_control_found": plan.get("market_regime_control_found"),
+        "market_regime_control_position_control_allowed": plan.get("market_regime_control_position_control_allowed"),
+        "market_regime_control_position_control_authorized": plan.get("market_regime_control_position_control_authorized"),
         "market_regime_control_schema_version": plan.get("market_regime_control_schema_version"),
         "market_regime_control_route": plan.get("market_regime_control_route"),
         "market_regime_control_route_source": plan.get("market_regime_control_route_source"),
@@ -700,11 +751,16 @@ def _build_tqqq_growth_income_decision(
 
 
 def compute_tqqq_growth_income_decision(ctx: StrategyContext) -> StrategyDecision:
-    return apply_risk_gate(
-        _build_tqqq_growth_income_decision(ctx),
+    pre = _build_tqqq_growth_income_decision(ctx)
+    post = apply_risk_gate(
+        pre,
         ctx=ctx,
         max_single_weight=0.20,
     )
+    if ctx is not None and ctx.capabilities.get("decision_consumption_receipt") is not None:
+        from us_equity_strategies.decision_observation import attach_optional_decision_receipt
+        post = attach_optional_decision_receipt(ctx, pre, post, profile="tqqq_growth_income")
+    return post
 
 
 def _validate_tqqq_core_only_research_runtime_config(
@@ -942,7 +998,7 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
     quantities = {symbol: 0.0 for symbol in strategy_symbols}
     sellable_quantities = {symbol: 0.0 for symbol in strategy_symbols}
     metadata = getattr(portfolio, "metadata", {}) or {}
-    raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else {}
+    raw_sellable_quantities = (metadata.get("sellable_quantities") or {}) if isinstance(metadata, Mapping) else {}
     for position in getattr(portfolio, "positions", ()):
         if position.symbol not in market_values:
             continue
@@ -955,12 +1011,29 @@ def _build_tiered_blend_account_state_from_portfolio(portfolio, *, strategy_symb
             else quantity
         )
     raw_cash = resolve_raw_cash_from_snapshot(portfolio)
+    currency_cash = metadata.get("cash_by_currency", {}) if isinstance(metadata, Mapping) else None
+    zero_usd_strategy_snapshot = (
+        getattr(portfolio, "total_equity", None) == 0.0
+        and getattr(portfolio, "buying_power", None) == 0.0
+        and getattr(portfolio, "cash_balance", None) == 0.0
+        and isinstance(metadata, Mapping)
+        and all(key not in metadata or metadata[key] == 0.0
+                for key in ("market_currency_cash", "cash_available_for_trading", "cash_balance"))
+        and isinstance(currency_cash, Mapping)
+        and all(str(currency).upper() != "USD" or amount == 0.0
+                for currency, amount in currency_cash.items())
+        and all(position.quantity == 0.0 and position.market_value == 0.0
+                for position in getattr(portfolio, "positions", ()))
+        and isinstance(raw_sellable_quantities, Mapping)
+        and all(value == 0.0 for value in raw_sellable_quantities.values())
+    )
     return {
         "available_cash": raw_cash,
         "market_values": market_values,
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": compute_strategy_total_equity(market_values, raw_cash),
+        "zero_usd_strategy_snapshot": zero_usd_strategy_snapshot,
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
@@ -1124,6 +1197,8 @@ def _build_soxl_soxx_trend_income_decision(
         "market_regime_control_enabled": plan.get("market_regime_control_enabled"),
         "market_regime_control_found": plan.get("market_regime_control_found"),
         "market_regime_control_source": plan.get("market_regime_control_source"),
+        "market_regime_control_position_control_allowed": plan.get("market_regime_control_position_control_allowed"),
+        "market_regime_control_position_control_authorized": plan.get("market_regime_control_position_control_authorized"),
         "market_regime_control_schema_version": plan.get("market_regime_control_schema_version"),
         "market_regime_control_route": plan.get("market_regime_control_route"),
         "market_regime_control_route_source": plan.get("market_regime_control_route_source"),
@@ -1448,14 +1523,17 @@ def evaluate_soxl_soxx_trend_income(ctx: StrategyContext) -> StrategyDecision:
         pass
     _observe(observer, "entrypoint", "ENTERED")
     try:
-        decision = _build_soxl_soxx_trend_income_decision(ctx, **({"observer": observer} if observer is not None else {}))
+        pre = _build_soxl_soxx_trend_income_decision(ctx, **({"observer": observer} if observer is not None else {}))
         decision = apply_risk_gate(
-            decision,
+            pre,
             ctx=ctx,
             max_single_weight=0.20,
             enforce_value_target_exposure=True,
             **({"observer": observer} if observer is not None else {}),
         )
+        if ctx is not None and ctx.capabilities.get("decision_consumption_receipt") is not None:
+            from us_equity_strategies.decision_observation import attach_optional_decision_receipt
+            decision = attach_optional_decision_receipt(ctx, pre, decision, profile="soxl_soxx_trend_income")
         record_strategy_decision(
             ctx,
             decision,

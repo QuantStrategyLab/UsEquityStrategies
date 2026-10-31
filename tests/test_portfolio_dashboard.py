@@ -48,6 +48,8 @@ class PortfolioDashboardTests(unittest.TestCase):
             )
         )
 
+        self.assertIsNone(decision.diagnostics["blend_gate_volatility_delever_metric"])
+        self.assertTrue(all((target.target_value or 0.0) == 0.0 for target in decision.positions))
         dashboard = decision.diagnostics["execution_annotations"]["dashboard_text"]
         self.assertIn("📌 策略账户概览", dashboard)
         self.assertIn("总资产（策略标的+现金，不含融资额度）: $0.00", dashboard)
@@ -59,6 +61,27 @@ class PortfolioDashboardTests(unittest.TestCase):
         # Zero positions are now hidden; empty holdings show "空仓"
         self.assertIn("空仓", dashboard)
         self.assertNotIn("跟踪股票池", dashboard)
+
+    def test_semiconductor_missing_volatility_rejects_inconsistent_or_funded_snapshots(self) -> None:
+        entrypoint = get_strategy_entrypoint("soxl_soxx_trend_income")
+        for equity, cash, positions, metadata in (
+            (100000.0, 0.0, (), {}),
+            (0.0, 1000.0, (), {"market_currency_cash": 0.0}),
+            (0.0, 0.0, (), {"market_currency_cash": 0.0, "cash_by_currency": {"USD": 1000.0}}),
+            (0.0, 0.0, (), {"market_currency_cash": 0.0, "cash_available_for_trading": 1000.0}),
+            (0.0, 0.0, (Position(symbol="AAPL", quantity=1, market_value=100.0),), {}),
+        ):
+            snapshot = PortfolioSnapshot(
+                as_of=pd.Timestamp("2026-04-21").to_pydatetime(),
+                total_equity=equity, buying_power=0.0, cash_balance=cash, positions=positions,
+                metadata=metadata,
+            )
+            with self.subTest(equity=equity, cash=cash, positions=positions, metadata=metadata):
+                with self.assertRaisesRegex(ValueError, "requires a finite realized volatility"):
+                    entrypoint.evaluate(StrategyContext(
+                        as_of="2026-04-21", portfolio=snapshot,
+                        market_data={"derived_indicators": {"soxl": {"price": 80.0, "ma_trend": 75.0}}},
+                    ))
 
     def test_snapshot_entrypoint_attaches_strategy_portfolio_dashboard(self) -> None:
         entrypoint = get_strategy_entrypoint("russell_top50_leader_rotation")

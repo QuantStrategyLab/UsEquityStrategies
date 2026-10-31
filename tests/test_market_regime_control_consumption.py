@@ -342,3 +342,16 @@ def test_global_etf_emergency_survives_invalid_plugin_binding() -> None:
     assert 'emergency' in decision.risk_flags
     assert 'no_execute' not in decision.risk_flags
     assert {p.symbol: p.target_weight for p in decision.positions} == {'BIL': 1.0}
+
+
+def test_market_regime_denied_ancestor_cannot_grant_nested_control() -> None:
+    from us_equity_strategies.entrypoints._common import _resolve_market_regime_control_from_payloads
+
+    payload = _market_regime_payload("risk_reduced", 0.0)
+    for denied in ({"strategy_runtime_metadata_non_authoritative": True},
+                   {"runtime_consumption": "invalid"},
+                   {"execution_controls": {"position_control_allowed": False}}):
+        result = _resolve_market_regime_control_from_payloads({**denied, "nested": payload})
+        assert result["found"] is True
+        assert result["position_control_authorized"] is False
+        assert result["active"] is False

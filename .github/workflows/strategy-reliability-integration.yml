@@ -1,0 +1,69 @@
+name: Strategy reliability integration
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  strategy-reliability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QPK_STRATEGY_RELIABILITY_SHA: 152aaaf374230e24ec86edcd03e4c46e78422240
+      REQUIRE_QSL_STRATEGY_INTEGRATION: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Install isolated candidate dependency
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[research]' pytest pandas_market_calendars jsonschema
+          python -m pip install --force-reinstall --no-deps \
+            "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@${QPK_STRATEGY_RELIABILITY_SHA}"
+          python -m pip check
+          python - <<'PY'
+          import json, os
+          from importlib.metadata import distribution
+          installed = json.loads(distribution("quant-platform-kit").read_text("direct_url.json"))
+          assert installed["vcs_info"]["commit_id"] == os.environ["QPK_STRATEGY_RELIABILITY_SHA"]
+          PY
+      - name: Run required strategy, replay and research contracts
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m pytest -q -rs \
+            tests/test_market_regime_control_contract.py \
+            tests/test_market_regime_control_consumption.py \
+            tests/test_signal_authority_regressions.py \
+            tests/test_runtime_market_signal_inputs.py \
+            tests/test_signal_bundle_contract.py \
+            tests/test_tqqq_dual_drive_core.py \
+            tests/test_tqqq_daily_state.py \
+            tests/test_conditional_tqqq_candidate.py \
+            tests/test_prelisting_sequential_research.py \
+            tests/test_decision_observation.py \
+            tests/test_production_decision_replay.py \
+            tests/test_production_economic_replay.py \
+            tests/test_range_rsi2_study.py \
+            tests/test_range_rsi2_forward.py \
+            tests/test_catalog.py::CatalogTest::test_known_profile_resolves \
+            tests/test_optimized_strategy_replay.py::test_explicit_session_research_parameter_does_not_enter_runtime_config_or_compute \
+            tests/test_portfolio_dashboard.py::PortfolioDashboardTests::test_semiconductor_entrypoint_attaches_strategy_cash_and_holdings_dashboard \
+            tests/test_portfolio_dashboard.py::PortfolioDashboardTests::test_semiconductor_missing_volatility_rejects_inconsistent_or_funded_snapshots \
+            tests/research/test_r2_cv_leakage_v2.py::test_m2_source_binding_matches_original_frozen_bytes \
+            --junitxml=strategy-reliability-tests.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse("strategy-reliability-tests.xml").getroot().iter("testcase"))
+          assert cases, "required candidate tests were not collected"
+          assert not any(c.find(tag) is not None for c in cases for tag in ("skipped", "failure", "error"))
+          PY
