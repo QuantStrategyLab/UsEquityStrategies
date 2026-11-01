@@ -212,6 +212,61 @@ less fees; a separate settlement event makes those proceeds available as settled
 cash. This is an evidence-accounting model and does not replace a broker's
 historical buying-power or settlement-policy adapter.
 
+## Captured order-mapping evidence
+
+`historical_order_mapping.validate_order_mapping(document)` checks one captured
+post-risk target, parent plan and its slices. It is an independent offline
+research interface, not a production sizing adapter. The bundle checker retains
+`DECISION_TO_ORDER_SIZING_AND_RISK_LINK_UNVERIFIED`.
+
+The schema is `qsl.historical_order_mapping.v1`. The document binds a run,
+release, profile and physical account domain, a release interval and source
+hashes, an adapter reference, and the evidence roles `target`, `account`,
+`pending`, `price`, `policy`, `plan`, and `slices`. Each record has an explicit
+source identifier, producer digest, identity binding, event and availability
+clocks, payload and payload digest. Parent and slice references must identify
+the exact target, inputs, plan and price they used. These are proposed captured
+observations; existing production reports are not presumed to contain them.
+
+The target must identify `stage=post_risk` and `origin=risk_result`. Existing
+`production_decision_replay.decision_targets` comes from the original strategy
+decision; its separately recorded `offline_risk_decision` must not be conflated
+with that field. A correctly labeled payload and matching source digest still
+do not authenticate a real risk decision.
+
+Target units are `USD` or `shares`; order quantity units are `shares` or
+`DOLLARS`. A Schwab dollar order's reported quantity is an amount and must not be
+summed as shares or multiplied by the price again. Account facts keep position
+shares, sellable shares, settled cash and existing reservations separate. An
+absent pending-order observation never becomes an empty list.
+
+The limited consistency model checks explicit `floor` or `exact` rounding,
+quantity steps, per-slice minimum quantity and notional, slice quantity and fee
+conservation, a single fixed USD price per plan, declared freshness limits,
+settled-cash funding for buys and observed sellable-share bounds for sells. Sell
+fees cannot exceed proceeds plus unreserved settled cash; this necessary bound
+does not verify settlement timing. All amounts are bounded exact decimal strings. Unsupported policies, quantity units,
+funding bases, pending-order treatments and producer branches remain blocked;
+no default is substituted to obtain a consistent result. Local checks stop at
+the first missing or contradictory requirement, so a blocked result is not a
+complete discrepancy inventory.
+
+The pre-rounding quantity is a captured producer output. This module does not
+derive it from a target, current positions or a generic target/price formula.
+IBKR, Schwab and Longbridge production mapping adapters, including historical
+release and branch selection, remain unavailable. Synthetic economic replay
+assumptions cannot certify those production mappings.
+
+`local_consistency` is `CONSISTENT`, `BLOCKED`, or `FAIL`; overall `status` is
+always `BLOCKED` or `FAIL`. Adapter identity, source authenticity, historical
+parity and risk authorization remain unverified. `target_to_quantity_reproduced`,
+`execution_authorized`, `production_ready`, `export_authorized`, and
+`upload_authorized` remain false regardless of caller success flags. No existing
+checker, decision builder, execution path or dependency configuration invokes
+this module. The synthetic construction in
+[`test_historical_order_mapping.py`](../../tests/test_historical_order_mapping.py)
+illustrates the captured-record contract.
+
 ## Account events and snapshots
 
 Supported account-event fields are:
