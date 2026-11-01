@@ -121,6 +121,23 @@ def test_fence_absent_preserves_confirmed_latch_and_blocks_buys():
     assert conflict["status"] == "conflict" and not conflict["risk_increase_allowed"]
 
 
+def test_only_research_marker_confirms_simulated_fence():
+    from us_equity_strategies._decision_candidate_marker import RESEARCH_SIMULATED_FENCE
+
+    intent = {"id": "entry", "alpha_epoch": 1, "signal_session": "2026-06-19"}
+    root = propose(request(fresh_intent=intent), "2026-06-19", True, False)["transition"]
+    confirmed = request(bootstrap=False, previous_transition=root, fresh_intent=intent,
+                        execution_fence_confirmed=True)
+    prepared = prepare_tqqq_daily_state(confirmed, "2026-06-19")
+    for fence in (None, True, object()):
+        result = finish_tqqq_daily_state(prepared, confirmed, alpha_active=True,
+                                         volatility_latch=False, _research_simulated_fence=fence)
+        assert not result["risk_increase_allowed"]
+    result = finish_tqqq_daily_state(prepared, confirmed, alpha_active=True,
+                                     volatility_latch=False, _research_simulated_fence=RESEARCH_SIMULATED_FENCE)
+    assert result["risk_increase_allowed"]
+
+
 def test_confirmed_latch_without_fence_still_applies_partial_reduction():
     from types import SimpleNamespace
     from unittest.mock import patch

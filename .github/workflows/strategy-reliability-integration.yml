@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      QPK_STRATEGY_RELIABILITY_SHA: 152aaaf374230e24ec86edcd03e4c46e78422240
+      QPK_STRATEGY_RELIABILITY_SHA: 0774bae67bebaa7783386b22fc874986614779e5
       REQUIRE_QSL_STRATEGY_INTEGRATION: "1"
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
     steps:

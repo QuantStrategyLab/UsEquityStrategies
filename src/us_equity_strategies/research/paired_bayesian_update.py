@@ -46,6 +46,8 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
     if not before or [x[0] for x in before] != [x[0] for x in after]:
         raise ValueError("MATCHED_SESSION_PATHS_REQUIRED")
     data = [(d, a, b) for (d, a), (_, b) in zip(before, after, strict=True) if d <= through]
+    if not data:
+        raise ValueError("MISSING_2026_OBSERVATIONS")
     months = {}
     for session, a, b in data:
         months.setdefault((session.year, session.month), []).append((session, math.log1p(b) - math.log1p(a)))
@@ -53,25 +55,34 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
     completeness = "UNVERIFIED_CALENDAR_COVERAGE"
     calendar_binding = None
     if calendar is None:
-        matured = keys[:-1]
-        availability = {key: months[keys[index + 1]][0][0]
-                        for index, key in enumerate(matured)}
+        if any((year2 * 12 + month2) - (year1 * 12 + month1) != 1
+               for (year1, month1), (year2, month2) in zip(keys, keys[1:])):
+            raise ValueError("MISSING_WHOLE_MONTH")
+        matured = keys[1:-1]
+        excluded_first_month = keys[0]
+        availability = {keys[index]: months[keys[index + 1]][0][0]
+                        for index in range(1, len(keys) - 1)}
     else:
         expected = [date.fromisoformat(day) for day in calendar["sessions"]]
         if (expected != sorted(set(expected)) or not expected or
-                date.fromisoformat(calendar["coverage_start"]) > data[0][0] or
+                date.fromisoformat(calendar["coverage_start"]) > date(data[0][0].year, 1, 1) or
                 date.fromisoformat(calendar["coverage_end"]) < date(through.year, 12, 31) or
                 not isinstance(calendar.get("source"), str) or not calendar["source"] or
                 not isinstance(calendar.get("source_sha256"), str) or
                 re.fullmatch(r"[0-9a-f]{64}", calendar["source_sha256"]) is None):
             raise ValueError("CALENDAR_BINDING_INVALID")
-        relevant = [day for day in expected if day <= through]
+        relevant = [day for day in expected if data[0][0] <= day <= through]
         if relevant != [day for day, _, _ in data]:
             raise ValueError("CALENDAR_SESSION_MISMATCH")
         last_by_month = {}
+        first_by_month = {}
         for day in expected:
+            first_by_month.setdefault((day.year, day.month), day)
             last_by_month[(day.year, day.month)] = day
         matured = [key for key in keys if key in last_by_month and last_by_month[key] <= through]
+        excluded_first_month = keys[0] if first_by_month[keys[0]] < data[0][0] else None
+        if excluded_first_month is not None:
+            matured = [key for key in matured if key != excluded_first_month]
         successor = dict(zip(expected, expected[1:]))
         if any(last_by_month[key] not in successor for key in matured):
             raise ValueError("CALENDAR_NEXT_SESSION_REQUIRED")
@@ -110,6 +121,9 @@ def evaluate_pair(baseline: Path, candidate: Path, *, through: date,
     log_base = math.fsum(math.log1p(a) for _, a, _ in ytd)
     log_candidate = math.fsum(math.log1p(b) for _, _, b in ytd)
     return {"scope": "retrospective_research_only", "executable": False, "promotion_eligible": False,
+            "method_revision": "paired_months_v3_reject_missing_months",
+            "excluded_first_month": (f"{excluded_first_month[0]:04d}-{excluded_first_month[1]:02d}"
+                                     if excluded_first_month else None),
             "month_completeness": completeness, "calendar_binding": calendar_binding,
             "availability_status": "ASSUMED_NOT_HISTORICALLY_VERIFIED", "baseline_sha256": bhash,
             "candidate_sha256": chash, "first_session": ytd[0][0].isoformat(),

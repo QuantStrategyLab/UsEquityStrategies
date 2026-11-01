@@ -100,7 +100,9 @@ observations require authenticated timestamps and separately frozen inputs.
 The diagnostic treats a month as completed only after a session in the next
 month appears in the input; this convention does not certify exchange-calendar
 completeness. Alternatively a caller may supply a bound, full-year session
-calendar; all observed dates must match its expected sessions through the cutoff,
+calendar covering January 1 of the first observed year through December 31
+of the cutoff year; observed dates must match its expected sessions from the
+first observed date through the cutoff,
 and a month can then be included after its last listed session. In calendar
 mode, `assumed_available_at` is the first listed session strictly after that
 month's last session. It comes from the bound calendar, independently of later
@@ -119,6 +121,17 @@ calendar identity is not independent exchange certification or publication
 proof. The two timing modes are distinct revisions and their outputs must be
 retained. Results generated before the successor-session correction remain
 separate historical research artifacts.
+The `paired_months_v3_reject_missing_months` revision excludes the first
+observed month when a calendar shows earlier sessions in that month. Without a
+calendar, it rejects a missing whole month between the first and last observed
+months, conservatively excludes the first observed month, and continues to mark
+individual session completeness unverified. This check assumes the continuous
+US ETF histories in this study; it does not infer missing daily sessions.
+Calendar sessions before the first path row support the comparison but need not
+appear in the path. Both modes require at least 12 included pre-2026 training
+months. The revision may change the training variance and posterior sequence;
+retain prior outputs as historical results. Calendar completeness still depends
+on the accuracy of the caller-supplied session list.
 It verifies the two expected path SHA-256 values supplied by the
 caller, but their independent registration and source authenticity are separate
 requirements. To reproduce a pair, run:

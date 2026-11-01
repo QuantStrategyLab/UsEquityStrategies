@@ -65,16 +65,31 @@ def test_pair_requires_matched_sessions_and_updates_only_completed_months(tmp_pa
     baseline.write_text(baseline.read_text().replace("2025-07-15,0\n", ""))
     candidate.write_text("\n".join(line for line in candidate.read_text().splitlines()
                                    if not line.startswith("2025-07-15,")) + "\n")
-    assert evaluate()["month_completeness"] == "UNVERIFIED_CALENDAR_COVERAGE"
+    with pytest.raises(ValueError, match="MISSING_WHOLE_MONTH"):
+        evaluate()
     candidate.write_text(candidate.read_text().replace("2026-02-15", "2026-02-16"))
     with pytest.raises(ValueError, match="MATCHED_SESSION"):
         evaluate()
 
 
+def test_missing_2026_month_is_rejected_before_posterior_update(tmp_path):
+    baseline = tmp_path / "baseline.csv"
+    candidate = tmp_path / "candidate.csv"
+    sessions = [date(2024, m, 15) for m in range(1, 13)] + [date(2025, m, 15) for m in range(1, 13)] + [
+        date(2026, 1, 15), date(2026, 3, 15)]
+    baseline.write_text("date,return\n" + "".join(f"{d},0\n" for d in sessions))
+    candidate.write_text("date,return\n" + "".join(
+        f"{d},{.001 * (i % 3 - 1)}\n" for i, d in enumerate(sessions)))
+    with pytest.raises(ValueError, match="MISSING_WHOLE_MONTH"):
+        evaluate_pair(baseline, candidate, through=date(2026, 3, 20),
+                      expected_baseline_sha256=hashlib.sha256(baseline.read_bytes()).hexdigest(),
+                      expected_candidate_sha256=hashlib.sha256(candidate.read_bytes()).hexdigest())
+
+
 def test_bayesian_insufficient_or_degenerate_training_fails_closed(tmp_path):
     baseline = tmp_path / "baseline.csv"
     candidate = tmp_path / "candidate.csv"
-    rows = "date,return\n" + "".join(f"2025-{month:02d}-15,0\n" for month in range(1, 13))
+    rows = "date,return\n2024-12-15,0\n" + "".join(f"2025-{month:02d}-15,0\n" for month in range(1, 13))
     rows += "2026-01-15,0\n2026-02-15,0\n"
     baseline.write_text(rows)
     candidate.write_text(rows)
@@ -100,12 +115,38 @@ def test_calendar_matched_month_end_and_missing_pair_session(tmp_path):
     result = evaluate()
     assert len(result["posterior"]) == 2
     assert result["month_completeness"] == "MATCHED_SELECTED_CALENDAR_SOURCE_NOT_EXCHANGE_ATTESTED"
+    calendar["coverage_start"] = "2025-01-15"
+    with pytest.raises(ValueError, match="CALENDAR_BINDING_INVALID"):
+        evaluate()
+    calendar["coverage_start"] = "2025-01-01"
     paths(sessions[:5] + sessions[6:])
     with pytest.raises(ValueError, match="CALENDAR_SESSION_MISMATCH"):
         evaluate()
     paths(sessions[1:])
-    with pytest.raises(ValueError, match="CALENDAR_SESSION_MISMATCH"):
+    with pytest.raises(ValueError, match="INSUFFICIENT_COMPLETED_TRAINING_MONTHS"):
         evaluate()
+
+
+def test_partial_first_month_is_excluded_and_availability_uses_full_sequence(tmp_path):
+    baseline = tmp_path / "baseline.csv"
+    candidate = tmp_path / "candidate.csv"
+    sessions = [date(2024, 12, 15)] + [date(2025, m, 15) for m in range(1, 13)] + [
+        date(2026, 1, 15), date(2026, 2, 15)]
+    baseline.write_text("date,return\n" + "".join(f"{d},0\n" for d in sessions))
+    candidate.write_text("date,return\n" + "".join(
+        f"{d},{.001 * (i % 3 - 1)}\n" for i, d in enumerate(sessions)))
+    kwargs = {"through": date(2026, 2, 20),
+              "expected_baseline_sha256": hashlib.sha256(baseline.read_bytes()).hexdigest(),
+              "expected_candidate_sha256": hashlib.sha256(candidate.read_bytes()).hexdigest()}
+    calendar = {"coverage_start": "2024-01-01", "coverage_end": "2026-12-31", "source": "test_calendar",
+                "source_sha256": "a" * 64,
+                "sessions": ["2024-12-02"] + [d.isoformat() for d in sessions] + ["2026-12-15"]}
+    for result in (evaluate_pair(baseline, candidate, **kwargs),
+                   evaluate_pair(baseline, candidate, calendar=calendar, **kwargs)):
+        assert result["training_months"] == 12
+        assert result["excluded_first_month"] == "2024-12"
+        assert result["posterior"][0]["month"] == "2026-01"
+        assert result["posterior"][0]["assumed_available_at"] == "2026-02-15"
 
 
 def _paired_calendar_fixture(tmp_path):
@@ -113,7 +154,7 @@ def _paired_calendar_fixture(tmp_path):
     baseline = tmp_path / "baseline.csv"
     candidate = tmp_path / "candidate.csv"
     sessions = []
-    day = date(2025, 1, 1)
+    day = date(2024, 12, 1)
     while day <= date(2026, 12, 31):
         if day.weekday() < 5:
             sessions.append(day)
@@ -122,7 +163,7 @@ def _paired_calendar_fixture(tmp_path):
     baseline.write_text("date,return\n" + "".join(f"{day},0\n" for day in observed))
     candidate.write_text("date,return\n" + "".join(
         f"{day},{.001 * (index % 7 - 3)}\n" for index, day in enumerate(observed)))
-    calendar = {"coverage_start": "2025-01-01", "coverage_end": "2026-12-31",
+    calendar = {"coverage_start": "2024-01-01", "coverage_end": "2026-12-31",
                 "source": "synthetic-weekday-calendar", "source_sha256": "a" * 64,
                 "sessions": [day.isoformat() for day in sessions]}
 
