@@ -18,6 +18,7 @@
 - [SOXL static-selection qualification](soxl-v1-static-selection-qualification.md): the affected SMA and relative-volatility branches are retrospective, not causal walk-forward. The distinct RSI2 research adapter is not a runtime strategy or promotion proof.
 - [Global ETF research evidence](../evidence/global_etf_rotation/README.md): the current research package remains `rework` with missing point-in-time and complete trial/cost evidence, independently of its runtime catalog status.
 - [Trial registry](trial_registry/README.md), including [r_math_04](trial_registry/r_math_04.json): retain failed and rejected attempts; its DSR is uncomputable without a verified complete cumulative trial source.
+- [Normalized real-ledger adapter](normalized-real-ledger-adapter.md): validates trial identities, source-bound normalized receipts and net-cost arithmetic for conditional subset diagnostics; full-family qualification remains separate.
 
 Catalog and allowlist membership preserve an interface and do not attest current deployment, economic effectiveness, independent out-of-sample performance or trading authority. Missing evidence is not proof of loss.
 
