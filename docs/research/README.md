@@ -22,8 +22,9 @@
 
 Catalog and allowlist membership preserve an interface and do not attest current deployment, economic effectiveness, independent out-of-sample performance or trading authority. Missing evidence is not proof of loss.
 
-Global ETF Rotation and its aliases are no longer in the runtime selection
-allowlist. Its historical catalog and research artifacts remain available.
+Global ETF Rotation and its aliases are available for runtime selection on
+compatible targets. Its research evidence remains `rework`; selection eligibility
+does not change that evidence assessment or the platform and broker requirements.
 
 ## Historical Kelly metric conventions
 

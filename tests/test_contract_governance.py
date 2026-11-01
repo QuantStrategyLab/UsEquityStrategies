@@ -161,13 +161,12 @@ class ContractGovernanceTests(unittest.TestCase):
             with self.subTest(platform_id=platform_id):
                 self.assertEqual(frozenset(adapters), supported_profiles)
 
-    def test_base_adapters_cover_selectable_and_retained_historical_profiles(self) -> None:
+    def test_base_adapters_cover_selectable_profiles_and_global_etf_aliases(self) -> None:
         selectable = frozenset(get_runtime_enabled_profiles())
-        historical = frozenset({"global_etf_rotation"})
-        self.assertTrue(selectable.isdisjoint(historical))
+        self.assertIn("global_etf_rotation", selectable)
         self.assertEqual(
             frozenset(BASE_RUNTIME_ADAPTERS),
-            selectable | historical,
+            selectable,
         )
         for profile in ("global_etf_rotation", "global_macro_etf_rotation", "global_etf_confidence_vol_gate"):
             with self.subTest(profile=profile):

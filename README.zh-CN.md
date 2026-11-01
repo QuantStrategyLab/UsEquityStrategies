@@ -58,7 +58,7 @@ Export these environment variables before importing or running the offline R3 ev
 
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | 保留用于历史研究和兼容，已排除在运行可选允许名单之外。 |
+| `global_etf_rotation` | Global ETF Rotation | 兼容的目标可选择运行；仍须满足平台政策、快照证据和券商检查。 |
 | `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | 基于 feature snapshot 的 Russell Top50 leader rotation。 |
 
 ### 研究侧候选
