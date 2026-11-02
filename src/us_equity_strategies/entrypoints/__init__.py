@@ -1863,6 +1863,10 @@ def _evaluate_mega_cap_leader_rotation_snapshot_profile(
     translator = config.get("translator", default_translator)
     config.pop("signal_effective_after_trading_days", None)
     pop_execution_only_config(config)
+    # Platforms also supply this alias for ratio-based strategies. Russell's
+    # weight builder has no cash-sizing argument; execution reserves remain
+    # enforced by the platform, alongside the canonical reserved-cash policy.
+    config.pop("cash_reserve_ratio", None)
     if ctx.as_of is not None and "run_as_of" not in config:
         config["run_as_of"] = ctx.as_of
     if ctx.portfolio is not None and "portfolio_total_equity" not in config:
