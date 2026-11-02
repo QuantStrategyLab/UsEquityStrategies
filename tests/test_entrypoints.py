@@ -972,6 +972,37 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("blend_sleeves", mega_decision.diagnostics)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
 
+    def test_russell_platform_cash_reserve_alias_does_not_reach_weight_builder(self) -> None:
+        mega = get_strategy_entrypoint("russell_top50_leader_rotation")
+        for variant in ("blend_top2_50_top4_50", "top4_baseline"):
+            with self.subTest(variant=variant):
+                context = dict(
+                    as_of="2026-04-01",
+                    market_data={"feature_snapshot": _mega_snapshot()},
+                    portfolio=PortfolioSnapshot(
+                        as_of="2026-04-01", total_equity=100_000.0,
+                        buying_power=100_000.0, cash_balance=100_000.0, positions=(),
+                    ),
+                )
+                config = {"leader_rotation_profile_variant": variant,
+                          "market_regime_control_enabled": False}
+                expected = mega.evaluate(StrategyContext(**context, runtime_config=config))
+                supplied = {**config, "reserved_cash_ratio": 0.02,
+                            "cash_reserve_ratio": 0.02, "reserved_cash_floor_usd": 100.0}
+                actual = mega.evaluate(StrategyContext(**context, runtime_config=supplied))
+                self.assertEqual(actual.positions, expected.positions)
+                self.assertEqual(actual.risk_flags, expected.risk_flags)
+                self.assertEqual(actual.budgets, expected.budgets)
+                self.assertEqual(supplied["cash_reserve_ratio"], 0.02)
+
+    def test_russell_unrecognized_strategy_argument_remains_rejected(self) -> None:
+        mega = get_strategy_entrypoint("russell_top50_leader_rotation")
+        with self.assertRaises(TypeError):
+            mega.evaluate(StrategyContext(
+                as_of="2026-04-01", market_data={"feature_snapshot": _mega_snapshot()},
+                runtime_config={"unknown_synthetic_strategy_argument": 1},
+            ))
+
     def test_russell_top50_runtime_variant_preserves_diagnostics_but_fails_closed(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")
         decision = mega.evaluate(
