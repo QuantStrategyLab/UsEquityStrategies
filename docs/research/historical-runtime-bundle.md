@@ -479,3 +479,213 @@ optional current-source dependencies are reported as an adapter blocker rather
 than a successful or skipped replay.
 An output path must be new; the CLI never overwrites an existing report, symlink,
 or hard link. Choose a separate new report path for each validation attempt.
+
+
+## Unified offline validation harness
+
+`historical_validation_harness` checks frozen local inputs for three independent
+questions: captured TQQQ state continuity, captured post-risk target/order trace
+consistency, and the six ETF price files after `2026-08-25`. It does not fetch
+objects, authenticate, execute a strategy, reproduce a production sizer, or
+submit orders. A checklist and market files alone leave state continuity and
+order mapping blocked unless their original observation sidecars are also supplied.
+
+The harness is a sibling candidate of the state-continuity and order-mapping
+changes. It does not merge those drafts. An installation containing only the
+harness reports `ADAPTER_UNAVAILABLE` for the absent sidecars. A separate local
+composition can include the exact reviewed modules below. Composition is a test
+configuration, not a merged release or production deployment.
+
+### Runtime and source binding
+
+Use Python 3.11 or later on a POSIX system supporting directory descriptors and
+`O_NOFOLLOW`. The command itself uses the Python standard library. Keep the
+repository's existing lazy `us_equity_strategies/__init__.py` and this harness
+under its package directory. To execute the two sidecar checks, additionally
+provide the following three unchanged files under the same `research` package:
+
+| File | Required SHA256 |
+| --- | --- |
+| `historical_state_continuity.py` | `047013a1e6a5dcb89b97188efe47c3f6708021e39138b6b3ea1e377ea0ba12c8` |
+| `historical_order_mapping.py` | `057cda6ebc3741a898add13ae0d0e7221aba60aaec75715494a52c867a61ed64` |
+| `historical_runtime_bundle.py` | `d3f93f9e4fe4a2083679f3b7a6d03510716e26f84873e46727b6d7b707b79641` |
+
+These sidecars use the last file's canonical digest helper. The harness does not
+call its decision replay. No QPK, pandas, broker SDK, cloud client, or credential
+is required for this command. Pytest and the sibling test modules are needed only
+for the optional synthetic integration tests, not for checking supplied inputs.
+Package installation, dependency pins and production configuration are unchanged.
+
+The registry contains fixed package module names, entry points and reviewed
+source digests. Every supplied file is verified before parsing and before a
+checker can run. Checker source digests are verified before import; missing or
+different revisions stay blocked. A JSON field cannot select a module, filesystem
+import path, checker implementation, or successful result. Changing a reviewed
+source revision requires a separate code review and a deliberate registry update.
+
+### Frozen directory contract
+
+The public API is `check_harness(directory, *, manifest_sha256)`. The CLI requires
+the manifest digest retained at freeze time:
+
+```bash
+PYTHONPATH=src python -m us_equity_strategies.research.historical_validation_harness /path/to/frozen-inputs --manifest-sha256 RETAINED_64_CHARACTER_SHA256 --output /path/to/new-result.json
+```
+
+The report path must be new and outside the frozen directory. Existing files,
+symlinks, shared input inodes, special files and parent-directory symlinks are
+rejected. The checker does not create or update an input manifest, normalize
+source files, or rewrite supplied evidence. It reads each role into a bounded
+immutable byte buffer, verifies its byte count and SHA256, and parses that same
+buffer. A changed file produces a structured failure. The manifest is at most
+256 KiB, each input is at most 16 MiB, and declared inputs total at most 128 MiB.
+
+`manifest.json` has exactly four fields:
+
+```json
+{
+  "schema_version": "qsl.historical_validation_harness.v1",
+  "evidence_kind": "historical",
+  "market_window": {
+    "after_session": "2026-08-25",
+    "through_session": "2026-10-30"
+  },
+  "files": {}
+}
+```
+
+`files` maps each supplied role to an object with exactly `path`, `sha256`, and
+integer `size_bytes`. Paths are relative to the frozen directory and cannot
+contain traversal components. Allowed roles are `checklist`, `state_continuity`,
+`order_mapping`, `calendar`, and each ticker plus `.raw`, `.adjusted`, or
+`.corporate_actions`. The tickers are QQQM, SCHD, DGRO, SGOV, SPYI and QQQI. Omit
+unavailable roles; do not substitute a placeholder or a successful checker report
+for an observation. An empty `files` object is valid incomplete intake and returns
+blocked results. The external manifest hash and input hashes pin bytes; they do
+not authenticate who produced them or prove when they were available.
+
+All inputs are UTF-8 JSON objects. Duplicate keys, NaN/Infinity, non-finite numeric
+exponents and truncated JSON fail with error codes. Unknown schema versions stay
+blocked; the harness does not guess another format. JSON whitespace is preserved
+in the byte digest. No raw object name, URI or source record body is copied to the
+result; input paths must already use reviewed aliases. Output includes role
+aliases, byte hashes, counts, dates and diagnostic codes.
+
+### Sidecar and checklist inputs
+
+`state_continuity` is an original `qsl.historical_state_continuity.v1` observation
+sidecar consumed by `check_state_continuity`. A successful local result retains
+its `conformance_status=PASS`, observed run/evaluation counts and unresolved
+provenance findings. The current state adapter covers TQQQ; it does not establish
+SOXL state replay, complete historical run inventory or durable-storage identity.
+
+`order_mapping` is an original `qsl.historical_order_mapping.v1` captured target,
+account, pending, price, policy, parent-plan and slice trace consumed by
+`validate_order_mapping`. Its `local_consistency=CONSISTENT` does not reproduce the
+production target-to-unrounded-quantity calculation. `target_to_quantity_reproduced`
+remains false. Sidecar results retain their independent account, release and time
+scopes. This harness does not invent a join between the state and order traces;
+`cross_component_identity_link_established` remains false.
+
+`checklist` uses `qsl.local_readonly_feedback.v1`. The unexecuted reply template
+remains blocked. A reviewed observation may use `template_state=OBSERVED_REDACTED`,
+with its real timestamp, execution counts, twelve known prefix aliases and
+reviewed structural observations. The validator checks both the declared
+limited-read scope and the reported observations. A successful prefix observation
+uses `status=LIST_COMMAND_SUCCEEDED`, an integer `listed_object_count` from 0 to
+20 and `output_limit=20`. `listing_complete_verified` and
+`historical_versions_coverage_verified` must remain false for this limited
+feedback contract. Preserve pagination uncertainty and any `missing_or_blocked`
+items; a failed or unobserved listing stays blocked.
+
+A positive body observation requires HTTP 206, `requested_range=bytes=0-4095`,
+`confirmed_range=bytes 0-4095/TOTAL` with TOTAL greater than 4096, and positive
+decimal-string `generation` and `metageneration`. A complete reported structural
+sample uses `metadata_status=OBSERVED`, `bounded_read_status=BOUNDED_PREFIX_SAVED`,
+4096 observed bytes and `schema_status=FIELDS_OBSERVED`, with actual sanitized
+field/type observations. The sample alias must be present in its prefix's listed
+sample aliases. Missing range/version information, incomplete bodies, unknown
+schema or reported stop codes remain blocked; a 200 response followed by a body
+read, a tail range or a whole small object is a failure. Per-prefix and per-sample
+results are retained. A known contradiction cannot be downgraded by a second
+missing field.
+
+These fields do not contain separate request/response generation records, the
+original metadata size, Content-Length or content-encoding observations.
+`metadata_header_binding_verified` therefore remains false even when all
+reported structural constraints are consistent. Manual redaction declarations
+are not independently authenticated. Bounded headers, sampled dates, object
+modification timestamps and supplier completeness flags cannot establish full
+rows or close the trailing market interval. Assertions that a bounded checklist
+established complete coverage or runtime acceptance are rejected. Checklist
+structure is reported separately from the three checks; an absent checklist
+cannot turn otherwise valid local sidecar checks into historical acceptance.
+
+### Explicit calendar and market contracts
+
+The required calendar-date interval is fixed at `2026-08-26` through `2026-10-30`.
+`calendar` has schema `qsl.market_sessions.v1`, a stable `calendar_id`, timezone
+`America/New_York`, the exact `market_window` above, and sorted unique ISO-date
+arrays `sessions` and `non_sessions`. These arrays must be disjoint and together
+classify every date in the interval. At least one session must be declared. This
+validates the declaration's internal completeness; it does not authenticate the
+exchange calendar. The harness never infers trading sessions from weekdays.
+Retain the calendar's actual source separately for historical acceptance.
+
+Each raw/adjusted file has schema `qsl.market_prices.v1`, the exact `symbol` and
+`basis` (`raw` or `adjusted`), `currency=USD`, `volume_basis` (`raw_shares` or
+`split_adjusted_shares`), `adjustment_convention`, and a `rows` array. Raw prices
+require `adjustment_convention=none` and `volume_basis=raw_shares`. Supported
+adjusted conventions are `split_only` and `split_and_cash_dividend`; the declared
+convention is recorded, not independently proven.
+
+Each price row contains `session`, `open`, `high`, `low`, `close`, and `volume`.
+Numeric values are bounded, nonnegative plain decimal strings with at most 18
+integer and 12 fractional digits. OHLC prices must be positive and obey their
+high/low bounds; raw share volume must be integral. Dates must be unique and
+ordered. Every declared session needs one row in both price roles; a row on a
+declared non-session fails. A missing session blocks the affected role. Earlier
+or later rows are checked for field validity and order, counted separately and
+cannot fill a missing required date. Their own calendar coverage is not checked.
+
+A corporate-action file has schema `qsl.market_actions.v1`, `symbol`,
+`currency=USD`, and `rows`. Each row has a unique stable `event_id`, an
+`effective_session`, and `type`. A `split` needs positive decimal `numerator` and
+`denominator`; a `cash_dividend` needs positive decimal `amount`. An action within
+the requested interval must fall on a declared session. Other action types need
+an adapter and remain blocked. An empty action array can pass structure checks;
+it does not prove that no actions occurred or that all actions were supplied.
+Provider event/available/pay clocks, complete action history, and price-adjustment
+reconciliation remain outside this limited structural contract.
+
+These are harness-owned normalized JSON fields. The actual Alpaca object schema
+has not been examined in this environment. No field mapping to unseen Alpaca
+files is assumed. A source-specific normalization adapter requires the reviewed
+header/schema evidence and separately authorized local source materials. Existing
+warmup and inception gaps remain unresolved by this trailing-window check.
+
+### Result interpretation and test environments
+
+The report has exactly three entries under `checks`: `state_continuity`,
+`order_mapping`, and `market_coverage`. Missing, malformed or contradictory
+materials affect their own role; they do not manufacture success in another
+component. Prices and actions remain separate under each ticker. A component's
+`local_conformance=PASS` describes only the checked supplied records.
+
+`coverage_for_declared_sessions=true` means both raw and adjusted rows of all six
+ETFs cover the explicit session declaration. It is independent of actual calendar
+identity and action completeness. `actual_market_coverage_established`,
+`raw_adjusted_consistency_verified`, `corporate_actions_complete_verified`, source
+authenticity and point-in-time availability remain false. The overall report is
+always `BLOCKED` or `FAIL`, with `historical_parity_established`, `production_ready`
+and `execution_authorized` false. Exit 2 means unresolved evidence, not successful
+historical acceptance; exit 1 means a contradiction, invalid structure or unsafe
+path. There is no exit-0 acceptance path in this version.
+
+Ordinary CI on the independent harness branch verifies missing-adapter blocking,
+including a real subprocess with only the harness installed. The two real-sibling
+integration tests skip explicitly when their sibling modules or fixture modules
+are absent. A local source composition containing the exact three reviewed files
+executes both real checkers on synthetic observations and contradictory variants.
+Record that composition, input byte hashes, tests and exit codes separately; a
+single-branch CI result does not establish that the combined configuration ran.
