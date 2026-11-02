@@ -19,6 +19,10 @@ from quant_platform_kit.common.strategies import (
 )
 
 from .ai_extensions import build_default_ai_extension_config
+from .buy_and_hold import (
+    FAMILIES as BUY_AND_HOLD_FAMILIES, MANIFESTS as BUY_AND_HOLD_MANIFESTS,
+    NASDAQ100_BUY_AND_HOLD_PROFILE, SP500_BUY_AND_HOLD_PROFILE,
+)
 from .income_layer_defaults import income_layer_default_config
 from .runtime_allowlist import get_runtime_selectable_profiles
 from .strategies.nasdaq_sp500_smart_dca import QNDX_NEW_BUYS_VARIANT
@@ -705,6 +709,34 @@ STRATEGY_METADATA: dict[str, StrategyMetadata] = {
         status="shadow_candidate",
     ),
 }
+
+# Describable offline previews only: no broker compatibility or runtime adapter.
+for _profile, _family in BUY_AND_HOLD_FAMILIES.items():
+    _manifest = BUY_AND_HOLD_MANIFESTS[_profile]
+    STRATEGY_PLATFORM_COMPATIBILITY[_profile] = frozenset()
+    STRATEGY_REQUIRED_INPUTS[_profile] = _manifest.required_inputs
+    STRATEGY_DEFAULT_CONFIG[_profile] = dict(_manifest.default_config)
+    STRATEGY_TARGET_MODES[_profile] = "value"
+    STRATEGY_ENTRYPOINT_ATTRIBUTES[_profile] = f"{_profile}_entrypoint"
+    STRATEGY_DEFINITIONS[_profile] = StrategyDefinition(
+        profile=_profile, domain=US_EQUITY_DOMAIN, supported_platforms=frozenset(),
+        components=(StrategyComponentDefinition(
+            name="preview", module_path="us_equity_strategies.buy_and_hold",
+        ),),
+        entrypoint=StrategyEntrypointDefinition(
+            module_path="us_equity_strategies.buy_and_hold",
+            attribute_name=f"{_profile}_entrypoint",
+        ),
+        required_inputs=_manifest.required_inputs, default_config=_manifest.default_config,
+        target_mode="value",
+    )
+    STRATEGY_METADATA[_profile] = StrategyMetadata(
+        canonical_profile=_profile, display_name=_family.display_name,
+        description=_manifest.description, cadence="approved contribution only",
+        asset_scope=_profile, benchmark=_family.reference_symbol,
+        role="buy_and_hold_baseline", status="preview_only",
+    )
+
 
 PROFILE_ALIASES: dict[str, str] = {
     alias: metadata.canonical_profile

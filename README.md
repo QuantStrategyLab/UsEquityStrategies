@@ -53,6 +53,11 @@ Export these environment variables before importing or running the offline R3 ev
 
 ## Strategy profiles
 
+The `nasdaq100_buy_and_hold` and `sp500_buy_and_hold` baseline profiles share
+an offline buy-only planner. Both are preview-only, with no selected instrument,
+funding defaults, runtime adapter or rollout activation. See the
+[buy-and-hold preview contract](docs/buy-and-hold-preview-contract.md).
+
 ### Direct runtime strategies
 
 These profiles can run from market history, portfolio snapshots, or other runtime inputs without a separate feature-snapshot build step.
