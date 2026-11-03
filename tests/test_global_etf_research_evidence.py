@@ -48,7 +48,17 @@ def test_config_snapshot_separates_executable_backtest_and_runtime_defaults() ->
     for name, expected in runtime_parameters.items():
         expected_value = tuple(expected) if isinstance(defaults[name], tuple) else expected
         assert defaults[name] == expected_value
-    assert set(runtime_parameters) | set(excluded) == set(defaults)
+    # Retain the historical snapshot unchanged; retirement removes only these
+    # previously excluded controls from the current production default view.
+    retired = {
+        "option_overlay_enabled", "option_growth_overlay_enabled",
+        "option_growth_overlay_recipe", "option_growth_overlay_start_usd",
+        "option_growth_overlay_nav_budget_ratio", "option_income_overlay_enabled",
+    }
+    historical_keys = set(runtime_parameters) | set(excluded)
+    assert retired <= set(excluded)
+    assert historical_keys - retired == set(defaults)
+    assert not retired & set(defaults)
     assert set(runtime_parameters).isdisjoint(excluded)
 
     assert snapshot["source"] == {

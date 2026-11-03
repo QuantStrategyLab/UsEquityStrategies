@@ -14,8 +14,14 @@ P3 as verified.
 - lifecycle stage: `P3`
 - status: `DEFERRED`
 - authority: research only; `no_order=true`
-- source notes: `docs/research/nasdaq_sp500_smart_dca.md`
-- follow-up matrix: `docs/research/nasdaq_sp500_price_proxy_matrix_2026-06-19.md`
+- source notes: `docs/research/nasdaq-sp500-smart-dca.md`
+- follow-up matrix: [Nasdaq price-proxy matrix](../../research/nasdaq-price-proxy-matrix-2026-06-19.md)
+
+The historical matrices were not rerun after the
+[mathematics correction](../../research/smart-dca-math-corrections-20260929.md).
+Their historical metrics and pass labels must not be treated as corrected
+economics or promotion evidence; see the
+[decision summary warning](../../research/smart-dca-decision-summary-2026-06-19.md).
 
 ## Required artifacts before registration
 

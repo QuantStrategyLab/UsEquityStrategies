@@ -1,3 +1,8 @@
 # Strategy decisions and execution entrypoints require owner visibility.
 /src/us_equity_strategies/entrypoints/ @Pigbibi
 /src/us_equity_strategies/strategies/ @Pigbibi
+
+# Risk-sensitive changes require the repository owner.
+/.github/CODEOWNERS @Pigbibi
+/.github/workflows/ @Pigbibi
+/src/us_equity_strategies/portfolio_risk_budget.py @Pigbibi

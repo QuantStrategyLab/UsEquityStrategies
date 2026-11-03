@@ -1,5 +1,6 @@
 """RS-02: DSR/PBO trial-set report. Artificial bars and temporary stores only."""
 from datetime import date, timedelta
+from decimal import Decimal
 import hashlib
 import importlib
 import math
@@ -140,6 +141,50 @@ def test_input_contract_errors(kwargs, error):
         rs02.compute_trial_set_overfitting(_dated(), **params)
 
 
+class _FloatConvertibleComplex(complex):
+    def __float__(self):
+        return self.real
+
+
+@pytest.mark.parametrize("rows", [
+    [(date(2024, 1, 2), 0.1), (date(2024, 1, 1), 0.2)],
+    [(date(2024, 1, 1), 0.1), (date(2024, 1, 1), 0.2)],
+    [("2024-01-01", 0.1)],
+    [(date(2024, 1, 1), True)],
+    [(date(2024, 1, 1), float("nan"))],
+    [(date(2024, 1, 1), float("inf"))],
+    [(date(2024, 1, 1), "0.1")],
+    [(date(2024, 1, 1), _FloatConvertibleComplex(0.1, 2.0))],
+    None,
+])
+def test_malformed_series_never_reaches_statistics(monkeypatch, rows):
+    fake = _FakeStats()
+    _use(monkeypatch, fake)
+    with pytest.raises(ValueError, match="^TRIAL_RETURN_INPUT_INVALID$"):
+        rs02.compute_trial_set_overfitting(
+            {"a": rows, "b": rows}, selected_trial_id="a", recorded_trial_count=2,
+            annual_risk_free_rate=0.0, synthetic=True)
+    assert fake.calls == {}
+
+
+def test_decimal_returns_and_empty_samples_remain_supported(monkeypatch):
+    fake = _FakeStats()
+    _use(monkeypatch, fake)
+    data = {"a": [(date(2024, 1, 1), Decimal("0.01")),
+                  (date(2024, 1, 2), Decimal("0.02"))],
+            "b": [(date(2024, 1, 1), Decimal("0.02")),
+                  (date(2024, 1, 2), Decimal("0.01"))]}
+    report = rs02.compute_trial_set_overfitting(
+        data, selected_trial_id="a", recorded_trial_count=2, annual_risk_free_rate=0.0, synthetic=True)
+    assert report["metrics"] == {"dsr": 0.4, "pbo": 0.6}
+    _use(monkeypatch, None)
+    empty = rs02.compute_trial_set_overfitting(
+        {"a": [], "b": []}, selected_trial_id="a", recorded_trial_count=2,
+        annual_risk_free_rate=0.0, synthetic=True)
+    assert empty["metrics"] == {"dsr": None, "pbo": None}
+    assert empty["metric_status"] == {"dsr": "UNCOMPUTABLE", "pbo": "UNCOMPUTABLE"}
+
+
 @requires_qpk_stats
 def test_real_qpk_research_stats_values_match_direct_calls():
     stats = _qpk_stats()
@@ -262,3 +307,71 @@ def test_adapter_with_real_qpk_research_stats(source, tmp_path):
             assert 0.0 <= report["metrics"][metric] <= 1.0
         else:
             assert report["metrics"][metric] is None and report["metric_reason"][metric]
+
+
+@requires_qpk_stats
+def test_normalized_ledger_adapter_delegates_to_qpk_stats():
+    """Synthetic normalized examples exercise QPK, not historical evidence."""
+    import json
+    from decimal import ROUND_HALF_EVEN
+
+    from us_equity_strategies.research import real_trial_ledger_adapter as adapter
+
+    def encoded(value):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+    def add(data):
+        raw = data if isinstance(data, bytes) else encoded(data)
+        key = hashlib.sha256(raw).hexdigest()
+        sources[key] = raw
+        return key
+
+    sources = {}
+    raw_hash = add(b"synthetic normalized source")
+    sessions = [(date(2024, 1, 2) + timedelta(days=i)).isoformat() for i in range(128)]
+    attempts, returns = [], {}
+    for trial in range(4):
+        tid, run = f"trial-{trial}", f"run-{trial}"
+        nav = Decimal("10000")
+        days, fills, values = [], [], []
+        for i, day in enumerate(sessions):
+            net_pnl = Decimal((i * (trial + 3)) % 17 - 7) / Decimal(10)
+            next_nav = nav + net_pnl
+            net_return = (next_nav / nav - 1).quantize(Decimal("0.000000000001"), rounding=ROUND_HALF_EVEN)
+            values.append(float(net_return))
+            days.append({"date": day, "nav": str(next_nav), "net_return": str(net_return),
+                         "external_flow": "0", "fees": "0.25", "other_costs": "0",
+                         "gross_pnl": str(net_pnl + Decimal("0.25"))})
+            fill = {"fill_id": f"fill-{trial}-{i}", "timestamp": day + "T15:00:00+00:00",
+                    "session_date": day, "currency": "USD", "fee": "0.25", "fee_kind": "REALIZED",
+                    "raw_fee_source_sha256": raw_hash}
+            fill["fee_source_sha256"] = add({"trial_id": tid, "run_id": run, **fill})
+            fills.append(fill)
+            nav = next_nav
+        ledger = {"trial_id": tid, "run_id": run, "domain": "us_equity", "strategy_profile": "synthetic",
+                  "input_id": "synthetic-input", "param_version": 1, "currency": "USD", "calendar_id": "XNYS",
+                  "periods_per_year": 252, "return_unit": "SIMPLE_NET", "cost_basis": "NET_NAV",
+                  "cost_definition": "synthetic realized fees", "initial_date": "2024-01-01",
+                  "initial_nav": "10000", "days": days, "fills": fills}
+        attempt = {"domain": "us_equity", "strategy_profile": "synthetic", "input_id": "synthetic-input",
+                   "trial_id": tid, "run_id": run, "param_version": 1, "status": "succeeded",
+                   "raw_attempt_source_sha256": raw_hash}
+        attempt["source_sha256"] = add(attempt)
+        attempt.update({"ledger_source_sha256": raw_hash, "ledger": ledger,
+                        "ledger_sha256": hashlib.sha256(encoded(ledger)).hexdigest()})
+        attempts.append(attempt)
+        returns[tid] = values
+    ids = list(returns)
+    result = adapter.report_normalized_real_ledgers(
+        attempts=attempts, sources=sources, sessions=sessions, selected_trial_id=ids[0],
+        selection_candidate_ids=ids, annual_risk_free_rate=0.0, pbo_splits=8,
+        effective_trials={"count": 4, "method": "synthetic test assumption", "source_sha256": raw_hash})
+    stats = _qpk_stats()
+    pbo = stats.probability_of_backtest_overfitting(returns, n_splits=8, metric="sharpe")
+    dsr = stats.deflated_sharpe_ratio(returns[ids[0]], [statistics_sharpe(v) for v in returns.values()],
+                                      n_effective_trials=4)
+    assert pbo.status == dsr.status == "COMPUTED"
+    assert result["conditional_candidate_set_pbo"]["value"] == pytest.approx(pbo.value)
+    assert result["conditional_candidate_set_dsr"]["value"] == pytest.approx(dsr.value)
+    assert result["metrics"] == {"dsr": None, "pbo": None}
+

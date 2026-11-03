@@ -57,7 +57,7 @@ GLOBAL_ETF_ALLOWED_PATHS = frozenset({
     "src/us_equity_strategies/strategies/global_etf_rotation.py",
     "tests/test_global_etf_absolute_volatility.py",
     "tests/test_orchestrator_runner.py",
-    "docs/research/global_etf_absolute_volatility.md",
+    "docs/research/global-etf-absolute-volatility.md",
 })
 
 GLOBAL_ETF_TARGET_PATH = "src/us_equity_strategies/research/global_etf_absolute_volatility.py"

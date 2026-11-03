@@ -56,6 +56,8 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e .
+          # Historical research is intentionally isolated from the runtime pin.
+          python -m pip install --no-deps --force-reinstall 'quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1'
 
       - name: Verify fixed historical report runtime
         run: |

@@ -1,8 +1,7 @@
 """Plugin pipeline for the US equity combo entrypoints.
 
-Provides two plugin stages:
-  1. apply_income_layer  — reserve X% of portfolio for income assets.
-  2. apply_option_overlay — reserve budget for LEAPS / spread option intents.
+Applies one cash-preserving income budget. The retired option seam only rejects
+legacy configuration; it cannot create a production budget.
 
 Each stage takes a weights dict and returns an augmented result.
 """
@@ -11,6 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping
 
+from us_equity_strategies.option_overlay_retirement import validate_retired_option_inputs
+
+from us_equity_strategies.income_budget import allocate_income_budget
 from us_equity_strategies.income_layer import (
     build_income_layer_plan,
     normalize_income_layer_allocations,
@@ -33,6 +35,8 @@ def apply_income_layer(
     weights: MutableMapping[str, float],
     total_equity: float,
     config: Mapping[str, object],
+    *,
+    market_values: Mapping[str, float] | None = None,
 ) -> dict[str, object]:
     """Apply the income layer to *weights* in-place.
 
@@ -60,15 +64,6 @@ def apply_income_layer(
     start_usd = float(config.get("income_layer_start_usd", 500000.0))
     max_ratio = float(config.get("income_layer_max_ratio", 0.25))
 
-    if not enabled or total_equity < start_usd or max_ratio <= 0.0:
-        return {
-            "income_layer_enabled": enabled,
-            "income_layer_active": False,
-            "income_layer_ratio": 0.0,
-            "income_layer_start_usd": start_usd,
-            "income_layer_max_ratio": max_ratio,
-        }
-
     raw_allocations = config.get("income_layer_allocations")
     if not raw_allocations:
         raw_allocations = INCOME_LAYER_DEFAULT_ALLOCATIONS
@@ -78,20 +73,18 @@ def apply_income_layer(
         fallback_allocations=INCOME_LAYER_DEFAULT_ALLOCATIONS,
     )
 
-    # Current market values for income symbols (all zero at plan time —
-    # we are building target weights from scratch).
-    market_values: dict[str, float] = {sym: 0.0 for sym in allocations}
+    observed_values = dict(market_values or {})
 
     plan = build_income_layer_plan(
         total_equity_usd=total_equity,
-        market_values=market_values,
+        market_values=observed_values,
         allocations=allocations,
         income_layer_enabled=enabled,
         income_layer_start_usd=start_usd,
         income_layer_max_ratio=max_ratio,
     )
 
-    if not allocations or plan.ratio <= 0.0:
+    if not allocations or plan.locked_value <= 0.0:
         return {
             "income_layer_enabled": enabled,
             "income_layer_active": False,
@@ -100,18 +93,9 @@ def apply_income_layer(
             "income_layer_max_ratio": max_ratio,
         }
 
-    # Reduce existing weights proportionally to make room for income assets
-    total_income_weight = plan.ratio
-    existing_total = sum(max(0.0, float(w)) for w in weights.values())
-    if existing_total > 0.0:
-        scale = (1.0 - total_income_weight) / existing_total
-        for sym in list(weights):
-            weights[sym] = max(0.0, float(weights[sym]) * scale)
-
-    # Add income allocation weights; merge when a symbol is already in core.
-    for sym, target_value in plan.target_values.items():
-        income_weight = target_value / total_equity if total_equity > 0.0 else 0.0
-        weights[sym] = max(0.0, float(weights.get(sym, 0.0)) + income_weight)
+    targets = allocate_income_budget(weights, plan, total_equity=total_equity)
+    weights.clear()
+    weights.update(targets)
 
     return {
         "income_layer_enabled": enabled,
@@ -143,80 +127,10 @@ def apply_option_overlay(
     *,
     total_equity: float = 0.0,
 ) -> dict[str, object]:
-    """Apply the option overlay stage, returning diagnostics and budget data.
-
-    Parameters
-    ----------
-    weights :
-        Current target-weight mapping (not modified by this stage — only
-        diagnostics / budget intent metadata is produced).
-    config :
-        Runtime config dictionary.  Relevant keys:
-
-        * ``option_overlay_enabled`` (bool, default ``True``)
-        * ``option_growth_overlay_enabled`` (bool, default ``True``)
-        * ``option_growth_overlay_recipe`` (str, default
-          ``"spy_leaps_growth_v1"``)
-        * ``option_growth_overlay_start_usd`` (float, default
-          ``500000.0``)
-        * ``option_growth_overlay_nav_budget_ratio`` (float, default
-          ``0.015``)
-
-    total_equity :
-        Total portfolio equity in USD (used for budget calculation).
-        If zero, it is inferred from ``config`` or left as zero.
-
-    Returns
-    -------
-    dict[str, object]
-        Diagnostics including ``option_overlay_active`` and, if active,
-        an ``option_budget`` entry consumable by ``BudgetIntent``.
-    """
-    enabled = bool(config.get("option_overlay_enabled", True))
-    growth_enabled = bool(config.get("option_growth_overlay_enabled", True))
-    recipe = str(config.get("option_growth_overlay_recipe", "spy_leaps_growth_v1"))
-    start_usd = float(config.get("option_growth_overlay_start_usd", 500000.0))
-    nav_budget_ratio = float(config.get("option_growth_overlay_nav_budget_ratio", 0.015))
-
-    if not enabled or not growth_enabled or not recipe:
-        return {
-            "option_overlay_enabled": enabled,
-            "option_overlay_active": False,
-        }
-
-    equity = max(0.0, total_equity)
-    if equity < start_usd:
-        return {
-            "option_overlay_enabled": enabled,
-            "option_overlay_active": False,
-            "option_overlay_below_start": True,
-            "option_overlay_equity": equity,
-            "option_overlay_start_usd": start_usd,
-        }
-
-    budget = equity * nav_budget_ratio
-
-    return {
-        "option_overlay_enabled": enabled,
-        "option_overlay_active": True,
-        "option_growth_overlay_enabled": growth_enabled,
-        "option_growth_overlay_recipe": recipe,
-        "option_growth_overlay_start_usd": start_usd,
-        "option_growth_overlay_nav_budget_ratio": nav_budget_ratio,
-        "option_overlay_equity": equity,
-        "option_overlay_budget_usd": budget,
-        "option_budget": {
-            "name": "leaps_growth_budget",
-            "symbol": None,
-            "amount": budget,
-            "unit": "quote_ccy",
-            "purpose": f"growth_leaps_{recipe}",
-        },
-    }
+    """Compatibility seam: retired options never reserve a production budget."""
+    validate_retired_option_inputs(config)
+    return {"option_overlay_enabled": False, "option_overlay_active": False,
+            "option_overlay_status": "retired"}
 
 
-__all__ = [
-    "INCOME_LAYER_DEFAULT_ALLOCATIONS",
-    "apply_income_layer",
-    "apply_option_overlay",
-]
+__all__ = ["INCOME_LAYER_DEFAULT_ALLOCATIONS", "apply_income_layer", "apply_option_overlay"]

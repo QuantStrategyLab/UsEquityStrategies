@@ -884,6 +884,7 @@ def test_auth_free_probe_reproduces_shadow_and_repairs_stdlib_first(monkeypatch,
 def test_bootstrap_stdlib_then_sdk_then_fallback(monkeypatch, tmp_path):
     import sys
     import sysconfig
+    from pathlib import Path
 
     sdk = fake_sdk(tmp_path)
     fallback = tmp_path / "fallback-site-packages"
@@ -891,7 +892,8 @@ def test_bootstrap_stdlib_then_sdk_then_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "path", [str(fallback), *sys.path])
     monkeypatch.setenv("QSL_DISCOVERY_SDK_PATH", str(sdk))
     discovery._bootstrap_sdk_runtime()
-    assert sys.path.index(sysconfig.get_path("stdlib")) < sys.path.index(str(sdk)) < sys.path.index(str(fallback))
+    normalized = [str(Path(path).resolve()) for path in sys.path]
+    assert normalized.index(str(Path(sysconfig.get_path("stdlib")).resolve())) < normalized.index(str(sdk.resolve())) < normalized.index(str(fallback.resolve()))
 
 
 def test_preloaded_fallback_auth_is_rejected_before_credentials(monkeypatch, tmp_path):

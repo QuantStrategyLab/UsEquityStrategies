@@ -79,7 +79,7 @@ class CapResearchTests(unittest.TestCase):
             self.assertIsNone(result["metrics"])
 
     def test_local_data_and_repeat_attempts_are_rejected(self):
-        prefix = "gs://qsl-research-evidence-831478360303/research/v2/input/rs04"
+        prefix = "gs://synthetic-research-evidence/research/v2/input/rs04"
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(research.ResearchStop, "REAL_DATA_CLOUD_ONLY"):
                 research.validate_cloud(prefix)

@@ -439,7 +439,7 @@ def _get_bytes(session, url, params, limit):
 
 
 # Field shapes from the existing batch_a_dataset._parse_manifest contract and
-# docs/research/batch_a_v2_contracts.zh-CN.md. This is not a new rights contract.
+# docs/research/batch-a-v2-contracts.zh-CN.md. This is not a new rights contract.
 SEMANTIC_SCHEMA = "qsl.research.price_snapshot.v2"
 SEMANTIC_CLAIM_FIELDS = (
     ("calendar", ("calendar", "timezone")),

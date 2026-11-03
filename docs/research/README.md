@@ -4,16 +4,51 @@
 
 ## Signal input contracts
 
-- [Signal-source repository design: English overview](generic_signal_source_repository_design.en.md) · [complete Chinese design](generic_signal_source_repository_design.md). Dated design and ownership boundaries; not a deployment record.
-- [Market Signal Bundle: English overview](market_signal_bundle_artifact_contract.en.md) · [complete contract and CLI examples](market_signal_bundle_artifact_contract.md). Consumer validation and runtime/research handoff rules.
+- [Signal-source repository design: English overview](generic-signal-source-repository-design-overview.md) · [complete Chinese design](generic-signal-source-repository-design.md). Dated design and ownership boundaries; not a deployment record.
+- [Market Signal Bundle: English overview](market-signal-bundle-artifact-contract-overview.md) · [complete contract and CLI examples](market-signal-bundle-artifact-contract.md). Consumer validation and runtime/research handoff rules.
 
 ## Research plans
 
-- [Smart DCA: English overview](smart_dca_indicator_research_plan.en.md) · [complete research plan](smart_dca_indicator_research_plan.md). Baselines, candidate rules, evidence and promotion review remain separate from live enablement.
-- [Index LEAPS overlay](index_leaps_growth_overlay.md) ([中文](index_leaps_growth_overlay.zh-CN.md)). Research-only; real option-chain validation remains required before live intent.
+- [Smart DCA: English overview](smart-dca-indicator-research-plan-overview.md) · [complete research plan](smart-dca-indicator-research-plan.md). Baselines, candidate rules, evidence and promotion review remain separate from live enablement.
+- [Index LEAPS overlay](index-leaps-growth-overlay.md) ([中文](index-leaps-growth-overlay.zh-CN.md)). Research-only; real option-chain validation remains required before live intent.
+
+## Evidence boundaries and corrections
+
+- [Smart DCA mathematics correction](smart-dca-math-corrections-20260929.md) and [historical decision summary](smart-dca-decision-summary-2026-06-19.md): the three pre-correction matrices were not rerun; their historical metrics and pass labels do not establish current economics or promotion.
+- [SOXL static-selection qualification](soxl-v1-static-selection-qualification.md): the affected SMA and relative-volatility branches are retrospective, not causal walk-forward. The distinct RSI2 research adapter is not a runtime strategy or promotion proof.
+- [Global ETF research evidence](../evidence/global_etf_rotation/README.md): the current research package remains `rework` with missing point-in-time and complete trial/cost evidence, independently of its runtime catalog status.
+- [Trial registry](trial_registry/README.md), including [r_math_04](trial_registry/r_math_04.json): retain failed and rejected attempts; its DSR is uncomputable without a verified complete cumulative trial source.
+- [Normalized real-ledger adapter](normalized-real-ledger-adapter.md): validates trial identities, source-bound normalized receipts and net-cost arithmetic for conditional subset diagnostics; full-family qualification remains separate.
+
+Catalog and allowlist membership preserve an interface and do not attest current deployment, economic effectiveness, independent out-of-sample performance or trading authority. Missing evidence is not proof of loss.
+
+Global ETF Rotation and its aliases are available for runtime selection on
+compatible targets. Its research evidence remains `rework`; selection eligibility
+does not change that evidence assessment or the platform and broker requirements.
+
+## Historical Kelly metric conventions
+
+The frozen fractional Kelly v1 and portfolio Kelly v1/v2 evaluators report
+`cvar_95_daily` as the mean of the worst `ceil(0.05 * n)` observed session
+returns. Returns are signed: negative values represent losses. QPK's
+`cvar95_return_per_period` instead averages exactly the worst 5% probability
+mass, splitting the boundary observation; it uses the frequency of its input
+net returns, which need not be daily. These statistics can differ even for the
+same daily path. Do not rank or compare them as interchangeable metrics; retain
+the evaluator version, input window, frequency and cost basis with each result.
+
+The fractional evaluator estimates the mean of strategy returns minus cash but
+uses the sample variance of strategy returns. The portfolio evaluator uses
+covariance of returns minus cash and reuses the fractional evaluator's mean
+shrinkage. When cash returns vary, these are different assumptions. A future
+version must declare its cash numeraire, centered variance or covariance versus
+second raw moment, return frequency and fee basis, and recompute comparisons
+from the same inputs. This records existing behavior and does not select a new
+model, change historical results, or authorize adoption. See the
+[detailed Chinese contract](fractional-kelly-walk-forward.zh-CN.md).
 
 ## Historical runtime reference
 
-- [US equity runtime archive](../us_equity_runtime_archive.md) ([中文](../us_equity_runtime_archive.zh-CN.md)). Retains the profile/evidence snapshot dated 2026-06-28. Its performance rows and runtime labels are historical context, not a current deployment or live-eligibility readback.
+- [US equity runtime archive](../us-equity-runtime-archive.md) ([中文](../us-equity-runtime-archive.zh-CN.md)). Retains the profile/evidence snapshot dated 2026-06-28. Its performance rows and runtime labels are historical context, not a current deployment or live-eligibility readback.
 
 The English overviews summarize the linked complete documents; they do not replace their field definitions, examples, risk controls or data-license requirements. Research notes do not authorize trading. See the repository [license](../../LICENSE).

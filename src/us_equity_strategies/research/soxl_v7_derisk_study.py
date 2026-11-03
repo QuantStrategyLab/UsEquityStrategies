@@ -134,7 +134,7 @@ def qualification_report(*, cloud: bool, archive_prefix: str = "", extra_ids: Se
         "approved_archive": {"expected_manifest_sha256": RS04_ARCHIVE_SHA256,
             "locator_provided": bool(archive_prefix), "gcs_copy_verified": False,
             "documented_symbol_count": 6, "documented_start": "2021-12-01", "documented_end": "2026-08-25",
-            "source": "docs/research/fractional_kelly_preregistration.zh-CN.md section 4.0",
+            "source": "docs/research/fractional-kelly-preregistration.zh-CN.md section 4.0",
             "cannot_cover": ["2000_2002", "2008", "2020", "income_universe", "historical_plugins"]},
         "plugin_inventory": inventory,
         "plugin_binding_manifest": {"status": "UNAVAILABLE", "custom_registry": "UNRESOLVED"},

@@ -28,7 +28,7 @@ def _fake_runner(calls: list[tuple[str, ...]]):
 def test_stage_copies_only_the_fixed_r3_input_set(tmp_path: Path) -> None:
     calls: list[tuple[str, ...]] = []
     staged = stage_r3_inputs(
-        "gs://qsl-research-evidence-831478360303/research/v1/input/r3",
+        "gs://synthetic-research-evidence/research/v1/input/r3",
         tmp_path / "stage",
         runner=_fake_runner(calls),
     )
@@ -38,7 +38,7 @@ def test_stage_copies_only_the_fixed_r3_input_set(tmp_path: Path) -> None:
     )
     assert len(calls) == len(R3_INPUT_RELATIVE_PATHS)
     assert all("--no-clobber" in call for call in calls)
-    assert all(call[4].startswith("gs://qsl-research-evidence-831478360303/") for call in calls)
+    assert all(call[4].startswith("gs://synthetic-research-evidence/") for call in calls)
 
 
 def test_stage_refuses_nonempty_root(tmp_path: Path) -> None:

@@ -16,8 +16,8 @@ _RESEARCH = Path(__file__).parents[2] / "docs/research/first_compounding_2026092
 _EXCLUDED = {
     "phase5_capital_scale_compare.py",
     "small_account_demo.py",
-    "RESEARCH_SCOPE.md",
-    "r8_joint_allocation_status.md",
+    "research-scope.md",
+    "r8-joint-allocation-status.md",
     "soxl_soxx_trend_income.py",
 }
 

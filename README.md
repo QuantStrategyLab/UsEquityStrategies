@@ -8,6 +8,24 @@ UsEquityStrategies is the strategy-lib behind QuantStrategyLab's US equity tradi
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
 
+## Option retirement and income budget migration
+
+Production entrypoints no longer advertise or generate proprietary option
+overlays. Explicit legacy option recipes, budgets or known option obligations
+are rejected for migration; literal boolean `false` switches and empty recipes
+are the only accepted legacy no-op controls. Missing account evidence is not
+proof of no option holdings. Historical research replay remains separate. See
+[option overlay retirement](docs/option-overlay-retirement.md).
+
+Weight-based income allocation now funds per-symbol minimum targets from the
+existing invested target budget and preserves implicit cash. It does not
+rescale a 60% invested portfolio to 100%. Existing income holdings remain locked
+when disabled. An infeasible budget aborts the entire strategy decision before
+returning executable targets; this can also delay otherwise valid risk-reducing
+orders for that cycle. It does not guarantee those orders execute. Independent
+platform protections remain necessary. TQQQ/SOXL retain their existing amount
+plans and internal risk rules. See [income budget contract](docs/income-budget-contract.md).
+
 ## What this repository is
 
 UsEquityStrategies is the QuantStrategyLab US equity strategy package. It provides reusable strategy implementations and runtime metadata for QuantStrategyLab US equity platforms.
@@ -35,6 +53,11 @@ Export these environment variables before importing or running the offline R3 ev
 
 ## Strategy profiles
 
+The `nasdaq100_buy_and_hold` and `sp500_buy_and_hold` baseline profiles share
+an offline buy-only planner. Both are preview-only, with no selected instrument,
+funding defaults, runtime adapter or rollout activation. See the
+[buy-and-hold preview contract](docs/buy-and-hold-preview-contract.md).
+
 ### Direct runtime strategies
 
 These profiles can run from market history, portfolio snapshots, or other runtime inputs without a separate feature-snapshot build step.
@@ -52,7 +75,7 @@ These profiles depend on artifacts produced by `UsEquitySnapshotPipelines` befor
 
 | Profile | Name | Notes |
 | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | runtime-enabled feature-snapshot ETF rotation with daily canary defense and BIL safe haven. |
+| `global_etf_rotation` | Global ETF Rotation | runtime-selectable for compatible targets; platform policy, snapshot evidence and broker gates still apply. |
 | `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | runtime-enabled feature-snapshot Russell Top50 leader rotation. |
 
 ### Research-only candidates
@@ -99,17 +122,19 @@ python -m pytest -q
 
 ## Useful docs
 
-- [`docs/tqqq_ai_extensions.md`](docs/tqqq_ai_extensions.md)
-- [`docs/us_equity_contract_gap_matrix.md`](docs/us_equity_contract_gap_matrix.md)
-- [`docs/us_equity_notification_i18n_contract.md`](docs/us_equity_notification_i18n_contract.md)
-- [`docs/us_equity_notification_i18n_contract.zh-CN.md`](docs/us_equity_notification_i18n_contract.zh-CN.md)
-- [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
-- [`docs/us_equity_runtime_archive.md`](docs/us_equity_runtime_archive.md) ([简体中文](docs/us_equity_runtime_archive.zh-CN.md))
-- [`docs/us_equity_strategy_status.md`](docs/us_equity_strategy_status.md) ([简体中文](docs/us_equity_strategy_status.zh-CN.md))
-- [`docs/research/ibit_smart_dca.md`](docs/research/ibit_smart_dca.md)
-- [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
+- [`docs/tqqq-ai-extensions.md`](docs/tqqq-ai-extensions.md)
+- [`docs/us-equity-contract-gap-matrix.md`](docs/us-equity-contract-gap-matrix.md)
+- [`docs/us-equity-notification-i18n-contract.md`](docs/us-equity-notification-i18n-contract.md)
+- [`docs/us-equity-notification-i18n-contract.zh-CN.md`](docs/us-equity-notification-i18n-contract.zh-CN.md)
+- [`docs/us-equity-portability-checklist.md`](docs/us-equity-portability-checklist.md)
+- [`docs/us-equity-runtime-archive.md`](docs/us-equity-runtime-archive.md) ([简体中文](docs/us-equity-runtime-archive.zh-CN.md))
+- [`docs/us-equity-strategy-status.md`](docs/us-equity-strategy-status.md) ([简体中文](docs/us-equity-strategy-status.zh-CN.md))
+- [`docs/research/ibit-smart-dca.md`](docs/research/ibit-smart-dca.md)
+- [`docs/us-equity-strategy-template.md`](docs/us-equity-strategy-template.md)
 
 ## Safety and contribution notes
+
+- AI assistants and maintainers follow [AGENTS.md](AGENTS.md).
 
 - Keep secrets, account identifiers, tokens, cookies, and broker credentials out of Git and logs.
 - Prefer small, reviewable changes with tests or reproducible evidence.

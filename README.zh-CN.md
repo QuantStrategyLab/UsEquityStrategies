@@ -8,6 +8,12 @@ UsEquityStrategies 是 QuantStrategyLab 美股交易背后的策略库：保存�
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
 
+## 期权退役与收入预算迁移
+
+生产入口不再默认提供或生成自营期权增强。显式旧配方、预算残留及已知期权义务会被明确拒绝并要求迁移；旧控制项只接受字面布尔 `false` 与空配方作为无操作值。缺少账户信息不证明没有期权持仓。历史研究回放独立保留，见[期权退役合同](docs/option-overlay-retirement.md)。
+
+权重式收入分配从已有投资目标预算筹资，按标的最低目标去重并保留隐含现金，不会把原60%投资自动放大到100%。禁用时仍保留已有收入持仓的最低目标。预算不足会在返回可执行目标前中止整个策略决策，也可能延迟该周期原有的有效减风险目标；不能据此保证减仓订单一定执行，独立平台保护仍然必要。TQQQ/SOXL保留原金额计划与内嵌风控，见[收入预算合同](docs/income-budget-contract.md)。
+
 ## 这个仓库是什么
 
 UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLab 美股执行平台提供可复用策略实现和运行元数据。
@@ -52,7 +58,7 @@ Export these environment variables before importing or running the offline R3 ev
 
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
-| `global_etf_rotation` | Global ETF Rotation | 基于 feature snapshot 的 ETF 轮动，带每日 canary 防守和 BIL safe haven。 |
+| `global_etf_rotation` | Global ETF Rotation | 兼容的目标可选择运行；仍须满足平台政策、快照证据和券商检查。 |
 | `russell_top50_leader_rotation` | Russell Top50 Leader Rotation | 基于 feature snapshot 的 Russell Top50 leader rotation。 |
 
 ### 研究侧候选
@@ -97,17 +103,19 @@ python -m pytest -q
 
 ## 延伸文档
 
-- [`docs/tqqq_ai_extensions.md`](docs/tqqq_ai_extensions.md)
-- [`docs/us_equity_contract_gap_matrix.md`](docs/us_equity_contract_gap_matrix.md)
-- [`docs/us_equity_notification_i18n_contract.md`](docs/us_equity_notification_i18n_contract.md)
-- [`docs/us_equity_notification_i18n_contract.zh-CN.md`](docs/us_equity_notification_i18n_contract.zh-CN.md)
-- [`docs/us_equity_portability_checklist.md`](docs/us_equity_portability_checklist.md)
-- [`docs/us_equity_runtime_archive.zh-CN.md`](docs/us_equity_runtime_archive.zh-CN.md)（[English](docs/us_equity_runtime_archive.md)）
-- [`docs/us_equity_strategy_status.zh-CN.md`](docs/us_equity_strategy_status.zh-CN.md)（[English](docs/us_equity_strategy_status.md)）
-- [`docs/research/ibit_smart_dca.md`](docs/research/ibit_smart_dca.md)
-- [`docs/us_equity_strategy_template.md`](docs/us_equity_strategy_template.md)
+- [`docs/tqqq-ai-extensions.md`](docs/tqqq-ai-extensions.md)
+- [`docs/us-equity-contract-gap-matrix.md`](docs/us-equity-contract-gap-matrix.md)
+- [`docs/us-equity-notification-i18n-contract.md`](docs/us-equity-notification-i18n-contract.md)
+- [`docs/us-equity-notification-i18n-contract.zh-CN.md`](docs/us-equity-notification-i18n-contract.zh-CN.md)
+- [`docs/us-equity-portability-checklist.md`](docs/us-equity-portability-checklist.md)
+- [`docs/us-equity-runtime-archive.zh-CN.md`](docs/us-equity-runtime-archive.zh-CN.md)（[English](docs/us-equity-runtime-archive.md)）
+- [`docs/us-equity-strategy-status.zh-CN.md`](docs/us-equity-strategy-status.zh-CN.md)（[English](docs/us-equity-strategy-status.md)）
+- [`docs/research/ibit-smart-dca.md`](docs/research/ibit-smart-dca.md)
+- [`docs/us-equity-strategy-template.md`](docs/us-equity-strategy-template.md)
 
 ## 安全和贡献说明
+
+- AI 助手与维护者遵循 [AGENTS.md](AGENTS.md)。
 
 - 不要把密钥、账户标识、token、Cookie 或券商凭据提交到 Git，也不要写进日志。
 - 改动尽量小，并配套测试或可复现证据。

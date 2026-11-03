@@ -21,11 +21,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check lockfile consistency
+        run: uv lock --check
+
       - name: Install dependencies
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest pytest-cov ruff==0.15.22
+          python -m pip install -e '.[research]' numpy pandas pandas_market_calendars pytz pytest pytest-cov jsonschema ruff==0.15.22
           python -m pip check
 
       - name: Verify research dependency commits
@@ -36,8 +42,8 @@ jobs:
           from quant_platform_kit.strategy_lifecycle.contracts import ResearchLedgerEvent
 
           expected = {
-              "quant-platform-kit": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1",
-              "quant-strategy-plugins": "3416da47580be1537183e378f3ca9efacc6f9b8c",
+              "quant-platform-kit": "52adab68d6109cf93941ae21a39914cfa37e00e3",
+              "quant-strategy-plugins": "88483c8f786d3fc3bed865fe7a420996fb487c79",
           }
           for name, sha in expected.items():
               provenance = json.loads(distribution(name).read_text("direct_url.json"))
@@ -172,7 +178,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+          python -m pip install -e . pytest jsonschema
           python -m pip install --force-reinstall \
             "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@${QPK_SECURITY_NETTING_SHA}"
           python -m pip check
@@ -203,15 +209,52 @@ jobs:
             tests/research/test_rs04_netting_candidate.py \
             tests/research/test_rs04_mechanism_comparison.py \
             tests/research/test_r_data_foundation.py \
+            tests/research/test_r_data_04_pit_gaps.py \
+            tests/research/test_r_data_05_producer_integration.py \
+            tests/research/test_r_data_06_revision_calendar_fx.py \
+            tests/research/test_capital_adaptive_risk.py \
+            tests/research/test_auto_portfolio_preview.py \
+            tests/research/test_funded_portfolio_preview.py \
+            tests/research/test_kelly_candidate_math.py \
+            tests/research/test_portfolio_settings_preview.py \
+            tests/research/test_portfolio_risk_events_preview.py \
+            tests/research/test_portfolio_risk_state_io.py \
+            tests/research/test_portfolio_event_journal.py \
+            tests/research/test_portfolio_intraday_state_io.py \
+            tests/research/test_portfolio_state_snapshot.py \
+            tests/research/test_portfolio_settings_draft_io.py \
             tests/test_research_import_boundary.py --junitxml=security-netting-tests.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
           root = ET.parse("security-netting-tests.xml").getroot()
           cases = list(root.iter("testcase"))
           foundation_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_foundation")]
+          gap_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_04_pit_gaps")]
+          for required in ("test_invalid_pit_stops_before_generator_fit_and_update",
+                           "test_rehashed_revision_conflicts_without_changing_saved_history",
+                           "test_each_asset_future_input_preserves_native_prefix",
+                           "test_non_usd_source_refused_before_input_read"):
+              assert any(c.attrib["name"].split("[")[0] == required for c in gap_cases), required
           for required in ("test_r1_first_seen_persisted_and_actual_cutoff_consumed",
                            "test_r1_future_bars_and_actions_cannot_change_earlier_native_decisions"):
               assert any(c.attrib["name"] == required for c in foundation_cases), required
+          producer_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_05_producer_integration")]
+          for required in ("test_declared_producer_clocks_reach_native_model_and_saved_replay",
+                           "test_missing_or_late_producer_bundle_is_journaled_without_compute",
+                           "test_changed_producer_or_receipt_conflicts_before_replay_input",
+                           "test_revised_bundle_needs_new_identity_and_later_declared_cutoff"):
+              assert any(c.attrib["name"].split("[")[0] == required for c in producer_cases), required
+          revision_cases = [c for c in cases if c.attrib["classname"].endswith("test_r_data_06_revision_calendar_fx")]
+          for required, count in {
+              "test_revision_candidates_are_explicit_and_conflicts_preserve_history": 9,
+              "test_action_specific_clocks_are_unconsumed_gap_counterexamples": 10,
+              "test_raw_fx_quotes_are_unconsumed_gap_counterexamples": 5,
+              "test_unknown_calendar_or_currency_refused_before_archive_read": 8,
+              "test_declared_holiday_gap_uses_next_listed_session_and_keeps_pending": 1,
+              "test_unlisted_or_skipped_session_rejected_without_state_change": 3,
+              "test_post_holiday_late_bundle_rejected_without_filling_pending": 2,
+          }.items():
+              assert sum(c.attrib["name"].split("[")[0] == required for c in revision_cases) >= count, required
           rs04_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_netting_candidate.RS04NettingCandidateTests")]
           assert len(rs04_cases) >= 13, "RS04 CorePath netting candidate tests were not fully collected"
           mechanism_cases = [c for c in cases if c.attrib["classname"].endswith("test_rs04_mechanism_comparison.MechanismComparisonTests")]
@@ -234,6 +277,19 @@ jobs:
                            "r2_followup_normal_recovery", "r2_followup_book_fields"):
               assert any(required in c.attrib["name"] for c in candidate_cases), required
           assert not any(list(c.iter(tag)) for c in candidate_cases for tag in ("skipped", "failure", "error"))
+          preview_modules = (
+              "test_capital_adaptive_risk", "test_auto_portfolio_preview",
+              "test_funded_portfolio_preview", "test_kelly_candidate_math",
+              "test_portfolio_settings_preview", "test_portfolio_risk_events_preview",
+              "test_portfolio_risk_state_io",
+              "test_portfolio_event_journal", "test_portfolio_intraday_state_io",
+              "test_portfolio_state_snapshot", "test_portfolio_settings_draft_io",
+          )
+          for module in preview_modules:
+              assert any(module + "." in c.attrib["classname"] for c in cases), module
+          assert any(c.attrib["name"] == "test_independent_process_intraday_restart_crashes_and_handoff_resume" for c in cases)
+          assert any(c.attrib["name"] == "test_independent_process_snapshot_restore_and_read_only_restart" for c in cases)
+          assert any(c.attrib["name"] == "test_independent_process_draft_readback_and_stale_checkpoint_have_no_side_effects" for c in cases)
           assert not any(list(root.iter(tag)) for tag in ("skipped", "failure", "error"))
           print("Synthetic ledger, compounding and RS06 reconciliation executed without skips or failures.")
           PY

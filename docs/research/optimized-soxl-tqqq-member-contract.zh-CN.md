@@ -1,0 +1,209 @@
+# Batch2 最小研究候选与经济合同
+
+任务 B2A-CONTRACT。本文只定义可复用的研究候选和经济记账边界。它不填写真实费率、仓位、历史收益，也不授予纸面、影子或实盘权限。
+
+起草时读到的锚点：UES 分支 `qsl/soxl-cost-model-vps-20260924` 的 ref 为 `1a9d2985d34a4d7e17fc41c0e39528476105948a`；QPK `main` 的 ref 为 `c3dcf473c517853342cc893bb79d141e90208d8d`。会话开始时工作区已有两份未提交成本补丁：`src/us_equity_strategies/research/optimized_strategy_replay.py` 与 `tests/test_optimized_strategy_replay.py`。本批不修改它们。下文里的 replay 行为来自当时读到的工作区文本。干净 HEAD 与含这两份差异的工作区是两套代码身份。
+
+主审计 §9.15.61–.80 与 `QSL_SYSTEM_ARCHITECTURE.md` 在本机不可见。本文不声称已补读。
+
+## 1. 顶层成员
+
+Batch2 顶层只有两个成员，各自是一条完整策略：
+
+| 成员 | manifest | `required_inputs` | manifest 声明的 `managed_symbols` |
+| --- | --- | --- | --- |
+| SOXL 策略 | `soxl_soxx_trend_income` | `derived_indicators`、`portfolio_snapshot` | `SOXL`、`SOXX`、`BOXX`、`SCHD`、`DGRO`、`SGOV`、`SPYI`、`QQQI` |
+| TQQQ 策略 | `tqqq_growth_income` | `benchmark_history`、`portfolio_snapshot` | `TQQQ`、`QQQM`、`BOXX`、`SCHD`、`DGRO`、`SGOV`、`SPYI`、`QQQI` |
+
+TQQQ manifest 还声明 `benchmark_symbol = QQQ`。SOXL 通道是派生指标，replay 在调用方给出配置后才确定具体指标名：趋势标的上的 `price` 与 `ma_trend` 始终需要；RSI、布林和已实现波动只在对应开关打开时成为必需项。TQQQ replay 要求信号日可见的 `QQQ` K 线，根数按第 10 节公式计算，且拒绝把 `benchmark_symbol` 改成其他代码。
+
+这两份 manifest 的 `default_config` 还展开了收入层、期权覆盖，以及市场状态控制；TQQQ 另含 AI 扩展、危机防御和波动降杠杆相关开关。`income_layer_default_config` 与 `option_overlay_default_config` 的键清单本次未逐项展开，记为 `DECLARED_BY_HELPER`。`BOXX`、收入层证券、期权和这些插件留在成员范围内。fixture 若遇到未模拟的期权或目标插件会失败关闭（`UNSIMULATED_OPTION_OVERLAY`、`UNSIMULATED_TARGET_PLUGIN`），这只说明该 runner 不能假装已经交易了它们。
+
+`managed_symbols` 是 manifest 文本里的声明全集。实际优化参数、开关取值和生产版本均为 `UNKNOWN`。`PRODUCTION_VERSION_UNKNOWN` 只阻塞把结果称为生产等价，不阻塞调用方提交完整参数后的独立研究。`ResearchTrialRecord` 在参数未知时保持 `actual_params = null`，禁止用 manifest 默认值、V7 冻结档或 typed baseline 版本填成“已优化”。`soxl_soxx_core_only_p2_v7` 是另一条研究 manifest，不替代本成员。单个 ETF 的买入持有不是本候选的成员。
+
+组合外壳复用 `historical_combo_p2_candidate`：两条 leg 的 `strategy_id` 分别为上述 profile，`research_only` 为真，`candidate_state` 为 `FROZEN_RESEARCH_CANDIDATE`，`promotion_recommendation` 为空，`p4_paper_authorized`、`p5_shadow_authorized`、`p6_live_authorized` 均为假。leg 权重在声明前是 `UNKNOWN`，不得写入一条“最佳权重”候选。
+
+## 2. 冻结身份
+
+一套经济身份至少绑定下列材料，再做规范 JSON 的 SHA-256，称为 `economic_identity_sha256`：
+
+- UES 与 QPK 的代码 revision。工作区若含未提交差异，还要绑定该差异摘要；只写 HEAD 不能代表含成本补丁的文本。
+- `domain = us_equity` 与一个 `strategy_profile`。
+- 完整运行参数及开关摘要的摘要。参数未知时该槽为 null，不发行“优化历史已完成”的 digest。
+- 输入摘要、`window_start` / `window_end`、`calendar_id`、`periods_per_year`。
+- `cost_source` 与成本输入摘要。来源未知就停，不把 `TYPED_BASELINE_ZERO` 写成真实费率来源。
+- 执行合同：信号在交易日 t 已知，成交在下一交易日 t+1，净值按 t 或 t+1 当日收盘标记。`signal_effective_after_trading_days` 固定为 1，`execution_timing_contract` 为 `next_trading_day`，`nav_mark_field` 为 `close`。t+1 的成交字段（`open` 或 `close`）属于身份的一部分。
+- 复权 / 公司行为合同与现金合同。两者目前都是 `UNKNOWN`，见第 4 节。
+
+任一绑定字段不同，`economic_identity_sha256` 必须不同。QPK `PerformanceStore._research_key` 只对 `domain`、`strategy_profile`、`trial_id` 做 SHA-256，用作 `research_trial/{digest}/` 的存储定位。它不是经济身份。同一存储槽只能保存同一 trial 的一致对象；内容冲突时现有存储拒绝（`research_trial_conflict`）。定位 digest 不得拿去发表第二套参数、成本或区间。
+
+`optimized_strategy_replay` 的 `run_id` 覆盖 profile、参数集、单一 `source_revision`、日历、有效配置、初始现金与数量、输入、`PromotionCostModel` 和执行字段。它可以作为 fixture 运行摘要。它还没有同时绑定 UES 与 QPK 两套 revision，也没有复权合同，因此不能直接充当本节的经济身份。
+
+QPK 身份字段拒绝 `unknown`、`default`、`none`、`null`、`na`、`n/a` 这类占位字符串。文档里的 `UNKNOWN` 是停笔结论，不是写入这些字段的值。
+
+## 3. 三类证据，不可改标记晋级
+
+| 证据类 | 现有入口 | 本候选中的地位 |
+| --- | --- | --- |
+| `batch_a_v2` | `batch_a_member_pack` | 可复用校验与 digest，不是完整优化历史 |
+| `fixture_replay` | `optimized_strategy_replay` | 可复用 staging、`ResearchTrialRecord`、`ResearchDailyLedger`、`PerformanceStore` |
+| `optimized_history` | 尚无满足第 2、4 节的对象 | 唯一可以称为完整优化历史的类别；当前不可发行 |
+
+`qsl.c3-batch-a-frozen-member-pack.v2` 用 typed baseline 从 `SOXX`/`SOXL` 与 `QQQ`/`TQQQ` 价格快照生成 `soxl_core`、`tqqq_core` 和 `cash_sleeve`。成本场景是 `TYPED_BASELINE_ZERO`，现金收益政策是 `ASSUMED_ZERO_USD_CASH`，现金日收益被要求为零。包保持 `research_only`，且 `execution_authorized` 为假。它证明的是这条 SMA200 typed 基线在给定快照上的策略日收益序列，并排除预热期；它不证明第 1 节的完整成员，也不覆盖 `BOXX`、收入层、期权和插件。
+
+`replay_optimized_strategy` 的模块说明写明：它直接调用风险门前的决策构造器，供合成账本记录目标；`evidence_use` 必须为 `fixture`，`promotion_eligible` 必须为假，结果里 `live_executable` 与 `risk_gate_applied` 均为假。`persist_optimized_strategy_trial` 可以写入 `SUCCEEDED`，同时 `synthetic` 仍为真。QPK 注明合成存储不是授权，终态本身也不晋级。把 `synthetic`、`promotion_eligible` 或 P2 的推荐字段改成另一个标记，不改变证据类。
+
+`compare_fixed_member_budget_baselines` 只重组已经对齐的成员日收益。它不优化权重。成功输出保持 `execution_authorized`、`promotion_authorized` 为假，`no_order` 为真。失败路径返回 `status = PARKED`。
+
+## 4. 每日账本：沿用 QPK，不另起一套
+
+研究账本只使用 `ResearchDailyLedger` / `ResearchLedgerDay` / `ResearchPositionMark`。不新增第二套账本类型。
+
+已覆盖、且构造时强制闭合的关系：
+
+- 期初会话有 `initial_cash`、`initial_positions`（代码、数量、估值）、`initial_nav`。该日不是收益观测。
+- 其后每个会话有期末 `cash`、期末持仓数量与估值、`trade_net_cashflow`、`fees`、`nav`、`daily_return`。
+- `nav` 由现金、权益持仓、股息应收及启用时的期权估值构成；具体 ledger 还保留外部流、收入流、事件、限制现金及期权/权益成交字段。
+- 现金不再由“上一日现金 + `trade_net_cashflow` − `fees`”单式关系完整描述；外部流、收入、公司行为及期权结算都须与本日事件字段一并核对。
+- 无外部流时日收益按相邻净值计算；有外部流时 replay 用 `(当日 nav / (上一日 nav + 当日 external_cashflow)) − 1` 中性化该笔流。不得把外部流当策略收益。
+- 数量为零当且仅当估值为零；`fees >= 0`；`nav > 0`；会话日期严格递增；`cost_inputs` 非空。
+- `synthetic` 显式保存。fixture 路径写 `true`。
+
+由此可以重建的只有：上一日期末现金视为次日期初现金，上一日期末持仓视为次日期初持仓。这个重建没有单独的期初字段。
+
+### 当前 replay 能力与仍需外部证据的边界（2026-10-03 对齐）
+
+以下状态按当前 `optimized_strategy_replay.py`、对应 synthetic 测试及两份 `independent_*_full_manifest_v2_20260925.json` 对齐。较早版本中“没有账本字段/能力未实现”的说法不再适用于所有路径；这次对齐只说明机制存在，不证明真实输入、完整候选历史收益或晋级。候选的真实参数和开关仍未知。
+
+| 经济事项 | 停笔结论 |
+| --- | --- |
+| 成交成本与账本 | `PromotionCostModel` 的佣金进入 `fees`，滑点/冲击进入成交现金流；账本另有权益成交现金流与数量字段。输入 bps 仍是显式研究假设，不是实盘费率，也不包含所有成交细节 |
+| 外部出入金 | replay 接受按日 `external_cashflow`，计入现金并从该日收益分母剔除；这是调用方输入，不证明真实资金流水来源 |
+| 拆股、分红事件 | `ledger_events` 支持合成拆股、股息计提和支付事件，股息应收与到账可进入 QPK ledger。它不自动从行情推导公司行为，也不等于完整复权/公司行为历史；当前汇总缺口标记 `NO_CORPORATE_ACTIONS` 仍可能随 replay 输出出现 |
+| 现金收益 | 可显式提供 `income_cashflow`，或与分红支付事件核对；没有单独的现金利率/收益模型或真实现金合同。`ASSUMED_ZERO_USD_CASH` 仍只属于 Batch A |
+| 整股执行 | `whole_share_execution` 可在身份合同允许时按整股取整、先卖后买并拒绝不足资金；默认仍是连续股数，初始持仓也须符合整股约束。静态 `NO_SHARE_LOT_ROUNDING` gap 仍可能出现在输出中 |
+| 期权/插件 | 普通路径对未模拟的期权开关失败关闭。独立 v2 manifests 的 synthetic 路径：TQQQ LEAPS 覆盖开仓、估值、部分本金回收、到期失效/有资金时实物行权及 12 个月展期；SOXL SOXX put credit spread 覆盖开仓、估值、管理平仓、价外到期、short-put assignment 与价内 spread 结算，均有 QPK ledger readback。SOXL early American assignment 仍未实现；两者都没有历史 PIT option chain 或真实历史有效性证据。原优化候选实际开关未知，不能从 v2 fixture manifest 推定 |
+
+未解决的真实现金/公司行为/成本合同和来源问题，仍可阻塞 `optimized_history`；现有 fixture 与期权 synthetic 测试只验机制。它们不能证明真实期权报价、历史收益、完整 full-v2 策略有效性或晋级。`synthetic = true` 的 fixture 不能改标为 `optimized_history`。
+
+费用只计一次。成员日收益若已经按该成员的 `cost_model_digest` 计入内部佣金和不利成交，组合层不得再按同一成交重收。`c3_fixed_budget_baseline_comparison` 要求 `member_costs_already_embedded` 为真，并记下 `member_costs_recharged = false`。组合 `capital_path` 上的再平衡费用仍是调仓前名义换手近似，不是逐笔现金成交账本；此处关于整股、现金留存、杠杆和流动性闸门未计算/未授权，仅指该 C3 comparison，不代表 optimized replay 没有可选整股或事件账本路径。
+
+## 5. 回撤转换与收益分列
+
+现有 `max_drawdown`（replay 的 `BacktestResult`，以及 C3 `_metrics`）按 `nav / peak − 1` 取运行最小值，因而 `<= 0`。报告边界使用一对纯转换，不另建指标库：
+
+- `drawdown_signed = nav / peak − 1`，要求 `drawdown_signed <= 0`。
+- `drawdown_magnitude = -drawdown_signed`，要求 `drawdown_magnitude >= 0`。
+- 写入 `max_drawdown` 的值是 `drawdown_signed`。幅度只在需要非负回撤的下游出现，例如 replay 仅在 `max_drawdown < 0` 时用其绝对值计算 Calmar。
+
+峰值或净值未知时不做转换，不补零。
+
+收益分三列，互不覆盖：
+
+1. **声明预算路径**：C3 默认指标，`metrics_basis = RAW_FIXED_MEMBER_BUDGETS_UNSCALED`，未做组合风险缩放或组合调仓收费；输入成员收益是否已扣成员成本，由其成本身份决定，这里的“原始”不等于毛收益。
+2. **风险缩放路径**：仅当 `capital_path_options.apply_risk_scaling` 为真且缩放输入齐全时，使用缩放后预算重算收益，不拿默认指标代替。
+3. **费用后路径**：先说明成员收益已包含的成本，再单列组合调仓的增量费用；缺少适用费率时不计算真实净成本。Batch A 的 `TYPED_BASELINE_ZERO` 只是零成本基线。
+
+`capital_path` 的 `fee_fractions`、`one_way_turnovers` 与 `pre_trade_fee_notionals` 描述名义换手近似。它们不提供第 4 节的现金、成交价和公司行为。
+
+## 6. 本地离线验收与 PARKED
+
+验收不采集行情、不读配置或凭据、不交易、不部署。只核对契约是否自洽。
+
+| 检查 | 通过 | PARKED |
+| --- | --- | --- |
+| 成员范围 | 两腿分别指向第 1 节的完整 manifest，并保留 `BOXX`、收入层、期权与插件声明 | 成员被收成单标的买入持有，或静默删掉上述范围 |
+| 参数 | `actual_params` 为调用方完整对象，或在未知时保持 null | 用默认值、V7 或 typed baseline 冒充优化参数或生产版本 |
+| 身份 | 第 2 节字段齐全，且不同身份的 `economic_identity_sha256` 不同 | `IDENTITY_INCOMPLETE` 或 `IDENTITY_DIGEST_COLLISION` |
+| 证据类 | 类别是 `batch_a_v2`、`fixture_replay` 或尚不可发行的 `optimized_history` | 仅修改标记后声称晋级 |
+| 账本 | 第 4 节已覆盖的等式成立；缺口保持具名 | 把缺口账本称为完整优化历史 |
+| 费用 | 成员内部费用与组合增量费用只计一次；组合费用标明名义换手 | `FEE_DOUBLE_COUNT`，或把 `capital_path` 当成现金成交账本 |
+| 回撤 | 有符号回撤 `<= 0`，幅度 `>= 0`，转换关系成立 | 符号混用 |
+| 权限 | 研究只读、执行与晋级标志保持关闭 | 任一执行或晋级标志为真 |
+
+直接 PARKED 的原因码：`ACTUAL_PARAMS_UNKNOWN`、`PRODUCTION_VERSION_UNKNOWN`、`ADJUSTMENT_CONTRACT_UNKNOWN`、`CASH_CONTRACT_UNKNOWN`、`EXTERNAL_FLOW_UNKNOWN`、`CORPORATE_ACTION_UNKNOWN`、`BATCH_A_V2_NOT_OPTIMIZED_HISTORY`、`FIXTURE_REPLAY_NOT_OPTIMIZED_HISTORY`、`SYNTHETIC_LEDGER_NOT_PROMOTABLE`、`LABEL_ONLY_PROMOTION_REJECTED`、`LEDGER_INCOMPLETE_FOR_OPTIMIZED_HISTORY`、`FEE_DOUBLE_COUNT`、`IDENTITY_DIGEST_COLLISION`、`CAPITAL_PATH_NOT_CASH_LEDGER`。
+
+当前可执行的离线结论是：第 1 节成员范围和第 4 节 QPK 闭合关系可以陈述；完整优化历史停在 `LEDGER_INCOMPLETE_FOR_OPTIMIZED_HISTORY`，因为实际参数、复权合同、现金合同、外部出入金和公司行为仍是 `UNKNOWN`。`PRODUCTION_VERSION_UNKNOWN` 只阻塞生产等价，不阻塞独立研究。
+
+## 7. 已落地的身份入口
+
+`build_optimized_member_identity` 与 `validate_optimized_member_identity` 在 `us_equity_strategies.research.optimized_member_identity`。调用方自行提交 UES 与 QPK 的 40 位 revision、工作区有补丁时的 64 位补丁摘要、非占位参数对象、配置与输入摘要、窗口、日历、非负成本，以及 t 信号、t+1 成交、收盘估值。模块不读 git，不生成日收益，也不写 `ResearchDailyLedger`。
+
+`actual_params` 顶层里，字面小写 `none` 只接受两个确切字段：`blend_gate_volatility_delever_retention_mode` 与 `dual_drive_volatility_delever_retention_mode`。同名字段放在嵌套对象或数组里同样拒绝。字段名仅仅以 `_retention_mode` 结尾并不放行。其他字段上的 `none` 或 `unknown`，以及这两个字段上的大小写变体、空白和其他占位符，仍然拒绝。这个例外只承认策略保留模式的顶层字面值；它不把 V7 冻结档或 manifest 默认登记成完整原优化候选。
+
+校验器要求配置摘要与提交的参数对象实际匹配；每年期数沿用 QPK 账本支持的 252 或 365.25。它仍无法证明调用方提交的是完整的真实优化参数，来源验证留给历史生产者。
+
+输出 schema 为 `qsl.us-equity-optimized-member-identity.v1`，`economic_identity_sha256` 是去掉自身后的规范 JSON SHA-256。`research_only` 为真，执行与晋级为假，`evidence_scope` 为 `IDENTITY_ONLY_NO_HISTORICAL_RETURNS`。复权、现金、公司行为、外部现金流和股数只保存声明，`contract_proof` 固定为 `DECLARATION_ONLY`，不能证明来源真实。typed SMA200、Batch A v2 与 fixture replay 的 schema 或 `evidence_use` 在这里会被拒绝。
+
+fixture trial 生产与 QPK ledger 读回已存在，但其证据仍是 `synthetic`。身份对象本身只绑定声明，不验证输入来源，不会把 fixture 变成完整优化历史或生产等价。
+
+## 8. 主线研究启动 / 预注册
+
+本节只登记主线开工前要锁住的身份和输入。不新建账本或研究框架，也不填写仓位、权重结果或历史收益。真实输入未进入本批时，写成具名 PARKED。
+
+两条成员都是完整策略：SOXL 为 `soxl_soxx_trend_income`，TQQQ 为 `tqqq_growth_income`。范围、`required_inputs` 和 `managed_symbols` 见第 1 节。TQQQ manifest 声明的基准代码是 `QQQ`。脱敏后的真实参数、开关和生产版本没有进入本批：`ACTUAL_PARAMS_UNKNOWN`、`PRODUCTION_VERSION_UNKNOWN`。不得用 manifest 默认值、V7 或 typed baseline 填上。`PRODUCTION_VERSION_UNKNOWN` 只阻塞生产等价，不阻塞独立研究。
+
+共同交易日、预热长度和原始数据来源摘要未提供：`COMMON_TRADING_DAYS_PARKED`、`WARMUP_PARKED`、`RAW_SOURCE_DIGEST_PARKED`。
+
+成员内部费用和组合增量费只计一次。成员净收益若已含该成员的佣金和不利成交，组合层不得再收同一笔。组合增量费是另一层。两套真实费率都未提供：`MEMBER_INTERNAL_FEE_SCHEDULE_PARKED`、`COMBO_INCREMENTAL_FEE_SCHEDULE_PARKED`。
+
+现金合同和可信拆股/分红历史仍未确认：`CASH_CONTRACT_UNKNOWN`、`CORPORATE_ACTION_UNKNOWN`。实际有外部资金流时须有相应来源；研究也可明确声明窗口内无外部资金流，无须为这类路径提供流水。未声明是否有流时才保留 `EXTERNAL_FLOW_UNKNOWN`。这些状态表示候选历史输入/经济约定未证实，不表示 replay 缺少合成现金流或事件接口。基准序列未附带：`QQQ_BENCHMARK_SERIES_PARKED`。
+
+时点沿用第 2 节：信号在交易日 t 已知，成交在下一交易日 t+1，净值按收盘标记。这是因果约定，不是已发生的成交。
+
+训练、验证和留出必须在组合选参前固定，并写明每条单策略是否用过该区间。日期和使用记录都未提供：`TRAIN_VALIDATION_HOLDOUT_PARKED`、`SINGLE_STRATEGY_INTERVAL_USE_PARKED`。先登记相关性上升、隔夜跳空、滑点扩大、执行延迟、不利现金收益、V 型反弹和长期水下七类压力情景；冲击幅度与适用窗口要在使用历史结果前固定，目前为 `STRESS_SEVERITY_PARKED`。25% 与 30% 只作为回撤上限情景预先登记，不是收益目标，也不是已经测得的回撤。
+
+资金路径把本金 A 作为连续正变量，不预设用户的本金数值。随财富增加收紧风险是待检验偏好；费用、现金约束和成交粒度是资金摩擦，两者分开记。比例成本下的规模一致性可先用合成账本检查；真实规模效应仍受费用、股数和容量输入限制。
+
+离线合同、合成资金路径和预注册设计现在可以继续。实际参数、可信逐日成员路径及经济口径仍缺时，完整优化历史回测、真实仓位比较和净成本结论保持 PARKED，不把空表写成历史结果。
+
+## 9. 4A 本地文件接线
+
+`local_member_replay_input.load_local_member_fixture(path)` 读取一份本地 JSON，顶层仅有 `identity` 和 `input`。`identity` 使用第 7 节的完整身份对象；`input` 必须显式含 `runtime_config`、`calendar`、`initial_cash`、`initial_quantities`、`prices`、`computed_at`、`derived_indicators`、`benchmark_bars`。日期用 ISO 格式，价格行含 `session`、`symbol`、`open`、`high`、`low`、`close`；SOXL 的指标按日期键给出，TQQQ 的 `QQQ` 预热 K 线放在 `benchmark_bars`。不使用的指标输入填 `null`，不使用的 K 线填空数组。
+
+文件的 `runtime_config` 是完整、可 JSON 序列化的策略配置，但不含 `translator` 和 `signal_text_fn`；适配器只注入现有默认 callable。`managed_symbols` 用数组。输入 `runtime_config` 按 `optimized_member_identity._canonical_json` 的规范 JSON 计算 SHA-256，必须与已经验证的 `identity.config_sha256` 逐字相同；`True` 与 `1` 不算同一配置。`input_sha256` 是 `input` 对象以 UTF-8、`sort_keys=True`、紧凑分隔符、`ensure_ascii=False` 和 `allow_nan=False` 序列化后的 SHA-256。`derived_indicators` 为 null 或对象；非 null 且非对象时拒绝为 `LOCAL_MEMBER_INPUT_INVALID`。窗口首尾、费用和执行约定由身份对象绑定。输入摘要不证明来源真实。
+
+`produce_local_member_fixture(path, store, trial_id=...)` 只接受无 cloud bucket 的 QPK `PerformanceStore`，调用既有 builder、replay 和 QPK 研究账本写入路径。结果始终是 `synthetic=true` 的 `fixture`；身份声明随返回值交给调用方，不靠改标记晋级。该 adapter 会校验并转发可选的 `state_inputs`、`income_cashflow`、`external_cashflow`、`ledger_events`、`option_market_inputs` 和 `whole_share_execution` 字段给 `ReplayRequest`；replay 测试覆盖其中的 synthetic 事件、资金流、期权与整股机制。它们不填补历史 PIT 行情/期权链、真实成本、真实外部资金来源、现金合同或完整候选参数。研究可明确声明无外部资金流；仅真实发生外部流的研究路径需要相应流水来源证据。没有合格输入时不运行真实成员历史，也不输出真实仓位或净收益。
+
+### 9.1 既有 fixture trial 的中断、失败和重放
+
+`persist_optimized_strategy_trial` 已是上述 caller 的存储入口，不是本轮新接通的真实市场研究。它在 evaluation 前创建并读回 `STARTED`，继续复用 UES 固定 QPK 依赖的 `ResearchTrialRecord` / `ResearchDailyLedger` / `PerformanceStore`。`SUCCEEDED` 仍须有匹配的真实计算结果和逐日账本，并读回相同终态；这里的结果、账本和 trial 仍全部是 synthetic fixture。
+
+- 同 `trial_id`、同完整身份的已有终态直接读回，不再次 evaluation，也不覆盖历史。价格、配置、来源、窗口或成本身份变化与旧 ID 冲突，新的实际 attempt 必须使用新 ID
+- 已有 `STARTED` 没有可核终态时保持 incomplete，直接返回该状态，不自动重跑、不推定失败或成功。硬杀进程、断电或存储故障可能留下这种状态；新 attempt 另用新 ID，旧记录保留
+- evaluation 的既有显式拒绝继续保存 `REJECTED`；决策构造失败保存 `FAILED`。账本构造异常、结果/账本/终态持久化异常分别保存 `ledger_rejected` 或 `persistence_failed`，并重新抛出原异常，不将失败变成正常研究结果
+- `KeyboardInterrupt` / `SystemExit` 在 evaluation、账本构造或后续写出阶段记录 `ABORTED`、`trial_interrupted`，随后重新抛出原取消异常。终态写入或读回失败则在原异常添加固定 `research_terminal_write_failed` 提示，不谎称取消已记录；以实际读回为准，可能仅有 `STARTED`
+- 若 `STARTED` 本身写入或读回失败，不进入 evaluation。已有成功终态缺少匹配 ledger/result 时不能返回成功，也不能借重放静默补齐证据
+
+这是单 caller 的顺序重放保护，不是跨进程 worker claim、并发 exactly-once、断电恢复或云端采用证明。它不回填旧 attempt，不推导独立试验总数。
+
+此路径只接受 `evidence_use="fixture"` 且 `promotion_eligible=false`。`holdout`、真实市场或未知 evidence class 的请求仍拒绝；该拒绝不是 holdout 已打开或已查看的日志。现有 TQQQ/SOXL optimizer 的完整尝试、跨家族历史与 holdout access 尚未接入这条 trial 链，不能把本补丁称为完整 R2 或真实研究资格闭合。真实 caller 桥须另有合格 R1 输入、R4 账本、冻结候选/成本及获准 holdout 协议；本轮不创建新日志 schema、不改 SOXL v1 冻结数值或资格出口。
+
+## 10. 批次 4B 准确来源
+
+本批只核对仓库内已经写明的来源，并分开登记：完整原优化候选参数、生产版本、manifest 默认、收入层局部研究选择、V7/SMA 基线。完整候选参数仍然缺失，因此本批不按该候选回放，也不把另外三类接成原优化历史。生产版本未知只阻止把结果称为生产等价，不阻止调用方提交完整参数后的独立研究。
+
+成员逐日收益和 `ResearchDailyLedger` 是输入通过后由 replay 生成的输出，不是待采集来源。组合增量费只阻塞组合费用后的结论。replay 可消费已声明的外部资金流；研究也可明确声明窗口内无外部流。`EXTERNAL_FLOW_UNKNOWN` 仅用于既未给出外部流水、也未明确声明无外部流的情况，不要求每条研究都具备真实流水。
+
+下表后半是真实候选启用功能确认之后才做的逐项回放核对。状态只描述 `optimized_strategy_replay.py` 里已经写明的行为。候选哪些开关为真尚未确认，本表不猜测。
+
+| 项目 | 准确来源 | 状态 | 阻塞哪一步 |
+| --- | --- | --- | --- |
+| 完整原优化候选参数：`soxl_soxx_trend_income` 与 `tqqq_growth_income` 的完整参数和开关 | 本仓库没有这份候选的冻结对象。停笔码是 `ACTUAL_PARAMS_UNKNOWN` | 缺失 | 按该候选做完整优化历史回放、真实仓位和净收益。不猜测开关取值 |
+| 生产版本 | 第 1、8 节：`PRODUCTION_VERSION_UNKNOWN`。本仓库没有把该候选登记成某一生产版本 | 未知 | 不阻塞独立研究。阻塞把研究路径称为生产等价或生产版本回放 |
+| manifest 默认 | `src/us_equity_strategies/manifests/__init__.py` 的 `soxl_soxx_trend_income_manifest.default_config` 与 `tqqq_growth_income_manifest.default_config`。收入层和期权键由 helper 展开，第 1 节记为 `DECLARED_BY_HELPER`。两份默认里，`blend_gate_volatility_delever_retention_mode` 与 `dual_drive_volatility_delever_retention_mode` 都是 `environment` | 已有 | 默认声明不能写入 `actual_params` 充当已优化参数。不据此开发原优化回放 |
+| 收入层局部研究选择 | `docs/research/income-layer-design.zh-CN.md` 的 2026-06-04 默认表，以及 `src/us_equity_strategies/income_layer_defaults.py` 的 `INCOME_LAYER_DEFAULT_CONFIGS`。范围只有 `income_layer_*`：TQQQ 起点 `250000`、上限 `55%`、平滑带 `20%`；SOXL 起点 `150000`、上限 `95%`、平滑带 `20%`。同文写明该研究保持 `dual_drive_*` 与 `blend_gate_*` 不动。2026-05-26 曾列出的 SOXL `start=250000, max=95%` 行，已由 2026-06-04 的当前默认替换 | 已有 | 只覆盖收入层局部选择。不能补全完整原优化候选，也不进入原优化回放 |
+| V7 基线 | `src/us_equity_strategies/v7_soxl_profile.py` 的 `V7_FROZEN_RUNTIME_CONFIG`，由 manifest `soxl_soxx_core_only_p2_v7` 暴露。profile 是 `soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve`，`managed_symbols` 为 `SOXL`、`SOXX`、`BOXX`，`income_layer_enabled` 为假，`blend_gate_volatility_delever_retention_mode` 为字面 `none`。仓库里没有对应的 TQQQ V7 冻结档 | 已有 | 这是另一条 SOXL 研究 profile。不能替代第 1 节成员，也不能当作完整原优化候选去回放 |
+| SMA 基线 | `src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py`：profile `soxl_soxx_trend_income_parity_baseline_v1`，时点 `SOXX_SMA200_INCLUSIVE_CLOSE_NEXT_SOXL_OPEN_V1`，窗口 200，交易成本率 0。`src/us_equity_strategies/research/tqqq_typed_baseline_result.py`：profile `tqqq_growth_income_research_baseline_v1`，时点 `SMA200_INCLUSIVE_CLOSE_V1`，窗口 200，交易成本率 0。`soxl_core_optimization.py` 的窗口是 140/160/180/200，`tqqq_core_optimization.py` 的窗口是 150/200/250，插件控制为 `ABSENT`。Batch A v2 使用这条 typed SMA200 基线 | 已有 | 身份校验拒绝这些 foreign schema、profile 和 `TYPED_BASELINE_ZERO`。证据停在 `BATCH_A_V2_NOT_OPTIMIZED_HISTORY`。不开发成原优化回放 |
+| SOXL 指标及因果预热 | `optimized_strategy_replay._required_indicator_metrics` 与 `_indicators`。信号日必须有调用方提交的 `derived_indicators`。趋势标的上的 `price` 与 `ma_trend` 始终检查；`rsi14`、`rsi14_dynamic_threshold`、布林三列和 `realized_volatility_*` 只在提交配置里对应开关为真时才列入必需。指标用于当日信号、下一交易日成交。replay 不计算指标，也不核对指标自身的预热长度。缺口含 `CALLER_SUPPLIED_INDICATORS_AND_BENCHMARK` | 按提交配置消费指标：已支持。因果预热计算：能力未实现 | 候选开关未确认前不判断 RSI、布林或波动是否必需。未提供已按因果预热算好的指标时，不能把原序列直接当信号 |
+| TQQQ 按完整配置计算预热 | `_required_benchmark_bars` 与信号日可见根数检查。未开 `dual_drive_volatility_delever_enabled` 时所需根数为 200。打开后，`dual_drive_volatility_delever_window`、`dual_drive_volatility_delever_dynamic_lookback` 与 `dual_drive_volatility_delever_dynamic_min_periods` 先经现有 `_control_window`（`_as_positive_int`）规范化。阈值模式规范化后不是 `rolling_percentile` 时（缺省为 `fixed`）所需根数为 `max(200, window+1)`。模式为 `rolling_percentile` 时为 `max(200, window+max(1, min(lookback, min_periods)))`。可见 `QQQ` 根数不足则 `INSUFFICIENT_BENCHMARK`。`benchmark_symbol` 不是 `QQQ` 则 `UNSUPPORTED_BENCHMARK` | 已支持按提交的完整配置计算所需根数 | 完整候选未到，不能把 200 或 manifest 默认窗口写成该候选的预热长度 |
+| 插件 / 期权 | 普通路径 `_reject_unsimulated` 对未模拟开关 fail closed；v2 synthetic 路径按对应 manifest 覆盖 TQQQ LEAPS 开仓/估值/部分回收/到期/资金充足时行权/展期，以及 SOXL SOXX put credit spread 开仓/估值/平仓/到期/行权结算 | 有限 synthetic 机制：已支持。SOXL early American assignment、历史 PIT option chain 与真实期权历史有效性：缺失 | 两份 manifest 都是部分实现且限定 synthetic evidence；不得据此宣称完整策略历史或晋级。原优化候选实际开关仍未知 |
+| 拆股 / 分红事件 | `ledger_events` 的 synthetic split、dividend accrual/payment 由 replay 消费并进入 QPK events、应收及现金读回；价格仍由调用方提供 | 部分事件记账：已支持。自动调价、完整公司行为来源与历史覆盖：缺失 | `ADJUSTMENT_CONTRACT_UNKNOWN` 与 `CORPORATE_ACTION_UNKNOWN` 仍阻塞完整优化历史。静态 gap 集仍可带 `NO_CORPORATE_ACTIONS` |
+| 现金收入 / 资金流 | replay 接收 `income_cashflow`、`external_cashflow`；外部流按日中性化收益分母。股息支付须与事件金额一致 | 显式输入记账：已支持。现金利率模型、真实资金流和现金合同：未确认 | `CASH_CONTRACT_UNKNOWN` 指现金合同未证实；`EXTERNAL_FLOW_UNKNOWN` 仅在未给实际流水来源、也未明确声明无外部流时使用。Batch A 的 `ASSUMED_ZERO_USD_CASH` 仍不适用于此路径 |
+| 成员费率 | `_cost` 与 `_rebalance`：调用方 `PromotionCostModel` 的 `commission_bps` 进入 `fees`，`slippage_bps` 与 `market_impact_bps` 恶化成交价。缺口 `SYNTHETIC_BPS_NOT_LIVE_FEES` | 合成 bps 入账：已支持。真实费率表：缺失 | `MEMBER_INTERNAL_FEE_SCHEDULE_PARKED` 只阻塞真实净成本。不阻塞使用调用方显式合成费率的研究账本 |
+| 股数规则 | `_rebalance(..., whole_shares=True)` 按整股取整、卖出优先买入，拒绝非整股初始持仓或资金不足；默认仍连续股数 | 合同匹配的整股 fixture：已支持。候选实际股数规则：未知。静态 gap 仍可含 `NO_SHARE_LOT_ROUNDING` | 只按明确的 `share_quantity` 合同启用，不替候选猜规则；synthetic 测试不证明真实历史 |
+| 成员逐日收益与账本 | `replay_optimized_strategy` 生成 `DailyReplayPoint`；`persist_optimized_strategy_trial` 写入并读回 `ResearchDailyLedger`。tests 覆盖 synthetic 事件/资金流/期权与账本一致性 | fixture 生产与合成验证：已存在。完整历史结果：未核实 | fixture 仍是 `synthetic=true`，不能当作完整 `optimized_history` 或晋级证据 |
+| 组合增量费 | 第 5、8 节 `COMBO_INCREMENTAL_FEE_SCHEDULE_PARKED`。成员 replay 不计算组合调仓增量费 | 缺失 | 只阻塞组合费用后结论。不阻塞成员层研究 |
+| 外部资金流 | `ReplayRequest.external_cashflow` 按日记入现金并调整收益分母；fixture identity 绑定其输入。调用方也可明确声明窗口内无外部流 | 机制已支持；候选实际流水/无流声明未核实 | 有实际外部流时需其来源证据；无流路径可用明确声明。仅未说明是否有流时保留 `EXTERNAL_FLOW_UNKNOWN`；合成资金流测试不是实际资金记录 |
+| 按完整原优化候选回放 | 现有 replay 已支持调用方提交的 fixture 输入。完整候选参数见本表第一行 | 候选回放未做 | `ACTUAL_PARAMS_UNKNOWN`。不把 fixture 输出登记成该候选的优化历史 |
+| 运行配置、账户、云历史与行情采集 | 本批没有读取或采集这些材料的授权 | 未获授权 | `COMMON_TRADING_DAYS_PARKED`、`RAW_SOURCE_DIGEST_PARKED`，以及真实历史回测。预热长度在候选配置提交后由上表 TQQQ 行计算；SOXL 指标预热仍由调用方提供 |

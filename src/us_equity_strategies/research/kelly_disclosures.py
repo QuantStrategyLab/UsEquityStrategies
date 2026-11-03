@@ -5,7 +5,7 @@
 - ``METRIC_BASIS``: which return basis each statistic uses (PSR/bootstrap now
   also on net 1x; gross kept as a labelled diagnostic; DSR on net 1x).
 - ``COST_MODEL_DISCLOSURE``: the outer-layer cost approximation (see
-  ``docs/research/kelly_security_level_ledger_design.zh-CN.md``).
+  ``docs/research/kelly-security-level-ledger-design.zh-CN.md``).
 - ``paired_stationary_bootstrap``: CI of the mean daily **net log-growth
   difference** between two paths on the same sessions, resampling the paired
   sessions jointly (Politis-Romano stationary bootstrap, circular, fixed seed).
@@ -33,7 +33,7 @@ COST_MODEL_DISCLOSURE = {
     "netting": "NOT_SECURITY_LEVEL_NETTED: outer and inner trades in the same security are both charged",
     "outer_cash_leg": "FREE (cash series earns, never charged)",
     "inner_boxx_trades": "CHARGED (BOXX is a tradable asset inside the core path)",
-    "design_note": "docs/research/kelly_security_level_ledger_design.zh-CN.md",
+    "design_note": "docs/research/kelly-security-level-ledger-design.zh-CN.md",
 }
 
 

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from us_equity_strategies.entrypoints._common import validate_production_option_context
+
 from quant_platform_kit.common.strategy_contracts import (
-    BudgetIntent,
     CallableStrategyEntrypoint,
     PositionTarget,
     StrategyContext,
@@ -33,7 +34,9 @@ def merge_runtime_config(
     default_config: dict[str, object],
     ctx: StrategyContext,
 ) -> dict[str, object]:
-    return {**dict(default_config or {}), **dict(ctx.runtime_config or {})}
+    config = {**dict(default_config or {}), **dict(ctx.runtime_config or {})}
+    validate_production_option_context(config, ctx)
+    return config
 
 
 def _get_current_holdings(ctx: StrategyContext) -> set[str]:
@@ -74,21 +77,13 @@ def _total_equity(ctx: StrategyContext) -> float:
     return float(getattr(portfolio, "total_equity", 0.0) or 0.0)
 
 
-def _build_budgets(diagnostics: dict[str, object]) -> tuple[BudgetIntent, ...]:
-    budgets: list[BudgetIntent] = []
-    overlay = diagnostics.get("option_overlay_diagnostics", {})
-    budget_data = overlay.get("option_budget") if isinstance(overlay, dict) else None
-    if isinstance(budget_data, dict):
-        budgets.append(
-            BudgetIntent(
-                name=str(budget_data.get("name", "option_budget")),
-                symbol=budget_data.get("symbol"),
-                amount=float(budget_data.get("amount", 0.0)),
-                unit=str(budget_data.get("unit", "quote_ccy")),
-                purpose=str(budget_data.get("purpose", "")),
-            )
-        )
-    return tuple(budgets)
+def _income_market_values(ctx: StrategyContext) -> dict[str, float]:
+    values: dict[str, float] = {}
+    if ctx.portfolio is not None:
+        for position in getattr(ctx.portfolio, "positions", ()):
+            symbol = str(getattr(position, "symbol", "")).strip().upper()
+            values[symbol] = values.get(symbol, 0.0) + float(getattr(position, "market_value", 0.0))
+    return values
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +106,7 @@ def evaluate_us_equity_combo(ctx: StrategyContext) -> StrategyDecision:
     total_equity = _total_equity(ctx)
 
     # --- Stage 2: income layer -----------------------------------------------
-    income_diagnostics = apply_income_layer(weights, total_equity, config)
+    income_diagnostics = apply_income_layer(weights, total_equity, config, market_values=_income_market_values(ctx))
 
     # --- Stage 3: option overlay ---------------------------------------------
     option_diagnostics = apply_option_overlay(
@@ -132,10 +127,9 @@ def evaluate_us_equity_combo(ctx: StrategyContext) -> StrategyDecision:
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("emergency_defense",)
-    budgets = _build_budgets(diagnostics)
     return StrategyDecision(
         positions=_weights_to_positions(weights),
-        budgets=budgets,
+        budgets=(),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
@@ -159,7 +153,7 @@ def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
     )
 
     total_equity = _total_equity(ctx)
-    income_diagnostics = apply_income_layer(weights, total_equity, config)
+    income_diagnostics = apply_income_layer(weights, total_equity, config, market_values=_income_market_values(ctx))
     option_diagnostics = apply_option_overlay(
         weights,
         config,
@@ -177,10 +171,9 @@ def evaluate_us_equity_combo_core(ctx: StrategyContext) -> StrategyDecision:
     risk_flags: tuple[str, ...] = ()
     if is_emergency:
         risk_flags += ("hard_defense",)
-    budgets = _build_budgets(diagnostics)
     return StrategyDecision(
         positions=_weights_to_positions(weights),
-        budgets=budgets,
+        budgets=(),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )
@@ -210,7 +203,7 @@ def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision
     total_equity = _total_equity(ctx)
 
     # --- Stage 2: income layer -----------------------------------------------
-    income_diagnostics = apply_income_layer(weights, total_equity, config)
+    income_diagnostics = apply_income_layer(weights, total_equity, config, market_values=_income_market_values(ctx))
 
     # --- Stage 3: option overlay ---------------------------------------------
     option_diagnostics = apply_option_overlay(
@@ -236,10 +229,9 @@ def evaluate_us_equity_combo_leveraged(ctx: StrategyContext) -> StrategyDecision
         risk_flags += ("ma200_risk_off",)
     elif regime_state == "soft_defense":
         risk_flags += ("soft_defense",)
-    budgets = _build_budgets(diagnostics)
     return StrategyDecision(
         positions=_weights_to_positions(weights),
-        budgets=budgets,
+        budgets=(),
         risk_flags=risk_flags,
         diagnostics=diagnostics,
     )

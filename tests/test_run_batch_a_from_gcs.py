@@ -55,7 +55,7 @@ def test_stage_copies_fixed_batch_a_set(tmp_path: Path) -> None:
     layout = _prepare_source_tree(tmp_path)
     calls: list[tuple[str, ...]] = []
     staged = stage_batch_a_inputs(
-        "gs://qsl-research-evidence-831478360303/research/v2/input/batch-a-demo",
+        "gs://synthetic-research-evidence/research/v2/input/batch-a-demo",
         tmp_path / "stage",
         runner=_fake_runner(calls, staging_source=layout),
     )

@@ -11,7 +11,7 @@ both component pre-registrations are confirmed for ``no_plugin_core`` on the sam
 manifest. Results are ``DEVELOPMENT_ONLY`` and never raise any budget; SOXL stays
 gated by its 252-session shadow requirement.
 
-Human-readable copy: ``docs/research/portfolio_kelly_preregistration.zh-CN.md``.
+Human-readable copy: ``docs/research/portfolio-kelly-preregistration.zh-CN.md``.
 """
 from __future__ import annotations
 

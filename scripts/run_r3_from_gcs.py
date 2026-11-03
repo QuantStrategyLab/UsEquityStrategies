@@ -3,7 +3,7 @@
 
 Historical entry only: R3 has exited the active Batch A path (§9.15.27).
 Prefer ``scripts/run_batch_a_from_gcs.py`` and
-``docs/research/batch_a_v2_contracts.zh-CN.md`` for new research inputs.
+``docs/research/batch-a-v2-contracts.zh-CN.md`` for new research inputs.
 This module is retained for historical evidence workflows; it is not an
 adapter or dual-version dispatcher for v2.
 

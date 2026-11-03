@@ -21,7 +21,7 @@ from .rs04_b3_config import CONFIG, config_identity
 
 DEFAULT_INPUT_ROOT = "gs://research-inputs/research/v2/input/"
 MAX_MANIFEST_BYTES = 1_048_576
-# Cloud registration and legacy provenance: docs/research/rs04_cloud_archive_registration.md.
+# Cloud registration and legacy provenance: docs/research/rs04-cloud-archive-registration.md.
 RS04_ARCHIVE_SHA256 = "d5d40dfc54f55fe59c0eba57302ef9b018d006a0835f33f969053e52d05cc9e7"
 
 

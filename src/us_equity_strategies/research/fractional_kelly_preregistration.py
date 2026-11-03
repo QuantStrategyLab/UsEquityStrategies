@@ -20,7 +20,7 @@ Each strategy has two pre-registered return-path variants: ``live_plugins_as_liv
 inventory cannot be reproduced on the research path. All seen history is ``development``; results never raise any
 budget, and SOXL remains gated by its 252-session shadow requirement.
 
-Human-readable copy: ``docs/research/fractional_kelly_preregistration.zh-CN.md``.
+Human-readable copy: ``docs/research/fractional-kelly-preregistration.zh-CN.md``.
 """
 from __future__ import annotations
 

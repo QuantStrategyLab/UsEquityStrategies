@@ -115,3 +115,69 @@ def test_soft_guard_applies_both_scalars_without_volatility_veto(monkeypatch) ->
     assert guarded["guard_route"] == "risk_reduced"
     assert guarded["target_tqqq_ratio"] == 0.1125
     assert unguarded["target_tqqq_ratio"] == 0.45
+
+
+def test_no_action_guard_preserves_the_disabled_control_decision() -> None:
+    rows = _rows()
+    kwargs = dict(shares=1, nav=10000, config=_contract(), member_budget_usd=4000)
+    assert _decision(rows, 256, use_guard=True, **kwargs) == _decision(
+        rows, 256, use_guard=False, **kwargs
+    )
+
+
+@pytest.mark.parametrize("use_guard", [True, False])
+@pytest.mark.parametrize("budget", [0.0, 1000.0, 10000.0])
+def test_guard_consumer_keeps_member_budget_and_residual_account_cash(
+    use_guard: bool, budget: float
+) -> None:
+    result = _decision(
+        _rows(), 256, shares=1, nav=10000, use_guard=use_guard,
+        config=_contract(), member_budget_usd=budget,
+    )
+    assert 0 <= result["target_tqqq_usd"] <= budget
+    assert result["target_tqqq_usd"] + result["target_cash_usd"] == pytest.approx(10000)
+    assert result["member_budget_ratio"] == pytest.approx(budget / 10000)
+
+
+@pytest.mark.parametrize("budget", [-1.0, 10001.0, float("nan"), float("inf")])
+def test_guard_consumer_rejects_an_unfunded_or_invalid_member_budget(budget: float) -> None:
+    with pytest.raises(ValueError, match="^MEMBER_BUDGET_OUTSIDE_NAV$"):
+        _decision(
+            _rows(), 256, shares=1, nav=10000, use_guard=True,
+            config=_contract(), member_budget_usd=budget,
+        )
+
+
+@pytest.mark.parametrize("use_guard", [True, False])
+@pytest.mark.parametrize("missing", ["all_history", "latest_price"])
+def test_both_comparison_arms_preserve_the_shared_benchmark_quality_requirement(
+    use_guard: bool, missing: str
+) -> None:
+    rows = _rows()
+    config = _contract()
+    config["qqq_guard"]["max_price_age_days"] = 0
+    if missing == "all_history":
+        for row in rows:
+            row["qqq_close"] = float("nan")
+    else:
+        rows[256]["qqq_close"] = float("nan")
+    with pytest.raises(ValueError, match="^QQQ_GUARD_BLOCKED$"):
+        _decision(rows, 256, shares=1, nav=10000, use_guard=use_guard, config=config)
+
+
+@pytest.mark.parametrize("fault", ["unsupported_route", "leverage_scalar", "risk_asset_scalar"])
+def test_guard_consumer_rejects_incoherent_arbiter_output(monkeypatch, fault: str) -> None:
+    build_regime = candidate.build_market_regime_control_signal
+
+    def incoherent_regime(*args, **kwargs):
+        result = build_regime(*args, **kwargs)
+        if fault == "unsupported_route":
+            result["position_control"]["final_route"] = "unrecognized"
+        else:
+            result["position_control"][fault] = 0.5
+        return result
+
+    monkeypatch.setattr(candidate, "build_market_regime_control_signal", incoherent_regime)
+    expected = "REGIME_ROUTE_UNSUPPORTED" if fault == "unsupported_route" else "GUARD_ARBITER_SCALAR_MISMATCH"
+    with pytest.raises(ValueError, match=f"^{expected}$"):
+        _decision(_rows(), 256, shares=1, nav=10000, use_guard=True, config=_contract())

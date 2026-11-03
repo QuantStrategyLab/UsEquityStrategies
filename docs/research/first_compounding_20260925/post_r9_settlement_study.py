@@ -20,7 +20,7 @@ import r9_frozen_policy_validation as r9
 
 HERE = Path(__file__).resolve().parent
 POLICY_PATH = HERE / "post_r9_date_effective_settlement_policy.v1.json"
-# Completed R9 summary identity recorded in r9_validation_status.md. Read-only.
+# Completed R9 summary identity recorded in r9-validation-status.md. Read-only.
 R9_FORMAL_SUMMARY_SHA256 = "628de89afde2fad718ae6298370e895585d3c4c082452a5c9044b5abeb2ba95f"
 _STATE_KEYS = (
     "date", "path", "economic_nav_close_usd", "total_cost_usd", "shortages",

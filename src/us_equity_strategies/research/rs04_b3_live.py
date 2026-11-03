@@ -27,7 +27,7 @@ EFFECTIVE_STRATEGY_SOURCE_SHA256 = {
     "TQQQ": "90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42",
 }
 CONFIG_SOURCE = "us_equity_strategies.manifests.*_manifest.default_config"
-EVIDENCE_SOURCE = "docs/research/rs08_live_research_parity_report.zh-CN.md sections 1-4, 6"
+EVIDENCE_SOURCE = "docs/research/rs08-live-research-parity-report.zh-CN.md sections 1-4, 6"
 
 
 def default_config(profile: str) -> dict:

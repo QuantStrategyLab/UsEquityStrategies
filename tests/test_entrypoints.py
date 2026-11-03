@@ -400,9 +400,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("sell_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["threshold"], legacy_plan["threshold"])
-        self.assertIs(decision.diagnostics["option_growth_overlay_enabled"], True)
-        self.assertIs(decision.diagnostics["option_growth_overlay_live_allowed"], False)
-        self.assertEqual(decision.diagnostics["option_growth_overlay_skip_reason"], "research_only_recipe")
+        self.assertIs(decision.diagnostics["option_overlay_enabled"], False)
+        self.assertEqual(decision.diagnostics["option_overlay_status"], "retired")
         self.assertNotIn("option_order_intents", decision.diagnostics)
         self.assertFalse(decision.diagnostics["ai_extensions"]["enabled"])
         self.assertEqual(decision.diagnostics["notification_context"]["benchmark"]["symbol"], "QQQ")
@@ -546,12 +545,7 @@ class StrategyEntrypointTests(unittest.TestCase):
             {"SCHD": 0.30, "DGRO": 0.20, "SGOV": 0.40, "SPYI": 0.08, "QQQI": 0.02},
         )
         self.assertEqual(config["execution_cash_reserve_ratio"], 0.0)
-        self.assertIs(config["option_overlay_enabled"], True)
-        self.assertIs(config["option_growth_overlay_enabled"], True)
-        self.assertEqual(config["option_growth_overlay_recipe"], "tqqq_leaps_growth_v1")
-        self.assertEqual(config["option_growth_overlay_start_usd"], 250000.0)
-        self.assertEqual(config["option_growth_overlay_nav_budget_ratio"], 0.03)
-        self.assertIs(config["option_income_overlay_enabled"], False)
+        self.assertFalse(any(key.startswith("option_") for key in config))
         self.assertEqual(OPTION_OVERLAY_RESEARCH_CANDIDATES["tqqq_leaps_growth_v1"]["status"], "research")
         self.assertIs(OPTION_OVERLAY_RESEARCH_CANDIDATES["tqqq_leaps_growth_v1"]["promotion_evidence"], False)
         self.assertFalse(config["ai_extensions"]["enabled"])
@@ -799,9 +793,8 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertNotIn("limit_order_symbols", decision.diagnostics)
         self.assertNotIn("portfolio_rows", decision.diagnostics)
         self.assertEqual(decision.diagnostics["active_risk_asset"], legacy_plan["active_risk_asset"])
-        self.assertIs(decision.diagnostics["option_income_overlay_enabled"], True)
-        self.assertIs(decision.diagnostics["option_income_overlay_live_allowed"], False)
-        self.assertEqual(decision.diagnostics["option_income_overlay_skip_reason"], "research_only_recipe")
+        self.assertIs(decision.diagnostics["option_overlay_enabled"], False)
+        self.assertEqual(decision.diagnostics["option_overlay_status"], "retired")
         self.assertNotIn("option_order_intents", decision.diagnostics)
         self.assertEqual(
             decision.diagnostics["notification_context"]["status"]["code"],
@@ -979,6 +972,37 @@ class StrategyEntrypointTests(unittest.TestCase):
         self.assertIn("blend_sleeves", mega_decision.diagnostics)
         self.assertNotIn("SPY", {position.symbol for position in mega_decision.positions})
 
+    def test_russell_platform_cash_reserve_alias_does_not_reach_weight_builder(self) -> None:
+        mega = get_strategy_entrypoint("russell_top50_leader_rotation")
+        for variant in ("blend_top2_50_top4_50", "top4_baseline"):
+            with self.subTest(variant=variant):
+                context = dict(
+                    as_of="2026-04-01",
+                    market_data={"feature_snapshot": _mega_snapshot()},
+                    portfolio=PortfolioSnapshot(
+                        as_of="2026-04-01", total_equity=100_000.0,
+                        buying_power=100_000.0, cash_balance=100_000.0, positions=(),
+                    ),
+                )
+                config = {"leader_rotation_profile_variant": variant,
+                          "market_regime_control_enabled": False}
+                expected = mega.evaluate(StrategyContext(**context, runtime_config=config))
+                supplied = {**config, "reserved_cash_ratio": 0.02,
+                            "cash_reserve_ratio": 0.02, "reserved_cash_floor_usd": 100.0}
+                actual = mega.evaluate(StrategyContext(**context, runtime_config=supplied))
+                self.assertEqual(actual.positions, expected.positions)
+                self.assertEqual(actual.risk_flags, expected.risk_flags)
+                self.assertEqual(actual.budgets, expected.budgets)
+                self.assertEqual(supplied["cash_reserve_ratio"], 0.02)
+
+    def test_russell_unrecognized_strategy_argument_remains_rejected(self) -> None:
+        mega = get_strategy_entrypoint("russell_top50_leader_rotation")
+        with self.assertRaises(TypeError):
+            mega.evaluate(StrategyContext(
+                as_of="2026-04-01", market_data={"feature_snapshot": _mega_snapshot()},
+                runtime_config={"unknown_synthetic_strategy_argument": 1},
+            ))
+
     def test_russell_top50_runtime_variant_preserves_diagnostics_but_fails_closed(self) -> None:
         mega = get_strategy_entrypoint("russell_top50_leader_rotation")
         decision = mega.evaluate(
@@ -992,7 +1016,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                     cash_balance=100_000.0,
                     positions=(),
                 ),
-                runtime_config={"leader_rotation_profile_variant": "top4_baseline"},
+                runtime_config={"leader_rotation_profile_variant": "top4_baseline", "market_regime_control_enabled": False},
             )
         )
 
@@ -1015,7 +1039,7 @@ class StrategyEntrypointTests(unittest.TestCase):
                     cash_balance=100_000.0,
                     positions=(),
                 ),
-                runtime_config={"leader_rotation_shadow_variants": True},
+                runtime_config={"leader_rotation_shadow_variants": True, "market_regime_control_enabled": False},
             )
         )
 
@@ -1053,6 +1077,7 @@ class StrategyEntrypointTests(unittest.TestCase):
         decision = mega.evaluate(
             StrategyContext(
                 as_of="2026-04-01",
+                runtime_config={"market_regime_control_enabled": False},
                 market_data={"feature_snapshot": _mega_snapshot()},
                 portfolio=PortfolioSnapshot(
                     as_of="2026-04-01",

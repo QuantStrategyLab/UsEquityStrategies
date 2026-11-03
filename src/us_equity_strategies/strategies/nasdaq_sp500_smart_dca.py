@@ -240,7 +240,7 @@ def _resolve_prefetched_history(
     """Return a prefetched history payload for *symbol*, or None if absent.
 
     Mapping values must be accepted by ``_extract_close_series`` (see
-    ``docs/nasdaq_sp500_smart_dca_input_contract.md``). Smart mode never
+    ``docs/nasdaq-sp500-smart-dca-input-contract.md``). Smart mode never
     calls ``market_history(broker_client, symbol)`` (B07 Phase C).
     """
     if not isinstance(prefetched_market_history, Mapping):
