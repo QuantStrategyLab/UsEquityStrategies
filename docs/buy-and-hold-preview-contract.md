@@ -140,3 +140,79 @@ This contract includes no broker adapter qualification, reporting data store,
 tax calculation, runtime risk-policy override, deployment, order transport,
 Kelly, stop-loss or live activation. Every platform remains unsupported for
 execution until its separately reviewed integration supplies those boundaries.
+
+## Plain-DCA period composition
+
+`us_equity_strategies.plain_dca.evaluate_dca_period` adds a pure schedule and
+amount layer over `plan_buy_and_hold`. It does not change the P1 API, catalog,
+entrypoints or the legacy `nasdaq_sp500_smart_dca` strategy. It selects one
+family and the mandate's exact instrument, with empty decision budgets and
+`no_order`, `no_execute`, `preview_only`, `live_ready=false` on every result.
+No recurring execution or rollout registration is provided.
+
+The frozen `DcaPlan` contains the existing `Mandate`, a stable plan reference,
+revision, `ScheduleSpec`, approved final tranche B (including fees), carry cap
+and gross period ceiling. Monetary inputs use `Decimal`; B has USD cent
+precision. B is already final: an optional reference base and applied tier are
+validated once, with the derived B rounded down to cents. The combined
+tranche/carry allowance is passed to P1 as directly approved final dollars,
+without applying a tier again.
+
+`ScheduleSpec` supports monthly days 1–31 and weekly weekdays 0–6 (Monday is
+0). Defaults are monthly day 5, America/New_York, opening plus 30 minutes to
+closing minus 30 minutes. `catch_up` must be false. Missing month-end dates
+clamp to the last calendar day before rolling forward to the next supplied
+exchange session. Monthly keys use YYYY-MM; weekly keys use ISO week-year and
+week of the **unrolled** anchor. Rolling December into January keeps the
+December key. Half-day closes and DST come from explicit session timestamps.
+A nominal anchor before the mandate's local start date is not eligible.
+
+`ExchangeCalendar` declares inclusive complete coverage from at least the
+mandate's local start through the evaluation date, an explicit version, MIC,
+timezone and observation/expiry timestamps, plus an already loaded exchange
+`tzinfo` object whose `key` matches that timezone. Evaluation never constructs a
+timezone or reads the ambient timezone database. Absent dates within that declared
+range are closures. Sessions must be an ordered tuple with unique dates,
+aware open/close timestamps on that exchange-local day, and open before close.
+The due anchor must have a covered next session. Missing, expired,
+contradictory or incomplete inputs block; the function never invents a weekday
+calendar. Completeness is an injected attestation, not independently verified
+exchange evidence. Its validity window is caller-provided; no calendar download
+or clock lookup occurs.
+
+`PeriodFacts` binds the plan, revision and nominal key to an immutable fresh
+snapshot (at most five minutes old), prior period records, verified unreserved
+funded carry, and remaining annual/lifetime new-grant and gross-spend ceilings.
+P1 independently validates fresh cash, quote, risk and capability facts. Any
+existing record for the selected key blocks a new grant, including a terminal
+skip or deferral. Outstanding prepared/submitting/acknowledged/partial/unknown
+records block new cycles. Unknown record states, duplicates and missing money
+are rejected. Revisions do not change the period key.
+
+Only the latest anchored period is considered. Before its window the status is
+`NOT_DUE`; after its window it is `SKIPPED/expired`. Older unrecorded periods appear as
+expired or same-session collision keys and never add tranches. Holiday rollover
+is on time. A preview returns these classifications without persisting them.
+
+The new tranche is all-or-nothing. Insufficient annual/lifetime grant or spend,
+risk, principal or gross period headroom for B skips with `budget_exhausted`.
+Known settled cash, net of reservations and the mandate reserve, must back both
+B and existing carry; otherwise the preview is `SKIPPED/shortfall` with zero new
+grant and unchanged carry. Unknown or stale cash blocks. Carry cannot exceed
+the approved cap, and that cap cannot exceed B. The spend envelope is
+`min(B + carry, gross period cap, annual/lifetime spend headroom, risk headroom,
+principal headroom)`. P1 rounds down to verified whole/fractional quantity steps
+with its fee buffer and minimum notional. A zero quantity returns `DEFERRED`.
+After a due/deferred preview, the unspent B plus carry is split into bounded
+`carry_out` and `released_authority`; fees are included in `maximum_spend`.
+These are proposed movements, not durable grants, fills or reconciled balances.
+
+`PeriodPreview` includes status, static reason, nominal key/anchor, due session,
+expired/collision keys, tranche, carry in/out, envelope, maximum spend, released
+authority and the original P1 decision. It emits no account, plan, contribution,
+release or calendar identity. No logging, file/network/broker/clock I/O, store,
+scheduler, claim or order submission exists. Repeated calls are disposable
+previews, not idempotent execution. A future authorized consumer must persist
+terminal results, reread current facts, and atomically claim/fence the period at
+its serialized order writer. This library does not establish restart safety,
+PAPER qualification, installed adoption or live readiness.
