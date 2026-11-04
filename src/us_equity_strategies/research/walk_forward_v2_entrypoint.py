@@ -13,10 +13,10 @@ from typing import Any
 
 ENTRYPOINT_VERSION = "qsl.research.walk_forward_v2_entrypoint.v1"
 PROTOCOL_JSON = "docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.json"
-PROTOCOL_MD = "docs/research/protocols/R3_VS_R0_CHALLENGER_20261022.md"
+PROTOCOL_MD = "docs/research/protocols/r3-vs-r0-challenger-20261022.md"
 # Existing protocol bytes, not new or replacement M2 hashes.
 _PROTOCOL_SHA256 = {
-    PROTOCOL_JSON: "7d10f4c3af1aaa0e640d795f300be4915685a9bb78e6d570969d8afee24a31db",
+    PROTOCOL_JSON: "8db36ff893b74934f73c2997ebc63a56a8b421d6f4c9b431416d7c3319a1a13f",
     PROTOCOL_MD: "3672631b5b77a3846440449fd6fd26bffceacec6084b98351595263f73a30a62",
 }
 _VERSIONS = ("fractional_kelly_walk_forward_v2", "portfolio_kelly_walk_forward_v2")

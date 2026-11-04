@@ -1,4 +1,5 @@
 """Synthetic entrypoint checks; frozen files are mutated only in tmp copies."""
+import hashlib
 from pathlib import Path
 import shutil
 import socket
@@ -28,6 +29,11 @@ def _copy_frozen(tmp_path):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, target)
     return tmp_path
+
+
+def test_protocol_guard_hash_matches_tracked_json_bytes():
+    raw = (ROOT / entry.PROTOCOL_JSON).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == entry._PROTOCOL_SHA256[entry.PROTOCOL_JSON]
 
 
 def test_original_protocol_and_core_match_without_full_m2_attestation():
