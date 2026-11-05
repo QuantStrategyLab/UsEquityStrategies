@@ -1,0 +1,3 @@
+[1;33mwarning[0m[1m:[0m [1mThe top-level linter settings are deprecated in favour of their counterparts in the `lint` section. Please update the following options in `pyproject.toml`:
+  - 'ignore' -> 'lint.ignore'[0m
+[1;32mAll checks passed![0m

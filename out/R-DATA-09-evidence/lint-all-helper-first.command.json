@@ -1,0 +1,18 @@
+{
+  "cwd": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023",
+  "argv": [
+    "python3",
+    "-m",
+    "ruff",
+    "check",
+    "."
+  ],
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTHONPATH": "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023/src"
+  },
+  "started": "2026-10-23T00:20:54.629144+00:00",
+  "finished": "2026-10-23T00:20:54.707738+00:00",
+  "exit_code": 1
+}

@@ -1,0 +1,9 @@
+.....F.                                                                  [100%]
+=================================== FAILURES ===================================
+_____________________ test_nonoverlapping_notices_coexist ______________________
+out/R-DATA-09-evidence/reviewer-checks-probes.py:44: in test_nonoverlapping_notices_coexist
+    later = closure(version_id='fixture:later', coverage_start=next_day,
+tests/research/test_calendar_contract.py:107: in closure
+    return notice(version_id="fixture:closure", source_ref="fixture:closure-source",
+E   TypeError: <run_path>.notice() got multiple values for keyword argument 'version_id'
+1 failed, 6 passed in 0.08s

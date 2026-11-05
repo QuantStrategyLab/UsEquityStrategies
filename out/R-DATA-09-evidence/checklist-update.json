@@ -1,0 +1,8 @@
+{
+  "path": "/Users/lisiyi/codex-jobs/TASK_CHECKLIST.md",
+  "old_row": "| R-DATA-09 | Codex | 待出 | 已派：B/U1 registry/selector 结构草稿 + 人工 fixture + 非作者独审 + draft PR；不接真实数据/不改生产配置 |",
+  "new_row": "| R-DATA-09 | Codex | [out/R-DATA-09.md](/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-09.md) / [证据](/Users/lisiyi/Projects/UsEquityStrategies/out/R-DATA-09-evidence/) / [draft PR #672](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/672) | 本卡人工结构草稿完成：B/U1 registry/selector/validation，85项正式测试及非作者独立复核94 passed/零skip，Ruff PASS、独审PASS；仅fixture、无真实数据/测试无网络/无生产配置变更；MKT-01/OWN-01/LIC-01～04仍NEED_USER，PIT=NOT_ATTESTED；draft未合并/无auto-merge/未部署，第1行开放 |",
+  "other_lines_unchanged_by_this_update": true,
+  "before_sha256": "081bb599d145873478c4a9e191a69f18cd034dffb827daa4a8223f44a8831bf3",
+  "after_sha256": "dd280c78eed02198b5ff8f9645a7228dd11b6f0e939a115ba7dadfd426fabab2"
+}
