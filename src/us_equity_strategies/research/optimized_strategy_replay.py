@@ -2987,3 +2987,17 @@ __all__ = [
     "replay_optimized_strategy",
     "replay_synthetic_session_fixture",
 ]
+
+
+def replay_new_observed_research(manifest: Mapping[str, Any]) -> None:
+    """Separately named NEW admission; real replay is intentionally unavailable.
+
+    Keep fixture REAL_ENTRY_PIT_REQUIRED unchanged. This engineering revision
+    validates the NEW contract and stops on unresolved admission/authorization;
+    it cannot translate real inputs into fixture evidence or start comparison.
+    """
+    from us_equity_strategies.research.new_evidence_package import (
+        NewEvidenceError, validate_observed_admission,
+    )
+    validate_observed_admission(manifest)
+    raise NewEvidenceError("DATA_EXECUTION_NOT_AUTHORIZED")
