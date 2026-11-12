@@ -288,8 +288,10 @@ def validate_forward_receipt(receipt: object) -> dict:
     month_end = first.replace(year=first.year + 1, day=min(first.day, calendar.monthrange(first.year + 1, first.month)[1]))
     _require(last >= month_end, "FORWARD_MONTHS")
     _require(first == days[0] and last == days[-1], "FORWARD_SESSION_GAP")
+    first_open = _utc(r.get("first_open_at"), "FORWARD_REGISTRATION_LATE")
+    _require(first_open.date() == first, "FORWARD_REGISTRATION_LATE")
     _require(_utc(r.get("registered_at"), "FORWARD_REGISTRATION_LATE") <
-             _utc(r.get("first_open_at"), "FORWARD_REGISTRATION_LATE"), "FORWARD_REGISTRATION_LATE")
+             first_open, "FORWARD_REGISTRATION_LATE")
     _require(_hash(r.get("p3_sha256")) and _hash(r.get("frozen_sha256"))
              and r.get("frozen_sha256") == r.get("observed_sha256"), "FORWARD_IDENTITY_DRIFT")
     _require(r.get("outcome_access_recorded") is True and r.get("unsealed_early") is False,

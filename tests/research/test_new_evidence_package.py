@@ -312,3 +312,43 @@ def test_unknown_retention_and_private_invalid_arguments_are_fixed_codes():
     m = admission(); m["retention"]["months_from_registration"] = "fake-private@example.invalid"
     with pytest.raises(package.NewEvidenceError, match="^RETENTION_UNPROVEN$"):
         package.validate_observed_admission(m)
+
+
+@pytest.mark.parametrize("first_open", [
+    "2031-02-03T14:30:00Z", "2030-01-03T14:30:00Z",
+    "2030-01-01T14:30:00Z", "invalid", None,
+    "2030-01-02T14:30:00+00:00",
+])
+def test_forward_first_open_must_bind_first_expected_session(first_open):
+    r = forward_receipt()
+    r["first_open_at"] = first_open
+    if first_open == "2031-02-03T14:30:00Z":
+        r["registered_at"] = "2031-02-02T00:00:00Z"
+    with pytest.raises(package.NewEvidenceError, match="FORWARD_REGISTRATION_LATE"):
+        package.validate_forward_receipt(r)
+
+
+@pytest.mark.parametrize("registered,accepted", [
+    ("2030-01-01T00:00:00Z", True),
+    ("2030-01-02T14:29:59Z", True),
+    ("2030-01-02T14:30:00Z", False),
+    ("2030-01-02T14:30:01Z", False),
+])
+def test_forward_matching_open_registration_order(registered, accepted):
+    r = forward_receipt()
+    r["registered_at"] = registered
+    if accepted:
+        assert package.validate_forward_receipt(r)["calendar_authenticity"] == "UNKNOWN"
+    else:
+        with pytest.raises(package.NewEvidenceError, match="FORWARD_REGISTRATION_LATE"):
+            package.validate_forward_receipt(r)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("first_session", "2030-01-01"), ("last_session", "2031-01-03"),
+])
+def test_forward_session_endpoints_stay_bound(field, value):
+    r = forward_receipt()
+    r[field] = value
+    with pytest.raises(package.NewEvidenceError, match="FORWARD_SESSION_GAP"):
+        package.validate_forward_receipt(r)
