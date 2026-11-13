@@ -1,0 +1,40 @@
+............F........................................................... [ 92%]
+......                                                                   [100%]
+=================================== FAILURES ===================================
+___________ test_explicit_notice_supersession_keeps_selection_chain ____________
+
+    def test_explicit_notice_supersession_keeps_selection_chain():
+>       reg = registry(baseline(), notice(), closure(supersedes="fixture:early"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/research/test_calendar_contract.py:125: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/research/test_calendar_contract.py:61: in registry
+    result = result.register(record)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+src/us_equity_strategies/research/calendar_contract.py:214: in register
+    return replace(self, records=(*self.records, record))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/dataclasses.py:1596: in replace
+    return _replace(obj, **changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/dataclasses.py:1630: in _replace
+    return self.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+<string>:8: in __init__
+    ???
+src/us_equity_strategies/research/calendar_contract.py:202: in __post_init__
+    _require(old.persisted_at <= record.first_seen, "SUPERSEDES_TIME")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, reason = 'SUPERSEDES_TIME'
+
+    def _require(ok: bool, reason: str) -> None:
+        if not ok:
+>           raise ValueError("CALENDAR_" + reason)
+E           ValueError: CALENDAR_SUPERSEDES_TIME
+
+src/us_equity_strategies/research/calendar_contract.py:16: ValueError
+=========================== short test summary info ============================
+FAILED tests/research/test_calendar_contract.py::test_explicit_notice_supersession_keeps_selection_chain
+1 failed, 77 passed in 0.27s

@@ -1,0 +1,14 @@
+{
+  "base": "aeb200a2ccf65c386f0f8c915a3f4e2748f43ea4",
+  "source_sha256": {
+    "src/us_equity_strategies/research/calendar_contract.py": "9a55d7ea7b5fd6bfd1694f99c4bcbde66e308a329511f367c966174380d9c673",
+    "tests/research/test_calendar_contract.py": "2d1c5b4f6961b6d9b938adb5a70e6ada85d83dee2da74e909e1c5e3c37bb2447",
+    "tests/research/test_r_data_08_calendar_t1_contract.py": "4c475efdb938552b7008e4f7810fdbeb0cf1d1a7e83b9a0cc64b613dcda3fd7d",
+    "src/us_equity_strategies/research/pit_session_inputs.py": "c7d1567423d5fffc1e5e1b7d4bc9737cc915b51a3b00954bf8cbf68ed5b4a922",
+    "src/us_equity_strategies/research/security_netting_runner.py": "d3b79e67d45bca9ebcf67d4a1e8b54307a7c33fd8aa6b6788aa35c5aa8a01322",
+    "src/us_equity_strategies/research/kelly_private_runner.py": "253f2910a6b21dc2047120ca6d417d55daa1ea9e1ad3cb198e116c931f845cf4"
+  },
+  "tracked_diff": [],
+  "reviewer": "/root/r_data_09_independent_review",
+  "product_edits_by_reviewer": false
+}

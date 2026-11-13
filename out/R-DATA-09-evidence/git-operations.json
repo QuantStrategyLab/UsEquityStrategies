@@ -1,0 +1,44 @@
+{
+  "fetch": {
+    "argv": [
+      "git",
+      "fetch",
+      "origin",
+      "main"
+    ],
+    "exit_code": 0,
+    "observed_main": "aeb200a2ccf65c386f0f8c915a3f4e2748f43ea4"
+  },
+  "worktree_add": {
+    "argv": [
+      "git",
+      "worktree",
+      "add",
+      "-b",
+      "codex/r-data-09-calendar-draft-20261023",
+      "/Users/lisiyi/codex-jobs/worktrees/ues-r-data-09-20261023",
+      "origin/main"
+    ],
+    "exit_code": 0
+  },
+  "github_actor": {
+    "local_git_name": "Pigbibi",
+    "gh_api_login": "Pigbibi",
+    "connector_profile_id": "20649888"
+  },
+  "publication_scope": "Commit/push the reviewed draft and create draft PR only; no merge, auto-merge or deploy",
+  "commit": {
+    "sha": "7045ef1ca80b85400b26c34e24f26f584df50756",
+    "exit_code": 0
+  },
+  "push": {
+    "explicit_head": "refs/heads/codex/r-data-09-calendar-draft-20261023",
+    "exit_code": 0
+  },
+  "pr_create": {
+    "tool": "mcp__codex_apps__github_create_pull_request",
+    "draft": true,
+    "number": 672,
+    "isError": false
+  }
+}
