@@ -1,0 +1,63 @@
+name: NEW TQQQ SOXL offline preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Data execution is unavailable in this engineering revision
+        type: boolean
+        default: false
+      collect:
+        description: Collection is unavailable in this engineering revision
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  offline-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Reject execution requests
+        env:
+          EXECUTE_REQUESTED: ${{ inputs.execute }}
+          COLLECT_REQUESTED: ${{ inputs.collect }}
+        run: |
+          set -euo pipefail
+          if [[ "$EXECUTE_REQUESTED" != false || "$COLLECT_REQUESTED" != false ]]; then
+            echo 'DATA_EXECUTION_NOT_AUTHORIZED'
+            exit 2
+          fi
+      - name: Produce inert preflight summary
+        # Preflight lazily avoids strategy/dependency imports. No provider,
+        # rights values, credential or market inputs are read.
+        run: |
+          set -euo pipefail
+          mkdir summary
+          status=0
+          PYTHONPATH=src python -m us_equity_strategies.research.new_evidence_package preflight > summary/preflight.json || status=$?
+          test "$status" -eq 2
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('summary/preflight.json').read_text())
+          assert result['status'] == 'PREFLIGHT_BLOCKED'
+          assert result['execution_authorized'] is False
+          PY
+      - name: Upload sanitized blocked summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-evidence-preflight
+          path: summary/preflight.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep qualification blocked
+        run: |
+          echo 'PREFLIGHT_BLOCKED: engineering only; no data or forward clock'
+          exit 2
