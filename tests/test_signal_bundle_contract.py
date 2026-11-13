@@ -2031,3 +2031,43 @@ def test_index_for_consumer_accepts_bundle_with_reference_time_near_provider() -
     assert market_data["derived_indicators"]["BTC-USD"]["provider_timestamp"] == (
         "2026-06-19T00:00:00Z"
     )
+
+
+def test_runtime_last_valid_uses_verified_friday_bundle_on_monday(tmp_path):
+    import shutil
+    from datetime import datetime, timezone
+    from us_equity_strategies.signals import runtime_market_signal_inputs as runtime
+
+    bundle_dir = tmp_path / "bundle"
+    shutil.copytree(FIXTURE_PATH.parent, bundle_dir)
+    registry = signal_consumer_contract_registry_payload()
+    _, registry_manifest = _write_consumer_contract_registry_manifest(tmp_path, registry)
+    _, catalog_manifest = _write_source_family_catalog_manifest(tmp_path)
+    handoff = _write_platform_handoff_manifest(
+        tmp_path,
+        signal_bundle_manifest_path=bundle_dir / "manifest.json",
+        source_family_catalog_manifest_path=catalog_manifest,
+        consumer_contract_registry_manifest_path=registry_manifest,
+        consumers=known_signal_consumers(),
+    )
+    index = _write_platform_handoff_index(tmp_path, handoff)
+    args = dict(reference=str(index), reference_type="platform_handoff_index",
+                consumer=runtime.IBIT_SMART_DCA_MARKET_SIGNAL_CONSUMER,
+                cache_dir=tmp_path / "cache", fallback_mode="last_valid")
+    first, _ = runtime.extract_consumer_market_signal_inputs_from_reference(
+        **args, as_of="2026-06-19", decision_time=datetime(2026, 6, 19, 12, tzinfo=timezone.utc))
+    index.rename(tmp_path / "unavailable.json")
+    recovered, metadata = runtime.extract_consumer_market_signal_inputs_from_reference(
+        **args, as_of="2026-06-22", decision_time=datetime(2026, 6, 22, 12, tzinfo=timezone.utc))
+    assert recovered == first
+    assert metadata["artifact_fallback_used"] is True
+    with pytest.raises(FileNotFoundError):
+        runtime.extract_consumer_market_signal_inputs_from_reference(
+            **args, as_of="2026-06-23", decision_time=datetime(2026, 6, 23, 12, tzinfo=timezone.utc))
+    with pytest.raises(FileNotFoundError):
+        runtime.extract_consumer_market_signal_inputs_from_reference(
+            **args, as_of="2026-06-18", decision_time=datetime(2026, 6, 18, 12, tzinfo=timezone.utc))
+    with pytest.raises(FileNotFoundError):
+        runtime.extract_consumer_market_signal_inputs_from_reference(
+            **args, as_of="2026-06-22", decision_time=datetime(2026, 6, 22, 12, tzinfo=timezone.utc),
+            cache_namespace="replay")

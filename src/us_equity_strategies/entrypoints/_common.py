@@ -6,6 +6,7 @@ from us_equity_strategies.option_overlay_retirement import (
 )
 
 import hashlib
+import inspect
 import json
 import logging
 from datetime import date
@@ -26,6 +27,7 @@ from us_equity_strategies.income_layer import (
     normalize_income_layer_allocations,
 )
 from us_equity_strategies.market_regime_control_contract import (
+    iter_payloads_with_authority,
     resolve_market_regime_position_control_authorization,
 )
 
@@ -131,6 +133,13 @@ def apply_risk_gate(
         qpk_kwargs["current_portfolio_weights"] = capabilities["current_portfolio_weights"]
     if "cash_only_execution" in capabilities:
         qpk_kwargs["cash_only_execution"] = capabilities["cash_only_execution"]
+    if capabilities.get("logical_evaluation_time") is not None:
+        try:
+            supports_clock = "logical_evaluation_time" in inspect.signature(_qpk_apply_risk_gate).parameters
+        except (TypeError, ValueError):
+            supports_clock = False
+        if supports_clock:
+            qpk_kwargs["logical_evaluation_time"] = capabilities["logical_evaluation_time"]
     if observer is not None:
         qpk_kwargs["observer"] = observer
     return _qpk_apply_risk_gate(
@@ -379,13 +388,13 @@ def _market_regime_control_not_found() -> dict[str, object]:
 
 def _resolve_market_regime_control_from_payloads(*sources: object) -> dict[str, object]:
     for source in sources:
-        for payload in _iter_mapping_payloads(source):
+        for payload, inherited_authority in iter_payloads_with_authority(source):
             plugin = str(payload.get("plugin") or payload.get("profile") or "").strip().lower()
             if plugin != MARKET_REGIME_CONTROL_PROFILE:
                 continue
             authorization = resolve_market_regime_position_control_authorization(payload)
-            position_control_allowed = bool(authorization["position_control_allowed"])
-            position_control_authorized = bool(authorization["position_control_authorized"])
+            position_control_allowed = bool(authorization["position_control_allowed"]) and inherited_authority
+            position_control_authorized = bool(authorization["position_control_authorized"]) and inherited_authority
             evidence_status = str(authorization["consumption_evidence_status"])
             position_control = payload.get("position_control")
             if not isinstance(position_control, Mapping):

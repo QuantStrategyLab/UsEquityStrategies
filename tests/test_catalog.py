@@ -134,11 +134,20 @@ class CatalogTest(unittest.TestCase):
         allocation_module = get_strategy_component_map(schwab_definition)["allocation"]
         self.assertEqual(
             allocation_module.module_path,
-            "us_equity_strategies.strategies.tqqq_growth_income",
+            "us_equity_strategies.strategies.tqqq_growth_income_live_v2",
         )
 
         longbridge_definition = get_strategy_definition("soxl_soxx_trend_income")
         self.assertEqual(longbridge_definition.profile, SOXL_SOXX_TREND_INCOME_PROFILE)
+        self.assertEqual(
+            get_strategy_component_map(longbridge_definition)["allocation"].module_path,
+            "us_equity_strategies.strategies.soxl_soxx_trend_income_live_v2",
+        )
+        for definition in (schwab_definition, longbridge_definition):
+            with self.subTest(profile=definition.profile):
+                entrypoint = get_strategy_entrypoint(definition.profile)
+                self.assertEqual(entrypoint.manifest.profile, definition.profile)
+                self.assertTrue(callable(entrypoint.evaluate))
         self.assertTrue(longbridge_definition.default_config["blend_gate_volatility_delever_enabled"])
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_window"], 10)
         self.assertEqual(longbridge_definition.default_config["blend_gate_volatility_delever_threshold"], 0.55)
@@ -154,7 +163,7 @@ class CatalogTest(unittest.TestCase):
         longbridge_module = get_strategy_component_map(longbridge_definition)["allocation"]
         self.assertEqual(
             longbridge_module.module_path,
-            "us_equity_strategies.strategies.soxl_soxx_trend_income",
+            "us_equity_strategies.strategies.soxl_soxx_trend_income_live_v2",
         )
 
         balanced_definition = get_strategy_definition("russell_top50_leader_rotation")

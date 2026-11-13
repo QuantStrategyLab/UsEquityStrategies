@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+import math
 from typing import Any
 
 from .constants import (
@@ -128,6 +129,13 @@ def validate_signal_bundle_indicator_fields(
                 f"derived_indicators[{symbol!r}] missing required fields: "
                 + ", ".join(missing)
             )
+        for field in required_fields:
+            if field.lower().startswith("realized_volatility_") and field.lower().split("_")[-1].isdigit():
+                value = next(payload[key] for key in payload if str(key).strip().lower() == field.lower())
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                    raise SignalBundleContractError(
+                        f"derived_indicators[{symbol!r}][{field!r}] must be finite and non-negative"
+                    )
 
 
 def validate_signal_bundle_for_consumer(
