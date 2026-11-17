@@ -1,3 +1,5 @@
+[English](rs08-live-research-parity-report.md) | 简体中文
+
 # RS-08 实盘与研究一致性核查报告（只读）
 
 > 日期 2026-10-11。范围：SOXL（Schwab live、IBKR SOXL 账户）、TQQQ（IBKR TQQQ 账户）。全程只读：没有部署，没有改环境变量、密钥或流量，也没有碰下单路径。凡是会改变实盘行为的修复都只是建议，需要人工批准。

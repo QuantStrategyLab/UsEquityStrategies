@@ -1,3 +1,5 @@
+[English](fractional-kelly-preregistration.md) | 简体中文
+
 # RS-04 分数 Kelly 评估器：SOXL / TQQQ 预注册（v1）
 
 状态：**参数已冻结；数据源与窗口已于 2026-10-11 经用户确认，只允许对照变体 `no_plugin_core` 运行**（主变体 `live_plugins_as_live` 仍被插件阻断）。代码副本：`us_equity_strategies.research.fractional_kelly_preregistration`。

@@ -1,6 +1,8 @@
+[English](b1-b2-freeze-decision-contract.md) | 简体中文
+
 # B1/B2 冻结决策合同草案
 
-状态：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。本文件把已有提案变成可逐项评审的决策单，并记录 D03–D08 的 owner 批准参数；没有批准试验、取得私有数据、写入台账或改变实盘风险门。追踪 [QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659) 和 [UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588)。B4另见[独立草案](bayesian-kelly-preregistration-proposal.zh-CN.md)，尾部约束另见[CVaR决策合同](cvar-exposure-constraint-decision-contract.zh-CN.md)；B5不进入本批。
+状态：**DRAFT / NOT_FROZEN / DEVELOPMENT_ONLY**。本文件把已有提案变成可逐项评审的决策单，并记录 D03–D08 的 owner 批准参数；没有批准试验、取得私有数据、写入台账或改变实盘风险门。追踪 [QRS #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[QPK #659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659) 和 [UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588)。B4另见[独立草案](bayesian-kelly-preregistration-proposal.md)，尾部约束另见[CVaR决策合同](cvar-exposure-constraint-decision-contract.md)；B5不进入本批。
 
 ## 原文与已有工程的边界
 

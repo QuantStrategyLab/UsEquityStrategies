@@ -1,3 +1,5 @@
+[English](kelly-security-level-ledger-design.md) | 简体中文
+
 # 设计说明：凯利外层的证券级净交易账本（RS-07 (c)）
 
 > 仅限研究。本文只是设计，不改代码、不改生产。

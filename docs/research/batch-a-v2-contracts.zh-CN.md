@@ -1,3 +1,5 @@
+[English](batch-a-v2-contracts.md) | 简体中文
+
 # Batch A 研究数据 v2 合同（冻结）
 
 来源：审计 §9.15.27 D0/D2。本文件冻结**破坏性、不兼容**的新研究输入合同；旧 R3/`price_snapshot.v1`/`c3-batch-a-frozen-member-pack.v1` 仅保留历史证据与 Git 历史，**不进入新 Batch A 活动入口**，不提供 adapter、alias、双版本 dispatcher 或自动转换。
