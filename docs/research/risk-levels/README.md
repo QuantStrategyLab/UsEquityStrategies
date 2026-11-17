@@ -140,4 +140,4 @@ DSR 复用 QPK，不在本卡实现。使用**完整累计可比研究族**的 t
 
 可复核命令：`PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 docs/research/risk-levels/verify_design.py`。它校验所有 schema/示例/默认值，拒绝越界覆盖和未知字段，核对六个缺口和源文件摘要，并只调用现有纯函数做合成接口探针；无网络、账户、PerformanceStore 写入或收益回放。[verification.json](verification.json) 是实际输出，不冒充三档回测。
 
-Grok Bot 待审：数值与期限、离散 c 域与原 R1/M1 消费者的边界、现金费用前后与POST_FEE约束、两类CVaR口径、降级覆盖清理/升级48h和恢复、完整累计DSR/R4入账条件。当前工具没有 Grok Bot 调用入口，未发消息、未伪造 reviewer PASS；审阅请求材料归档于内部运维仓库。本轮批准覆盖 c 与 schema，不授予真实 trial 或预算变更权限。后续需完成 Grok Bot 复核及数据/许可/联合 CVaR/消费者绑定，再另卡进入三档对照。本卡没有前端或实盘接入。
+Grok Bot schema 复核已于 2026-10-22（UTC+8）完成，结论为 **PASS_SCOPED（设计/接口）**，并在 2026-10-23 的 `r-risk-03b.review.v1` 状态复核中确认当前 `r-risk-01.research.v2`（`RESEARCH_SCHEMA_APPROVED_NOT_ARMED`，离散 `c` 域为 `0.10 / 0.25 / 0.40`）结论有效（详细记录归档于内部运维仓库）。本目录上方（含 G06）及 `comparison-gaps.json`、`verification.json` 中的“待审”表述仅保留为复核前历史快照；`PASS_SCOPED` 仅覆盖设计与接口，**不含真实 trial、非 `c` 参数金融最优性、金融资格或实盘授权**（六个三档 cell 仍为 `NOT_RUN_BLOCKED`，`financial_qualification=NOT_READY`、`live_ready=false`、`execution_authorized=false`）。后续仍须另行绑定真实账户风险预算身份/来源、数据/PIT/许可及联合 CVaR 消费者后，再进入三档对照。

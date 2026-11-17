@@ -11,38 +11,38 @@ English | [简体中文](rs08-live-research-parity-report.zh-CN.md)
   - Schwab: `CharlesSchwabPlatform#512`, run `<recorded-run-or-artifact-id>`
 - Workflow actions: inspected the active Cloud Run revision serving traffic; pulled the image by digest inside a `--network none` container without env vars to read package commit SHAs and manifests; read release identifiers (hashes and version tags only) from `RUNTIME_TARGET_JSON`; summarized 21-day log reason codes; and on IBKR also fetched public yfinance data using the image's platform code to log bar counts and adjustment basis.
 - Public logs contain no account balances, positions, tokens, chat IDs, or full configs.
-- Static code inspection targets: platform `main`, UES `4a394388` / `9d1544d1`, and QPK.
+- Static code inspection targets: platform `main`, UES `<live-ues-sha>` / `<pinned-ues-sha>`, and QPK.
 
 ## 1. Revisions Currently Running in Production
 
 | Service | Traffic-Serving Revision (100%) | Image Digest | In-Image UES | In-Image QPK |
 | --- | --- | --- | --- | --- |
-| Schwab `charles-schwab-quant-service` | `00781-lel` (created 2026-10-09) | `sha256:cd4779376abf...` | `4a3943883cd6` (0.7.60) | `2dc0b26ad4f1` |
-| IBKR (SOXL) | `00416-8jb` (2026-10-09) | `sha256:9429234a87bf...` | `4a3943883cd6` (`/app/UES_REVISION` matches) | `bd8d06e50f88` |
-| IBKR (TQQQ) | `n0110100718` (2026-10-09) | `sha256:9fca942d3713...` | `4a3943883cd6` | `bd8d06e50f88` |
+| Schwab `<schwab-cloud-run-service>` | `<schwab-revision-id>` (created 2026-10-09) | `<schwab-image-digest>` | `<live-ues-sha>` (0.7.60) | `<schwab-qpk-sha>` |
+| IBKR (SOXL) | `<ibkr-soxl-revision-id>` (2026-10-09) | `<ibkr-soxl-image-digest>` | `<live-ues-sha>` (`/app/UES_REVISION` matches) | `<ibkr-qpk-sha>` |
+| IBKR (TQQQ) | `<ibkr-tqqq-revision-id>` (2026-10-09) | `<ibkr-tqqq-image-digest>` | `<live-ues-sha>` | `<ibkr-qpk-sha>` |
 
 Conclusions:
-- All three services run UES `4a394388`, matching `strategy_release.strategy_revision` and `ues_revision` in the risk binding.
-- Platform repository pins (UES `9d1544d1`, QPK `155d74a6`) **are newer than the running images, which have not been redeployed**. The 2026-10-09 revisions were created by NOTIFY-01 cloning the previous image with updated Telegram tokens only.
-- The QRS dependency matrix entry `4a394388` matches live execution.
+- All three services run UES `<live-ues-sha>`, matching `strategy_release.strategy_revision` and `ues_revision` in the risk binding.
+- Platform repository pins (UES `<pinned-ues-sha>`, QPK `<pinned-qpk-sha>`) **are newer than the running images, which have not been redeployed**. The 2026-10-09 revisions were created by NOTIFY-01 cloning the previous image with updated Telegram tokens only.
+- The QRS dependency matrix entry `<live-ues-sha>` matches live execution.
 
-Differences between `4a394388` and `9d1544d1`:
+Differences between `<live-ues-sha>` and `<pinned-ues-sha>`:
 - SOXL strategy code and manifest are **identical**.
 - In TQQQ `tqqq_dual_drive_core.py`, decision logic was extracted into a helper function. Testing 50,000 random inputs showed **zero diff** in `decide_tqqq_dual_drive` outputs.
 - `entrypoints/__init__.py` only added research parameter and DCA pass-through without affecting live SOXL/TQQQ.
-- The source hash of QPK live indicator function `build_semiconductor_rotation_indicators_from_history` matches identically (`eaffcd10...`) between live images (`bd8d06e5`, `2dc0b26a`) and the research environment.
+- The source hash of QPK live indicator function `build_semiconductor_rotation_indicators_from_history` matches identically (`<indicator-source-sha>`) between live images (`<ibkr-qpk-sha>`, `<schwab-qpk-sha>`) and the research environment.
 
-**Assessment: research strategy logic is behaviorally equivalent to live.** Research `main` strategy files match `9d1544d1`, and `9d1544d1` is behaviorally equivalent to `4a394388`.
+**Assessment: research strategy logic is behaviorally equivalent to live.** Research `main` strategy files match `<pinned-ues-sha>`, and `<pinned-ues-sha>` is behaviorally equivalent to `<live-ues-sha>`.
 
-**Risk note (important)**: Schwab logs from 2026-09-21 through 2026-09-25 show earlier revisions (`00696`, `00698`) had a mismatch between installed UES revision and bound `ues_revision`, triggering `strategy_runtime_binding_mismatch` and 9 `strategy_runtime_risk_reject` (`rejected:runtime_risk_limits`) events that blocked SOXL rebalances. Current revisions show zero occurrences in the past 21 days. Rebuilding from repo pin (`9d1544d1`) without simultaneously updating `strategy_release` and risk-binding `ues_revision` will **reproduce those rejections**.
+**Risk note (important)**: Schwab logs from 2026-09-21 through 2026-09-25 show earlier revisions (`<prior-revision-a>`, `<prior-revision-b>`) had a mismatch between installed UES revision and bound `ues_revision`, triggering `strategy_runtime_binding_mismatch` and 9 `strategy_runtime_risk_reject` (`rejected:runtime_risk_limits`) events that blocked SOXL rebalances. Current revisions show zero occurrences in the past 21 days. Rebuilding from repo pin (`<pinned-ues-sha>`) without simultaneously updating `strategy_release` and risk-binding `ues_revision` will **reproduce those rejections**.
 
 ## 2. Why `config_sha256` Does Not Match Manifest Defaults
 
 | Service | Published `config_sha256` | Manifest Default Config Hash (Recomputed in Image) |
 | --- | --- | --- |
-| Schwab SOXL | `945c852a...` | `b2b8a896...` (compact JSON) / `95776aab...` |
-| IBKR SOXL | `0fbd7b3b...` | Same as above |
-| IBKR TQQQ | `90e8ded5...` | `eec673a4...` / `c37dde83...` |
+| Schwab SOXL | `<schwab-soxl-config-sha>` | `<computed-compact-hash>` (compact JSON) / `<computed-default-hash>` |
+| IBKR SOXL | `<ibkr-soxl-config-sha>` | Same as above |
+| IBKR TQQQ | `<ibkr-tqqq-config-sha>` | `<computed-tqqq-compact-hash>` / `<computed-tqqq-default-hash>` |
 
 Both platforms run the same SOXL manifest yet publish different `config_sha256` values. This indicates the hash covers **platform-merged configuration** (reserved cash, income layer, option flags, plugin mounts, etc.), not raw manifest defaults. Its serialization formula lives outside any repository and was computed externally at release time on 2026-09-17. **Assessment: this is an unarchived hash specification rather than code divergence.** Recomputing it requires the release evidence package matching `evidence_sha256`; Section 6 diagnostics did **not find** that package in `gs://<runtime-logs-bucket>`.
 

@@ -10,11 +10,11 @@ This document and associated registration **did not execute on real data** and c
 
 | Key | Live Profile | Deployment Location (2026-10-10/11 Read-Only Check) | Live Parameter Source |
 | --- | --- | --- | --- |
-| SOXL | `soxl_soxx_trend_income` | Schwab live (`RUNTIME_TARGET_JSON`), IBKR `live-u15998061`; LongBridge env vars unreadable in check | UES manifest defaults; platform pin UES `9d1544d1` matches main manifest/strategy code; target JSON has no parameter overrides |
-| TQQQ | `tqqq_growth_income` | IBKR `live-u16608560` | Same as above |
+| SOXL | `soxl_soxx_trend_income` | Schwab live (`RUNTIME_TARGET_JSON`), IBKR `<account-id>`; LongBridge env vars unreadable in check | UES manifest defaults; platform pin UES `<pinned-ues-sha>` matches main manifest/strategy code; target JSON has no parameter overrides |
+| TQQQ | `tqqq_growth_income` | IBKR `<account-id>` | Same as above |
 
 Notes:
-- **V7** (`soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve`, config SHA-256 `843ab4e9...`) is a `runtime_enabled=false` research/shadow candidate, **not** the live SOXL strategy. Core parameters differ (live SOXL uses 0.70 / mid 0.65 / active SOXX 0.20 / de-risk into SOXX vs V7 0.35 / 0.25 / 0.25 / into BOXX; live also enables income layer, market regime control, and option income flags). Existing real-data studies (R6/R7/R8/R9) used V7 and cannot serve as live SOXL return series.
+- **V7** (`soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve`, config `<v7-config-sha256>`) is a `runtime_enabled=false` research/shadow candidate, **not** the live SOXL strategy. Core parameters differ (live SOXL uses 0.70 / mid 0.65 / active SOXX 0.20 / de-risk into SOXX vs V7 0.35 / 0.25 / 0.25 / into BOXX; live also enables income layer, market regime control, and option income flags). Existing real-data studies (R6/R7/R8/R9) used V7 and cannot serve as live SOXL return series.
 - Live income-layer thresholds: SOXL 150,000 USD, TQQQ 250,000 USD; option overlay `live_status=research_only`, no live option orders.
 - Live schedule `45 15 * * 1-5` (US/Eastern) evaluates ~15 minutes before close using partial intraday bars and executes at close. IBKR TQQQ requires the signal day's bar. This differs from research `next_close` and is tracked in UES #575.
 
@@ -38,7 +38,7 @@ Notes:
 
 ### 2.1 Live-Enabled Plugins and Overlays (Read-Only Check)
 
-Sources: UES manifest `default_config` (platform pin UES `9d1544d1`), QRS `platform-config.json`, Schwab repo vars `SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON` / cash reserve / cash-only vars, and IBKR `CLOUD_RUN_SERVICE_TARGETS_JSON` (`strategy_release` and `runtime_risk_limits`, 2026-10-10 snapshot).
+Sources: UES manifest `default_config` (platform pin UES `<pinned-ues-sha>`), QRS `platform-config.json`, Schwab repo vars `SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON` / cash reserve / cash-only vars, and IBKR `CLOUD_RUN_SERVICE_TARGETS_JSON` (`strategy_release` and `runtime_risk_limits`, 2026-10-10 snapshot).
 
 Reproducibility: `YES` = research path reproduces it; `NEEDS_ADAPTER` = deterministic rule lacking a research adapter; `NO` = requires missing or unverified historical inputs; `OFF_IN_LIVE` = configured with zero live position impact, treated as off.
 
@@ -69,7 +69,7 @@ Reproducibility: `YES` = research path reproduces it; `NEEDS_ADAPTER` = determin
 
 **Conclusion**: While any `NO` or `NEEDS_ADAPTER` entry remains, `live_plugins_as_live` rejects real data with `LIVE_PLUGIN_VARIANT_NOT_REPRODUCIBLE:<plugin>`. Unlocking requires: (a) a user-supplied/confirmed archive of market regime signals, or verifying live signals lacked position-control authority (`shadow`) and confirming zero-impact equivalence; and (b) building dollar-NAV income-layer replay and runtime-risk-gate adapters with a selected broker config. The `no_plugin_core` control variant depends only on data confirmation.
 
-Additionally, IBKR `strategy_release.strategy_revision` is UES `4a394388` (2026-09-17) while platform pin is `9d1544d1`, with diffs in `tqqq_dual_drive_core.py` and `entrypoints/__init__.py` requiring verification of the active revision. Recomputing `strategy_release.config_sha256` (SOXL `0fbd7b3b...`, TQQQ `90e8ded5...`) against manifest defaults does not match, indicating platform-merged overrides that must be read back and pinned before running.
+Additionally, IBKR `strategy_release.strategy_revision` is UES `<live-ues-sha>` (2026-09-17) while platform pin is `<pinned-ues-sha>`, with diffs in `tqqq_dual_drive_core.py` and `entrypoints/__init__.py` requiring verification of the active revision. Recomputing `strategy_release.config_sha256` (SOXL `<soxl-config-sha256>`, TQQQ `<tqqq-config-sha256>`) against manifest defaults does not match, indicating platform-merged overrides that must be read back and pinned before running.
 
 ## 3. Required Data Manifest Fields
 
