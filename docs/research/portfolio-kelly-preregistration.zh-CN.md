@@ -1,3 +1,5 @@
+[English](portfolio-kelly-preregistration.md) | 简体中文
+
 # RS-06 组合分数凯利前推研究：预注册（rs06-kelly-portfolio-v1）
 
 > 仅限研究。在算出任何 RS-06 数字之前冻结。结果一律是 `DEVELOPMENT_ONLY`，**不提高任何预算**，不改生产；SOXL 仍需先跑满 252 次影子运行。代码副本：`src/us_equity_strategies/research/portfolio_kelly_preregistration.py`。

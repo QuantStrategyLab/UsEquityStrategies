@@ -1,3 +1,5 @@
+[English](strategy-release-assessment.md) | 简体中文
+
 # 策略发布前评估
 
 `scripts/assess_strategy_release.py` 是策略包对 QuantPlatformKit 发布门禁的通用只读入口。它适用于每个策略、经纪商目标和插件组合。

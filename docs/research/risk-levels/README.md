@@ -64,7 +64,7 @@ R-RISK-02 的 B4 内核只接受离散集合 **c∈{0.10, 0.25, 0.40}**，范围
 | 联合尾部约束 | [cvar_exposure_constraint.py](../../../src/us_equity_strategies/research/cvar_exposure_constraint.py) `constrain_tail_target(proposal,approved_anchor,policy,scenario_set,decision_book=...,bps_spec=...,hard_policy=...,forced_target=...)` → ConstraintDecision | Action/ApprovedAnchor、TailPolicy(TailDescriptor,budget,source,approved,synthetic_policy)、JointScenario(fill_returns,earn_returns,probability)、DecisionBook、CostSpec、HardPolicy/ExposureCap。已有 convex segment 内的收紧，不是全局 solver；不支持的离散/费用/硬约束明示拒绝。合计名义 cap 可在未来用杠杆证券系数1、其他0的 ExposureCap 表达；全证券系数1表达现金上界；TARGET_ONLY/POST_FEE 不混用 |
 | CVaR 接入 B5 | 同上 R1 文件 `run_rs04_cvar_candidate` + `security_netting_runner` 现有 research policy | 明确 synthetic 两会话 consumer，不证明真实 R1 已采用。mandatory_reduce/bypass_b5_throttle 不能被 band 吞掉 |
 | 交易/账本 | 现有 QPK `research_stats.security_netting` 的 `compose_security_targets` / `run_offline_security_netting` 与原 M1 prefee reserve | 原净额、费用、数量漂移、D更新→D+1 close成交→D+2收益保留。此处描述研究时钟，不认证真实 PIT |
-| 风险预设呈现 | [risk-preset-offline-validator.zh-CN.md](../risk-preset-offline-validator.zh-CN.md) 的 `validate_risk_preset_offline` | 仅冻结的合成 wire/共同 c，不接受本三档 schema；未来明确版本 adapter，不改旧快照或冒充已支持 |
+| 风险预设呈现 | [risk-preset-offline-validator.md](../risk-preset-offline-validator.md) 的 `validate_risk_preset_offline` | 仅冻结的合成 wire/共同 c，不接受本三档 schema；未来明确版本 adapter，不改旧快照或冒充已支持 |
 | DSR | QPK `research_stats.deflated_sharpe_ratio`；UES [trial_overfitting_report.py](../../../src/us_equity_strategies/research/trial_overfitting_report.py) | UES wrapper 限合成，且 n_effective=成功数，不能满足完整累计 trials 的新要求；本卡不绕过检查、不复制 DSR 算法 |
 
 未来映射输入至少包含：`definition_revision/hash`、`mode/level/overrides`、批准的账户 scope/风险预算版本与来源、NAV/币种/真实可用现金/持仓及未决义务的时点、策略许可集合及版本、核心权重/毛收益/训练窗口/来源摘要、B4 状态、联合场景与成本/端点、当前 breaker 状态。账户数据由既有受限服务提供，本卡不读取。
@@ -140,4 +140,4 @@ DSR 复用 QPK，不在本卡实现。使用**完整累计可比研究族**的 t
 
 可复核命令：`PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 docs/research/risk-levels/verify_design.py`。它校验所有 schema/示例/默认值，拒绝越界覆盖和未知字段，核对六个缺口和源文件摘要，并只调用现有纯函数做合成接口探针；无网络、账户、PerformanceStore 写入或收益回放。[verification.json](verification.json) 是实际输出，不冒充三档回测。
 
-Grok Bot 待审：数值与期限、离散 c 域与原 R1/M1 消费者的边界、现金费用前后与POST_FEE约束、两类CVaR口径、降级覆盖清理/升级48h和恢复、完整累计DSR/R4入账条件。当前工具没有 Grok Bot 调用入口，未发消息、未伪造 reviewer PASS；[review-request.zh-CN.md](review-request.zh-CN.md) 为可交付审阅材料。本轮批准覆盖 c 与 schema，不授予真实 trial 或预算变更权限。后续需完成 Grok Bot 复核及数据/许可/联合 CVaR/消费者绑定，再另卡进入三档对照。本卡没有前端或实盘接入。
+Grok Bot 待审：数值与期限、离散 c 域与原 R1/M1 消费者的边界、现金费用前后与POST_FEE约束、两类CVaR口径、降级覆盖清理/升级48h和恢复、完整累计DSR/R4入账条件。当前工具没有 Grok Bot 调用入口，未发消息、未伪造 reviewer PASS；审阅请求材料归档于内部运维仓库。本轮批准覆盖 c 与 schema，不授予真实 trial 或预算变更权限。后续需完成 Grok Bot 复核及数据/许可/联合 CVaR/消费者绑定，再另卡进入三档对照。本卡没有前端或实盘接入。

@@ -1,3 +1,5 @@
+[English](task-service-v2.md) | 简体中文
+
 # 策略仓库拥有研究任务
 
 本次本地迁移基线为 UsEquityStrategies `1fc21ccce5819f678e935ece839db48301466b72`。改动尚未提交、发布、部署或连接真实助手。

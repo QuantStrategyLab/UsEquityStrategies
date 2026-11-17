@@ -1,3 +1,5 @@
+[English](ai-5-shadow.md) | 简体中文
+
 # AI-5：只记录的研究 hook
 
 目标仅为 QuantAIService v2；`config/ai-hook-shadow.json` 存运行时变量引用，没有组织、域名、账户或实际 secret 名称。批准的 runner 客户端改为 `quant_ai_service-2.*`，原 `personal_ai_service` wheel 不再被安装入口接受。保留已有 wheel SHA256 核验与本地批准产物要求；不下载替代包，不因此宣布新客户端已经发布或安装。

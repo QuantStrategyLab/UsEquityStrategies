@@ -3,7 +3,7 @@
 模块：`us_equity_strategies.research.fractional_kelly_walk_forward`
 测试：`tests/research/test_fractional_kelly_walk_forward.py`（只用合成收益）
 
-> 成本进入 sizing 的独立 R5 kernel 见 [cost_aware_fractional_kelly](cost-aware-fractional-kelly.zh-CN.md)，同窗口对照见 [cost_aware_walk_forward_comparator](cost-aware-walk-forward-comparator.zh-CN.md)。二者都未接入本评估器的输出/DSR 试验集；其合成结果不是本文件的 OOS 证据。
+> 成本进入 sizing 的独立 R5 kernel 见 [cost_aware_fractional_kelly](cost-aware-fractional-kelly.md)，同窗口对照见 [cost_aware_walk_forward_comparator](cost-aware-walk-forward-comparator.md)。二者都未接入本评估器的输出/DSR 试验集；其合成结果不是本文件的 OOS 证据。
 
 ## 做什么
 

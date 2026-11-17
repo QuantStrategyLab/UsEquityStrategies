@@ -45,7 +45,17 @@ version must declare its cash numeraire, centered variance or covariance versus
 second raw moment, return frequency and fee basis, and recompute comparisons
 from the same inputs. This records existing behavior and does not select a new
 model, change historical results, or authorize adoption. See the
-[detailed Chinese contract](fractional-kelly-walk-forward.zh-CN.md).
+[detailed contract](fractional-kelly-walk-forward.md).
+
+## Research contracts and preregistrations
+
+- [Batch A research data v2 contracts](batch-a-v2-contracts.md) · [简体中文](batch-a-v2-contracts.zh-CN.md)
+- [B1/B2 freeze decision contract draft](b1-b2-freeze-decision-contract.md) · [简体中文](b1-b2-freeze-decision-contract.zh-CN.md)
+- [RS-04 fractional Kelly preregistration](fractional-kelly-preregistration.md) · [简体中文](fractional-kelly-preregistration.zh-CN.md)
+- [RS-06 portfolio Kelly preregistration](portfolio-kelly-preregistration.md) · [简体中文](portfolio-kelly-preregistration.zh-CN.md)
+- [Security-level net trading ledger design](kelly-security-level-ledger-design.md) · [简体中文](kelly-security-level-ledger-design.zh-CN.md)
+- [RS-08 live vs. research parity report](rs08-live-research-parity-report.md) · [简体中文](rs08-live-research-parity-report.zh-CN.md)
+- [Risk levels research parameters and schemas](risk-levels/README.md)
 
 ## Historical runtime reference
 

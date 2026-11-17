@@ -142,5 +142,5 @@ Before using native evidence, document and review its raw-to-normalized
 mapping, data availability, fees and selection history. Retain failed attempts
 and unresolved provenance. Statistical interpretation still requires the
 complete research process, including discarded trials and cost assumptions.
-See the [existing trial-set contract](trial-overfitting-report.zh-CN.md) and
+See the [existing trial-set contract](trial-overfitting-report.md) and
 [trial registry](trial_registry/README.md) for their separate scope.

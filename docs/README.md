@@ -1,22 +1,21 @@
 # Documentation
 
-## Ai service
+## AI service
 
-- [AI-5：只记录的研究 hook](ai-service/ai-5-shadow.zh-CN.md)
-- [策略仓库拥有研究任务](ai-service/task-service-v2.zh-CN.md)
+- [AI-5: Logging-only research hook](ai-service/ai-5-shadow.md) · [简体中文](ai-service/ai-5-shadow.zh-CN.md)
+- [Strategy repository owns research tasks](ai-service/task-service-v2.md) · [简体中文](ai-service/task-service-v2.zh-CN.md)
 
 ## Guides and reference
 
 - [Buy-and-hold preview contract](buy-and-hold-preview-contract.md)
 - [Income allocation budget](income-budget-contract.md)
 - [Market regime and QQQ observation consumption](market-regime-control-consumption.md)
+- [Multi-platform paper reload protocol](paper-reload-protocol.md) · [简体中文](paper-reload-protocol.zh-CN.md)
 - [nasdaq_sp500_smart_dca — frozen input contract (B07)](nasdaq-sp500-smart-dca-input-contract.md)
 - [Production option-overlay retirement](option-overlay-retirement.md)
-- [多平台纸面重载协议](paper-reload-protocol.zh-CN.md)
 - [QQQ DCA: QNDX new buys, October 2026](qqq-dca-qndx-newbuys-202610.md)
-- [R3 私有证据预检（历史入口，已退出 Batch A 活动路径）](r3-evidence-preflight.zh-CN.md)
-- [策略发布前评估](strategy-release-assessment.zh-CN.md)
 - [Stateful volatility-deleveraging control](strategy-risk-stateful-controls.md)
+- [Strategy pre-release assessment](strategy-release-assessment.md) · [简体中文](strategy-release-assessment.zh-CN.md)
 - [TQQQ AI Extension Architecture](tqqq-ai-extensions.md)
 - [TQQQ pure session/as-of foundation v2](tqqq-session-asof-pure-foundation-v2.md)
 - [TQQQ session snapshot numeric contract v1](tqqq-session-snapshot-numeric-contract-v1.md)
