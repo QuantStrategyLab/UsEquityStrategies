@@ -60,3 +60,43 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "tqqq_growth_income" not in workflow.split("LIFECYCLE_PREFLIGHT_BUNDLE_ROOT", 1)[1].split("Upload lifecycle", 1)[0]
     assert "codex_audit_service_url:" not in workflow
     assert "secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token" in workflow
+    assert "disable_legacy_pat_fallback:" in workflow
+    assert "secrets.QSL_DRIFT_APP_ID || secrets.QSL_GITHUB_APP_ID" in workflow
+    assert "secrets.QSL_DRIFT_APP_PRIVATE_KEY || secrets.QSL_GITHUB_APP_PRIVATE_KEY" in workflow
+    assert "actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2" in workflow
+    assert "repositories: UsEquitySnapshotPipelines" in workflow
+    assert "permission-contents: read" in workflow
+    assert "permission-actions: read" in workflow
+    assert "DISABLE_LEGACY_PAT_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback }}" in workflow
+    assert "disable_legacy_pat_fallback: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback }}" in workflow
+    assert "qsl_drift_app_id: ${{ secrets.QSL_DRIFT_APP_ID || secrets.QSL_GITHUB_APP_ID }}" in workflow
+    assert "qsl_drift_app_private_key: ${{ secrets.QSL_DRIFT_APP_PRIVATE_KEY || secrets.QSL_GITHUB_APP_PRIVATE_KEY }}" in workflow
+    assert (
+        "snapshot_repository_token: ${{ !(github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback) "
+        "&& (secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token) || '' }}"
+    ) in workflow
+
+
+def test_reusable_drift_workflow_wires_readonly_app_token_and_no_fallback() -> None:
+    reusable = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "reusable-drift-check.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "disable_legacy_pat_fallback:" in reusable
+    assert "qsl_drift_app_id:" in reusable
+    assert "qsl_drift_app_private_key:" in reusable
+    assert "id: drift_app_token" in reusable
+    assert "HAS_QSL_DRIFT_APP_CREDENTIALS: ${{ secrets.qsl_drift_app_id != '' && secrets.qsl_drift_app_private_key != '' }}" in reusable
+    assert "if: env.HAS_QSL_DRIFT_APP_CREDENTIALS == 'true'" in reusable
+    assert "continue-on-error: ${{ !inputs.disable_legacy_pat_fallback }}" in reusable
+    assert "actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2" in reusable
+    assert "owner: QuantStrategyLab" in reusable
+    assert "repositories: ${{ steps.validate_caller.outputs.snapshot_repo_name }}" in reusable
+    assert "permission-contents: read" in reusable
+    assert "permission-actions: read" in reusable
+    assert "Verify drift GitHub App token when fallback is disabled" in reusable
+    assert (
+        "token: ${{ inputs.disable_legacy_pat_fallback && steps.drift_app_token.outputs.token "
+        "|| (!inputs.disable_legacy_pat_fallback && (steps.drift_app_token.outputs.token "
+        "|| secrets.snapshot_repository_token || github.token)) || '' }}"
+    ) in reusable
