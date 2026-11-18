@@ -75,6 +75,15 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
         "snapshot_repository_token: ${{ !(github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback) "
         "&& (secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token) || '' }}"
     ) in workflow
+    assert "Verify App-only snapshot checkout" in workflow
+    assert "Clean up App-only snapshot checkout proof" in workflow
+    assert "if: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback }}" in workflow
+    assert "repository: QuantStrategyLab/UsEquitySnapshotPipelines" in workflow
+    assert "ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}" in workflow
+    assert "token: ${{ steps.app_token.outputs.token }}" in workflow
+    assert "path: external/app-checkout-proof" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "test -d external/app-checkout-proof/.git && rm -rf external/app-checkout-proof" in workflow
 
 
 def test_reusable_drift_workflow_wires_readonly_app_token_and_no_fallback() -> None:

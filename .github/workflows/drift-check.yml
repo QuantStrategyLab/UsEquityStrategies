@@ -165,6 +165,22 @@ jobs:
               target.write_bytes(bundle.read(matches[0]))
           PY
 
+      - name: Verify App-only snapshot checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback }}
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/UsEquitySnapshotPipelines
+          ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}
+          token: ${{ steps.app_token.outputs.token }}
+          path: external/app-checkout-proof
+          persist-credentials: false
+
+      - name: Clean up App-only snapshot checkout proof
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_legacy_pat_fallback }}
+        run: |
+          set -euo pipefail
+          test -d external/app-checkout-proof/.git && rm -rf external/app-checkout-proof
+
       - name: Build lifecycle preflight bundle
         id: build-lifecycle
         env:
