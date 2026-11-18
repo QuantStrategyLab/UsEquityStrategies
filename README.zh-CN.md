@@ -8,12 +8,6 @@ UsEquityStrategies 是 QuantStrategyLab 美股交易背后的策略库：保存�
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
 
-## 期权退役与收入预算迁移
-
-生产入口不再默认提供或生成自营期权增强。显式旧配方、预算残留及已知期权义务会被明确拒绝并要求迁移；旧控制项只接受字面布尔 `false` 与空配方作为无操作值。缺少账户信息不证明没有期权持仓。历史研究回放独立保留，见[期权退役合同](docs/option-overlay-retirement.md)。
-
-权重式收入分配从已有投资目标预算筹资，按标的最低目标去重并保留隐含现金，不会把原60%投资自动放大到100%。禁用时仍保留已有收入持仓的最低目标。预算不足会在返回可执行目标前中止整个策略决策，也可能延迟该周期原有的有效减风险目标；不能据此保证减仓订单一定执行，独立平台保护仍然必要。TQQQ/SOXL保留原金额计划与内嵌风控，见[收入预算合同](docs/income-budget-contract.md)。
-
 ## 这个仓库是什么
 
 UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLab 美股执行平台提供可复用策略实现和运行元数据。
@@ -29,14 +23,13 @@ UsEquityStrategies 是 QuantStrategyLab 的美股策略包。为 QuantStrategyLa
 
 ## 配置
 
-Export these environment variables before importing or running the offline R3 evidence runner to use existing local files. Relative defaults resolve from the working directory.
+在导入或运行离线 R3 证据运行器前，可导出以下环境变量以使用现有本地文件；相对路径默认值基于当前工作目录解析。
 
-| Variable | Purpose | Required | Default |
+| 变量 | 用途 | 是否必填 | 默认值 |
 |---|---|---|---|
-| `UES_R3_OUTPUT_ROOT` | Offline evidence output directory | Optional | `.local/r3_joint_evidence` |
-| `UES_R3_CONTRACT_PATH` | Local acceptance contract | Optional | `.local/r3_joint_evidence/acceptance-contract.md` |
-| `UES_R3_WORKER_PROMPT_PATH` | Local worker prompt | Optional | `.local/r3_joint_evidence/worker-prompt.md` |
-| `UES_R3_PRIVATE_ROOT` | Private research input root | Optional | `.local/private_research` |
+| `UES_R3_OUTPUT_ROOT` | 离线证据输出目录 | 可选 | `.local/r3_joint_evidence` |
+| `UES_R3_CONTRACT_PATH` | 本地验收契约路径 | 可选 | `.local/r3_joint_evidence/acceptance-contract.md` |
+| `UES_R3_PRIVATE_ROOT` | 私有研究输入根目录 | 可选 | `.local/private_research` |
 
 
 ## 策略 profile
@@ -68,6 +61,12 @@ Export these environment variables before importing or running the offline R3 ev
 | Profile | 名称 | 说明 |
 | --- | --- | --- |
 | `tech_communication_pullback_enhancement` | Tech/Communication Pullback Enhancement | 已归档 research-only，不再是 catalog/entrypoint 可运行 profile。 |
+
+## 期权退役与收入预算迁移
+
+生产入口不再默认提供或生成自营期权增强。显式旧配方、预算残留及已知期权义务会被明确拒绝并要求迁移；旧控制项只接受字面布尔 `false` 与空配方作为无操作值。缺少账户信息不证明没有期权持仓。历史研究回放独立保留，见[期权退役合同](docs/option-overlay-retirement.md)。
+
+权重式收入分配从已有投资目标预算筹资，按标的最低目标去重并保留隐含现金，不会把原60%投资自动放大到100%。禁用时仍保留已有收入持仓的最低目标。预算不足会在返回可执行目标前中止整个策略决策，也可能延迟该周期原有的有效减风险目标；不能据此保证减仓订单一定执行，独立平台保护仍然必要。TQQQ/SOXL保留原金额计划与内嵌风控，见[收入预算合同](docs/income-budget-contract.md)。
 
 ## 如何接到执行平台
 
