@@ -2198,12 +2198,22 @@ def _validate_input_snapshots_unchanged(snapshots: Mapping[Path, bytes]) -> None
 
 def _source_artifact_records() -> dict[str, dict[str, str]]:
     research_path = Path(smart_dca_research_module.__file__)
-    return {
+    records = {
         "smart_dca_research_cli.py": {
             "sha256": _sha256_bytes(Path(__file__).read_bytes())
         },
         "smart_dca_research.py": {"sha256": _sha256_bytes(research_path.read_bytes())},
     }
+    for module_name in (
+        "smart_dca_research_models.py",
+        "smart_dca_research_signals.py",
+        "smart_dca_research_simulation.py",
+        "smart_dca_research_reporting.py",
+        "smart_dca_research_scenarios.py",
+    ):
+        module_path = research_path.parent / module_name
+        records[module_name] = {"sha256": _sha256_bytes(module_path.read_bytes())}
+    return records
 
 
 def _sha256_bytes(contents: bytes) -> str:

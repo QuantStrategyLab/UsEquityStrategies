@@ -362,6 +362,17 @@ def test_smart_dca_research_cli_snapshots_shared_input_and_records_research_basi
     assert source_artifacts["smart_dca_research.py"]["sha256"] == hashlib.sha256(
         Path(smart_dca_research_cli.smart_dca_research_module.__file__).read_bytes()
     ).hexdigest()
+    research_dir = Path(smart_dca_research_cli.smart_dca_research_module.__file__).parent
+    for module_name in (
+        "smart_dca_research_models.py",
+        "smart_dca_research_signals.py",
+        "smart_dca_research_simulation.py",
+        "smart_dca_research_reporting.py",
+        "smart_dca_research_scenarios.py",
+    ):
+        assert source_artifacts[module_name]["sha256"] == hashlib.sha256(
+            (research_dir / module_name).read_bytes()
+        ).hexdigest()
     assert all("path" not in record for record in source_artifacts.values())
     assert metadata["research_config"]["return_basis"] == "before_transaction_costs"
     assert metadata["research_config"]["transaction_costs_modeled"] is False

@@ -21,6 +21,8 @@ jobs:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      HAS_QSL_GITHUB_APP_CREDENTIALS: ${{ secrets.QSL_GITHUB_APP_ID != '' && secrets.QSL_GITHUB_APP_PRIVATE_KEY != '' }}
     outputs:
       snapshot_repository_ref: ${{ steps.snapshot-input.outputs.snapshot_repository_ref }}
       lifecycle_profiles: ${{ steps.build-lifecycle.outputs.lifecycle_profiles }}
@@ -47,10 +49,20 @@ jobs:
           python -m pip install -e . pandas pandas_market_calendars
           python -m pip install --no-deps -e external/QuantPlatformKit
 
+      - name: Create GitHub App token
+        id: app_token
+        if: env.HAS_QSL_GITHUB_APP_CREDENTIALS == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.QSL_GITHUB_APP_ID }}
+          private-key: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Download latest trusted market history
         id: snapshot-input
         env:
-          GH_TOKEN: ${{ secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token || secrets.SNAPSHOT_REPOSITORY_TOKEN || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
           MARKET_HISTORY_PATH: ${{ runner.temp }}/snapshot-input/downloaded_price_history.csv
         run: |
           set -euo pipefail
