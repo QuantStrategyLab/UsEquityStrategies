@@ -78,8 +78,19 @@ on:
         required: false
         type: string
         default: ""
+      disable_legacy_pat_fallback:
+        description: >-
+          Fail closed unless the dedicated read-only drift GitHub App token
+          succeeds (forbid fallback to snapshot_repository_token or github.token).
+        required: false
+        type: boolean
+        default: false
     secrets:
       snapshot_repository_token:
+        required: false
+      qsl_drift_app_id:
+        required: false
+      qsl_drift_app_private_key:
         required: false
 
 permissions:
@@ -96,6 +107,7 @@ jobs:
     timeout-minutes: 60
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      HAS_QSL_DRIFT_APP_CREDENTIALS: ${{ secrets.qsl_drift_app_id != '' && secrets.qsl_drift_app_private_key != '' }}
       STRATEGY_DOMAIN: ${{ inputs.strategy_domain }}
       QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
@@ -105,6 +117,7 @@ jobs:
 
     steps:
       - name: Validate trusted caller
+        id: validate_caller
         env:
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
@@ -160,16 +173,42 @@ jobs:
             echo "::error::snapshot_repository mismatch for caller $caller_repo: $snapshot_repo"
             exit 1
           fi
+          echo "snapshot_repo_name=${snapshot_repo#*/}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Create read-only drift GitHub App token
+        id: drift_app_token
+        if: env.HAS_QSL_DRIFT_APP_CREDENTIALS == 'true'
+        continue-on-error: ${{ !inputs.disable_legacy_pat_fallback }}
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.qsl_drift_app_id }}
+          private-key: ${{ secrets.qsl_drift_app_private_key }}
+          owner: QuantStrategyLab
+          repositories: ${{ steps.validate_caller.outputs.snapshot_repo_name }}
+          permission-contents: read
+          permission-actions: read
+
+      - name: Verify drift GitHub App token when fallback is disabled
+        if: ${{ inputs.disable_legacy_pat_fallback }}
+        env:
+          DRIFT_APP_TOKEN: ${{ steps.drift_app_token.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${DRIFT_APP_TOKEN:-}" ]; then
+            echo "::error::Read-only drift GitHub App token is required when disable_legacy_pat_fallback=true"
+            exit 1
+          fi
 
       - name: Checkout snapshot pipeline repo
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.snapshot_repository }}
           ref: ${{ inputs.snapshot_repository_ref }}
-          token: ${{ secrets.snapshot_repository_token || github.token }}
+          token: ${{ inputs.disable_legacy_pat_fallback && steps.drift_app_token.outputs.token || (!inputs.disable_legacy_pat_fallback && (steps.drift_app_token.outputs.token || secrets.snapshot_repository_token || github.token)) || '' }}
           path: ${{ inputs.snapshot_checkout_path }}
 
       - name: Checkout QuantPlatformKit
