@@ -35,7 +35,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
       - name: Install research test runtime
@@ -76,7 +76,7 @@ jobs:
           PYTHONPATH=src python scripts/run_rs04_b3_research.py "${args[@]}" --output "$RUNNER_TEMP/rs04-b3-aggregate.json"
       - name: Upload aggregate report only
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rs04-b3-aggregate
           path: ${{ runner.temp }}/rs04-b3-aggregate.json
