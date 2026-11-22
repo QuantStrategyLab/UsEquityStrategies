@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
-from us_equity_strategies.research.batch_a_dataset import PriceSnapshotV2
+from us_equity_strategies.research.batch_a_dataset import PriceRow, PriceSnapshotV2
 from us_equity_strategies.research.soxl_soxx_offline_input_contract import (
     InputRow as SoxlInputRow,
 )
