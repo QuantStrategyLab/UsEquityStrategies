@@ -33,7 +33,8 @@ us_equity_strategies = ["configs/*.json"]
 
 [tool.ruff]
 target-version = "py311"
-ignore = ["E701", "E702", "E741", "F841", "F821", "B008", "F401", "F601", "E402"]
+[tool.ruff.lint]
+ignore = ["E701", "E702", "E741", "F841", "B008", "F401", "E402"]
 
 [tool.coverage.run]
 branch = true
