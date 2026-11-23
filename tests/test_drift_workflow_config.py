@@ -29,7 +29,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "--returns-output" in workflow
     assert "LIFECYCLE_PREFLIGHT_BUNDLE_ROOT" in workflow
     assert "Upload lifecycle preflight artifact" in workflow
-    assert "actions/upload-artifact@v7" in workflow
+    assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in workflow
     assert "uses: ./.github/workflows/reusable-drift-check.yml" in workflow
     assert "strategy_domain: us_equity" in workflow
     assert "caller_event_name: ${{ github.event_name }}" in workflow

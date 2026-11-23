@@ -997,7 +997,7 @@ def test_workflow_is_manual_default_branch_without_artifacts() -> None:
     assert "upload-artifact" not in workflow
     assert "actions/upload-artifact" not in workflow
     assert 'python-version: "3.13"' in workflow
-    assert "astral-sh/setup-uv@v5" in workflow
+    assert "astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86" in workflow
     assert "uv sync --python 3.13 --frozen --extra research --no-editable --no-dev" in workflow
     assert "uv run --frozen --no-sync --python 3.13 python scripts/run_ux1_async_job.py" in workflow
     assert "pip install '.[research]'" not in workflow
