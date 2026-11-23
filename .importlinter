@@ -1,0 +1,21 @@
+[importlinter]
+root_package = us_equity_strategies
+
+[importlinter:contract:strategies_no_entrypoints]
+name = Live strategies must not import entrypoints or backtest
+type = forbidden
+source_modules =
+    us_equity_strategies.strategies
+forbidden_modules =
+    us_equity_strategies.entrypoints
+    us_equity_strategies.backtest
+
+[importlinter:contract:live_no_research]
+name = Production strategy modules must not import research
+type = forbidden
+source_modules =
+    us_equity_strategies.strategies
+    us_equity_strategies.signals
+    us_equity_strategies.snapshots
+forbidden_modules =
+    us_equity_strategies.research
