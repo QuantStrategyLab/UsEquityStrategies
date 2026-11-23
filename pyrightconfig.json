@@ -1,0 +1,11 @@
+{
+  "include": [
+    "src/us_equity_strategies/account_sizing.py",
+    "src/us_equity_strategies/backtests/smart_dca_research.py"
+  ],
+  "extraPaths": [
+    "src"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic"
+}
