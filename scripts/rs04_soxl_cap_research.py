@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 CAPS = (0.679, 0.55, 0.45, 0.35)
 ARCHIVE_SHA = "b5a3dd40cb0d4260fb15492108bde7ab544ac0d191807943637b8216a6808482"
-PREFIX = re.compile(r"gs://qsl-research-evidence-831478360303/research/v2/input/[A-Za-z0-9][A-Za-z0-9._-]{0,62}")
+DATASET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
+BUCKET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$")
 START, END = date(2023, 3, 28), date(2026, 8, 25)
 QPK_SHA = "b6b51d5c32594c47cc1b3ebc0c1ed226e9db887f"
 
@@ -95,7 +96,12 @@ def validate_cloud(prefix):
         raise ResearchStop("REPEAT_RUN_REJECTED")
     if not prefix:
         raise ResearchStop("RS04_CLOUD_ARCHIVE_LOCATION_REQUIRED")
-    if not PREFIX.fullmatch(prefix):
+    bucket = (os.environ.get("RESEARCH_EVIDENCE_BUCKET", "").strip()
+              or os.environ.get("UX1_INPUT_BUCKET", "").strip())
+    if not BUCKET_NAME_RE.fullmatch(bucket):
+        raise ResearchStop("RS04_CLOUD_ARCHIVE_BUCKET_REQUIRED")
+    expected_root = f"gs://{bucket}/research/v2/input/"
+    if not prefix.startswith(expected_root) or not DATASET_ID_RE.fullmatch(prefix[len(expected_root):]):
         raise ResearchStop("ARCHIVE_PREFIX_REJECTED")
 
 

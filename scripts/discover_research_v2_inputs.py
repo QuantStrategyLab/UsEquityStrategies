@@ -19,9 +19,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-BUCKET = "qsl-research-evidence-831478360303"
+BUCKET = os.environ.get("RESEARCH_EVIDENCE_BUCKET", "").strip() or os.environ.get("UX1_INPUT_BUCKET", "").strip()
 OBJECT_PREFIX = "research/v2/input/"
-PREFIX = f"gs://{BUCKET}/{OBJECT_PREFIX}"
+PREFIX = f"gs://{BUCKET}/{OBJECT_PREFIX}" if BUCKET else ""
 MAX_OBJECTS = 5000
 PAGE_SIZE = 500
 MAX_PAGES = 20

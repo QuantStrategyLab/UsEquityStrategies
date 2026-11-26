@@ -92,6 +92,7 @@ def test_unverified_license_blocks_future_input_before_any_read(tmp_path: Path) 
 
 def test_synthetic_future_pages_append_without_touching_prefix(tmp_path: Path) -> None:
     m = _module()
+    m.PRIVATE_BUCKET = "example-research-evidence"
     assert m._expected_request("QQQM", "bars")["end"] == "2026-08-25T23:59:59-04:00"
     days = []
     day = date(2025, 1, 2)

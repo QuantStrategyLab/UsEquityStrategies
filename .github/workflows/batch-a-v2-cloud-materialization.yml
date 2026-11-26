@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       gcs_input_prefix:
-        description: "Exact locked GCS prefix gs://qsl-research-evidence-831478360303/research/v2/input/<dataset_id>"
+        description: "Exact locked GCS prefix gs://<bucket>/research/v2/input/<dataset_id>"
         required: true
         type: string
 
@@ -33,11 +33,22 @@ jobs:
       - name: Validate GCS input prefix
         env:
           GCS_INPUT_PREFIX: ${{ inputs.gcs_input_prefix }}
+          RESEARCH_EVIDENCE_BUCKET: ${{ secrets.RESEARCH_EVIDENCE_BUCKET || vars.RESEARCH_EVIDENCE_BUCKET || vars.UX1_INPUT_BUCKET }}
         run: |
           set -euo pipefail
+          bucket="${RESEARCH_EVIDENCE_BUCKET}"
+          if [[ ! "${bucket}" =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]]; then
+            payload='{"status":"PARKED","reason_code":"RESEARCH_EVIDENCE_BUCKET_UNCONFIGURED","execution_authorized":false,"no_order":true}'
+            printf '%s\n' "${payload}" \
+              | tee "${RUNNER_TEMP}/batch-a-v2-cloud-materialization-result.json" \
+              | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 2
+          fi
           prefix="${GCS_INPUT_PREFIX%/}"
           # Exactly one dataset id segment under the approved research/v2/input root.
-          if [[ ! "${prefix}" =~ ^gs://qsl-research-evidence-831478360303/research/v2/input/[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]]; then
+          expected_root="gs://${bucket}/research/v2/input/"
+          dataset_id="${prefix#"${expected_root}"}"
+          if [[ "${prefix}" != "${expected_root}"* ]] || [[ ! "${dataset_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]]; then
             payload='{"status":"PARKED","reason_code":"GCS_INPUT_PREFIX_REJECTED","execution_authorized":false,"no_order":true}'
             printf '%s\n' "${payload}" \
               | tee "${RUNNER_TEMP}/batch-a-v2-cloud-materialization-result.json" \
