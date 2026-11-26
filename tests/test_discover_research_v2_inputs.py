@@ -5,6 +5,12 @@ import pytest
 from scripts import discover_research_v2_inputs as discovery
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_bucket(monkeypatch):
+    monkeypatch.setattr(discovery, "BUCKET", "example-research-evidence")
+    monkeypatch.setattr(discovery, "PREFIX", "gs://example-research-evidence/research/v2/input/")
+
+
 def test_inventory_resumes_empty_page_and_filters():
     requests = []
     pages = [
@@ -22,7 +28,7 @@ def test_inventory_resumes_empty_page_and_filters():
     assert result["status"] == "LIST_COMPLETE"
     assert result["objects_seen"] == 2
     assert [item["uri"] for item in result["matched_objects"]] == [
-        "gs://qsl-research-evidence-831478360303/research/v2/input/set/qqqm/prices.csv"]
+        "gs://example-research-evidence/research/v2/input/set/qqqm/prices.csv"]
 
 
 def test_hard_budget_keeps_cursor():
@@ -794,7 +800,7 @@ def test_exact_http_200_success_receipt_remains_unchanged(monkeypatch, capsys):
     # projection stays frozen from authenticated PR550 source SHA256 c5d160ab.
     old_receipt = {key: value for key, value in result.items() if key != "manifest_semantics"}
     old_output = json.dumps(old_receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    assert hashlib.sha256(old_output.encode()).hexdigest() == '5550b6aee9f55f7f5b8a0a225aea15a3930629fb4554c75baee7f3e24ab9f7d4'
+    assert hashlib.sha256(old_output.encode()).hexdigest() == '503899883117ad7e1adae0391d4c6f9c97554e90434959e96bbe083f4a274703'
     assert "http_status" not in result
     assert len(session.calls) == 2
 

@@ -94,7 +94,7 @@ def _write_dataset(
         "symbols": list(symbols),
         "request": {"start": dates[0], "end_exclusive": "2099-01-01"},
         "gcs": {
-            "bucket": "qsl-research-evidence-831478360303",
+            "bucket": "example-research-evidence",
             "object": f"research/v2/input/{dataset_id}/prices.csv",
             "generation": generation,
             "bytes": len(artifact),

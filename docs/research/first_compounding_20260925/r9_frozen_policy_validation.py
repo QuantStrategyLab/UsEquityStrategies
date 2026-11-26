@@ -27,7 +27,7 @@ BAR_FIELDS = ("o", "h", "l", "c", "v")
 FIRST_EXTENSION = "2025-01-01"
 LAST_EXTENSION = "2026-08-25"
 PREFIX_END = "2024-12-31"
-PRIVATE_BUCKET = "qsl-research-evidence-831478360303"
+PRIVATE_BUCKET = os.environ.get("RESEARCH_EVIDENCE_BUCKET", "").strip()
 PRIVATE_PREFIX = "research/v2/input/r9-temporal-extension-20260926-001/"
 # SHA of the private user_attested R9 record, not of a supplier document.
 LICENSE_BASIS_SHA256 = "779f219f35f6b396caba0c787337b9593d9eb98597895afd280eb4dca1ccf73f"
@@ -95,6 +95,8 @@ def _manifest_entries(root: Path) -> tuple[dict, dict[tuple[str, str], dict]]:
             or manifest.get("no_order") is not True or manifest.get("research_only") is not True
             or manifest.get("execution_authorized") is not False):
         raise ValueError("R9_FUTURE_MANIFEST_INVALID")
+    if not PRIVATE_BUCKET:
+        raise ValueError("RESEARCH_EVIDENCE_BUCKET_REQUIRED")
     probe = manifest.get("write_probe", {})
     if (probe.get("uri") != f"gs://{PRIVATE_BUCKET}/{PRIVATE_PREFIX}_write_probe.json"
             or probe.get("generation") != R9_PRIOR_PROBE_GENERATION
