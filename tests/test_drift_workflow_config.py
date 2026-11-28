@@ -40,9 +40,9 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "lifecycle_performance_bucket: ${{ secrets.LIFECYCLE_PERFORMANCE_BUCKET }}" in workflow
     assert "lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
     assert "quant_platform_kit_ref: c7646a7168b3dafa763ef7751a182d23e8de7790" in workflow
-    assert "gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
-    assert "gcp_service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" in workflow
-    assert "gcp_project_id: ${{ vars.GCP_PROJECT_ID }}" in workflow
+    assert "gcp_workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
+    assert "gcp_service_account: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" in workflow
+    assert "gcp_project_id: ${{ secrets.GCP_PROJECT_ID }}" in workflow
     assert "strategy_profile:" in workflow
     assert "REQUESTED_STRATEGY_PROFILE: ${{ inputs.strategy_profile || '' }}" in workflow
     assert '"--list-profiles"' in workflow

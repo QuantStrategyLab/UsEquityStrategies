@@ -983,15 +983,15 @@ def test_workflow_is_manual_default_branch_without_artifacts() -> None:
     assert "cancel-in-progress: false" in workflow
     assert "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093" in workflow
     assert "google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f" in workflow
-    assert "vars.GCP_WORKLOAD_IDENTITY_PROVIDER" in workflow
-    assert "vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" in workflow
-    assert "vars.GCP_PROJECT_ID" in workflow
+    assert "secrets.GCP_WORKLOAD_IDENTITY_PROVIDER" in workflow
+    assert "secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" in workflow
+    assert "secrets.GCP_PROJECT_ID" in workflow
     assert "secrets.UX1_RESEARCH_JOB_TOKEN" in workflow
     assert "vars.UX1_CONSOLE_URL" in workflow
     assert "secrets.UX1_RAW_GCS_PREFIX" in workflow
     assert "secrets.UX1_R6_GCS_PREFIX" in workflow
     assert "secrets.UX1_MATERIALIZED_GCS_URI" in workflow
-    assert "vars.UX1_INPUT_BUCKET" in workflow
+    assert "secrets.UX1_INPUT_BUCKET" in workflow
     assert "gs://" not in workflow
     assert "qsl-research-evidence" not in workflow
     assert "upload-artifact" not in workflow

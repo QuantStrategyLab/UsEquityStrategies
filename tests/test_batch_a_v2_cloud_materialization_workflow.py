@@ -35,7 +35,7 @@ def test_batch_a_v2_cloud_materialization_workflow_is_manual_default_branch_read
     assert "packages: write" not in workflow
 
     assert "RESEARCH_EVIDENCE_BUCKET" in workflow
-    assert "vars.UX1_INPUT_BUCKET" in workflow
+    assert "secrets.UX1_INPUT_BUCKET" in workflow
     assert "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$" in workflow
     assert "gs://qsl-" not in workflow
     assert "GCS_INPUT_PREFIX_REJECTED" in workflow
@@ -43,13 +43,13 @@ def test_batch_a_v2_cloud_materialization_workflow_is_manual_default_branch_read
     assert "google-github-actions/auth@" in workflow
     assert "google-github-actions/setup-gcloud@" in workflow
     assert (
-        "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+        "workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
         in workflow
     )
     assert (
-        "service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" in workflow
+        "service_account: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" in workflow
     )
-    assert "project_id: ${{ vars.GCP_PROJECT_ID }}" in workflow
+    assert "project_id: ${{ secrets.GCP_PROJECT_ID }}" in workflow
 
     assert "scripts/run_batch_a_from_gcs.py" in workflow
     assert "scripts/run_c3_batch_a_existing_member_baseline.py" in workflow
