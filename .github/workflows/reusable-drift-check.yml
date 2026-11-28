@@ -86,6 +86,8 @@ on:
         type: boolean
         default: false
     secrets:
+      lifecycle_performance_bucket:
+        required: false
       snapshot_repository_token:
         required: false
       qsl_drift_app_id:
@@ -110,7 +112,7 @@ jobs:
       HAS_QSL_DRIFT_APP_CREDENTIALS: ${{ secrets.qsl_drift_app_id != '' && secrets.qsl_drift_app_private_key != '' }}
       STRATEGY_DOMAIN: ${{ inputs.strategy_domain }}
       QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
-      LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
+      LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || secrets.lifecycle_performance_bucket || '' }}
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
       LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
       LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}

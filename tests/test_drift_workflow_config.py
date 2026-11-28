@@ -37,7 +37,7 @@ def test_drift_workflow_wires_real_snapshot_history_and_preflight_bundle() -> No
     assert "snapshot_repository: QuantStrategyLab/UsEquitySnapshotPipelines" in workflow
     assert "snapshot_checkout_path: external/UsEquitySnapshotPipelines" in workflow
     assert "ai_service_url: ${{ vars.AI_SERVICE_URL }}" in workflow
-    assert "lifecycle_performance_bucket: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET }}" in workflow
+    assert "lifecycle_performance_bucket: ${{ secrets.LIFECYCLE_PERFORMANCE_BUCKET }}" in workflow
     assert "lifecycle_preflight_artifact: lifecycle-preflight-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
     assert "quant_platform_kit_ref: c7646a7168b3dafa763ef7751a182d23e8de7790" in workflow
     assert "gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow

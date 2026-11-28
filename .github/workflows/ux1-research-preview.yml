@@ -63,9 +63,9 @@ jobs:
           UX1_REQUEST_ID: ${{ inputs.ux1_request_id }}
           UX1_CONSOLE_URL: ${{ vars.UX1_CONSOLE_URL }}
           UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
-          UX1_RAW_GCS_PREFIX: ${{ vars.UX1_RAW_GCS_PREFIX }}
-          UX1_R6_GCS_PREFIX: ${{ vars.UX1_R6_GCS_PREFIX }}
-          UX1_MATERIALIZED_GCS_URI: ${{ vars.UX1_MATERIALIZED_GCS_URI }}
+          UX1_RAW_GCS_PREFIX: ${{ secrets.UX1_RAW_GCS_PREFIX }}
+          UX1_R6_GCS_PREFIX: ${{ secrets.UX1_R6_GCS_PREFIX }}
+          UX1_MATERIALIZED_GCS_URI: ${{ secrets.UX1_MATERIALIZED_GCS_URI }}
           UX1_INPUT_BUCKET: ${{ vars.UX1_INPUT_BUCKET }}
         run: |
           set -euo pipefail

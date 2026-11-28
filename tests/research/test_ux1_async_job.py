@@ -988,9 +988,9 @@ def test_workflow_is_manual_default_branch_without_artifacts() -> None:
     assert "vars.GCP_PROJECT_ID" in workflow
     assert "secrets.UX1_RESEARCH_JOB_TOKEN" in workflow
     assert "vars.UX1_CONSOLE_URL" in workflow
-    assert "vars.UX1_RAW_GCS_PREFIX" in workflow
-    assert "vars.UX1_R6_GCS_PREFIX" in workflow
-    assert "vars.UX1_MATERIALIZED_GCS_URI" in workflow
+    assert "secrets.UX1_RAW_GCS_PREFIX" in workflow
+    assert "secrets.UX1_R6_GCS_PREFIX" in workflow
+    assert "secrets.UX1_MATERIALIZED_GCS_URI" in workflow
     assert "vars.UX1_INPUT_BUCKET" in workflow
     assert "gs://" not in workflow
     assert "qsl-research-evidence" not in workflow
