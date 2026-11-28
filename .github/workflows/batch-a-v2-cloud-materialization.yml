@@ -33,7 +33,7 @@ jobs:
       - name: Validate GCS input prefix
         env:
           GCS_INPUT_PREFIX: ${{ inputs.gcs_input_prefix }}
-          RESEARCH_EVIDENCE_BUCKET: ${{ secrets.RESEARCH_EVIDENCE_BUCKET || vars.RESEARCH_EVIDENCE_BUCKET || vars.UX1_INPUT_BUCKET }}
+          RESEARCH_EVIDENCE_BUCKET: ${{ secrets.RESEARCH_EVIDENCE_BUCKET || vars.RESEARCH_EVIDENCE_BUCKET || secrets.UX1_INPUT_BUCKET }}
         run: |
           set -euo pipefail
           bucket="${RESEARCH_EVIDENCE_BUCKET}"
@@ -88,18 +88,18 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
-          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
         with:
-          project_id: ${{ vars.GCP_PROJECT_ID }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Materialize temporary member pack and compare
         env:
-          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
           work_root="${RUNNER_TEMP}/batch-a-v2-cloud-materialization"

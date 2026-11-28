@@ -88,6 +88,12 @@ on:
     secrets:
       lifecycle_performance_bucket:
         required: false
+      gcp_workload_identity_provider:
+        required: false
+      gcp_service_account:
+        required: false
+      gcp_project_id:
+        required: false
       snapshot_repository_token:
         required: false
       qsl_drift_app_id:
@@ -235,9 +241,11 @@ jobs:
           python -m pip install "google-cloud-storage>=2.14"
 
       - name: Gate cloud lifecycle writes without GCP auth
+        id: gcp_auth_gate
         env:
-          WIF_PROVIDER: ${{ inputs.gcp_workload_identity_provider }}
-          WIF_SA: ${{ inputs.gcp_service_account }}
+          WIF_PROVIDER: ${{ inputs.gcp_workload_identity_provider || secrets.gcp_workload_identity_provider }}
+          WIF_SA: ${{ inputs.gcp_service_account || secrets.gcp_service_account }}
+          GCP_PROJ: ${{ inputs.gcp_project_id || secrets.gcp_project_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -245,19 +253,29 @@ jobs:
             echo "::warning::LIFECYCLE_PERFORMANCE_BUCKET is set without GCP WIF inputs; keeping local-only lifecycle store for this run"
             echo "LIFECYCLE_PERFORMANCE_BUCKET=" >> "$GITHUB_ENV"
           fi
+          if [ -n "${WIF_PROVIDER}" ] && [ -n "${WIF_SA}" ]; then
+            echo "auth_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "auth_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${WIF_PROVIDER}" ] && [ -n "${WIF_SA}" ] && [ -n "${GCP_PROJ}" ]; then
+            echo "gcloud_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gcloud_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Authenticate to Google Cloud
-        if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' }}
+        if: steps.gcp_auth_gate.outputs.auth_enabled == 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
-          workload_identity_provider: ${{ inputs.gcp_workload_identity_provider }}
-          service_account: ${{ inputs.gcp_service_account }}
+          workload_identity_provider: ${{ inputs.gcp_workload_identity_provider || secrets.gcp_workload_identity_provider }}
+          service_account: ${{ inputs.gcp_service_account || secrets.gcp_service_account }}
 
       - name: Set up gcloud
-        if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' && inputs.gcp_project_id != '' }}
+        if: steps.gcp_auth_gate.outputs.gcloud_enabled == 'true'
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
-          project_id: ${{ inputs.gcp_project_id }}
+          project_id: ${{ inputs.gcp_project_id || secrets.gcp_project_id }}
 
       - name: Download lifecycle preflight artifact
         if: inputs.lifecycle_preflight_artifact != ''
